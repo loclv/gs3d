@@ -1,0 +1,144 @@
+# The engine/backend ABI
+
+The contract between the Goose engine (`src/g3/platform.goose`) and a C backend
+(`platform/g3_abi.h`). One call per frame; everything is packed, flat and
+fixed-size.
+
+Read this before changing `DrawItem`, `ViewState`, `Vertex` or the extern list.
+The procedural checklist lives in
+`.agents/skills/g3-abi-and-backends/SKILL.md`.
+
+## Why it looks like this
+
+* Goose structs are **packed with no padding**, so `Mat4` is 64 bytes and a
+  `float3` is 12 — the same bytes the backend reads are the bytes the engine
+  wrote, with no marshalling.
+* `Mat4` is **column-major**, `m[col * 4 + row]`, which is GL's layout for
+  `glUniformMatrix4fv` with `transpose = GL_FALSE`. The CPU backend indexes it
+  the same way (`m[0]*x + m[4]*y + m[8]*z + m[12]`).
+* Slices cross as `{ const T *data; int64_t len; }`. Goose `bool` crosses as
+  `uint8_t`.
+* Nothing variable-size, nothing nested, nothing by value that is not flat.
+* `platform/g3_abi.h` static-asserts the sizes and the interesting offsets. A
+  layout drift is a compile error, not a garbled image.
+
+## Types
+
+### `g3_vertex` — 24 bytes
+
+| offset | type | field | meaning |
+|---|---|---|---|
+| 0 | `float[3]` | `pos` | local-space position |
+| 12 | `float[3]` | `normal` | local-space normal, unit length (the shader re-normalizes after `mat3(model)`) |
+
+### `g3_mat4` — 64 bytes
+
+`float m[16]`, column-major: element `(row r, column c)` is `m[c*4 + r]`.
+
+### `g3_draw_item` — 168 bytes
+
+| offset | type | field | meaning |
+|---|---|---|---|
+| 0 | `int32_t` | `mesh` | backend mesh id from `g3p_upload_mesh` |
+| 4 | `g3_mat4` | `mvp` | `view_proj * model`, pre-multiplied by the engine |
+| 68 | `g3_mat4` | `model` | model matrix: world-space normals, fog distance, eye-relative work |
+| 132 | `g3_vec4` | `color` | rgb, a; `a < 1` means the item is in the blended pass |
+| 148 | `g3_vec4` | `params` | x unlit, y specular strength, z shininess, w blended (1.0) |
+| 164 | `float` | `key` | the engine's sort key; **draw in list order** |
+
+Placement in the list is the instruction; `key` only documents why that is the
+order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
+
+### `g3_view_state` — 100 bytes
+
+| offset | type | field | meaning |
+|---|---|---|---|
+| 0 | `g3_vec3` | `eye` | camera position in world space |
+| 12 | `g3_vec3` | `light_dir` | direction the light *travels*; the shader uses `-light_dir` |
+| 24 | `g3_vec3` | `light_color` | light colour, linear 0..1 |
+| 36 | `g3_vec4` | `ambient` | rgb, a = intensity (multiply by it) |
+| 52 | `g3_vec4` | `fog` | rgb, a = density, exponential per world unit; 0 disables |
+| 68 | `g3_vec4` | `clear` | the colour a frame starts from |
+| 84 | `g3_vec4` | `params` | x = seconds since start (for animated shaders) |
+
+### Slices
+
+```c
+typedef struct { const g3_vertex *data; int64_t len; }    g3_vertex_slice;
+typedef struct { const uint32_t *data; int64_t len; }     g3_u32_slice;
+typedef struct { const g3_draw_item *data; int64_t len; } g3_draw_item_slice;
+typedef struct { const uint8_t *data; int64_t len; }      g3_u8_slice;   /* no NUL */
+```
+
+`g3_u8_slice` is a Goose `const u8[:]`: **not** null-terminated. A backend that
+needs a C string copies it and appends `'\0'` (see `path_of()` in
+`platform/g3_soft.c`).
+
+## The functions a backend implements
+
+| symbol | contract |
+|---|---|
+| `uint8_t g3p_init(int32_t w, int32_t h, g3_u8_slice title)` | create the surface; return 0 after printing/reporting the reason |
+| `void g3p_shutdown(void)` | release everything |
+| `int32_t g3p_width(void)` / `g3p_height(void)` | current surface size in pixels |
+| `void g3p_upload_mesh(int32_t id, g3_vertex_slice, g3_u32_slice)` | store geometry under `id`; may be called repeatedly; ids are dense from 0 |
+| `void g3p_draw_frame(g3_draw_item_slice, const g3_view_state *)` | clear, then draw every item in order |
+| `uint8_t g3p_key_down(int32_t key)` | is this key down right now |
+| `float g3p_mouse_dx(void)` / `g3p_mouse_dy(void)` | movement since last read; **reading consumes it** |
+| `uint8_t g3p_save_frame(g3_u8_slice path)` | write the frame; 0 where impossible (browser) |
+| `uint32_t g3p_read_pixel(int32_t x, int32_t y)` | `0xRRGGBB` of the frame just drawn, (0,0) top-left, 0 outside |
+
+`g3p_key_down`, `g3p_mouse_d*` and the host-facing `g3_input_key`,
+`g3_input_mouse`, `g3_input_resize` are implemented once in
+`platform/g3_input.c`. A backend supplies only:
+
+```c
+int g3_backend_resize(int width, int height);   /* 0 if it cannot resize */
+```
+
+## Drawing rules (both backends)
+
+1. Clear colour and depth from `ViewState.clear`.
+2. Depth test `LESS`, depth write on, back faces culled, front faces CCW.
+3. For `params.w > 0.5`: enable blending
+   `src_alpha, 1 - src_alpha`, **disable depth writes**. Otherwise blending off
+   and depth writes on.
+4. Draw items strictly in list order.
+5. Fragment maths exactly as in `docs/architecture.md` — the C `shade()` and the
+   GLSL are the same computation written twice.
+
+## Host APIs (not part of the ABI)
+
+These exist for a host, not for the engine:
+
+| host | function | purpose |
+|---|---|---|
+| native | `g3_input_key(int, int)`, `g3_input_mouse(float, float)`, `g3_input_resize(int, int)` | feed input from a test or script |
+| web | `g3_host_start(int w, int h)` | **the page's entry point**: `goose_init` + `g3_app_init`; exported with `EMSCRIPTEN_KEEPALIVE` |
+| web | `g3_input_key/mouse/resize` | same three, exported to JS by `g3_input.h`'s `G3_HOST_API` |
+| web | exported Goose: `g3_app_init`, `g3_app_frame`, `g3_app_shutdown`, `g3_app_drawn/culled/triangles/meshes/nodes` | what `web/shell.js` calls |
+
+A `--standalone` Emscripten module does not run `main`, so `g3_host_start` is how
+everything starts. Every symbol the page calls must appear in
+`build_web.sh`'s `-sEXPORTED_FUNCTIONS`.
+
+## Evolving the ABI
+
+1. Edit `src/g3/platform.goose` (field + comment).
+2. Edit `platform/g3_abi.h`: same position, then update
+   `_Static_assert(sizeof(g3_draw_item) == ...)` and add
+   `_Static_assert(offsetof(g3_draw_item, new_field) == ..., "... offset")`.
+3. Set the field in `src/g3/render.goose`'s `pack_item()` (or `begin_frame` for
+   `ViewState`).
+4. Read it in both backends, or comment why one ignores it.
+5. Update the byte counts in `README.md` and this file.
+6. Verify: `goose check` all roots (asserts fire at build), then
+   `./build_native.sh --test`, then a PPM `cmp` if the change was meant to be
+   neutral.
+
+### History
+
+| change | effect |
+|---|---|
+| `DrawItem.depth` removed | 172 → 168 bytes. Nothing read it: the sort key already encodes the order, and backends draw in list order. |
+| `platform/g3_input.{h,c}` extracted | the key table, mouse deltas and resize wrapper now exist once instead of in both backends; each backend implements only `g3_backend_resize`. |

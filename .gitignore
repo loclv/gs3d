@@ -1,0 +1,8 @@
+# build output
+build/
+web/app.js
+web/app.wasm
+web/app.js.map
+
+# fetched toolchain (Emscripten SDK), see README
+.toolchain/

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goose 3D engine</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d12; }
+
+  /* The drawing buffer is sized by shell.js in device pixels; the element
+     itself just fills the window. */
+  #canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: grab; }
+  #canvas:active { cursor: grabbing; }
+
+  /* The statistics line and the key help, over the bottom left corner. */
+  .overlay {
+    position: fixed; left: 16px; bottom: 14px;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #cbd3e1; text-shadow: 0 1px 2px #0009;
+    pointer-events: none; user-select: none;
+  }
+  #hud { letter-spacing: 0.02em; }
+  #help { margin-top: 6px; color: #7f8ba3; }
+
+  /* The boot and failure message: centred, and hidden once frames run. */
+  #status {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    font: 14px/1.6 ui-monospace, Menlo, monospace; color: #8b96ac;
+    text-align: center; padding: 24px; white-space: pre-line;
+  }
+  #status.hidden { display: none; }
+</style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <div class="overlay">
+    <div id="hud">starting…</div>
+    <div id="help">arrows orbit · W/S zoom · Q/E spin the glass · drag to look</div>
+  </div>
+
+  <div id="status">loading the Goose 3D engine…</div>
+
+  <noscript>
+    <div id="status-nojs">This engine is WebAssembly, which needs JavaScript.</div>
+  </noscript>
+
+  <!-- The module loads web/app.js, which the build script writes. -->
+  <script type="module" src="./shell.js"></script>
+</body>
+</html>
