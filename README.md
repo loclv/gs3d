@@ -272,6 +272,7 @@ logical cores, with byte-identical output.
 | [`docs/architecture.md`](docs/architecture.md) | the data model, the frame pipeline, the threading model, and the decisions with their rejected alternatives |
 | [`docs/abi.md`](docs/abi.md) | every byte that crosses to a backend, field by field, plus how to evolve it |
 | [`docs/performance.md`](docs/performance.md) | how the numbers were measured, the ablation tables, and what is left |
+| [`docs/ideals.md`](docs/ideals.md) | the principles the project is built on, and the check that would fail if each were violated |
 | [`.agents/skills/goose3d-tour`](.agents/skills/goose3d-tour/SKILL.md) | a map of the repo and the cheapest verification for a change |
 | [`.agents/skills/goose-language-notes`](.agents/skills/goose-language-notes/SKILL.md) | Goose itself as this codebase uses it: arenas, references vs copies, casts, sidecars, and the compiler warnings that catch these mistakes |
 | [`.agents/skills/g3-abi-and-backends`](.agents/skills/g3-abi-and-backends/SKILL.md) | changing the seam, keeping the two shaders in step, adding a backend |

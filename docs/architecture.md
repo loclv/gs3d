@@ -2,7 +2,8 @@
 
 How a scene becomes pixels, why it is shaped this way, and which properties are
 load-bearing. Companion documents: [`abi.md`](abi.md) for the byte-level
-contract, [`performance.md`](performance.md) for the measurements.
+contract, [`performance.md`](performance.md) for the measurements, and
+[`ideals.md`](ideals.md) for the principles and their checks.
 
 ## The one-paragraph version
 
