@@ -272,6 +272,19 @@ are not taken on a coding request alone.
 
 **Check.** `git log` is empty until the user says otherwise.
 
+## Automated gates
+
+Two of the ideals above are now enforced by `./build_native.sh --test`, so a
+regression fails the build instead of a review:
+
+- **Ideal 11 (zero warnings).** `goose check` runs on all four roots; any line
+  containing `warning` fails the gate.
+- **Ideal 7 (determinism).** The demo is rendered at 320×240 for 2 frames at
+  1, 3, 5 and 8 workers; the four PPMs must be byte-identical.
+
+The remaining ideals are checked by the tests they name (`test_math`,
+`test_engine`) or by review; see each ideal's *Check* line.
+
 ## How these ideals are used
 
 - When a change is proposed, ask which ideal it serves and which check would

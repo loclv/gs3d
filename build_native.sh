@@ -30,4 +30,28 @@ if [ "${1:-}" = "--test" ]; then
   ./build/test_math
   echo
   ./build/test_engine
+
+  echo
+  echo "== zero-warning check (ideal 11) =="
+  for f in src/test_math.goose src/test_engine.goose src/app_native.goose src/app_web.goose; do
+    log="build/check_$(basename "$f").log"
+    goose check "$f" >"$log" 2>&1
+    if grep -qi "warning" "$log"; then
+      echo "FAIL: warnings in $f"; cat "$log"; exit 1
+    fi
+    rm -f "$log"
+  done
+  echo "ok: 0 warnings on all four roots"
+
+  echo
+  echo "== determinism check (ideal 7): byte-identical PPM across worker counts =="
+  for n in 1 3 5 8; do
+    G3_THREADS=$n ./build/app_native --frames 2 --width 320 --height 240 \
+      --out "build/det_${n}.ppm" >/dev/null 2>&1
+  done
+  cmp build/det_1.ppm build/det_3.ppm
+  cmp build/det_1.ppm build/det_5.ppm
+  cmp build/det_1.ppm build/det_8.ppm
+  rm -f build/det_*.ppm
+  echo "ok: PPM byte-identical at 1, 3, 5 and 8 workers"
 fi
