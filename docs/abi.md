@@ -36,20 +36,26 @@ The procedural checklist lives in
 
 `float m[16]`, column-major: element `(row r, column c)` is `m[c*4 + r]`.
 
-### `g3_draw_item` — 172 bytes
+### `g3_draw_item` — 180 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
 | 0 | `int32_t` | `mesh` | backend mesh id from `g3p_upload_mesh` |
 | 4 | `g3_mat4` | `mvp` | `view_proj * model`, pre-multiplied by the engine |
 | 68 | `g3_mat4` | `model` | model matrix: world-space normals, fog distance, eye-relative work |
-| 132 | `g3_vec4` | `color` | rgb, a; `a < 1` means the item is in the blended pass |
+| 132 | `g3_vec4` | `color` | RGB multiplier and alpha factor |
 | 148 | `g3_vec4` | `params` | x unlit, y specular strength, z shininess, w blended (1.0) |
 | 164 | `float` | `key` | the engine's sort key; **draw in list order** |
 | 168 | `int32_t` | `texture` | texture id, or -1 for no texture |
+| 172 | `int32_t` | `alpha_mode` | 0 opaque, 1 mask, 2 blend |
+| 176 | `float` | `alpha_cutoff` | alpha threshold for mask mode |
 
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
+Mask fragments with texture alpha times colour alpha below the cutoff are
+discarded, including in the shadow pass. Blended items read depth but do not
+write it; opaque and surviving mask fragments write depth. Texture alpha is
+ignored for opaque items.
 
 ### `g3_view_state` — 432 bytes
 

@@ -30,6 +30,8 @@ struct Node {
     rot: float3,                // euler radians, applied Z then Y then X
     scale: float3 = float3_1,
     color: float4 = float4_1,
+    alpha_mode: i32,            // 0: colour-driven, 1: mask, 2: blend
+    alpha_cutoff: f32 = 0.5,
     unlit: bool,                // skip lighting: a debug shape, a light source
     visible: bool = true,
     spec: f32 = 0.25,           // specular strength

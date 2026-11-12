@@ -27,13 +27,15 @@ struct DrawItem {
     mesh: i32,          // the id the mesh was uploaded with
     mvp: Mat4,          // model-view-projection, column-major
     model: Mat4,        // the model matrix, for world-space normals
-    color: float4,      // rgb and a; a < 1 is drawn in the transparent pass
+    color: float4,      // RGB multiplier and alpha factor
     // x: 1 for unlit, y: specular strength, z: shininess, w: 1 when blended
     params: float4,
     // The engine's sort key: backends draw in list order, so this only says
     // why that order is what it is (mesh id for opaque, distance for blended).
     key: f32,
     texture: i32,       // -1 means untextured
+    alpha_mode: i32,    // 0 opaque, 1 mask, 2 blend
+    alpha_cutoff: f32,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

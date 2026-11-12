@@ -222,6 +222,35 @@ fn case_texture() {
     testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 3), "texture centre bilinearly mixes all four texels");
 }
 
+fn case_texture_alpha() {
+    g3::scene_clear();
+    flat_camera();
+    let pixels: u8[8] = [255, 255, 255, 0, 255, 255, 255, 255];
+    let texture = g3::texture_create(2, 1, pixels[..]);
+    let cube = g3::mesh_cube(1.0);
+    let back .= g3::node(g3::node_add(cube));
+    back.pos.z = -1.0;
+    back.color = float4 { 0.0, 1.0, 0.0, 1.0 };
+    back.unlit = true;
+    let front .= g3::node(g3::node_add(cube));
+    front.texture = texture;
+    front.unlit = true;
+    front.alpha_mode = 1;
+    front.alpha_cutoff = 0.5;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(120, 200), 0, 255, 0, 2), "alpha mask reveals geometry behind the cutout");
+    testing::check(is_color(g3::read_pixel(280, 200), 255, 255, 255, 2), "alpha mask keeps opaque texels");
+    front.alpha_mode = 2;
+    front.color.w = 0.5;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(120, 200), 0, 255, 0, 2), "transparent texture texel contributes nothing");
+    testing::check(is_color(g3::read_pixel(280, 200), 128, 255, 128, 2), "texture alpha and material alpha blend together");
+    front.alpha_mode = 0;
+    front.color.w = 1.0;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(120, 200), 255, 255, 255, 2), "opaque material ignores texture alpha");
+}
+
 fn case_lights() {
     g3::scene_clear();
     flat_camera();
@@ -286,6 +315,11 @@ fn case_shadow() {
     g3::frame(1.0 / 60.0);
     testing::check(enabled && is_color(g3::read_pixel(303, 200), 0, 0, 0, 3), "cube casts a shadow on the ground");
     testing::check(is_color(g3::read_pixel(96, 200), 180, 180, 180, 3), "ground outside the shadow stays lit");
+    let transparent: u8[4] = [255, 255, 255, 0];
+    cube.texture = g3::texture_create(1, 1, transparent[..]);
+    cube.alpha_mode = 1;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(303, 200), 180, 180, 180, 3), "masked texels do not cast shadows");
     g3::clear_shadows();
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(303, 200), 180, 180, 180, 3), "disabling shadows restores the light");
@@ -422,6 +456,7 @@ fn main() {
     case_culling();
     case_backface();
     case_texture();
+    case_texture_alpha();
     case_lights();
     case_shadow();
     case_clipping();

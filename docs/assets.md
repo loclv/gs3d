@@ -60,14 +60,14 @@ mechanism.
 * The selected scene's hierarchy, matrix or TRS transforms, indexed or
   non-indexed triangle primitives, float positions and normals, and optional
   `TEXCOORD_0`. Positions and normals are required.
-* Opaque base-colour factors and base-colour textures. The engine's existing
+* Opaque, masked and blended base-colour factors and base-colour textures. The engine's existing
   lighting approximates these materials; metallic/roughness values are not
   physically rendered. Texture filtering is bilinear and clamp-to-edge, and
   the engine does not yet implement glTF sampler settings or sRGB conversion.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
-skins, animations, morph targets, sparse accessors, non-triangle modes, alpha
-blending/masking, double-sided materials, and normal, occlusion, emissive, or
+skins, animations, morph targets, sparse accessors, non-triangle modes,
+double-sided materials, and normal, occlusion, emissive, or
 metallic-roughness textures. It does not implement material PBR, texture sampler
 settings, or advanced extension features. Unsupported optional data may be
 ignored. Files needing these features require a fuller loader and renderer.

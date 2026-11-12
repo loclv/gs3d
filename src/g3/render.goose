@@ -163,7 +163,7 @@ fn sort_key(mesh_id: i32, dist: f32, blended: bool) -> f32 {
 // One node's worth of a frame: its matrices multiplied out, its colour and
 // shading parameters, and the key that decides where it sorts.
 fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
-    let blended = n.color.w < 0.999;
+    let blended = n.alpha_mode == 2 || (n.alpha_mode == 0 && n.color.w < 0.999);
     return DrawItem {
         mesh: n.mesh,
         mvp: mat4_mul(g_view_proj, n.world),
@@ -173,6 +173,8 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
                          if blended { 1.0 } else { 0.0 } },
         key: sort_key(n.mesh, dist, blended),
         texture: n.texture,
+        alpha_mode: if n.alpha_mode == 1 { 1 } else if blended { 2 } else { 0 },
+        alpha_cutoff: n.alpha_cutoff,
     };
 }
 

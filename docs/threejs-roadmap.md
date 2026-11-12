@@ -16,7 +16,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for static glTF/GLB with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
-| Materials | Colour, one RGB texture, specular controls | Reusable materials, physically based rendering (PBR), normal, roughness and metallic maps, texture alpha, mipmaps and wrapping |
+| Materials | Colour, one RGBA texture, alpha mask/blend, specular controls | Reusable materials, physically based rendering (PBR), normal, roughness and metallic maps, mipmaps and wrapping |
 | Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
 | Scene management | Parent hierarchy and one camera | Object and resource removal, reusable resources, multiple cameras, orthographic camera rendering |
@@ -43,7 +43,8 @@ and a browser integration check for behavior exposed through WebGL.
 * Extend asset-owned slot reuse to general object and resource removal with
   well-defined ownership and safe handles; handle fragmented mesh spans so
   varied model load/dispose cycles do not grow memory indefinitely.
-* Implement texture alpha, mipmaps, wrapping, and colour-space handling; expand
+* **Implemented:** texture alpha, including glTF mask and blend modes. Add
+  mipmaps, wrapping, and colour-space handling; expand
   the glTF loader's material and sampler support.
 * **Implemented:** triangle picking and an example viewer with orbit controls,
   selection, and reload. Expand the browser API for model inspection and

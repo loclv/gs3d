@@ -175,11 +175,16 @@ async function prepare(url) {
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
     const material = p.material === undefined ? {} : item(doc.materials, p.material, 'material');
-    if ((material.alphaMode || 'OPAQUE') !== 'OPAQUE' || material.doubleSided || material.normalTexture || material.occlusionTexture || material.emissiveTexture || material.extensions) unsupported('Unsupported material feature');
+    if (material.doubleSided || material.normalTexture || material.occlusionTexture || material.emissiveTexture || material.extensions) unsupported('Unsupported material feature');
+    const alphaModes = { OPAQUE: 0, MASK: 1, BLEND: 2 };
+    const mode = material.alphaMode ?? 'OPAQUE';
+    if (!Object.hasOwn(alphaModes, mode)) invalid('Invalid alpha mode');
+    const cutoff = material.alphaCutoff ?? 0.5;
+    if (!Number.isFinite(cutoff) || cutoff < 0) invalid('Invalid alpha cutoff');
     const pbr = material.pbrMetallicRoughness || {};
     if (pbr.metallicRoughnessTexture) unsupported('Metallic-roughness textures are not supported');
     const color = pbr.baseColorFactor || [1, 1, 1, 1];
-    if (color.length !== 4 || !color.every(Number.isFinite)) invalid('Invalid base color');
+    if (color.length !== 4 || !color.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid base color');
     let image = -1;
     if (pbr.baseColorTexture) {
       if (!uv || (pbr.baseColorTexture.texCoord || 0) !== 0 || pbr.baseColorTexture.extensions) unsupported('Unsupported texture coordinates');
@@ -188,7 +193,9 @@ async function prepare(url) {
       image = texture.source;
     }
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
-    return { pos: pos.values, normal: normal.values, uv: uv?.values, indices, color: [color[0], color[1], color[2], 1], image };
+    return { pos: pos.values, normal: normal.values, uv: uv?.values, indices,
+      color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], image,
+      alphaMode: alphaModes[mode], alphaCutoff: cutoff };
   }));
   const nodes = doc.nodes || [], roots = item(doc.scenes, doc.scene ?? 0, 'scene').nodes || [];
   const seen = new Set();
@@ -240,7 +247,7 @@ export async function loadGLTF(engine, url) {
         meshes.push(mesh);
         const id = engine._g3_asset_node(mesh, group);
         nodes.push(id);
-        engine._g3_asset_material(id, ...p.color, p.image < 0 ? -1 : textures[p.image]);
+        engine._g3_asset_material(id, ...p.color, p.image < 0 ? -1 : textures[p.image], p.alphaMode, p.alphaCutoff);
       }
       for (const child of node.children) createNode(child, group);
       return group;

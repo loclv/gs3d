@@ -41,6 +41,7 @@ typedef struct {
     GLint env_sky, env_ground;
     GLint env_map, env_map_enabled, env_map_intensity;
     GLint shadow_map, shadow_matrix, shadow_params;
+    GLint alpha_mode, alpha_cutoff;
 } web_shader;
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
@@ -54,6 +55,7 @@ static int32_t texture_count;
 static int checked_gl;
 static GLuint shadow_program, shadow_fbo, shadow_texture;
 static GLint shadow_light_matrix, shadow_model_matrix;
+static GLint shadow_mask, shadow_cutoff, shadow_alpha, shadow_tex, shadow_textured;
 #define SHADOW_SIZE 512
 
 static const char *VERTEX_SRC =
@@ -86,6 +88,8 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_textured;\n"
     "uniform vec4 u_color;\n"
     "uniform vec4 u_params;\n"   /* x unlit, y specular strength, z shininess, w blended */
+    "uniform int u_alpha_mode;\n"
+    "uniform float u_alpha_cutoff;\n"
     "uniform vec3 u_eye;\n"
     "uniform vec3 u_light_dir;\n"
     "uniform vec3 u_light_color;\n"
@@ -111,7 +115,10 @@ static const char *FRAGMENT_SRC =
     "    vec3 v = normalize(u_eye - v_world);\n"
     "    vec3 h = normalize(l + v);\n"
     "    float spec = pow(max(dot(n, h), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
-    "    vec3 base = u_color.rgb * (u_textured ? texture(u_tex, v_uv).rgb : vec3(1.0));\n"
+    "    vec4 texel = u_textured ? texture(u_tex, v_uv) : vec4(1.0);\n"
+    "    float alpha = u_color.a * texel.a;\n"
+    "    if (u_alpha_mode == 1 && alpha < u_alpha_cutoff) discard;\n"
+    "    vec3 base = u_color.rgb * texel.rgb;\n"
     "    float visibility = 1.0;\n"
     "    if (u_shadow_params.x > 0.5) {\n"
     "        vec4 light_pos = u_shadow_matrix * vec4(v_world, 1.0);\n"
@@ -150,7 +157,7 @@ static const char *FRAGMENT_SRC =
     "    float dist = length(u_eye - v_world);\n"
     "    float fog = clamp(1.0 - exp(-dist * u_fog.a), 0.0, 1.0);\n"
     "    col = mix(col, u_fog.rgb, fog);\n"
-    "    out_color = vec4(col, u_color.a);\n"
+    "    out_color = vec4(col, u_alpha_mode == 2 ? alpha : 1.0);\n"
     "}\n";
 
 /* --- the program --- */
@@ -218,6 +225,8 @@ static void find_uniforms(void) {
     shader.shadow_map = glGetUniformLocation(shader.program, "u_shadow_map");
     shader.shadow_matrix = glGetUniformLocation(shader.program, "u_shadow_matrix");
     shader.shadow_params = glGetUniformLocation(shader.program, "u_shadow_params");
+    shader.alpha_mode = glGetUniformLocation(shader.program, "u_alpha_mode");
+    shader.alpha_cutoff = glGetUniformLocation(shader.program, "u_alpha_cutoff");
     for (int i = 0; i < 4; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_lights[%d].position", i); shader.light_position[i] = glGetUniformLocation(shader.program, name);
@@ -443,8 +452,8 @@ static void bind_view(const g3_view_state *view) {
 
 static int ensure_shadow_map(void) {
     if (shadow_program && shadow_fbo && shadow_texture) return 1;
-    const char *vs_src = "#version 300 es\nlayout(location=0) in vec3 a_pos;\nuniform mat4 u_light;\nuniform mat4 u_model;\nvoid main(){gl_Position=u_light*u_model*vec4(a_pos,1.0);}\n";
-    const char *fs_src = "#version 300 es\nprecision highp float;\nvoid main(){}\n";
+    const char *vs_src = "#version 300 es\nlayout(location=0) in vec3 a_pos;\nlayout(location=2) in vec2 a_uv;\nuniform mat4 u_light;\nuniform mat4 u_model;\nout vec2 v_uv;\nvoid main(){v_uv=a_uv;gl_Position=u_light*u_model*vec4(a_pos,1.0);}\n";
+    const char *fs_src = "#version 300 es\nprecision highp float;\nin vec2 v_uv;\nuniform bool u_mask;\nuniform bool u_textured;\nuniform sampler2D u_tex;\nuniform float u_alpha;\nuniform float u_cutoff;\nvoid main(){if(u_mask && u_alpha*(u_textured ? texture(u_tex,v_uv).a : 1.0)<u_cutoff) discard;}\n";
     GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "shadow vertex");
     GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "shadow fragment");
     if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); return 0; }
@@ -475,6 +484,11 @@ static int ensure_shadow_map(void) {
     shadow_program = program;
     shadow_light_matrix = glGetUniformLocation(program, "u_light");
     shadow_model_matrix = glGetUniformLocation(program, "u_model");
+    shadow_mask = glGetUniformLocation(program, "u_mask");
+    shadow_cutoff = glGetUniformLocation(program, "u_cutoff");
+    shadow_alpha = glGetUniformLocation(program, "u_alpha");
+    shadow_tex = glGetUniformLocation(program, "u_tex");
+    shadow_textured = glGetUniformLocation(program, "u_textured");
     return 1;
 }
 
@@ -490,6 +504,14 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vie
         const web_mesh *m = &meshes[it->mesh];
         if (!m->vao || !m->count) continue;
         glUniformMatrix4fv(shadow_model_matrix, 1, GL_FALSE, it->model.m);
+        int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, textured ? textures[it->texture] : 0);
+        glUniform1i(shadow_tex, 0);
+        glUniform1i(shadow_textured, textured);
+        glUniform1i(shadow_mask, it->alpha_mode == 1);
+        glUniform1f(shadow_alpha, it->color.w);
+        glUniform1f(shadow_cutoff, it->alpha_cutoff);
         glBindVertexArray(m->vao);
         glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, 0);
     }
@@ -516,6 +538,8 @@ static void draw_item(const g3_draw_item *it) {
     glUniformMatrix3fv(shader.normal_matrix, 1, GL_FALSE, normal_matrix);
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
+    glUniform1i(shader.alpha_mode, it->alpha_mode);
+    glUniform1f(shader.alpha_cutoff, it->alpha_cutoff);
     int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];
     glUniform1i(shader.textured, textured);
     glActiveTexture(GL_TEXTURE0);

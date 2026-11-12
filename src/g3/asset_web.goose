@@ -29,10 +29,12 @@ export fn g3_asset_node(mesh: i32, parent: i32) -> i32 {
     return id as i32;
 }
 export fn g3_asset_matrix(id: i32, index: i32, value: f32) { g3::node(id).local_matrix.m[index] = value; }
-export fn g3_asset_material(id: i32, r: f32, g: f32, b: f32, a: f32, texture: i32) {
+export fn g3_asset_material(id: i32, r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_mode: i32, alpha_cutoff: f32) {
     let n .= g3::node(id);
     n.color = float4 { r, g, b, a };
     n.texture = texture;
+    n.alpha_mode = alpha_mode;
+    n.alpha_cutoff = alpha_cutoff;
 }
 export fn g3_asset_hide(id: i32) { g3::node_asset_release(id); }
 export fn g3_asset_scene_epoch() -> i32 { return g3::g_scene_epoch; }

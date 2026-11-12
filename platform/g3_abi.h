@@ -28,7 +28,7 @@ typedef struct { g3_vec3 pos, normal; g3_vec2 uv; } g3_vertex;
 
 /* One primitive: mesh, matrices, colour, and the shading parameters.
    params.x is 1 for unlit, .y specular strength, .z shininess, .w 1 when
-   the item is blended.
+   the item is blended. alpha_mode selects opaque, mask, or blend.
  
    `key` is the engine's sort key, kept so a backend can see why the list is
    in the order it is; drawing in list order is the contract, so a backend
@@ -41,6 +41,8 @@ typedef struct {
     g3_vec4 params;
     float key;
     int32_t texture;
+    int32_t alpha_mode;
+    float alpha_cutoff;
 } g3_draw_item;
 
 typedef struct { g3_vec4 position, direction, color; float inner; } g3_light;
@@ -74,8 +76,10 @@ typedef struct { const uint8_t *data; int64_t len; } g3_u8_slice;
 _Static_assert(sizeof(g3_vertex) == 32, "g3_vertex must be 32 bytes");
 _Static_assert(offsetof(g3_vertex, uv) == 24, "Vertex.uv offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
-_Static_assert(sizeof(g3_draw_item) == 172, "g3_draw_item must be 172 bytes");
+_Static_assert(sizeof(g3_draw_item) == 180, "g3_draw_item must be 180 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
+_Static_assert(offsetof(g3_draw_item, alpha_mode) == 172, "DrawItem.alpha_mode offset");
+_Static_assert(offsetof(g3_draw_item, alpha_cutoff) == 176, "DrawItem.alpha_cutoff offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
 _Static_assert(sizeof(g3_view_state) == 432, "g3_view_state must be 432 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");

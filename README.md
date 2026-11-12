@@ -237,8 +237,9 @@ What the API gives you:
   Built-in meshes have UVs; custom meshes can use `push_vertex_uv`. Both
   backends use bilinear filtering and clamp to the image edges. Image decoding
   belongs to the host; the game demonstrates browser-side decoding. Texture RGB
-  multiplies the node colour. Texture alpha is ignored; node colour alpha
-  controls blending.
+  multiplies the node colour. `node.alpha_mode` chooses colour-driven blending
+  (0), an alpha cutoff (1), or blending (2). Masking and blending multiply
+  texture alpha by node colour alpha; opaque items ignore texture alpha.
 * **Nodes** — `node_add(mesh)`, `node_group()`, `node(id) -> Node&`,
   `node_parent(child, parent)`, `scene_clear()`, and `node_count()`. A node has
   position, euler rotation, scale, colour, `unlit`, `visible`, specular
@@ -282,11 +283,11 @@ for what survives, sort the list, and hand it to the backend in a single call.
 
 **The sort is the batching.** Opaque items are keyed by mesh id, so a backend
 sees runs of the same mesh back to back, where a driver saves state changes.
-Blended items (`colour.a < 1`) get keys above 1000000 and are ordered far to
+Blended items get keys above 1000000 and are ordered far to
 near, so they are drawn after everything opaque and read the depth they should.
 
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
-`Mat4`s, two `float4`s, the sort key and a texture id, 172 bytes. `g3p_draw_frame` hands the
+`Mat4`s, two `float4`s, the sort key, texture id and alpha settings, 180 bytes. `g3p_draw_frame` hands the
 backend a slice of them plus the frame's `ViewState`, and `platform/g3_abi.h`
 static-asserts every offset, so the Goose and C sides cannot drift apart
 silently.
@@ -339,8 +340,8 @@ and tests show both forms.
 
 Deliberately out of scope for now, in rough order of how much they would add:
 
-* **No material system or texture alpha.** Each node has a colour and an
-  optional RGB texture; blending is controlled by the node's colour alpha.
+* **No reusable material system.** Each node has colour, an optional texture,
+  and alpha settings; glTF metallic/roughness shading is not yet implemented.
 * **Limited shadows, environment lighting, and normals.** Only the primary
   directional light casts hard shadows; blended objects do not cast them.
   The map has fixed resolution and explicit bounds, and shadow-enabled frames

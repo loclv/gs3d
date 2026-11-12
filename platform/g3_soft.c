@@ -265,7 +265,7 @@ int g3_backend_resize(int w, int h) {
 
 /* --- shading: the GLSL in g3_web.c, term for term --- */
 
-static void sample_texture(int32_t id, float u, float v, float out[3]);
+static void sample_texture(int32_t id, float u, float v, float out[4]);
 static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
@@ -301,7 +301,7 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     g += it->color.y * tex[1] * (vs->env_ground.y * (1.0f - sky) + vs->env_sky.y * sky) * vs->env_sky.w;
     b += it->color.z * tex[2] * (vs->env_ground.z * (1.0f - sky) + vs->env_sky.z * sky) * vs->env_sky.w;
     if (vs->environment_texture >= 0 && vs->environment_texture < texture_count && textures[vs->environment_texture].pixels) {
-        float env[3];
+        float env[4];
         float y = n.y < -1.0f ? -1.0f : n.y > 1.0f ? 1.0f : n.y;
         sample_texture(vs->environment_texture, atan2f(n.z, n.x) / 6.28318530718f + 0.5f,
                        acosf(y) / 3.14159265359f, env);
@@ -361,8 +361,8 @@ static float clamp01(float v) {
 }
 
 /* GL_LINEAR and CLAMP_TO_EDGE, with texel centres at (i + 0.5) / size. */
-static void sample_texture(int32_t id, float u, float v, float out[3]) {
-    out[0] = out[1] = out[2] = 1.0f;
+static void sample_texture(int32_t id, float u, float v, float out[4]) {
+    out[0] = out[1] = out[2] = out[3] = 1.0f;
     if (id < 0 || id >= texture_count || !textures[id].pixels) return;
     const soft_texture *t = &textures[id];
     float x = clamp01(u) * t->w - 0.5f, y = clamp01(v) * t->h - 0.5f;
@@ -371,7 +371,7 @@ static void sample_texture(int32_t id, float u, float v, float out[3]) {
     int x1 = x0 + 1, y1 = y0 + 1;
     if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0;
     if (x1 >= t->w) x1 = t->w - 1; if (y1 >= t->h) y1 = t->h - 1;
-    for (int c = 0; c < 3; c++) {
+    for (int c = 0; c < 4; c++) {
         float a = t->pixels[((size_t)y0 * t->w + x0) * 4 + c];
         float b = t->pixels[((size_t)y0 * t->w + x1) * 4 + c];
         float d = t->pixels[((size_t)y1 * t->w + x0) * 4 + c];
@@ -550,6 +550,15 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs)
                 if (e0*t.edge_sense < 0.0f || e1*t.edge_sense < 0.0f) continue;
                 float l0 = e0 / t.det, l1 = e1 / t.det, l2 = 1.0f - l0 - l1;
                 if (l2 < 0.0f) continue;
+                if (source->alpha_mode == 1) {
+                    float pw = l0*t.inv_w[0] + l1*t.inv_w[1] + l2*t.inv_w[2];
+                    if (pw <= 0.0f) continue;
+                    float b0=l0*t.inv_w[0]/pw, b1=l1*t.inv_w[1]/pw, b2=l2*t.inv_w[2]/pw;
+                    float u=t.uv[0][0]*b0+t.uv[1][0]*b1+t.uv[2][0]*b2;
+                    float v=t.uv[0][1]*b0+t.uv[1][1]*b1+t.uv[2][1]*b2;
+                    float tex[4]; sample_texture(source->texture, u, v, tex);
+                    if (tex[3] * source->color.w < source->alpha_cutoff) continue;
+                }
                 float z = l0*t.sz[0] + l1*t.sz[1] + l2*t.sz[2];
                 float *dst = &shadow_depth[y * SHADOW_SIZE + x];
                 if (z < *dst) *dst = z;
@@ -575,7 +584,6 @@ static void blend_pixel(uint8_t *dst, const float rgb[3], float alpha, int blend
 static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
                       const soft_tri *t, int blended, int top, int bottom,
                       soft_profile *pf) {
-    const float alpha = it->color.w;
     const int counting = pf->on;
     long tested = 0, shaded = 0;
     for (int y = top; y <= bottom; y++) {
@@ -612,10 +620,12 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             n.y = t->nrm[0][1] * b0 + t->nrm[1][1] * b1 + t->nrm[2][1] * b2;
             n.z = t->nrm[0][2] * b0 + t->nrm[1][2] * b1 + t->nrm[2][2] * b2;
 
-            float rgb[3], tex[3];
+            float rgb[3], tex[4];
             float u = t->uv[0][0] * b0 + t->uv[1][0] * b1 + t->uv[2][0] * b2;
             float v = t->uv[0][1] * b0 + t->uv[1][1] * b1 + t->uv[2][1] * b2;
             sample_texture(it->texture, u, v, tex);
+            float alpha = it->color.w * tex[3];
+            if (it->alpha_mode == 1 && alpha < it->alpha_cutoff) continue;
             shade(it, vs, wp, n, tex, rgb);
             if (counting) shaded += 1;
             blend_pixel(fb + at * 3, rgb, alpha, blended);
