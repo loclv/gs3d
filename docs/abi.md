@@ -51,7 +51,7 @@ The procedural checklist lives in
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
 
-### `g3_view_state` — 100 bytes
+### `g3_view_state` — 344 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -62,6 +62,14 @@ order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
 | 52 | `g3_vec4` | `fog` | rgb, a = density, exponential per world unit; 0 disables |
 | 68 | `g3_vec4` | `clear` | the colour a frame starts from |
 | 84 | `g3_vec4` | `params` | x = seconds since start (for animated shaders) |
+| 100 | `g3_light[4]` | `lights` | extra directional, point and spot lights |
+| 308 | `int32_t` | `light_count` | number of active extra lights, 0–4 |
+| 312 | `g3_vec4` | `env_sky` | hemispherical sky RGB and intensity |
+| 328 | `g3_vec4` | `env_ground` | hemispherical ground RGB |
+
+Each packed `g3_light` is 52 bytes: position and type in a `vec4`, direction
+and range in a `vec4`, colour and outer-cone cosine in a `vec4`, followed by
+the inner-cone cosine as a float. Type 0 is directional, 1 point, and 2 spot.
 
 ### Slices
 

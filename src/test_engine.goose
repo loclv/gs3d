@@ -221,6 +221,42 @@ fn case_texture() {
     testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 3), "texture centre bilinearly mixes all four texels");
 }
 
+fn case_lights() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_ambient(float3_0, 0.0);
+    g3::clear_lights();
+    g3::set_environment(float3_0, float3_0, 0.0);
+    let n .= g3::node(g3::node_add(g3::mesh_cube(1.0)));
+    n.spec = 0.0;
+    // Two lights point directly onto the front (+z) face: the diffuse
+    // contribution is their colour because dot(normal, light) is 1.
+    let a = g3::add_directional_light(float3 { 0.0, 0.0, -1.0 }, float3 { 0.25, 0.0, 0.0 });
+    let b = g3::add_directional_light(float3 { 0.0, 0.0, -1.0 }, float3 { 0.0, 0.5, 0.0 });
+    g3::frame(1.0 / 60.0);
+    testing::check(a && b && is_color(g3::read_pixel(200, 200), 64, 128, 0, 2), "directional lights add their contributions");
+    g3::clear_lights();
+    // The front face is two units from a light of range four, giving
+    // (1 - 2/4)^2 = 0.25 of the light's colour.
+    let point = g3::add_point_light(float3 { 0.0, 0.0, 3.0 }, float3 { 1.0, 0.0, 0.0 }, 4.0);
+    g3::frame(1.0 / 60.0);
+    testing::check(point && is_color(g3::read_pixel(200, 200), 64, 0, 0, 2), "point light falls off with distance");
+    g3::clear_lights();
+    let spot = g3::add_spot_light(float3 { 0.0, 0.0, 3.0 }, float3 { 0.0, 0.0, -1.0 }, float3 { 0.0, 0.0, 1.0 }, 4.0, 0.2, 0.4);
+    g3::frame(1.0 / 60.0);
+    testing::check(spot && is_color(g3::read_pixel(200, 200), 0, 0, 64, 2), "spot light illuminates its cone");
+    g3::clear_lights();
+    let away = g3::add_spot_light(float3 { 0.0, 0.0, 3.0 }, float3 { 1.0, 0.0, 0.0 }, float3_1, 4.0, 0.2, 0.4);
+    g3::frame(1.0 / 60.0);
+    testing::check(away && is_color(g3::read_pixel(200, 200), 0, 0, 0, 1), "spot light excludes surfaces outside its cone");
+    g3::clear_lights();
+    g3::set_environment(float3 { 0.0, 0.0, 1.0 }, float3 { 1.0, 0.0, 0.0 }, 1.0);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 128, 0, 128, 2), "environment mixes sky and ground on a vertical face");
+    g3::set_environment(float3_0, float3_0, 0.0);
+    testing::check(!g3::add_point_light(float3_0, float3_1, 0.0), "invalid light range is rejected");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -236,6 +272,7 @@ fn main() {
     case_culling();
     case_backface();
     case_texture();
+    case_lights();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

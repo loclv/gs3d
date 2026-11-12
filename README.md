@@ -239,8 +239,13 @@ What the API gives you:
 * **Camera** — `camera() -> Camera&` (fov, near, far, up), `camera_look_at`,
   `camera_orbit(yaw, pitch, distance, target)`, `camera_orbit_nudge`,
   `camera_zoom`.
-* **Lighting** — one directional light, an ambient term and exponential fog
-  (`set_light`, `set_ambient`, `set_fog`, `set_background`).
+* **Lighting** — a primary directional light (`set_light`), up to four extra
+  directional, point or spot lights (`add_directional_light`, `add_point_light`,
+  `add_spot_light`, `clear_lights`), ambient light and a hemispherical sky/ground
+  fill (`set_ambient`, `set_environment`), plus fog and background colour.
+  Add functions return false when parameters are invalid or the limit is reached.
+  Point and spot lights use squared linear range falloff; spot angles are
+  inner and outer half-angles in radians.
 * **Frame** — `init`, `frame(dt)`, `shutdown`, `width`/`height`/`aspect`/`time`,
   `stats()` (nodes, drawn, culled, triangles, draws), `read_pixel`,
   `save_frame` where the backend can write one.
@@ -323,9 +328,9 @@ Deliberately out of scope for now, in rough order of how much they would add:
 
 * **No material system or texture alpha.** Each node has a colour and an
   optional RGB texture; blending is controlled by the node's colour alpha.
-* **No shadows, no point lights, no normal maps.** One directional light, lit
-  per vertex normal in world space; `mat3(model)` means a non-uniformly scaled
-  node skews its normals.
+* **No shadows, image-based environment maps, or normal maps.** The environment
+  light is a diffuse sky/ground approximation. Normals use `mat3(model)`, so a
+  non-uniformly scaled node skews its normals.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
 * **No removal from the scene.** `visible = false`, or build a scene once and

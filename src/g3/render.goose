@@ -42,6 +42,46 @@ fn set_light(dir: float3, color: float3) {
     g_view_state.light_color = color;
 }
 
+// The original directional light is independent of these four extra lights.
+fn clear_lights() { g_view_state.light_count = 0; }
+
+fn add_directional_light(dir: float3, color: float3) -> bool {
+    guard length(dir) > 0.0 && g_view_state.light_count < 4 else { return false; }
+    let d = normalize(dir);
+    let i = g_view_state.light_count;
+    g_view_state.lights[i] = Light { position: float4 { 0.0, 0.0, 0.0, 0.0 },
+        direction: float4 { d.x, d.y, d.z, 0.0 }, color: float4 { color.x, color.y, color.z, 0.0 }, inner: 0.0 };
+    g_view_state.light_count += 1;
+    return true;
+}
+
+// Point and spot attenuation is (1 - distance / range)^2 inside the range.
+fn add_point_light(pos: float3, color: float3, range: f32) -> bool {
+    guard range > 0.0 && g_view_state.light_count < 4 else { return false; }
+    let i = g_view_state.light_count;
+    g_view_state.lights[i] = Light { position: float4 { pos.x, pos.y, pos.z, 1.0 },
+        direction: float4 { 0.0, 0.0, 0.0, range }, color: float4 { color.x, color.y, color.z, 0.0 }, inner: 0.0 };
+    g_view_state.light_count += 1;
+    return true;
+}
+
+// Angles are half-angles in radians, with a smooth falloff between them.
+fn add_spot_light(pos: float3, dir: float3, color: float3, range: f32, inner: f32, outer: f32) -> bool {
+    guard range > 0.0 && length(dir) > 0.0 && inner >= 0.0 && inner < outer && outer <= PI && cos(inner) > cos(outer) && g_view_state.light_count < 4 else { return false; }
+    let d = normalize(dir);
+    let i = g_view_state.light_count;
+    g_view_state.lights[i] = Light { position: float4 { pos.x, pos.y, pos.z, 2.0 },
+        direction: float4 { d.x, d.y, d.z, range }, color: float4 { color.x, color.y, color.z, cos(outer) }, inner: cos(inner) };
+    g_view_state.light_count += 1;
+    return true;
+}
+
+// Diffuse hemispherical environment: sky above, ground below; zero disables it.
+fn set_environment(sky: float3, ground: float3, intensity: f32) {
+    g_view_state.env_sky = float4 { sky.x, sky.y, sky.z, intensity };
+    g_view_state.env_ground = float4 { ground.x, ground.y, ground.z, 0.0 };
+}
+
 fn set_ambient(color: float3, intensity: f32) {
     g_view_state.ambient = float4 { color.x, color.y, color.z, intensity };
 }

@@ -289,6 +289,45 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     float r = it->color.x * tex[0] * (vs->ambient.x * amb + vs->light_color.x * diff) + vs->light_color.x * spec;
     float g = it->color.y * tex[1] * (vs->ambient.y * amb + vs->light_color.y * diff) + vs->light_color.y * spec;
     float b = it->color.z * tex[2] * (vs->ambient.z * amb + vs->light_color.z * diff) + vs->light_color.z * spec;
+    float sky = n.y * 0.5f + 0.5f;
+    if (sky < 0.0f) sky = 0.0f;
+    if (sky > 1.0f) sky = 1.0f;
+    r += it->color.x * tex[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w;
+    g += it->color.y * tex[1] * (vs->env_ground.y * (1.0f - sky) + vs->env_sky.y * sky) * vs->env_sky.w;
+    b += it->color.z * tex[2] * (vs->env_ground.z * (1.0f - sky) + vs->env_sky.z * sky) * vs->env_sky.w;
+    int count = vs->light_count < 0 ? 0 : vs->light_count > 4 ? 4 : vs->light_count;
+    for (int i = 0; i < count; i++) {
+        const g3_light *light = &vs->lights[i];
+        float dx = light->position.x - wp.x, dy = light->position.y - wp.y, dz = light->position.z - wp.z;
+        float distance = sqrtf(dx * dx + dy * dy + dz * dz);
+        float ll = distance > 0.000001f ? distance : 0.000001f;
+        float ex = light->position.w < 0.5f ? -light->direction.x : dx / ll;
+        float ey = light->position.w < 0.5f ? -light->direction.y : dy / ll;
+        float ez = light->position.w < 0.5f ? -light->direction.z : dz / ll;
+        float falloff = 1.0f;
+        if (light->position.w > 0.5f) {
+            falloff = 1.0f - distance / light->direction.w;
+            if (falloff < 0.0f) falloff = 0.0f;
+            falloff *= falloff;
+        }
+        if (light->position.w > 1.5f) {
+            float cone = (-ex * light->direction.x - ey * light->direction.y - ez * light->direction.z - light->color.w) / (light->inner - light->color.w);
+            if (cone < 0.0f) cone = 0.0f;
+            if (cone > 1.0f) cone = 1.0f;
+            falloff *= cone * cone * (3.0f - 2.0f * cone);
+        }
+        float d = n.x * ex + n.y * ey + n.z * ez;
+        if (d < 0.0f) d = 0.0f;
+        float ax = ex + vx, ay = ey + vy, az = ez + vz;
+        float al = sqrtf(ax * ax + ay * ay + az * az);
+        if (al > 1e-12f) { ax /= al; ay /= al; az /= al; }
+        float nh2 = n.x * ax + n.y * ay + n.z * az;
+        if (nh2 < 0.0f) nh2 = 0.0f;
+        float s = powf(nh2, shine) * it->params.y;
+        r += (it->color.x * tex[0] * d + s) * light->color.x * falloff;
+        g += (it->color.y * tex[1] * d + s) * light->color.y * falloff;
+        b += (it->color.z * tex[2] * d + s) * light->color.z * falloff;
+    }
     if (it->params.x > 0.5f) { r = it->color.x * tex[0]; g = it->color.y * tex[1]; b = it->color.z * tex[2]; }
 
     float fog = 1.0f - expf(-vl * vs->fog.w);

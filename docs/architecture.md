@@ -170,9 +170,9 @@ frames and read statistics.
 
 ## Limits, deliberately
 
-No textures, no shadows, no instancing, no near-plane clipping (triangles with a
+No shadows, no instancing, no near-plane clipping (triangles with a
 vertex behind the eye are dropped, so a large object straddling the near plane
-pops), one directional light, no node removal, and no BVH — culling is per node,
+pops), no node removal, and no BVH — culling is per node,
 which is fine to a few thousand nodes.
 
 `docs/` and `.agents/skills/g3-adding-a-render-feature/SKILL.md` contain the

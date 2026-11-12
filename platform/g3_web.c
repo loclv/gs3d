@@ -37,6 +37,8 @@ typedef struct {
 typedef struct {
     GLuint program;
     GLint mvp, model, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
+    GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4];
+    GLint env_sky, env_ground;
 } web_shader;
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
@@ -81,6 +83,11 @@ static const char *FRAGMENT_SRC =
     "uniform vec3 u_eye;\n"
     "uniform vec3 u_light_dir;\n"
     "uniform vec3 u_light_color;\n"
+    "struct Light { vec4 position; vec4 direction; vec4 color; float inner; };\n"
+    "uniform Light u_lights[4];\n"
+    "uniform int u_light_count;\n"
+    "uniform vec4 u_env_sky;\n"
+    "uniform vec4 u_env_ground;\n"
     "uniform vec4 u_ambient;\n"
     "uniform vec4 u_fog;\n"
     "out vec4 out_color;\n"
@@ -94,6 +101,27 @@ static const char *FRAGMENT_SRC =
     "    vec3 base = u_color.rgb * (u_textured ? texture(u_tex, v_uv).rgb : vec3(1.0));\n"
     "    vec3 col = base * (u_ambient.rgb * u_ambient.a + u_light_color * diff)\n"
     "             + u_light_color * spec;\n"
+    "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
+    "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a;\n"
+    "    for (int i = 0; i < u_light_count; i++) {\n"
+    "        Light light = u_lights[i];\n"
+    "        vec3 delta = light.position.xyz - v_world;\n"
+    "        float distance_to_light = length(delta);\n"
+    "        vec3 ld = light.position.w < 0.5 ? -light.direction.xyz : delta / max(distance_to_light, 0.000001);\n"
+    "        float falloff = 1.0;\n"
+    "        if (light.position.w > 0.5) {\n"
+    "            falloff = max(1.0 - distance_to_light / light.direction.w, 0.0);\n"
+    "            falloff *= falloff;\n"
+    "        }\n"
+    "        if (light.position.w > 1.5) {\n"
+    "            float cone = clamp((dot(-ld, light.direction.xyz) - light.color.w) / (light.inner - light.color.w), 0.0, 1.0);\n"
+    "            falloff *= cone * cone * (3.0 - 2.0 * cone);\n"
+    "        }\n"
+    "        float d = max(dot(n, ld), 0.0);\n"
+    "        vec3 halfdir = normalize(ld + v);\n"
+    "        float s = pow(max(dot(n, halfdir), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
+    "        col += (base * d + vec3(s)) * light.color.rgb * falloff;\n"
+    "    }\n"
     "    if (u_params.x > 0.5) col = base;\n"
     "    float dist = length(u_eye - v_world);\n"
     "    float fog = clamp(1.0 - exp(-dist * u_fog.a), 0.0, 1.0);\n"
@@ -156,6 +184,16 @@ static void find_uniforms(void) {
     shader.fog = glGetUniformLocation(shader.program, "u_fog");
     shader.tex = glGetUniformLocation(shader.program, "u_tex");
     shader.textured = glGetUniformLocation(shader.program, "u_textured");
+    shader.light_count = glGetUniformLocation(shader.program, "u_light_count");
+    shader.env_sky = glGetUniformLocation(shader.program, "u_env_sky");
+    shader.env_ground = glGetUniformLocation(shader.program, "u_env_ground");
+    for (int i = 0; i < 4; i++) {
+        char name[64];
+        snprintf(name, sizeof(name), "u_lights[%d].position", i); shader.light_position[i] = glGetUniformLocation(shader.program, name);
+        snprintf(name, sizeof(name), "u_lights[%d].direction", i); shader.light_direction[i] = glGetUniformLocation(shader.program, name);
+        snprintf(name, sizeof(name), "u_lights[%d].color", i); shader.light_color_extra[i] = glGetUniformLocation(shader.program, name);
+        snprintf(name, sizeof(name), "u_lights[%d].inner", i); shader.light_inner[i] = glGetUniformLocation(shader.program, name);
+    }
 }
 
 /* Compile both stages, link them, and look the uniforms up. 0 on any failure,
@@ -343,6 +381,17 @@ static void bind_view(const g3_view_state *view) {
     glUniform4f(shader.ambient, view->ambient.x, view->ambient.y, view->ambient.z,
                 view->ambient.w);
     glUniform4f(shader.fog, view->fog.x, view->fog.y, view->fog.z, view->fog.w);
+    glUniform4f(shader.env_sky, view->env_sky.x, view->env_sky.y, view->env_sky.z, view->env_sky.w);
+    glUniform4f(shader.env_ground, view->env_ground.x, view->env_ground.y, view->env_ground.z, view->env_ground.w);
+    int count = view->light_count < 0 ? 0 : view->light_count > 4 ? 4 : view->light_count;
+    glUniform1i(shader.light_count, count);
+    for (int i = 0; i < count; i++) {
+        const g3_light *l = &view->lights[i];
+        glUniform4f(shader.light_position[i], l->position.x, l->position.y, l->position.z, l->position.w);
+        glUniform4f(shader.light_direction[i], l->direction.x, l->direction.y, l->direction.z, l->direction.w);
+        glUniform4f(shader.light_color_extra[i], l->color.x, l->color.y, l->color.z, l->color.w);
+        glUniform1f(shader.light_inner[i], l->inner);
+    }
 }
 
 /* One item: the state its transparency needs, its uniforms, its draw call. */

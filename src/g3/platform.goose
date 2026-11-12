@@ -36,6 +36,10 @@ struct DrawItem {
     texture: i32,       // -1 means untextured
 }
 
+// Additional light: position.w = 0 directional, 1 point, 2 spot;
+// direction.w = range, color.w = outer cone cosine, inner = inner cosine.
+struct Light { position: float4, direction: float4, color: float4, inner: f32 }
+
 // The frame's constants: what every draw of the frame shares.
 struct ViewState {
     eye: float3,
@@ -45,6 +49,10 @@ struct ViewState {
     fog: float4,            // rgb, and a = density (0 turns fog off)
     clear: float4,          // the colour the frame starts from
     params: float4,         // x = seconds since start, for animated shaders
+    lights: Light[4],
+    light_count: i32,
+    env_sky: float4,        // rgb, w = intensity
+    env_ground: float4,
 }
 
 // --- the backend interface

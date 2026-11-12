@@ -16,7 +16,7 @@ and pixel tests provide a useful reference for rendering changes.
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for static glTF/GLB | Complete glTF coverage, native loading, reusable asset ownership and arena reclamation; see [assets.md](assets.md) |
 | Materials | Colour, one RGB texture, specular controls | Reusable materials, physically based rendering (PBR), normal, roughness and metallic maps, texture alpha, mipmaps and wrapping |
-| Lighting | One directional light and ambient light | Multiple lights, point and spot lights, shadows, environment lighting |
+| Lighting | Directional, point and spot lights, ambient and hemispherical environment fill | Shadows and image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
 | Scene management | Parent hierarchy and one camera | Object and resource removal, reusable resources, multiple cameras, orthographic camera rendering |
 | Interaction | Keyboard and mouse input | Raycasting and picking, touch controls, reusable camera controls |
