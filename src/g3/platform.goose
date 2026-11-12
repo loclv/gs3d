@@ -55,6 +55,8 @@ struct ViewState {
     env_ground: float4,
     environment_texture: i32, // equirectangular RGB texture, -1 disables
     environment_intensity: f32,
+    shadow_view_proj: Mat4,
+    shadow_params: float4, // x enabled, y normalized depth bias
 }
 
 // --- the backend interface

@@ -248,7 +248,10 @@ What the API gives you:
   prefiltered image-based lighting solution or a skybox.
   Add functions return false when parameters are invalid or the limit is reached.
   Point and spot lights use squared linear range falloff; spot angles are
-  inner and outer half-angles in radians.
+  inner and outer half-angles in radians. `set_directional_shadows(center,
+  extent, bias)` enables a 512×512 shadow map for the primary directional
+  light; `clear_shadows()` disables it. Extent bounds the map around the
+  center, and bias is in normalized depth units.
 * **Frame** — `init`, `frame(dt)`, `shutdown`, `width`/`height`/`aspect`/`time`,
   `stats()` (nodes, drawn, culled, triangles, draws), `read_pixel`,
   `save_frame` where the backend can write one.
@@ -331,9 +334,13 @@ Deliberately out of scope for now, in rough order of how much they would add:
 
 * **No material system or texture alpha.** Each node has a colour and an
   optional RGB texture; blending is controlled by the node's colour alpha.
-* **No shadows, prefiltered environment lighting, or normal maps.** Environment
-  textures provide a diffuse approximation. Normals use `mat3(model)`, so a
-  non-uniformly scaled node skews its normals.
+* **Limited shadows, environment lighting, and normals.** Only the primary
+  directional light casts hard shadows; blended objects do not cast them.
+  The map has fixed resolution and explicit bounds, and shadow-enabled frames
+  submit off-camera nodes so they can cast shadows. The CPU shadow pass drops
+  triangles crossing its depth bounds. Environment textures provide a diffuse
+  approximation rather than prefiltered reflections. Normals use `mat3(model)`,
+  so a non-uniformly scaled node skews its normals.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
 * **No removal from the scene.** `visible = false`, or build a scene once and

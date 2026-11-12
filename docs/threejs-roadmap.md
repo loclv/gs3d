@@ -17,7 +17,7 @@ and pixel tests provide a useful reference for rendering changes.
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for static glTF/GLB | Complete glTF coverage, native loading, reusable asset ownership and arena reclamation; see [assets.md](assets.md) |
 | Materials | Colour, one RGB texture, specular controls | Reusable materials, physically based rendering (PBR), normal, roughness and metallic maps, texture alpha, mipmaps and wrapping |
-| Lighting | Directional, point and spot lights; ambient, hemispherical and equirectangular texture-based diffuse fill | Shadows and prefiltered image-based environment lighting |
+| Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
 | Scene management | Parent hierarchy and one camera | Object and resource removal, reusable resources, multiple cameras, orthographic camera rendering |
 | Interaction | Keyboard and mouse input | Raycasting and picking, touch controls, reusable camera controls |
@@ -54,9 +54,9 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
 
 * Introduce reusable materials and a metallic-roughness PBR shading model,
   including the corresponding glTF factors and texture maps.
-* Add directional shadow maps and image-based environment lighting. The
-  existing directional, point, and spot lights and hemispherical fill remain
-  available; specify which lights cast shadows and how limits are reported.
+* Improve shadow quality and coverage, add point/spot shadows and prefiltered
+  image-based environment lighting. The existing primary directional shadow
+  map and hemispherical fill remain available; specify light and map limits.
 * Define texture colour spaces, tone mapping, and output encoding so model
   colours are reproducible across the CPU and WebGL paths.
 

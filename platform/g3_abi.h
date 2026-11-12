@@ -58,6 +58,8 @@ typedef struct {
     g3_vec4 env_sky, env_ground;
     int32_t environment_texture;
     float environment_intensity;
+    g3_mat4 shadow_view_proj;
+    g3_vec4 shadow_params;
 } g3_view_state;
 
 typedef struct { const g3_vertex *data; int64_t len; } g3_vertex_slice;
@@ -74,11 +76,13 @@ _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
 _Static_assert(sizeof(g3_draw_item) == 172, "g3_draw_item must be 172 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
-_Static_assert(sizeof(g3_view_state) == 352, "g3_view_state must be 352 bytes");
+_Static_assert(sizeof(g3_view_state) == 432, "g3_view_state must be 432 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");
 _Static_assert(offsetof(g3_view_state, light_count) == 308, "ViewState.light_count offset");
 _Static_assert(offsetof(g3_view_state, env_sky) == 312, "ViewState.env_sky offset");
 _Static_assert(offsetof(g3_view_state, environment_texture) == 344, "ViewState.environment_texture offset");
+_Static_assert(offsetof(g3_view_state, shadow_view_proj) == 352, "ViewState.shadow_view_proj offset");
+_Static_assert(offsetof(g3_view_state, shadow_params) == 416, "ViewState.shadow_params offset");
 _Static_assert(offsetof(g3_draw_item, mvp) == 4, "DrawItem.mvp offset");
 _Static_assert(offsetof(g3_draw_item, color) == 132, "DrawItem.color offset");
 _Static_assert(offsetof(g3_draw_item, params) == 148, "DrawItem.params offset");

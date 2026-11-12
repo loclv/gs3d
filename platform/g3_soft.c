@@ -50,6 +50,8 @@ static int32_t mesh_count, mesh_cap;
 typedef struct { uint8_t *pixels; int32_t w, h; } soft_texture;
 static soft_texture *textures;
 static int32_t texture_count;
+#define SHADOW_SIZE 512
+static float shadow_depth[SHADOW_SIZE * SHADOW_SIZE];
 
 /* --- the frame's scratch
 
@@ -265,6 +267,7 @@ int g3_backend_resize(int w, int h) {
 /* --- shading: the GLSL in g3_web.c, term for term --- */
 
 static void sample_texture(int32_t id, float u, float v, float out[3]);
+static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
                   const g3_vec3 wp, g3_vec3 n, const float tex[3], float *out_rgb) {
@@ -288,9 +291,10 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     float spec = powf(nh, shine) * it->params.y;
 
     float amb = vs->ambient.w;
-    float r = it->color.x * tex[0] * (vs->ambient.x * amb + vs->light_color.x * diff) + vs->light_color.x * spec;
-    float g = it->color.y * tex[1] * (vs->ambient.y * amb + vs->light_color.y * diff) + vs->light_color.y * spec;
-    float b = it->color.z * tex[2] * (vs->ambient.z * amb + vs->light_color.z * diff) + vs->light_color.z * spec;
+    float visible = shadow_visibility(vs, wp);
+    float r = it->color.x * tex[0] * (vs->ambient.x * amb + vs->light_color.x * diff * visible) + vs->light_color.x * spec * visible;
+    float g = it->color.y * tex[1] * (vs->ambient.y * amb + vs->light_color.y * diff * visible) + vs->light_color.y * spec * visible;
+    float b = it->color.z * tex[2] * (vs->ambient.z * amb + vs->light_color.z * diff * visible) + vs->light_color.z * spec * visible;
     float sky = n.y * 0.5f + 0.5f;
     if (sky < 0.0f) sky = 0.0f;
     if (sky > 1.0f) sky = 1.0f;
@@ -445,6 +449,59 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
     if (t->x1 > fb_w - 1) t->x1 = fb_w - 1;
     if (t->y1 > fb_h - 1) t->y1 = fb_h - 1;
     return t->x0 <= t->x1 && t->y0 <= t->y1;
+}
+
+static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
+    if (vs->shadow_params.x < 0.5f) return 1.0f;
+    const float *m = vs->shadow_view_proj.m;
+    float x = m[0]*wp.x + m[4]*wp.y + m[8]*wp.z + m[12];
+    float y = m[1]*wp.x + m[5]*wp.y + m[9]*wp.z + m[13];
+    float z = m[2]*wp.x + m[6]*wp.y + m[10]*wp.z + m[14];
+    float w = m[3]*wp.x + m[7]*wp.y + m[11]*wp.z + m[15];
+    if (w <= 0.0f) return 1.0f;
+    x = x / w * 0.5f + 0.5f; y = y / w * 0.5f + 0.5f; z = z / w * 0.5f + 0.5f;
+    if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
+    int px = (int)(x * SHADOW_SIZE), py = SHADOW_SIZE - 1 - (int)(y * SHADOW_SIZE);
+    return z - vs->shadow_params.y <= shadow_depth[py * SHADOW_SIZE + px] ? 1.0f : 0.0f;
+}
+
+/* Rasterize the same opaque draw items from the light before the colour pass.
+   Shadow map rows are top-first, like the main software framebuffer. */
+static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs) {
+    for (int i = 0; i < SHADOW_SIZE * SHADOW_SIZE; i++) shadow_depth[i] = 1.0f;
+    int old_w = fb_w, old_h = fb_h;
+    fb_w = fb_h = SHADOW_SIZE;
+    for (int64_t i = 0; i < items.len; i++) {
+        const g3_draw_item *source = &items.data[i];
+        if (source->params.w > 0.5f || source->mesh < 0 || source->mesh >= mesh_count) continue;
+        const soft_mesh *mesh = &meshes[source->mesh];
+        if (!mesh->verts || !mesh->idx) continue;
+        g3_draw_item item = *source;
+        for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) {
+            float sum = 0.0f;
+            for (int k = 0; k < 4; k++) sum += vs->shadow_view_proj.m[k * 4 + r] * source->model.m[c * 4 + k];
+            item.mvp.m[c * 4 + r] = sum;
+        }
+        for (int64_t j = 0; j + 2 < mesh->icount; j += 3) {
+            uint32_t a = mesh->idx[j], b = mesh->idx[j+1], c = mesh->idx[j+2];
+            if (a >= mesh->vcount || b >= mesh->vcount || c >= mesh->vcount) continue;
+            const g3_vertex *verts[3] = { &mesh->verts[a], &mesh->verts[b], &mesh->verts[c] };
+            soft_tri t;
+            if (!setup_triangle(&item, verts, &t)) continue;
+            for (int y = t.y0; y <= t.y1; y++) for (int x = t.x0; x <= t.x1; x++) {
+                float px = x + 0.5f, py = y + 0.5f;
+                float e0 = (t.sx[1]-px)*(t.sy[2]-py) - (t.sx[2]-px)*(t.sy[1]-py);
+                float e1 = (t.sx[2]-px)*(t.sy[0]-py) - (t.sx[0]-px)*(t.sy[2]-py);
+                if (e0*t.edge_sense < 0.0f || e1*t.edge_sense < 0.0f) continue;
+                float l0 = e0 / t.det, l1 = e1 / t.det, l2 = 1.0f - l0 - l1;
+                if (l2 < 0.0f) continue;
+                float z = l0*t.sz[0] + l1*t.sz[1] + l2*t.sz[2];
+                float *dst = &shadow_depth[y * SHADOW_SIZE + x];
+                if (z < *dst) *dst = z;
+            }
+        }
+    }
+    fb_w = old_w; fb_h = old_h;
 }
 
 /* One shaded colour over what the framebuffer already holds: replace it, or
@@ -606,6 +663,7 @@ static void clear_frame(const g3_view_state *view) {
 
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (!fb) return;
+    if (view->shadow_params.x > 0.5f) render_shadow_map(items, view);
     prof.frames += 1;
     const double t0 = prof.on ? now_seconds() : 0.0;
 

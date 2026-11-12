@@ -263,6 +263,33 @@ fn case_lights() {
     testing::check(!g3::add_point_light(float3_0, float3_1, 0.0), "invalid light range is rejected");
 }
 
+fn case_shadow() {
+    g3::scene_clear();
+    flat_camera();
+    g3::clear_lights();
+    g3::set_environment(float3_0, float3_0, 0.0);
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_light(float3 { 1.0, -1.0, 0.0 }, float3_1);
+    let ground .= g3::node(g3::node_add(g3::mesh_plane(8.0, 1)));
+    ground.spec = 0.0;
+    let cube .= g3::node(g3::node_add(g3::mesh_cube(0.5)));
+    cube.pos.y = 1.0;
+    cube.spec = 0.0;
+    let camera .= g3::camera();
+    camera.pos = float3 { 0.0, 6.0, 0.0 };
+    camera.target = float3_0;
+    camera.up = float3 { 0.0, 0.0, -1.0 };
+    // Light direction (1,-1,0) carries the cube's shadow toward +x.
+    // At x=1.5 the ground lies under that shadow; x=-1.5 stays lit.
+    let enabled = g3::set_directional_shadows(float3 { 0.0, 1.0, 0.0 }, 6.0, 0.002);
+    g3::frame(1.0 / 60.0);
+    testing::check(enabled && is_color(g3::read_pixel(303, 200), 0, 0, 0, 3), "cube casts a shadow on the ground");
+    testing::check(is_color(g3::read_pixel(96, 200), 180, 180, 180, 3), "ground outside the shadow stays lit");
+    g3::clear_shadows();
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(303, 200), 180, 180, 180, 3), "disabling shadows restores the light");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -279,6 +306,7 @@ fn main() {
     case_backface();
     case_texture();
     case_lights();
+    case_shadow();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

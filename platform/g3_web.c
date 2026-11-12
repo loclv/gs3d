@@ -40,6 +40,7 @@ typedef struct {
     GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4];
     GLint env_sky, env_ground;
     GLint env_map, env_map_enabled, env_map_intensity;
+    GLint shadow_map, shadow_matrix, shadow_params;
 } web_shader;
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
@@ -51,6 +52,9 @@ static int32_t mesh_count, mesh_cap;
 static GLuint *textures;
 static int32_t texture_count;
 static int checked_gl;
+static GLuint shadow_program, shadow_fbo, shadow_texture;
+static GLint shadow_light_matrix, shadow_model_matrix;
+#define SHADOW_SIZE 512
 
 static const char *VERTEX_SRC =
     "#version 300 es\n"
@@ -92,6 +96,9 @@ static const char *FRAGMENT_SRC =
     "uniform sampler2D u_env_map;\n"
     "uniform bool u_env_map_enabled;\n"
     "uniform float u_env_map_intensity;\n"
+    "uniform sampler2D u_shadow_map;\n"
+    "uniform mat4 u_shadow_matrix;\n"
+    "uniform vec4 u_shadow_params;\n"
     "uniform vec4 u_ambient;\n"
     "uniform vec4 u_fog;\n"
     "out vec4 out_color;\n"
@@ -103,8 +110,15 @@ static const char *FRAGMENT_SRC =
     "    vec3 h = normalize(l + v);\n"
     "    float spec = pow(max(dot(n, h), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
     "    vec3 base = u_color.rgb * (u_textured ? texture(u_tex, v_uv).rgb : vec3(1.0));\n"
-    "    vec3 col = base * (u_ambient.rgb * u_ambient.a + u_light_color * diff)\n"
-    "             + u_light_color * spec;\n"
+    "    float visibility = 1.0;\n"
+    "    if (u_shadow_params.x > 0.5) {\n"
+    "        vec4 light_pos = u_shadow_matrix * vec4(v_world, 1.0);\n"
+    "        vec3 uvz = light_pos.xyz / light_pos.w * 0.5 + 0.5;\n"
+    "        if (light_pos.w > 0.0 && all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThan(uvz.xy, vec2(1.0))) && uvz.z <= 1.0)\n"
+    "            visibility = uvz.z - u_shadow_params.y <= texture(u_shadow_map, uvz.xy).r ? 1.0 : 0.0;\n"
+    "    }\n"
+    "    vec3 col = base * (u_ambient.rgb * u_ambient.a + u_light_color * diff * visibility)\n"
+    "             + u_light_color * spec * visibility;\n"
     "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
     "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a;\n"
     "    if (u_env_map_enabled) {\n"
@@ -198,6 +212,9 @@ static void find_uniforms(void) {
     shader.env_map = glGetUniformLocation(shader.program, "u_env_map");
     shader.env_map_enabled = glGetUniformLocation(shader.program, "u_env_map_enabled");
     shader.env_map_intensity = glGetUniformLocation(shader.program, "u_env_map_intensity");
+    shader.shadow_map = glGetUniformLocation(shader.program, "u_shadow_map");
+    shader.shadow_matrix = glGetUniformLocation(shader.program, "u_shadow_matrix");
+    shader.shadow_params = glGetUniformLocation(shader.program, "u_shadow_params");
     for (int i = 0; i < 4; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_lights[%d].position", i); shader.light_position[i] = glGetUniformLocation(shader.program, name);
@@ -270,6 +287,10 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
 }
 
 void g3p_shutdown(void) {
+    if (shadow_program) glDeleteProgram(shadow_program);
+    if (shadow_fbo) glDeleteFramebuffers(1, &shadow_fbo);
+    if (shadow_texture) glDeleteTextures(1, &shadow_texture);
+    shadow_program = shadow_fbo = shadow_texture = 0;
     for (int32_t i = 0; i < texture_count; i++) glDeleteTextures(1, &textures[i]);
     free(textures); textures = NULL; texture_count = 0;
     for (int32_t i = 0; i < mesh_count; i++) {
@@ -401,6 +422,11 @@ static void bind_view(const g3_view_state *view) {
     glUniform1i(shader.env_map, 1);
     glUniform1i(shader.env_map_enabled, has_env);
     glUniform1f(shader.env_map_intensity, view->environment_intensity);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, shadow_texture);
+    glUniform1i(shader.shadow_map, 2);
+    glUniformMatrix4fv(shader.shadow_matrix, 1, GL_FALSE, view->shadow_view_proj.m);
+    glUniform4f(shader.shadow_params, shadow_texture ? view->shadow_params.x : 0.0f, view->shadow_params.y, 0.0f, 0.0f);
     int count = view->light_count < 0 ? 0 : view->light_count > 4 ? 4 : view->light_count;
     glUniform1i(shader.light_count, count);
     for (int i = 0; i < count; i++) {
@@ -410,6 +436,61 @@ static void bind_view(const g3_view_state *view) {
         glUniform4f(shader.light_color_extra[i], l->color.x, l->color.y, l->color.z, l->color.w);
         glUniform1f(shader.light_inner[i], l->inner);
     }
+}
+
+static int ensure_shadow_map(void) {
+    if (shadow_program && shadow_fbo && shadow_texture) return 1;
+    const char *vs_src = "#version 300 es\nlayout(location=0) in vec3 a_pos;\nuniform mat4 u_light;\nuniform mat4 u_model;\nvoid main(){gl_Position=u_light*u_model*vec4(a_pos,1.0);}\n";
+    const char *fs_src = "#version 300 es\nprecision highp float;\nvoid main(){}\n";
+    GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "shadow vertex");
+    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "shadow fragment");
+    if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); return 0; }
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vs); glAttachShader(program, fs); glLinkProgram(program);
+    glDeleteShader(vs); glDeleteShader(fs);
+    GLint linked = 0; glGetProgramiv(program, GL_LINK_STATUS, &linked);
+    if (!linked) { glDeleteProgram(program); report("Could not link shadow shader."); return 0; }
+    glGenTextures(1, &shadow_texture);
+    glBindTexture(GL_TEXTURE_2D, shadow_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, SHADOW_SIZE, SHADOW_SIZE, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenFramebuffers(1, &shadow_fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, shadow_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadow_texture, 0);
+    GLenum none = GL_NONE;
+    glDrawBuffers(1, &none);
+    glReadBuffer(GL_NONE);
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        glDeleteProgram(program); glDeleteFramebuffers(1, &shadow_fbo); glDeleteTextures(1, &shadow_texture);
+        shadow_fbo = shadow_texture = 0; report("Could not create shadow framebuffer."); return 0;
+    }
+    shadow_program = program;
+    shadow_light_matrix = glGetUniformLocation(program, "u_light");
+    shadow_model_matrix = glGetUniformLocation(program, "u_model");
+    return 1;
+}
+
+static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *view) {
+    glBindFramebuffer(GL_FRAMEBUFFER, shadow_fbo);
+    glViewport(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+    glDepthMask(GL_TRUE); glDisable(GL_BLEND); glClear(GL_DEPTH_BUFFER_BIT);
+    glUseProgram(shadow_program);
+    glUniformMatrix4fv(shadow_light_matrix, 1, GL_FALSE, view->shadow_view_proj.m);
+    for (int64_t i = 0; i < items.len; i++) {
+        const g3_draw_item *it = &items.data[i];
+        if (it->params.w > 0.5f || it->mesh < 0 || it->mesh >= mesh_count) continue;
+        const web_mesh *m = &meshes[it->mesh];
+        if (!m->vao || !m->count) continue;
+        glUniformMatrix4fv(shadow_model_matrix, 1, GL_FALSE, it->model.m);
+        glBindVertexArray(m->vao);
+        glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, 0);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 /* One item: the state its transparency needs, its uniforms, its draw call. */
@@ -454,6 +535,7 @@ static void report_first_gl_error(void) {
 
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (!ctx || !shader.program) return;
+    if (view->shadow_params.x > 0.5f && ensure_shadow_map()) render_shadow_map(items, view);
     glViewport(0, 0, surf_w, surf_h);
     glClearColor(view->clear.x, view->clear.y, view->clear.z, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

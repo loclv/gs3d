@@ -34,12 +34,19 @@ var g_stats: Stats;
 var g_view: Mat4;
 var g_view_proj: Mat4;
 var g_frustum: Frustum;
+var g_shadow_center: float3;
+var g_shadow_extent: f32;
+var g_shadow_bias: f32;
 
 // --- the frame's constants
 
 fn set_light(dir: float3, color: float3) {
     g_view_state.light_dir = normalize(dir);
     g_view_state.light_color = color;
+    if g_view_state.shadow_params.x > 0.5 {
+        let updated = set_directional_shadows(g_shadow_center, g_shadow_extent, g_shadow_bias);
+        if !updated { clear_shadows(); }
+    }
 }
 
 // The original directional light is independent of these four extra lights.
@@ -88,6 +95,24 @@ fn set_environment_map(texture: i32, intensity: f32) {
     g_view_state.environment_texture = texture;
     g_view_state.environment_intensity = intensity;
 }
+
+// The primary directional light casts into an explicitly bounded box. Objects
+// outside this box do not cast or receive shadows. Bias is in depth-map units.
+fn set_directional_shadows(center: float3, extent: f32, bias: f32) -> bool {
+    guard extent > 0.0 && bias >= 0.0 && length(g_view_state.light_dir) > 0.0 else { return false; }
+    let dir = g_view_state.light_dir;
+    let up = if abs(dir.y) > 0.95 { float3 { 1.0, 0.0, 0.0 } } else { float3 { 0.0, 1.0, 0.0 } };
+    let view = mat4_look_at(center - dir * (extent * 2.0), center, up);
+    let proj = mat4_ortho(-extent, extent, -extent, extent, 0.01, extent * 4.0);
+    g_view_state.shadow_view_proj = mat4_mul(proj, view);
+    g_view_state.shadow_params = float4 { 1.0, bias, 0.0, 0.0 };
+    g_shadow_center = center;
+    g_shadow_extent = extent;
+    g_shadow_bias = bias;
+    return true;
+}
+
+fn clear_shadows() { g_view_state.shadow_params.x = 0.0; }
 
 fn set_ambient(color: float3, intensity: f32) {
     g_view_state.ambient = float4 { color.x, color.y, color.z, intensity };
@@ -157,7 +182,7 @@ fn render_scene() {
         g_stats.nodes += 1;
         let m .= mesh(n.mesh);
         let box = aabb_transform(m.bounds, n.world);
-        if !frustum_intersects(g_frustum, box) {
+        if !frustum_intersects(g_frustum, box) && g_view_state.shadow_params.x < 0.5 {
             g_stats.culled += 1;
             continue;
         }

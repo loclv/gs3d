@@ -170,7 +170,7 @@ frames and read statistics.
 
 ## Limits, deliberately
 
-No shadows, no instancing, no near-plane clipping (triangles with a
+No instancing, no near-plane clipping (triangles with a
 vertex behind the eye are dropped, so a large object straddling the near plane
 pops), no node removal, and no BVH — culling is per node,
 which is fine to a few thousand nodes.
