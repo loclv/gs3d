@@ -235,8 +235,9 @@ What the API gives you:
 * **Textures** — import `g3.texture`, call `texture_create(width, height, rgba)`
   with row-major RGBA8 pixels, and assign the returned handle to `node.texture`.
   Built-in meshes have UVs; custom meshes can use `push_vertex_uv`. Both
-  backends use bilinear filtering and support clamp, repeat, and mirrored repeat
-  per axis via `texture_set_wrap`. Image decoding
+  backends support nearest, linear, and mipmapped filtering via
+  `texture_set_filter`, and clamp, repeat, and mirrored repeat per axis via
+  `texture_set_wrap`. Uploading pixels resets those settings. Image decoding
   belongs to the host; the game demonstrates browser-side decoding. Texture RGB
   multiplies the node colour. `node.alpha_mode` chooses colour-driven blending
   (0), an alpha cutoff (1), or blending (2). Masking and blending multiply

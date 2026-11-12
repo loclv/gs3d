@@ -399,6 +399,21 @@ void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, modes[wrap_v]);
 }
 
+void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter) {
+    int valid_min = min_filter == GL_NEAREST || min_filter == GL_LINEAR ||
+                    (min_filter >= GL_NEAREST_MIPMAP_NEAREST && min_filter <= GL_LINEAR_MIPMAP_LINEAR);
+    if (id < 0 || id >= texture_count || !textures[id] || !valid_min ||
+        (mag_filter != GL_NEAREST && mag_filter != GL_LINEAR)) return;
+    glBindTexture(GL_TEXTURE_2D, textures[id]);
+    if (min_filter >= GL_NEAREST_MIPMAP_NEAREST && min_filter <= GL_LINEAR_MIPMAP_LINEAR) glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag_filter);
+}
+
+EMSCRIPTEN_KEEPALIVE void g3_host_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter) {
+    g3p_texture_filter(id, min_filter, mag_filter);
+}
+
 EMSCRIPTEN_KEEPALIVE void g3_host_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
     g3p_texture_wrap(id, wrap_u, wrap_v);
 }

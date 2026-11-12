@@ -62,15 +62,17 @@ mechanism.
   `TEXCOORD_0`. Positions and normals are required.
 * Opaque, masked and blended base-colour factors and base-colour textures. The engine's existing
   lighting approximates these materials; metallic/roughness values are not
-  physically rendered. Texture filtering is bilinear; clamp, repeat and
-  mirrored repeat are supported separately for each axis. An omitted glTF
-  wrapping mode defaults to repeat. sRGB conversion is not yet implemented.
+  physically rendered. Nearest, linear and mipmapped filters are supported,
+  as are clamp, repeat and mirrored repeat separately for each axis. An omitted
+  glTF wrapping mode defaults to repeat; omitted filters use linear. The CPU
+  rasterizer estimates mip level from neighboring perspective-correct UVs;
+  exact mip generation and derivatives can differ from a GPU. sRGB conversion
+  is not yet implemented.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
 skins, animations, morph targets, sparse accessors, non-triangle modes,
 double-sided materials, and normal, occlusion, emissive, or
-metallic-roughness textures, explicit nearest or mipmapped texture filters,
-and advanced texture/sampler extensions. It does not implement material PBR or
+metallic-roughness textures, and advanced texture/sampler extensions. It does not implement material PBR or
 sRGB conversion. Unsupported optional data may be
 ignored. Files needing these features require a fuller loader and renderer.
 

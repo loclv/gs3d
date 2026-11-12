@@ -46,7 +46,10 @@ static uint8_t *fb;      /* rgb, top row first */
 static float *depth;     /* [0, 1], 1 is far */
 static soft_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
-typedef struct { uint8_t *pixels; int32_t w, h, wrap_u, wrap_v; } soft_texture;
+typedef struct {
+    uint8_t *pixels, *mips[31];
+    int32_t w, h, wrap_u, wrap_v, min_filter, mag_filter, levels;
+} soft_texture;
 static soft_texture *textures;
 static int32_t texture_count;
 #define SHADOW_SIZE 512
@@ -175,7 +178,10 @@ static void report_profile(void) {
 
 void g3p_shutdown(void) {
     report_profile();
-    for (int32_t i = 0; i < texture_count; i++) free(textures[i].pixels);
+    for (int32_t i = 0; i < texture_count; i++) {
+        free(textures[i].pixels);
+        for (int j = 0; j < 31; j++) free(textures[i].mips[j]);
+    }
     free(textures); textures = NULL; texture_count = 0;
     free(queue);
     queue = NULL;
@@ -242,13 +248,50 @@ void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t h
     if (!copy) { fprintf(stderr, "g3_soft: out of memory for texture pixels\n"); exit(1); }
     memcpy(copy, pixels.data, (size_t)pixels.len);
     free(textures[id].pixels);
-    textures[id] = (soft_texture){ .pixels = copy, .w = width, .h = height };
+    for (int j = 0; j < 31; j++) free(textures[id].mips[j]);
+    textures[id] = (soft_texture){ .pixels = copy, .w = width, .h = height,
+                                   .min_filter = 9729, .mag_filter = 9729, .levels = 1 };
 }
 
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
     if (id < 0 || id >= texture_count || !textures[id].pixels || wrap_u < 0 || wrap_u > 2 || wrap_v < 0 || wrap_v > 2) return;
     textures[id].wrap_u = wrap_u;
     textures[id].wrap_v = wrap_v;
+}
+
+/* Generate each level with bilinear sampling at destination texel centres.
+   This also handles non-power-of-two dimensions and preserves alpha. */
+static void generate_mips(soft_texture *t) {
+    int w = t->w, h = t->h;
+    const uint8_t *src = t->pixels;
+    while ((w > 1 || h > 1) && t->levels < 32) {
+        int nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
+        uint8_t *dst = malloc((size_t)nw * (size_t)nh * 4);
+        if (!dst) { fprintf(stderr, "g3_soft: out of memory for mipmaps\n"); exit(1); }
+        for (int y = 0; y < nh; y++) for (int x = 0; x < nw; x++) {
+            float sx = ((x + 0.5f) * w / nw) - 0.5f, sy = ((y + 0.5f) * h / nh) - 0.5f;
+            int x0 = (int)floorf(sx), y0 = (int)floorf(sy);
+            int x1 = x0 + 1 < w ? x0 + 1 : x0, y1 = y0 + 1 < h ? y0 + 1 : y0;
+            float fx = sx - x0, fy = sy - y0;
+            for (int c = 0; c < 4; c++) {
+                float a=src[((size_t)y0*w+x0)*4+c], b=src[((size_t)y0*w+x1)*4+c];
+                float d=src[((size_t)y1*w+x0)*4+c], e=src[((size_t)y1*w+x1)*4+c];
+                dst[((size_t)y*nw+x)*4+c] = (uint8_t)(((a+(b-a)*fx)*(1-fy)+(d+(e-d)*fx)*fy) + 0.5f);
+            }
+        }
+        t->mips[t->levels - 1] = dst;
+        t->levels++;
+        src = dst; w = nw; h = nh;
+    }
+}
+
+void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter) {
+    int valid_min = min_filter == 9728 || min_filter == 9729 || (min_filter >= 9984 && min_filter <= 9987);
+    if (id < 0 || id >= texture_count || !textures[id].pixels || !valid_min || (mag_filter != 9728 && mag_filter != 9729)) return;
+    soft_texture *t = &textures[id];
+    if (min_filter >= 9984 && t->levels == 1) generate_mips(t);
+    t->min_filter = min_filter;
+    t->mag_filter = mag_filter;
 }
 
 /* Resizing a headless surface means reallocating the framebuffer and the z
@@ -271,7 +314,7 @@ int g3_backend_resize(int w, int h) {
 
 /* --- shading: the GLSL in g3_web.c, term for term --- */
 
-static void sample_texture(int32_t id, float u, float v, float out[4]);
+static void sample_texture(int32_t id, float u, float v, float rho, float out[4]);
 static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
@@ -310,7 +353,7 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
         float env[4];
         float y = n.y < -1.0f ? -1.0f : n.y > 1.0f ? 1.0f : n.y;
         sample_texture(vs->environment_texture, atan2f(n.z, n.x) / 6.28318530718f + 0.5f,
-                       acosf(y) / 3.14159265359f, env);
+                       acosf(y) / 3.14159265359f, 0.0f, env);
         r += it->color.x * tex[0] * env[0] * vs->environment_intensity;
         g += it->color.y * tex[1] * env[1] * vs->environment_intensity;
         b += it->color.z * tex[2] * env[2] * vs->environment_intensity;
@@ -382,24 +425,55 @@ static int wrap_index(int index, int size, int mode) {
     return index < 0 ? 0 : index >= size ? size - 1 : index;
 }
 
-/* Bilinear filtering with GL-compatible edge wrapping, including seams. */
-static void sample_texture(int32_t id, float u, float v, float out[4]) {
-    out[0] = out[1] = out[2] = out[3] = 1.0f;
-    if (id < 0 || id >= texture_count || !textures[id].pixels) return;
-    const soft_texture *t = &textures[id];
-    float x = wrap_coordinate(u, t->wrap_u) * t->w - 0.5f;
-    float y = wrap_coordinate(v, t->wrap_v) * t->h - 0.5f;
+static void sample_level(const soft_texture *t, int level, int linear, float u, float v, float out[4]) {
+    int w = t->w >> level, h = t->h >> level;
+    if (w < 1) w = 1; if (h < 1) h = 1;
+    const uint8_t *pixels = level ? t->mips[level - 1] : t->pixels;
+    float x = wrap_coordinate(u, t->wrap_u) * w;
+    float y = wrap_coordinate(v, t->wrap_v) * h;
+    if (!linear) {
+        int ix = wrap_index((int)floorf(x), w, t->wrap_u);
+        int iy = wrap_index((int)floorf(y), h, t->wrap_v);
+        for (int c = 0; c < 4; c++) out[c] = pixels[((size_t)iy*w+ix)*4+c] / 255.0f;
+        return;
+    }
+    x -= 0.5f; y -= 0.5f;
     int x0 = (int)floorf(x), y0 = (int)floorf(y);
     float fx = x - x0, fy = y - y0;
     int x1 = x0 + 1, y1 = y0 + 1;
-    x0 = wrap_index(x0, t->w, t->wrap_u); x1 = wrap_index(x1, t->w, t->wrap_u);
-    y0 = wrap_index(y0, t->h, t->wrap_v); y1 = wrap_index(y1, t->h, t->wrap_v);
+    x0 = wrap_index(x0, w, t->wrap_u); x1 = wrap_index(x1, w, t->wrap_u);
+    y0 = wrap_index(y0, h, t->wrap_v); y1 = wrap_index(y1, h, t->wrap_v);
     for (int c = 0; c < 4; c++) {
-        float a = t->pixels[((size_t)y0 * t->w + x0) * 4 + c];
-        float b = t->pixels[((size_t)y0 * t->w + x1) * 4 + c];
-        float d = t->pixels[((size_t)y1 * t->w + x0) * 4 + c];
-        float e = t->pixels[((size_t)y1 * t->w + x1) * 4 + c];
+        float a = pixels[((size_t)y0 * w + x0) * 4 + c];
+        float b = pixels[((size_t)y0 * w + x1) * 4 + c];
+        float d = pixels[((size_t)y1 * w + x0) * 4 + c];
+        float e = pixels[((size_t)y1 * w + x1) * 4 + c];
         out[c] = ((a + (b - a) * fx) * (1.0f - fy) + (d + (e - d) * fx) * fy) / 255.0f;
+    }
+}
+
+/* rho is the texture footprint in texels per screen pixel. */
+static void sample_texture(int32_t id, float u, float v, float rho, float out[4]) {
+    out[0] = out[1] = out[2] = out[3] = 1.0f;
+    if (id < 0 || id >= texture_count || !textures[id].pixels) return;
+    const soft_texture *t = &textures[id];
+    if (rho <= 1.0f) { sample_level(t, 0, t->mag_filter == 9729, u, v, out); return; }
+    int f = t->min_filter;
+    if (f == 9728 || f == 9729 || t->levels == 1) {
+        sample_level(t, 0, f == 9729 || f == 9985 || f == 9987, u, v, out);
+        return;
+    }
+    float lod = log2f(rho);
+    if (lod > t->levels - 1) lod = (float)(t->levels - 1);
+    int linear = f == 9985 || f == 9987;
+    if (f == 9984 || f == 9985) {
+        sample_level(t, (int)floorf(lod + 0.5f), linear, u, v, out);
+    } else {
+        int lo = (int)floorf(lod), hi = lo + 1 < t->levels ? lo + 1 : lo;
+        float fraction = lod - lo, other[4];
+        sample_level(t, lo, linear, u, v, out);
+        sample_level(t, hi, linear, u, v, other);
+        for (int c = 0; c < 4; c++) out[c] += (other[c] - out[c]) * fraction;
     }
 }
 
@@ -539,6 +613,31 @@ static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
     return z - vs->shadow_params.y <= shadow_depth[py * SHADOW_SIZE + px] ? 1.0f : 0.0f;
 }
 
+/* Perspective-correct UV at a neighboring pixel, even if it lies just
+   outside this triangle. These finite differences approximate GPU LOD. */
+static float texture_footprint(const soft_tri *t, int32_t id, float l0, float l1, float l2, float u, float v) {
+    if (id < 0 || id >= texture_count || !textures[id].pixels) return 0.0f;
+    const soft_texture *tex = &textures[id];
+    if (tex->min_filter == tex->mag_filter) return 0.0f;
+    float dl0x = (t->sy[1] - t->sy[2]) / t->det;
+    float dl1x = (t->sy[2] - t->sy[0]) / t->det;
+    float dl0y = (t->sx[2] - t->sx[1]) / t->det;
+    float dl1y = (t->sx[0] - t->sx[2]) / t->det;
+    float d0[2] = { dl0x, dl0y }, d1[2] = { dl1x, dl1y };
+    float max_sq = 0.0f;
+    for (int axis = 0; axis < 2; axis++) {
+        float w0 = (l0+d0[axis])*t->inv_w[0], w1 = (l1+d1[axis])*t->inv_w[1];
+        float w2 = (l2-d0[axis]-d1[axis])*t->inv_w[2];
+        float sum = w0+w1+w2;
+        if (sum <= 1e-12f) continue;
+        float du = ((t->uv[0][0]*w0+t->uv[1][0]*w1+t->uv[2][0]*w2)/sum-u)*tex->w;
+        float dv = ((t->uv[0][1]*w0+t->uv[1][1]*w1+t->uv[2][1]*w2)/sum-v)*tex->h;
+        float sq = du*du+dv*dv;
+        if (sq > max_sq) max_sq = sq;
+    }
+    return sqrtf(max_sq);
+}
+
 /* Rasterize the same opaque draw items from the light before the colour pass.
    Shadow map rows are top-first, like the main software framebuffer. */
 static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs) {
@@ -579,7 +678,9 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs)
                     float b0=l0*t.inv_w[0]/pw, b1=l1*t.inv_w[1]/pw, b2=l2*t.inv_w[2]/pw;
                     float u=t.uv[0][0]*b0+t.uv[1][0]*b1+t.uv[2][0]*b2;
                     float v=t.uv[0][1]*b0+t.uv[1][1]*b1+t.uv[2][1]*b2;
-                    float tex[4]; sample_texture(source->texture, u, v, tex);
+                    float tex[4];
+                    float rho = texture_footprint(&t, source->texture, l0, l1, l2, u, v);
+                    sample_texture(source->texture, u, v, rho, tex);
                     if (tex[3] * source->color.w < source->alpha_cutoff) continue;
                 }
                 float z = l0*t.sz[0] + l1*t.sz[1] + l2*t.sz[2];
@@ -646,7 +747,8 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             float rgb[3], tex[4];
             float u = t->uv[0][0] * b0 + t->uv[1][0] * b1 + t->uv[2][0] * b2;
             float v = t->uv[0][1] * b0 + t->uv[1][1] * b1 + t->uv[2][1] * b2;
-            sample_texture(it->texture, u, v, tex);
+            float rho = texture_footprint(t, it->texture, l0, l1, l2, u, v);
+            sample_texture(it->texture, u, v, rho, tex);
             float alpha = it->color.w * tex[3];
             if (it->alpha_mode == 1 && alpha < it->alpha_cutoff) continue;
             shade(it, vs, wp, n, tex, rgb);

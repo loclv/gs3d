@@ -44,6 +44,7 @@ function fakeEngine() {
   engine._g3_asset_texture = () => nextTexture++;
   engine._g3_host_texture = (...args) => calls.push(['texture', ...args]);
   engine._g3_host_texture_wrap = (...args) => calls.push(['wrap', ...args]);
+  engine._g3_host_texture_filter = (...args) => calls.push(['filter', ...args]);
   engine._g3_host_release_mesh = id => calls.push(['release_mesh', id]);
   engine._g3_host_release_texture = id => calls.push(['release_texture', id]);
   engine._g3_asset_release_mesh = id => calls.push(['recycle_mesh', id]);
@@ -112,7 +113,20 @@ const mipmap = structuredClone(textured);
 mipmap.samplers = [{ minFilter: 9987 }];
 mipmap.textures[0].sampler = 0;
 resources.set('http://localhost/mipmap.gltf', bytes(mipmap));
-await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/mipmap.gltf'), e => e.code === 'UNSUPPORTED');
+const mipmapEngine = fakeEngine();
+const mipmapModel = await loadGLTF(mipmapEngine, 'http://localhost/mipmap.gltf');
+assert.deepEqual(mipmapEngine.calls.find(x => x[0] === 'filter'), ['filter', 5, 9987, 9729]);
+mipmapModel.dispose();
+for (const minFilter of [9728, 9729, 9984, 9985, 9986, 9987]) {
+  const filtered = structuredClone(textured);
+  filtered.samplers = [{ minFilter, magFilter: 9728 }];
+  filtered.textures[0].sampler = 0;
+  resources.set(`http://localhost/filter-${minFilter}.gltf`, bytes(filtered));
+  const filteredEngine = fakeEngine();
+  const asset = await loadGLTF(filteredEngine, `http://localhost/filter-${minFilter}.gltf`);
+  assert.deepEqual(filteredEngine.calls.find(x => x[0] === 'filter'), ['filter', 5, minFilter, 9728]);
+  asset.dispose();
+}
 for (const [mode, expected, cutoff] of [['MASK', 1, 0.3], ['BLEND', 2, 0.5]]) {
   const materialDoc = structuredClone(textured);
   materialDoc.materials[0].alphaMode = mode;

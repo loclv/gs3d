@@ -30,7 +30,7 @@ async function decodeImage(bytes, type) {
   finally { if (bitmap) bitmap.close(); }
 }
 
-function uploadImage(engine, image, wrapU = 0, wrapV = 0) {
+function uploadImage(engine, image, wrapU = 0, wrapV = 0, minFilter = 9729, magFilter = 9729) {
   const ptr = engine._malloc(image.pixels.length);
   if (!ptr) throw new AssetError('MEMORY', 'Could not allocate image upload buffer');
   let id = -1;
@@ -40,6 +40,7 @@ function uploadImage(engine, image, wrapU = 0, wrapV = 0) {
     if (id < 0) throw new AssetError('MEMORY', 'Could not allocate texture');
     engine._g3_host_texture(id, ptr, image.width, image.height);
     engine._g3_host_texture_wrap(id, wrapU, wrapV);
+    engine._g3_host_texture_filter(id, minFilter, magFilter);
     return id;
   } catch (error) {
     if (id >= 0) releaseTexture(engine, id);
@@ -172,11 +173,10 @@ async function prepare(url) {
     if (sampler.extensions || texture.extensions) unsupported('Texture or sampler extensions are not supported');
     if (sampler.magFilter !== undefined && ![9728, 9729].includes(sampler.magFilter)) invalid('Invalid magnification filter');
     if (sampler.minFilter !== undefined && ![9728, 9729, 9984, 9985, 9986, 9987].includes(sampler.minFilter)) invalid('Invalid minification filter');
-    if ((sampler.magFilter !== undefined && sampler.magFilter !== 9729) ||
-        (sampler.minFilter !== undefined && sampler.minFilter !== 9729)) unsupported('Nearest and mipmap texture filters are not supported');
     const s = sampler.wrapS ?? 10497, t = sampler.wrapT ?? 10497;
     if (!Object.hasOwn(wrapModes, s) || !Object.hasOwn(wrapModes, t)) invalid('Invalid texture wrapping mode');
-    return { image: texture.source, wrapU: wrapModes[s], wrapV: wrapModes[t] };
+    return { image: texture.source, wrapU: wrapModes[s], wrapV: wrapModes[t],
+      minFilter: sampler.minFilter ?? 9729, magFilter: sampler.magFilter ?? 9729 };
   });
   const meshes = (doc.meshes || []).map(mesh => (mesh.primitives || []).map(p => {
     if ((p.mode ?? 4) !== 4 || p.targets?.length) unsupported('Only triangle meshes without morph targets are supported');
@@ -247,7 +247,7 @@ export async function loadGLTF(engine, url) {
     for (const id of textures) releaseTexture(engine, id);
   };
   try {
-    for (const spec of data.textureSpecs) textures.push(uploadImage(engine, data.images[spec.image], spec.wrapU, spec.wrapV));
+    for (const spec of data.textureSpecs) textures.push(uploadImage(engine, data.images[spec.image], spec.wrapU, spec.wrapV, spec.minFilter, spec.magFilter));
     function createNode(node, parent) {
       const group = engine._g3_asset_node(-1, parent);
       nodes.push(group);

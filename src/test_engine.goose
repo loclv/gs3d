@@ -291,6 +291,43 @@ fn case_texture_wrap() {
     testing::check(!g3::texture_set_wrap(tex, 7, 0), "invalid wrap modes are rejected");
 }
 
+fn case_texture_filter() {
+    g3::scene_clear();
+    flat_camera();
+    let pixels: u8[16] = [255, 0, 0, 255, 0, 255, 0, 255,
+                          0, 0, 255, 255, 255, 255, 255, 255];
+    let tex = g3::texture_create(2, 2, pixels[..]);
+    let n .= g3::node(g3::node_add(uv_triangle(0.5, 0.25)));
+    n.texture = tex;
+    n.unlit = true;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 0, 2), "linear filtering mixes adjacent texels");
+    let nearest = g3::texture_set_filter(tex, g3::FILTER_LINEAR, g3::FILTER_NEAREST);
+    g3::frame(1.0 / 60.0);
+    testing::check(nearest && is_color(g3::read_pixel(200, 200), 0, 255, 0, 2), "nearest magnification selects one texel");
+    let fv = g3::g_verts.len;
+    let fi = g3::g_indices.len;
+    let normal = float3 { 0.0, 0.0, 1.0 };
+    g3::push_vertex_uv(float3 { -1.0, -1.0, 0.0 }, normal, float2 { 0.0, 0.0 });
+    g3::push_vertex_uv(float3 { 1.0, -1.0, 0.0 }, normal, float2 { 400.0, 0.0 });
+    g3::push_vertex_uv(float3 { 0.0, 1.0, 0.0 }, normal, float2 { 200.0, 400.0 });
+    g3::push_triangle(0, 1, 2);
+    n.mesh = g3::mesh_close(fv, fi);
+    let wrap = g3::texture_set_wrap(tex, g3::WRAP_REPEAT, g3::WRAP_REPEAT);
+    let mip = g3::texture_set_filter(tex, g3::FILTER_LINEAR_MIPMAP_LINEAR, g3::FILTER_LINEAR);
+    g3::frame(1.0 / 60.0);
+    // At this scale a pixel spans several repeats, so the 1x1 mip is the
+    // average of red, green, blue and white: (128,128,128).
+    testing::check(wrap && mip && is_color(g3::read_pixel(200, 200), 128, 128, 128, 2), "mipmap filtering averages a highly minified texture");
+    for filter in 9984..9988 {
+        let ok = g3::texture_set_filter(tex, filter as i32, g3::FILTER_NEAREST);
+        g3::frame(1.0 / 60.0);
+        testing::check(ok && is_color(g3::read_pixel(200, 200), 128, 128, 128, 2), "each mipmap filter selects the 1x1 level when minified");
+    }
+    testing::check(!g3::texture_set_filter(tex, 9988, g3::FILTER_LINEAR), "invalid minification filter is rejected");
+    testing::check(!g3::texture_set_filter(tex, g3::FILTER_LINEAR, 9987), "mipmap magnification filter is rejected");
+}
+
 fn case_lights() {
     g3::scene_clear();
     flat_camera();
@@ -498,6 +535,7 @@ fn main() {
     case_texture();
     case_texture_alpha();
     case_texture_wrap();
+    case_texture_filter();
     case_lights();
     case_shadow();
     case_clipping();
