@@ -341,8 +341,10 @@ Deliberately out of scope for now, in rough order of how much they would add:
   provide a diffuse approximation rather than prefiltered reflections.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
-* **No removal from the scene.** `visible = false`, or build a scene once and
-  reuse it. `scene_clear()` exists for a program that builds several.
+* **Limited removal.** Browser-loaded assets recycle their owned nodes, mesh
+  spans, and texture IDs on disposal. Ordinary scene nodes and meshes remain
+  grow-only, and freed asset spans can become fragmented. `scene_clear()`
+  clears the scene; asset handles are invalid after their owner is disposed.
 * **Singular transforms.** A zero-scale transform has no inverse normal matrix;
   its surface normals become zero rather than receiving directional lighting.
 * **f32 only**, and no frustum-cone/AABB hierarchy — culling is per node, which

@@ -43,6 +43,9 @@ function fakeEngine() {
   engine._g3_host_texture = (...args) => calls.push(['texture', ...args]);
   engine._g3_host_release_mesh = id => calls.push(['release_mesh', id]);
   engine._g3_host_release_texture = id => calls.push(['release_texture', id]);
+  engine._g3_asset_release_mesh = id => calls.push(['recycle_mesh', id]);
+  engine._g3_asset_release_texture = id => calls.push(['recycle_texture', id]);
+  engine._g3_asset_scene_epoch = () => engine.epoch || 0;
   engine._malloc = () => 4; engine._free = () => {};
   return engine;
 }
@@ -74,6 +77,12 @@ const texturedModel = await loadGLTF(texturedEngine, 'http://localhost/textured.
 assert.equal(texturedEngine.calls.find(x => x[0] === 'material').at(-1), 5);
 texturedModel.dispose();
 assert.equal(texturedEngine.calls.filter(x => x[0] === 'release_texture').length, 1);
+const clearedEngine = fakeEngine();
+const clearedModel = await loadGLTF(clearedEngine, 'http://localhost/model.gltf');
+clearedEngine.epoch = 1;
+clearedModel.dispose();
+assert.equal(clearedEngine.calls.filter(x => x[0] === 'hide').length, 0);
+assert.equal(clearedEngine.calls.filter(x => x[0] === 'recycle_mesh').length, 1);
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/missing'), e => e instanceof AssetError && e.code === 'FETCH');
 const invalid = structuredClone(doc); invalid.meshes[0].primitives[0].mode = 1;
 resources.set('http://localhost/bad.gltf', bytes(invalid));

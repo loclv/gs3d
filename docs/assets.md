@@ -26,10 +26,18 @@ URLs are resolved relative to the document or, for external glTF resources,
 relative to the model URL. Resources require normal browser fetch/CORS access.
 The API decodes images into RGBA8 and copies them to the renderer. `dispose()`
 is idempotent. A model owns the nodes, meshes, and textures it creates: disposal
-hides its nodes and releases its GPU buffers and textures. Do not share those
-handles beyond the model's lifetime or call `scene_clear()` before disposal.
-The engine's grow-only Goose arenas retain their records and geometry until
-program exit, so repeated load/dispose cycles still grow CPU-side memory.
+releases its GPU buffers and textures and makes its asset-owned node, mesh,
+and texture slots available for reuse. Handles and references from the model
+are invalid after disposal and must not be shared past that point; a reused
+integer can refer to a different object. Disposal after `scene_clear()` will
+still release the model's GPU resources without touching nodes in the new scene.
+
+CPU geometry remains available for future picking while a model is live. Freed
+mesh spans are reused when both the new vertex and index data fit; repeated
+loads of the same model therefore do not keep growing the arenas. Spans are not
+split, compacted, or returned to the operating system, however, so changing
+asset sizes and allocation order can cause fragmentation and memory grows to a
+high-water mark. This is not yet general-purpose resource reclamation.
 
 `AssetError.code` is `FETCH`, `IMAGE`, `INVALID_GLTF`, `UNSUPPORTED`, `MEMORY`,
 or `UPLOAD`. The loader validates and decodes before creating scene objects;

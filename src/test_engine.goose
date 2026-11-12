@@ -339,6 +339,49 @@ fn case_normal_transform() {
     testing::check(is_color(g3::read_pixel(200, 200), 114, 114, 114, 2), "rotated non-uniform normal has the correct direction");
 }
 
+fn case_asset_reuse() {
+    g3::scene_clear();
+    flat_camera();
+    let vertices: g3::Vertex[3] = [
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 } },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 } },
+        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 } }];
+    let indices: u32[3] = [0, 1, 2];
+    let mesh = g3::mesh_asset_create(vertices[..], indices[..]);
+    let first = g3::node_asset_add(mesh);
+    g3::node(first).unlit = true;
+    let vertex_count = g3::g_verts.len;
+    let index_count = g3::g_indices.len;
+    let node_count = g3::node_count();
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "asset geometry renders before release");
+    g3::node_asset_release(first);
+    g3::mesh_asset_release(mesh);
+    let replacement = g3::mesh_asset_create(vertices[..], indices[..]);
+    let second = g3::node_asset_add(replacement);
+    g3::node(second).unlit = true;
+    g3::frame(1.0 / 60.0);
+    testing::check(first == second && mesh == replacement && g3::node_count() == node_count &&
+        g3::g_verts.len == vertex_count && g3::g_indices.len == index_count,
+        "asset reload reuses node and geometry storage");
+    testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "reused asset geometry renders");
+    for i in 100 {
+        g3::node_asset_release(second);
+        g3::mesh_asset_release(replacement);
+        let again = g3::mesh_asset_create(vertices[..], indices[..]);
+        let node_again = g3::node_asset_add(again);
+        g3::node(node_again).unlit = true;
+    }
+    testing::check(g3::node_count() == node_count && g3::g_verts.len == vertex_count && g3::g_indices.len == index_count,
+        "repeated load and release keeps arena lengths bounded");
+    let texture = g3::texture_asset_create();
+    g3::texture_asset_release(texture);
+    g3::texture_asset_release(texture);
+    let replacement_texture = g3::texture_asset_create();
+    let other_texture = g3::texture_asset_create();
+    testing::check(replacement_texture == texture && other_texture != texture, "released texture id is reused only once");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -358,6 +401,7 @@ fn main() {
     case_shadow();
     case_clipping();
     case_normal_transform();
+    case_asset_reuse();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

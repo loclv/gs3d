@@ -13,8 +13,8 @@
 //
 // Parenting is an index into the same array, `-1` for a root. The world matrix
 // is recomputed each frame by walking up the chain, so the order nodes were
-// added in does not matter. There is no removal: hide a node with `visible`
-// or build the scene once, which is what a static level wants.
+// added in does not matter. Ordinary nodes remain permanent until scene_clear;
+// asset-owned nodes can be released and their slots reused by the asset loader.
 
 import vec;
 import math;
@@ -37,6 +37,8 @@ struct Node {
     world: Mat4,                // filled by `node_update_worlds`, do not set
     local_matrix: Mat4,         // optional imported affine transform
     use_local_matrix: bool,
+    asset_owned: bool,
+    asset_free: bool,
 }
 
 struct Camera {
@@ -49,6 +51,7 @@ struct Camera {
 }
 
 var g_nodes: Node[>..];
+var g_scene_epoch: i32;
 var g_camera: Camera;
 var g_camera_yaw: f32 = 0.5;
 var g_camera_pitch: f32 = 0.35;
@@ -60,7 +63,7 @@ fn node_count() -> i64 { g_nodes.len }
 // Empty the scene, for a program that builds more than one. The compiler
 // refuses this while any reference into a node is still live, which is what
 // keeps a stale handle from surviving it.
-fn scene_clear() { g_nodes.clear() }
+fn scene_clear() { g_nodes.clear(); g_scene_epoch += 1; }
 
 // The node with this handle, as a reference: writable, and valid as long as
 // the program runs.
@@ -71,6 +74,29 @@ fn node(id: i64) -> Node& { return g_nodes[id] }
 fn node_add(mesh_id: i32) -> i64 {
     g_nodes.push(Node { mesh: mesh_id, .. });
     return g_nodes.len - 1;
+}
+
+// Asset nodes may be recycled only after their owner has been disposed.
+fn node_asset_add(mesh_id: i32) -> i64 {
+    for i in 0..g_nodes.len {
+        if g_nodes[i].asset_owned && g_nodes[i].asset_free {
+            g_nodes[i] = Node { mesh: mesh_id, asset_owned: true, .. };
+            return i;
+        }
+    }
+    g_nodes.push(Node { mesh: mesh_id, asset_owned: true, .. });
+    return g_nodes.len - 1;
+}
+
+fn node_asset_release(id: i64) {
+    guard id >= 0 && id < g_nodes.len else { return; }
+    let n .= g_nodes[id];
+    if n.asset_owned && !n.asset_free {
+        n.visible = false;
+        n.asset_free = true;
+        n.mesh = -1;
+        n.parent = -1;
+    }
 }
 
 // A node with children and no geometry of its own: the pivot of a hierarchy.

@@ -9,6 +9,8 @@
 //
 // A mesh id is an `i32` because it is a backend handle. `-1` means "no mesh"
 // and is what a group node (a node with children and nothing to draw) uses.
+// Ordinary mesh ids are permanent; asset-owned ids and their spans may be
+// reused after their owner releases them.
 
 import vec;
 import math;
@@ -22,6 +24,9 @@ struct Mesh {
     first_vertex: i64, vertex_count: i64,
     first_index: i64, index_count: i64,
     bounds: Aabb,           // local space, for frustum culling
+    vertex_capacity: i64, index_capacity: i64,
+    asset_owned: bool,
+    asset_free: bool,
 }
 
 var g_verts: Vertex[>..];
@@ -75,9 +80,44 @@ fn mesh_close(fv: i64, fi: i64) -> i32 {
     for i in fv..g_verts.len { aabb_add(b, g_verts[i].pos); }
     let id = g_meshes.len as i32;
     g_meshes.push(Mesh { id: id, first_vertex: fv, vertex_count: g_verts.len - fv,
-                         first_index: fi, index_count: g_indices.len - fi, bounds: b });
+                         first_index: fi, index_count: g_indices.len - fi, bounds: b,
+                         vertex_capacity: g_verts.len - fv, index_capacity: g_indices.len - fi, .. });
     g3p_upload_mesh(id, g_verts[fv..], g_indices[fi..]);
     return id;
+}
+
+// Asset meshes retain CPU geometry for picking. Reuse a released allocation
+// only when both of its spans fit; ordinary mesh handles remain permanent.
+fn mesh_asset_create(verts: const Vertex[:], indices: const u32[:]) -> i32 {
+    var bounds = aabb_empty();
+    for v in verts { aabb_add(bounds, v.pos); }
+    for i in 0..g_meshes.len {
+        let m .= g_meshes[i];
+        if m.asset_owned && m.asset_free && m.vertex_capacity >= verts.len && m.index_capacity >= indices.len {
+            for j in 0..verts.len { g_verts[m.first_vertex + j] = verts[j]; }
+            for j in 0..indices.len { g_indices[m.first_index + j] = indices[j]; }
+            m.vertex_count = verts.len;
+            m.index_count = indices.len;
+            m.bounds = bounds;
+            m.asset_free = false;
+            g3p_upload_mesh(m.id, g_verts[m.first_vertex..m.first_vertex + m.vertex_count],
+                            g_indices[m.first_index..m.first_index + m.index_count]);
+            return m.id;
+        }
+    }
+    let fv = g_verts.len;
+    let fi = g_indices.len;
+    for v in verts { g_verts.push(v); }
+    for i in indices { g_indices.push(i); }
+    let id = mesh_close(fv, fi);
+    g_meshes[id].asset_owned = true;
+    return id;
+}
+
+fn mesh_asset_release(id: i32) {
+    guard id >= 0 && id < g_meshes.len else { return; }
+    let m .= g_meshes[id];
+    if m.asset_owned { m.asset_free = true; }
 }
 
 // A cube of the given half extent, 4 corners and 2 triangles per face, with

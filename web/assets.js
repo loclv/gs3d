@@ -41,9 +41,14 @@ function uploadImage(engine, image) {
     engine._g3_host_texture(id, ptr, image.width, image.height);
     return id;
   } catch (error) {
-    if (id >= 0) engine._g3_host_release_texture(id);
+    if (id >= 0) releaseTexture(engine, id);
     throw error;
   } finally { engine._free(ptr); }
+}
+
+function releaseTexture(engine, id) {
+  engine._g3_host_release_texture(id);
+  engine._g3_asset_release_texture(id);
 }
 
 // The caller owns the returned texture and must dispose it once unused.
@@ -53,7 +58,7 @@ export async function loadImage(engine, url) {
   const id = uploadImage(engine, image);
   let disposed = false;
   return { id, width: image.width, height: image.height, dispose() {
-    if (!disposed) { disposed = true; engine._g3_host_release_texture(id); }
+    if (!disposed) { disposed = true; releaseTexture(engine, id); }
   } };
 }
 
@@ -195,13 +200,19 @@ export async function loadGLTF(engine, url) {
     throw new AssetError('INVALID_GLTF', 'Invalid glTF structure or URL', error);
   }
   const nodes = [], meshes = [], textures = [];
+  const sceneEpoch = engine._g3_asset_scene_epoch();
   let disposed = false;
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    for (const id of nodes) engine._g3_asset_hide(id);
-    for (const id of meshes) engine._g3_host_release_mesh(id);
-    for (const id of textures) engine._g3_host_release_texture(id);
+    if (sceneEpoch === engine._g3_asset_scene_epoch()) {
+      for (const id of nodes) engine._g3_asset_hide(id);
+    }
+    for (const id of meshes) {
+      engine._g3_host_release_mesh(id);
+      engine._g3_asset_release_mesh(id);
+    }
+    for (const id of textures) releaseTexture(engine, id);
   };
   try {
     for (const image of data.images) textures.push(uploadImage(engine, image));

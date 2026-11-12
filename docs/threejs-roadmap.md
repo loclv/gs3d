@@ -15,7 +15,7 @@ and pixel tests provide a useful reference for rendering changes.
 
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
-| Assets | Built-in primitives, custom geometry, and a browser loader for static glTF/GLB | Complete glTF coverage, native loading, reusable asset ownership and arena reclamation; see [assets.md](assets.md) |
+| Assets | Built-in primitives, custom geometry, and a browser loader for static glTF/GLB with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
 | Materials | Colour, one RGB texture, specular controls | Reusable materials, physically based rendering (PBR), normal, roughness and metallic maps, texture alpha, mipmaps and wrapping |
 | Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
@@ -40,8 +40,9 @@ and a browser integration check for behavior exposed through WebGL.
 
 * **Implemented:** view-volume clipping and inverse-transpose normals for
   non-uniform scale. Continue expanding CPU and browser rendering checks.
-* Add object and resource removal with well-defined ownership and reusable
-  handles, so repeated model load/dispose cycles do not grow memory indefinitely.
+* Extend asset-owned slot reuse to general object and resource removal with
+  well-defined ownership and safe handles; handle fragmented mesh spans so
+  varied model load/dispose cycles do not grow memory indefinitely.
 * Implement texture alpha, mipmaps, wrapping, and colour-space handling; expand
   the glTF loader's material and sampler support.
 * Add orbit controls and raycasting against loaded meshes, and expose a minimal
