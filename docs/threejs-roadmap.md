@@ -21,7 +21,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
 | Scene management | Parent hierarchy and one camera | Object and resource removal, reusable resources, multiple cameras, orthographic camera rendering |
 | Interaction | Keyboard and mouse input | Raycasting and picking, touch controls, reusable camera controls |
-| Rendering | WebGL2, one draw call per visible node | Instancing, render targets, post-processing, custom shaders, robust clipping and colour management |
+| Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
 | Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
 
 Three.js's [fundamentals](https://threejs.org/manual/pages/fundamentals.html),
@@ -38,7 +38,8 @@ and a browser integration check for behavior exposed through WebGL.
 
 ### 1. Reliable static model viewer
 
-* Correct near-plane clipping and normals under non-uniform scale.
+* **Implemented:** view-volume clipping and inverse-transpose normals for
+  non-uniform scale. Continue expanding CPU and browser rendering checks.
 * Add object and resource removal with well-defined ownership and reusable
   handles, so repeated model load/dispose cycles do not grow memory indefinitely.
 * Implement texture alpha, mipmaps, wrapping, and colour-space handling; expand

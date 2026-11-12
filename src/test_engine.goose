@@ -290,6 +290,55 @@ fn case_shadow() {
     testing::check(is_color(g3::read_pixel(303, 200), 180, 180, 180, 3), "disabling shadows restores the light");
 }
 
+fn case_clipping() {
+    g3::scene_clear();
+    flat_camera();
+    g3::camera().near = 1.0;
+    let fv = g3::g_verts.len;
+    let fi = g3::g_indices.len;
+    let normal = float3 { 0.0, 0.0, 1.0 };
+    // Two vertices are two units from the eye; the third is only 0.5 away,
+    // inside the near plane. The middle-lower portion remains visible.
+    g3::push_vertex(float3 { -1.0, -1.0, 3.0 }, normal);
+    g3::push_vertex(float3 { 1.0, -1.0, 3.0 }, normal);
+    g3::push_vertex(float3 { 0.0, 1.0, 4.5 }, normal);
+    g3::push_triangle(0, 1, 2);
+    let n .= g3::node(g3::node_add(g3::mesh_close(fv, fi)));
+    n.unlit = true;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 250), 255, 255, 255, 2), "triangle crossing near plane remains visible");
+    // Move the whole triangle between the eye and the near plane.
+    n.pos.z = 1.6;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 250), 255, 0, 255, 2), "triangle entirely before near plane is clipped");
+}
+
+fn case_normal_transform() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_light(float3 { 0.0, 0.0, -1.0 }, float3_1);
+    let fv = g3::g_verts.len;
+    let fi = g3::g_indices.len;
+    let normal = float3 { 0.70710678, 0.0, 0.70710678 };
+    g3::push_vertex(float3 { -1.0, -1.0, 0.0 }, normal);
+    g3::push_vertex(float3 { 1.0, -1.0, 0.0 }, normal);
+    g3::push_vertex(float3 { 0.0, 1.0, 0.0 }, normal);
+    g3::push_triangle(0, 1, 2);
+    let n .= g3::node(g3::node_add(g3::mesh_close(fv, fi)));
+    n.scale = float3 { 2.0, 1.0, 1.0 };
+    n.spec = 0.0;
+    g3::frame(1.0 / 60.0);
+    // Inverse-transpose gives normal (1,0,2)/sqrt(5); its dot with +z
+    // is 2/sqrt(5), so white under this light is approximately 228/255.
+    testing::check(is_color(g3::read_pixel(200, 200), 228, 228, 228, 2), "non-uniform scale uses the inverse-transpose normal");
+    // Rotating +90° about z sends the transformed x component to +y.
+    n.rot.z = PI * 0.5;
+    g3::set_light(float3 { 0.0, -1.0, 0.0 }, float3_1);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 114, 114, 114, 2), "rotated non-uniform normal has the correct direction");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -307,6 +356,8 @@ fn main() {
     case_texture();
     case_lights();
     case_shadow();
+    case_clipping();
+    case_normal_transform();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

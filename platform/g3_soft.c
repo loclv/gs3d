@@ -8,8 +8,7 @@
    wrong in the engine, not in a driver.
  
    It is a small, correct rasterizer, not a fast one:
-     - triangles are dropped rather than clipped when a vertex is behind the
-       eye, and z outside [0, 1] is dropped, not clamped;
+     - triangles are clipped against the six homogeneous clip planes;
      - one thread, no tiles, no early-z;
      - depth LESS, back faces culled, CCW front, perspective-correct
        attributes: the same state the WebGL backend sets. */
@@ -381,11 +380,61 @@ static void sample_texture(int32_t id, float u, float v, float out[3]) {
     }
 }
 
-/* Transform a triangle and reject it if it cannot be drawn: a corner at or
-   behind the eye, a back face, a depth outside the buffer, or a box that
-   misses the screen. Returns 1 when `t` is ready to rasterize. */
+/* Clip in homogeneous space before division. Interpolating object-space
+   attributes at each intersection preserves perspective-correct interpolation
+   after setup_triangle computes 1/w. A clipped triangle has at most 9 vertices. */
+static float clip_distance(const g3_vertex *v, const g3_mat4 *m, int plane) {
+    const float *p = &v->pos.x, *a = m->m;
+    float x=a[0]*p[0]+a[4]*p[1]+a[8]*p[2]+a[12];
+    float y=a[1]*p[0]+a[5]*p[1]+a[9]*p[2]+a[13];
+    float z=a[2]*p[0]+a[6]*p[1]+a[10]*p[2]+a[14];
+    float w=a[3]*p[0]+a[7]*p[1]+a[11]*p[2]+a[15];
+    switch (plane) { case 0: return w+x; case 1: return w-x;
+        case 2: return w+y; case 3: return w-y; case 4: return w+z; default: return w-z; }
+}
+
+static g3_vertex clip_lerp(g3_vertex a, g3_vertex b, float t) {
+#define LERP(field) a.field += (b.field - a.field) * t
+    LERP(pos.x); LERP(pos.y); LERP(pos.z);
+    LERP(normal.x); LERP(normal.y); LERP(normal.z);
+    LERP(uv.x); LERP(uv.y);
+#undef LERP
+    return a;
+}
+
+static int clip_triangle(const g3_draw_item *it, const g3_vertex *const tri[3], g3_vertex out[32]) {
+    g3_vertex a[32], b[32];
+    a[0] = *tri[0]; a[1] = *tri[1]; a[2] = *tri[2];
+    int count = 3;
+    for (int plane = 0; plane < 6 && count; plane++) {
+        int next = 0;
+        g3_vertex prev = a[count - 1];
+        float dp = clip_distance(&prev, &it->mvp, plane);
+        for (int j = 0; j < count; j++) {
+            g3_vertex cur = a[j];
+            float dc = clip_distance(&cur, &it->mvp, plane);
+            if ((dp >= 0.0f) != (dc >= 0.0f)) {
+                if (next == 32) return 0;
+                b[next++] = clip_lerp(prev, cur, dp / (dp - dc));
+            }
+            if (dc >= 0.0f) {
+                if (next == 32) return 0;
+                b[next++] = cur;
+            }
+            prev = cur; dp = dc;
+        }
+        count = next;
+        memcpy(a, b, (size_t)count * sizeof(*a));
+    }
+    memcpy(out, a, (size_t)count * sizeof(*out));
+    return count;
+}
+
+/* Transform a clipped triangle and reject back faces or empty screen boxes. */
 static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3], soft_tri *t) {
     float ndc[3][3];
+    float normal_matrix[9];
+    g3_normal_matrix(&it->model, normal_matrix);
     for (int k = 0; k < 3; k++) {
         const float *p = &tri[k]->pos.x;
         const float *m = it->mvp.m;
@@ -393,7 +442,7 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
         float cy = m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13];
         float cz = m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14];
         float cw = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15];
-        if (cw <= 1e-6f) return 0;   /* at or behind the eye: dropped, not clipped */
+        if (cw <= 1e-6f) return 0;
         float w = 1.0f / cw;
         t->inv_w[k] = w;
         t->uv[k][0] = tri[k]->uv.x;
@@ -404,9 +453,9 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
 
         const float *nm = it->model.m;
         const float *n = &tri[k]->normal.x;
-        t->nrm[k][0] = nm[0] * n[0] + nm[4] * n[1] + nm[8] * n[2];
-        t->nrm[k][1] = nm[1] * n[0] + nm[5] * n[1] + nm[9] * n[2];
-        t->nrm[k][2] = nm[2] * n[0] + nm[6] * n[1] + nm[10] * n[2];
+        t->nrm[k][0] = normal_matrix[0] * n[0] + normal_matrix[3] * n[1] + normal_matrix[6] * n[2];
+        t->nrm[k][1] = normal_matrix[1] * n[0] + normal_matrix[4] * n[1] + normal_matrix[7] * n[2];
+        t->nrm[k][2] = normal_matrix[2] * n[0] + normal_matrix[5] * n[1] + normal_matrix[8] * n[2];
         t->world[k][0] = nm[0] * p[0] + nm[4] * p[1] + nm[8] * p[2] + nm[12];
         t->world[k][1] = nm[1] * p[0] + nm[5] * p[1] + nm[9] * p[2] + nm[13];
         t->world[k][2] = nm[2] * p[0] + nm[6] * p[1] + nm[10] * p[2] + nm[14];
@@ -422,7 +471,9 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
         t->sx[k] = (ndc[k][0] * 0.5f + 0.5f) * (float)fb_w;
         t->sy[k] = (1.0f - (ndc[k][1] * 0.5f + 0.5f)) * (float)fb_h;
         t->sz[k] = ndc[k][2] * 0.5f + 0.5f;
-        if (t->sz[k] < 0.0f || t->sz[k] > 1.0f) return 0;
+        /* Clipped points can round a few ulps beyond a depth plane. */
+        if (t->sz[k] < 0.0f) t->sz[k] = 0.0f;
+        if (t->sz[k] > 1.0f) t->sz[k] = 1.0f;
     }
 
     t->det = (t->sx[1] - t->sx[0]) * (t->sy[2] - t->sy[0]) -
@@ -486,8 +537,12 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs)
             uint32_t a = mesh->idx[j], b = mesh->idx[j+1], c = mesh->idx[j+2];
             if (a >= mesh->vcount || b >= mesh->vcount || c >= mesh->vcount) continue;
             const g3_vertex *verts[3] = { &mesh->verts[a], &mesh->verts[b], &mesh->verts[c] };
+            g3_vertex clipped[32];
+            int count = clip_triangle(&item, verts, clipped);
+            for (int part = 1; part + 1 < count; part++) {
+            const g3_vertex *triangle[3] = { &clipped[0], &clipped[part], &clipped[part+1] };
             soft_tri t;
-            if (!setup_triangle(&item, verts, &t)) continue;
+            if (!setup_triangle(&item, triangle, &t)) continue;
             for (int y = t.y0; y <= t.y1; y++) for (int x = t.x0; x <= t.x1; x++) {
                 float px = x + 0.5f, py = y + 0.5f;
                 float e0 = (t.sx[1]-px)*(t.sy[2]-py) - (t.sx[2]-px)*(t.sy[1]-py);
@@ -498,6 +553,7 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs)
                 float z = l0*t.sz[0] + l1*t.sz[1] + l2*t.sz[2];
                 float *dst = &shadow_depth[y * SHADOW_SIZE + x];
                 if (z < *dst) *dst = z;
+            }
             }
         }
     }
@@ -575,7 +631,7 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
 /* Phase one, serial: transform one triangle and keep it if it can be drawn.
    Transforming once for the whole frame is what makes banding cheap: the
    alternative redoes this work for every band a triangle touches. */
-static void queue_triangle(const g3_draw_item *it, const g3_vertex *const tri[3], int blended) {
+static void queue_clipped_triangle(const g3_draw_item *it, const g3_vertex *const tri[3], int blended) {
     if (queue_len == queue_cap) {
         int64_t cap = queue_cap ? queue_cap * 2 : 1024;
         soft_quad *grown = (soft_quad *)realloc(queue, sizeof(soft_quad) * (size_t)cap);
@@ -591,6 +647,15 @@ static void queue_triangle(const g3_draw_item *it, const g3_vertex *const tri[3]
     q->item = it;
     q->blended = blended;
     queue_len += 1;
+}
+
+static void queue_triangle(const g3_draw_item *it, const g3_vertex *const tri[3], int blended) {
+    g3_vertex vertices[32];
+    int count = clip_triangle(it, tri, vertices);
+    for (int i = 1; i + 1 < count; i++) {
+        const g3_vertex *part[3] = { &vertices[0], &vertices[i], &vertices[i + 1] };
+        queue_clipped_triangle(it, part, blended);
+    }
 }
 
 /* Phase two, one block of rows: walk the display list in order, so a pixel

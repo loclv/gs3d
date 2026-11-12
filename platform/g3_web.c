@@ -36,7 +36,7 @@ typedef struct {
 /* The one program every item draws with, and where its uniforms live. */
 typedef struct {
     GLuint program;
-    GLint mvp, model, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
+    GLint mvp, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
     GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4];
     GLint env_sky, env_ground;
     GLint env_map, env_map_enabled, env_map_intensity;
@@ -63,6 +63,7 @@ static const char *VERTEX_SRC =
     "layout(location = 2) in vec2 a_uv;\n"
     "uniform mat4 u_mvp;\n"
     "uniform mat4 u_model;\n"
+    "uniform mat3 u_normal_matrix;\n"
     "out vec3 v_normal;\n"
     "out vec3 v_world;\n"
     "out vec2 v_uv;\n"
@@ -70,7 +71,7 @@ static const char *VERTEX_SRC =
     "    vec4 world = u_model * vec4(a_pos, 1.0);\n"
     "    v_world = world.xyz;\n"
     "    v_uv = a_uv;\n"
-    "    v_normal = mat3(u_model) * a_normal;\n"
+    "    v_normal = u_normal_matrix * a_normal;\n"
     "    gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
     "}\n";
 
@@ -103,7 +104,8 @@ static const char *FRAGMENT_SRC =
     "uniform vec4 u_fog;\n"
     "out vec4 out_color;\n"
     "void main() {\n"
-    "    vec3 n = normalize(v_normal);\n"
+    "    float normal_length = length(v_normal);\n"
+    "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
     "    vec3 l = -u_light_dir;\n"
     "    float diff = max(dot(n, l), 0.0);\n"
     "    vec3 v = normalize(u_eye - v_world);\n"
@@ -197,6 +199,7 @@ static int link_program(GLuint vs, GLuint fs) {
 static void find_uniforms(void) {
     shader.mvp = glGetUniformLocation(shader.program, "u_mvp");
     shader.model = glGetUniformLocation(shader.program, "u_model");
+    shader.normal_matrix = glGetUniformLocation(shader.program, "u_normal_matrix");
     shader.color = glGetUniformLocation(shader.program, "u_color");
     shader.params = glGetUniformLocation(shader.program, "u_params");
     shader.eye = glGetUniformLocation(shader.program, "u_eye");
@@ -508,6 +511,9 @@ static void draw_item(const g3_draw_item *it) {
     }
     glUniformMatrix4fv(shader.mvp, 1, GL_FALSE, it->mvp.m);
     glUniformMatrix4fv(shader.model, 1, GL_FALSE, it->model.m);
+    float normal_matrix[9];
+    g3_normal_matrix(&it->model, normal_matrix);
+    glUniformMatrix3fv(shader.normal_matrix, 1, GL_FALSE, normal_matrix);
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
     int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];

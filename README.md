@@ -337,16 +337,14 @@ Deliberately out of scope for now, in rough order of how much they would add:
 * **Limited shadows, environment lighting, and normals.** Only the primary
   directional light casts hard shadows; blended objects do not cast them.
   The map has fixed resolution and explicit bounds, and shadow-enabled frames
-  submit off-camera nodes so they can cast shadows. The CPU shadow pass drops
-  triangles crossing its depth bounds. Environment textures provide a diffuse
-  approximation rather than prefiltered reflections. Normals use `mat3(model)`,
-  so a non-uniformly scaled node skews its normals.
+  submit off-camera nodes so they can cast shadows. Environment textures
+  provide a diffuse approximation rather than prefiltered reflections.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
 * **No removal from the scene.** `visible = false`, or build a scene once and
   reuse it. `scene_clear()` exists for a program that builds several.
-* **No clipping.** Both backends drop a triangle whose vertex is behind the eye
-  instead of clipping it; a large object straddling the near plane pops out.
+* **Singular transforms.** A zero-scale transform has no inverse normal matrix;
+  its surface normals become zero rather than receiving directional lighting.
 * **f32 only**, and no frustum-cone/AABB hierarchy — culling is per node, which
   is fine to a few thousand nodes and would want a BVH beyond that.
 

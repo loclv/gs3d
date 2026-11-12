@@ -15,6 +15,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <math.h>
 
 #pragma pack(push, 1)
 
@@ -88,6 +89,20 @@ _Static_assert(offsetof(g3_draw_item, color) == 132, "DrawItem.color offset");
 _Static_assert(offsetof(g3_draw_item, params) == 148, "DrawItem.params offset");
 _Static_assert(offsetof(g3_view_state, ambient) == 36, "ViewState.ambient offset");
 _Static_assert(offsetof(g3_view_state, clear) == 68, "ViewState.clear offset");
+
+/* Inverse transpose of the affine linear part, column-major. A singular
+   transform has no well-defined surface normal; use zero in both backends. */
+static inline void g3_normal_matrix(const g3_mat4 *model, float out[9]) {
+    const float *m = model->m;
+    float a=m[0], b=m[4], c=m[8], d=m[1], e=m[5], f=m[9], g=m[2], h=m[6], i=m[10];
+    float A=e*i-f*h, B=f*g-d*i, C=d*h-e*g;
+    float det=a*A+b*B+c*C;
+    if (fabsf(det) < 1e-12f) { for (int n = 0; n < 9; n++) out[n] = 0.0f; return; }
+    float inv=1.0f/det;
+    out[0]=A*inv; out[1]=(c*h-b*i)*inv; out[2]=(b*f-c*e)*inv;
+    out[3]=B*inv; out[4]=(a*i-c*g)*inv; out[5]=(c*d-a*f)*inv;
+    out[6]=C*inv; out[7]=(b*g-a*h)*inv; out[8]=(a*e-b*d)*inv;
+}
 
 /* --- what a backend implements (see src/g3/platform.goose) --- */
 
