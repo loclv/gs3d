@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { loadGLTF, loadImage, pickNode, AssetError } from './assets.js';
+import { loadGLTF, loadImage, pickNode, setOutputColorSpace, AssetError } from './assets.js';
 
 const binary = new ArrayBuffer(78);
 const view = new DataView(binary);
@@ -43,6 +43,7 @@ function fakeEngine() {
   engine._g3_asset_node = (...args) => { calls.push(['node', ...args]); return next++; };
   engine._g3_asset_texture = () => nextTexture++;
   engine._g3_host_texture = (...args) => calls.push(['texture', ...args]);
+  engine._g3_host_texture_srgb = (...args) => calls.push(['texture_srgb', ...args]);
   engine._g3_host_texture_wrap = (...args) => calls.push(['wrap', ...args]);
   engine._g3_host_texture_filter = (...args) => calls.push(['filter', ...args]);
   engine._g3_host_release_mesh = id => calls.push(['release_mesh', id]);
@@ -51,6 +52,7 @@ function fakeEngine() {
   engine._g3_asset_release_texture = id => calls.push(['recycle_texture', id]);
   engine._g3_asset_scene_epoch = () => engine.epoch || 0;
   engine._g3_asset_pick = (...args) => { calls.push(['pick', ...args]); return engine.picked ?? -1; };
+  engine._g3_asset_output_srgb = value => calls.push(['output_srgb', value]);
   engine._malloc = () => 4; engine._free = () => {};
   return engine;
 }
@@ -76,8 +78,15 @@ for (const path of ['model.gltf', 'model.glb']) {
 }
 const engine = fakeEngine();
 const image = await loadImage(engine, 'http://localhost/image.png');
+setOutputColorSpace(engine, 'srgb');
+assert.deepEqual(engine.calls.find(x => x[0] === 'output_srgb'), ['output_srgb', 1]);
+assert.throws(() => setOutputColorSpace(engine, 'unknown'), e => e.code === 'COLOR_SPACE');
 assert.equal(image.id, 5); image.dispose(); image.dispose();
 assert.equal(engine.calls.filter(x => x[0] === 'release_texture').length, 1);
+const srgbImage = await loadImage(engine, 'http://localhost/image.png', { colorSpace: 'srgb' });
+assert.equal(engine.calls.filter(x => x[0] === 'texture_srgb').length, 1);
+srgbImage.dispose();
+await assert.rejects(loadImage(engine, 'http://localhost/image.png', { colorSpace: 'bad' }), e => e.code === 'COLOR_SPACE');
 const textured = structuredClone(doc);
 textured.images = [{ uri: 'image.png' }];
 textured.textures = [{ source: 0 }];
@@ -87,6 +96,7 @@ textured.materials[0].pbrMetallicRoughness.baseColorTexture = { index: 0 };
 resources.set('http://localhost/textured.gltf', bytes(textured));
 const texturedEngine = fakeEngine();
 const texturedModel = await loadGLTF(texturedEngine, 'http://localhost/textured.gltf');
+assert.equal(texturedEngine.calls.filter(x => x[0] === 'texture_srgb').length, 1);
 assert.equal(texturedEngine.calls.find(x => x[0] === 'material')[6], 5);
 assert.deepEqual(texturedEngine.calls.find(x => x[0] === 'wrap'), ['wrap', 5, 1, 1]);
 texturedModel.dispose();

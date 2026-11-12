@@ -6,6 +6,7 @@ import g3.scene;
 import g3.texture;
 import g3.platform;
 import g3.picking;
+import g3.render;
 
 var asset_vertices: g3::Vertex[>..];
 var asset_indices: u32[>..];
@@ -43,3 +44,4 @@ export fn g3_asset_release_texture(id: i32) { g3::texture_asset_release(id); }
 export fn g3_asset_pick(x: f32, y: f32, aspect: f32) -> i32 {
     return g3::pick_screen(x, y, aspect).node as i32;
 }
+export fn g3_asset_output_srgb(enabled: i32) { g3::set_output_srgb(enabled != 0); }

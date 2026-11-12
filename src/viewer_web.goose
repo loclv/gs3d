@@ -2,10 +2,12 @@
 import vec;
 import g3.scene;
 import g3.engine;
+import g3.render;
 import g3.asset_web;
 
 export fn g3_app_init(width: i32, height: i32) -> bool {
     guard g3::init(width, height, "Goose 3D viewer") else { return false; }
+    g3::set_output_srgb(true);
     g3::camera_orbit(0.65, 0.35, 5.0, float3_0);
     return true;
 }

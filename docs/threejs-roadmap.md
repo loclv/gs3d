@@ -16,7 +16,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for static glTF/GLB with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
-| Materials | Colour, one RGBA texture, alpha mask/blend, texture wrapping and mipmapped filtering, specular controls | Reusable materials, physically based rendering (PBR), normal, roughness and metallic maps, colour management |
+| Materials | Colour, one RGBA texture, alpha mask/blend, wrapping, mipmapped filtering, sRGB input/output and specular controls | Reusable materials, physically based rendering (PBR), normal, roughness and metallic maps, HDR tone mapping |
 | Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
 | Scene management | Parent hierarchy and one camera | Object and resource removal, reusable resources, multiple cameras, orthographic camera rendering |
@@ -43,8 +43,8 @@ and a browser integration check for behavior exposed through WebGL.
 * Extend asset-owned slot reuse to general object and resource removal with
   well-defined ownership and safe handles; handle fragmented mesh spans so
   varied model load/dispose cycles do not grow memory indefinitely.
-* **Implemented:** texture alpha, wrapping and filtering, including glTF mask
-  and blend modes and per-texture sampler settings. Add colour-space handling; expand
+* **Implemented:** texture alpha, wrapping, filtering, and opt-in sRGB output,
+  including glTF base-colour decoding and per-texture sampler settings. Expand
   the glTF loader's material and sampler support.
 * **Implemented:** triangle picking and an example viewer with orbit controls,
   selection, and reload. Expand the browser API for model inspection and
@@ -61,8 +61,8 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
 * Improve shadow quality and coverage, add point/spot shadows and prefiltered
   image-based environment lighting. The existing primary directional shadow
   map and hemispherical fill remain available; specify light and map limits.
-* Define texture colour spaces, tone mapping, and output encoding so model
-  colours are reproducible across the CPU and WebGL paths.
+* Add HDR tone mapping and improve precision beyond the current 8-bit linear
+  intermediate. Verify colour output against browser reference images.
 
 **Done when:** representative glTF materials and a shadow-casting scene render
 with documented limitations in both backends, with pixel tests for lighting and

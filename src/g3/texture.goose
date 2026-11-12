@@ -23,6 +23,15 @@ fn texture_create(width: i32, height: i32, pixels: const u8[:]) -> i32 {
     return id;
 }
 
+// sRGB RGB channels are decoded to linear before filtering; alpha stays linear.
+fn texture_create_srgb(width: i32, height: i32, pixels: const u8[:]) -> i32 {
+    guard width > 0 && height > 0 && pixels.len == width as i64 * height * 4 else { return -1; }
+    let id = g_texture_count;
+    g_texture_count += 1;
+    g3p_upload_texture_srgb(id, pixels, width, height);
+    return id;
+}
+
 // New uploads start clamp-to-edge. Set wrapping after each upload.
 fn texture_set_wrap(id: i32, wrap_u: i32, wrap_v: i32) -> bool {
     guard id >= 0 && id < g_texture_count && wrap_u >= 0 && wrap_u <= 2 && wrap_v >= 0 && wrap_v <= 2 else { return false; }

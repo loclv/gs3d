@@ -50,7 +50,7 @@ struct ViewState {
     ambient: float4,        // rgb, and a = intensity
     fog: float4,            // rgb, and a = density (0 turns fog off)
     clear: float4,          // the colour the frame starts from
-    params: float4,         // x = seconds since start, for animated shaders
+    params: float4,         // x = seconds, y = sRGB output encoding
     lights: Light[4],
     light_count: i32,
     env_sky: float4,        // rgb, w = intensity
@@ -77,6 +77,7 @@ extern fn g3p_height() -> i32;
 // once and drawn by that id for the rest of the program.
 extern fn g3p_upload_mesh(id: i32, verts: const Vertex[:], indices: const u32[:]);
 extern fn g3p_upload_texture(id: i32, pixels: const u8[:], width: i32, height: i32);
+extern fn g3p_upload_texture_srgb(id: i32, pixels: const u8[:], width: i32, height: i32);
 // 0 clamp, 1 repeat, 2 mirrored repeat, independently for U and V.
 extern fn g3p_texture_wrap(id: i32, wrap_u: i32, wrap_v: i32);
 // Filters use glTF/WebGL numeric values: 9728/9729, plus 9984..9987 for minification.

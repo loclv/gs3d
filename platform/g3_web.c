@@ -56,6 +56,9 @@ static int checked_gl;
 static GLuint shadow_program, shadow_fbo, shadow_texture;
 static GLint shadow_light_matrix, shadow_model_matrix;
 static GLint shadow_mask, shadow_cutoff, shadow_alpha, shadow_tex, shadow_textured;
+static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
+static GLint output_sampler;
+static int output_width, output_height;
 #define SHADOW_SIZE 512
 
 static const char *VERTEX_SRC =
@@ -299,6 +302,13 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
 }
 
 void g3p_shutdown(void) {
+    if (output_program) glDeleteProgram(output_program);
+    if (output_fbo) glDeleteFramebuffers(1, &output_fbo);
+    if (output_color) glDeleteTextures(1, &output_color);
+    if (output_depth) glDeleteRenderbuffers(1, &output_depth);
+    if (output_vao) glDeleteVertexArrays(1, &output_vao);
+    output_program = output_fbo = output_color = output_depth = output_vao = 0;
+    output_width = output_height = 0;
     if (shadow_program) glDeleteProgram(shadow_program);
     if (shadow_fbo) glDeleteFramebuffers(1, &shadow_fbo);
     if (shadow_texture) glDeleteTextures(1, &shadow_texture);
@@ -373,7 +383,7 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     if (id >= mesh_count) mesh_count = id + 1;
 }
 
-void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
+static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int srgb) {
     if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
     if (id >= texture_count) {
         GLuint *grown = realloc(textures, ((size_t)id + 1) * sizeof(*textures));
@@ -388,7 +398,15 @@ void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t h
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data);
+    glTexImage2D(GL_TEXTURE_2D, 0, srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data);
+}
+
+void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
+    upload_texture(id, pixels, width, height, 0);
+}
+
+void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
+    upload_texture(id, pixels, width, height, 1);
 }
 
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
@@ -423,6 +441,12 @@ EMSCRIPTEN_KEEPALIVE void g3_host_texture(int32_t id, const uint8_t *pixels, int
     if (width <= 0 || height <= 0 || !pixels) return;
     g3_u8_slice s = { pixels, (int64_t)width * height * 4 };
     g3p_upload_texture(id, s, width, height);
+}
+
+EMSCRIPTEN_KEEPALIVE void g3_host_texture_srgb(int32_t id, const uint8_t *pixels, int32_t width, int32_t height) {
+    if (width <= 0 || height <= 0 || !pixels) return;
+    g3_u8_slice s = { pixels, (int64_t)width * height * 4 };
+    g3p_upload_texture_srgb(id, s, width, height);
 }
 
 /* Imported assets own their backend resources; Goose arena handles stay valid. */
@@ -590,9 +614,64 @@ static void report_first_gl_error(void) {
     report(msg);
 }
 
+/* An RGBA8 linear target keeps blending linear. Encode only the finished
+   frame, including the clear colour, when writing to the browser canvas. */
+static int ensure_output_target(void) {
+    if (!output_program) {
+        const char *vs_src = "#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}\n";
+        const char *fs_src = "#version 300 es\nprecision highp float;\nuniform sampler2D u_linear;\nout vec4 color;\nvoid main(){vec3 c=texelFetch(u_linear,ivec2(gl_FragCoord.xy),0).rgb;vec3 lo=c*12.92;vec3 hi=1.055*pow(c,vec3(1.0/2.4))-0.055;color=vec4(mix(hi,lo,lessThanEqual(c,vec3(0.0031308))),1.0);}\n";
+        GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "output vertex");
+        GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "output fragment");
+        if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); return 0; }
+        GLuint program = glCreateProgram();
+        glAttachShader(program, vs); glAttachShader(program, fs); glLinkProgram(program);
+        glDeleteShader(vs); glDeleteShader(fs);
+        GLint linked = 0; glGetProgramiv(program, GL_LINK_STATUS, &linked);
+        if (!linked) { glDeleteProgram(program); report("Could not link output shader."); return 0; }
+        output_program = program;
+        output_sampler = glGetUniformLocation(program, "u_linear");
+        glGenVertexArrays(1, &output_vao);
+        glGenFramebuffers(1, &output_fbo);
+        glGenTextures(1, &output_color);
+        glGenRenderbuffers(1, &output_depth);
+    }
+    if (output_width != surf_w || output_height != surf_h) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, output_color);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, surf_w, surf_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glBindRenderbuffer(GL_RENDERBUFFER, output_depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, surf_w, surf_h);
+        glBindFramebuffer(GL_FRAMEBUFFER, output_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, output_color, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, output_depth);
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (status != GL_FRAMEBUFFER_COMPLETE) { report("Could not create linear output framebuffer."); return 0; }
+        output_width = surf_w; output_height = surf_h;
+    }
+    return 1;
+}
+
+static void present_srgb(void) {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, surf_w, surf_h);
+    glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_BLEND);
+    glUseProgram(output_program);
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, output_color);
+    glUniform1i(output_sampler, 0);
+    glBindVertexArray(output_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
+}
+
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (!ctx || !shader.program) return;
     if (view->shadow_params.x > 0.5f && ensure_shadow_map()) render_shadow_map(items, view);
+    int encode = view->params.y > 0.5f && ensure_output_target();
+    glBindFramebuffer(GL_FRAMEBUFFER, encode ? output_fbo : 0);
     glViewport(0, 0, surf_w, surf_h);
     glClearColor(view->clear.x, view->clear.y, view->clear.z, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -603,6 +682,8 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     glBindVertexArray(0);
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
+
+    if (encode) present_srgb();
 
     report_first_gl_error();
 }

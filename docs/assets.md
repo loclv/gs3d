@@ -5,9 +5,10 @@ build after `g3_host_start` has succeeded. It uses browser fetch and image
 decoding; it is not a native Goose or CPU-backend loader.
 
 ```js
-import { loadGLTF, loadImage, pickNode, AssetError } from './assets.js';
+import { loadGLTF, loadImage, pickNode, setOutputColorSpace, AssetError } from './assets.js';
 
 try {
+  setOutputColorSpace(engine, 'srgb'); // after engine startup
   const model = await loadGLTF(engine, './model.glb');
   // model.roots contains the engine node handles for the loaded scene.
   // model.pick(canvas, event.clientX, event.clientY) returns a node or null.
@@ -66,15 +67,24 @@ mechanism.
   as are clamp, repeat and mirrored repeat separately for each axis. An omitted
   glTF wrapping mode defaults to repeat; omitted filters use linear. The CPU
   rasterizer estimates mip level from neighboring perspective-correct UVs;
-  exact mip generation and derivatives can differ from a GPU. sRGB conversion
-  is not yet implemented.
+  exact mip generation and derivatives can differ from a GPU. glTF base-colour
+  images are decoded from sRGB before filtering; factors and alpha are linear.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
 skins, animations, morph targets, sparse accessors, non-triangle modes,
 double-sided materials, and normal, occlusion, emissive, or
-metallic-roughness textures, and advanced texture/sampler extensions. It does not implement material PBR or
-sRGB conversion. Unsupported optional data may be
+metallic-roughness textures, and advanced texture/sampler extensions. It does not implement material PBR.
+Unsupported optional data may be
 ignored. Files needing these features require a fuller loader and renderer.
+
+`setOutputColorSpace(engine, 'srgb')` enables output encoding after linear
+lighting and blending; `'linear'` restores the default. Background, light,
+fog, and material RGB values must be supplied in linear space in sRGB output
+mode. The viewer enables this mode. `loadImage` creates a linear texture by
+default; pass `{ colorSpace: 'srgb' }` for an sRGB image.
+glTF base-colour textures are sRGB. The current output path uses an 8-bit
+linear intermediate and clamps rather than tone mapping HDR values. The WebGL
+intermediate is not multisampled, so antialiasing differs from the default path.
 
 Run the browser-loader logic tests with `node web/test_assets.mjs`. These use a
 mock engine and image decoder; they do not replace a browser/WebGL integration

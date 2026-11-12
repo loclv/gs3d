@@ -48,7 +48,7 @@ static soft_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
 typedef struct {
     uint8_t *pixels, *mips[31];
-    int32_t w, h, wrap_u, wrap_v, min_filter, mag_filter, levels;
+    int32_t w, h, wrap_u, wrap_v, min_filter, mag_filter, levels, srgb;
 } soft_texture;
 static soft_texture *textures;
 static int32_t texture_count;
@@ -235,7 +235,17 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     if (id >= mesh_count) mesh_count = id + 1;
 }
 
-void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
+static float srgb_decode(float x) {
+    return x <= 0.04045f ? x / 12.92f : powf((x + 0.055f) / 1.055f, 2.4f);
+}
+
+static float srgb_encode(float x) {
+    if (x < 0.0f) x = 0.0f;
+    if (x > 1.0f) x = 1.0f;
+    return x <= 0.0031308f ? x * 12.92f : 1.055f * powf(x, 1.0f / 2.4f) - 0.055f;
+}
+
+static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int srgb) {
     if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
     if (id >= texture_count) {
         soft_texture *grown = realloc(textures, ((size_t)id + 1) * sizeof(*textures));
@@ -250,7 +260,14 @@ void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t h
     free(textures[id].pixels);
     for (int j = 0; j < 31; j++) free(textures[id].mips[j]);
     textures[id] = (soft_texture){ .pixels = copy, .w = width, .h = height,
-                                   .min_filter = 9729, .mag_filter = 9729, .levels = 1 };
+                                   .min_filter = 9729, .mag_filter = 9729, .levels = 1, .srgb = srgb };
+}
+
+void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
+    upload_texture(id, pixels, width, height, 0);
+}
+void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
+    upload_texture(id, pixels, width, height, 1);
 }
 
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
@@ -274,9 +291,12 @@ static void generate_mips(soft_texture *t) {
             int x1 = x0 + 1 < w ? x0 + 1 : x0, y1 = y0 + 1 < h ? y0 + 1 : y0;
             float fx = sx - x0, fy = sy - y0;
             for (int c = 0; c < 4; c++) {
-                float a=src[((size_t)y0*w+x0)*4+c], b=src[((size_t)y0*w+x1)*4+c];
-                float d=src[((size_t)y1*w+x0)*4+c], e=src[((size_t)y1*w+x1)*4+c];
-                dst[((size_t)y*nw+x)*4+c] = (uint8_t)(((a+(b-a)*fx)*(1-fy)+(d+(e-d)*fx)*fy) + 0.5f);
+                float a=src[((size_t)y0*w+x0)*4+c]/255.0f, b=src[((size_t)y0*w+x1)*4+c]/255.0f;
+                float d=src[((size_t)y1*w+x0)*4+c]/255.0f, e=src[((size_t)y1*w+x1)*4+c]/255.0f;
+                if (t->srgb && c < 3) { a=srgb_decode(a); b=srgb_decode(b); d=srgb_decode(d); e=srgb_decode(e); }
+                float value=(a+(b-a)*fx)*(1-fy)+(d+(e-d)*fx)*fy;
+                if (t->srgb && c < 3) value=srgb_encode(value);
+                dst[((size_t)y*nw+x)*4+c] = (uint8_t)(value * 255.0f + 0.5f);
             }
         }
         t->mips[t->levels - 1] = dst;
@@ -434,7 +454,10 @@ static void sample_level(const soft_texture *t, int level, int linear, float u, 
     if (!linear) {
         int ix = wrap_index((int)floorf(x), w, t->wrap_u);
         int iy = wrap_index((int)floorf(y), h, t->wrap_v);
-        for (int c = 0; c < 4; c++) out[c] = pixels[((size_t)iy*w+ix)*4+c] / 255.0f;
+        for (int c = 0; c < 4; c++) {
+            out[c] = pixels[((size_t)iy*w+ix)*4+c] / 255.0f;
+            if (t->srgb && c < 3) out[c] = srgb_decode(out[c]);
+        }
         return;
     }
     x -= 0.5f; y -= 0.5f;
@@ -448,7 +471,13 @@ static void sample_level(const soft_texture *t, int level, int linear, float u, 
         float b = pixels[((size_t)y0 * w + x1) * 4 + c];
         float d = pixels[((size_t)y1 * w + x0) * 4 + c];
         float e = pixels[((size_t)y1 * w + x1) * 4 + c];
-        out[c] = ((a + (b - a) * fx) * (1.0f - fy) + (d + (e - d) * fx) * fy) / 255.0f;
+        if (t->srgb && c < 3) {
+            a=srgb_decode(a/255.0f); b=srgb_decode(b/255.0f);
+            d=srgb_decode(d/255.0f); e=srgb_decode(e/255.0f);
+            out[c] = (a + (b - a) * fx) * (1.0f - fy) + (d + (e - d) * fx) * fy;
+        } else {
+            out[c] = ((a + (b - a) * fx) * (1.0f - fy) + (d + (e - d) * fx) * fy) / 255.0f;
+        }
     }
 }
 
@@ -929,6 +958,11 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         one.pixels = one.shaded = 0;
         rasterize_blocks(view, &one);
         merge_counts(&prof, &one);
+    }
+    if (view->params.y > 0.5f) {
+        size_t components = (size_t)fb_w * (size_t)fb_h * 3;
+        for (size_t i = 0; i < components; i++)
+            fb[i] = (uint8_t)(srgb_encode(fb[i] / 255.0f) * 255.0f + 0.5f);
     }
     const double t3 = prof.on ? now_seconds() : 0.0;
     if (prof.on) {

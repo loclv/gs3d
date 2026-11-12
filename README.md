@@ -242,6 +242,10 @@ What the API gives you:
   multiplies the node colour. `node.alpha_mode` chooses colour-driven blending
   (0), an alpha cutoff (1), or blending (2). Masking and blending multiply
   texture alpha by node colour alpha; opaque items ignore texture alpha.
+  Use `texture_create_srgb` for sRGB colour images; RGB is decoded before
+  filtering and alpha stays linear. `set_output_srgb(true)` renders and blends
+  in linear space before encoding the finished frame. Output encoding is opt-in
+  for compatibility with existing scenes.
 * **Nodes** — `node_add(mesh)`, `node_group()`, `node(id) -> Node&`,
   `node_parent(child, parent)`, `scene_clear()`, and `node_count()`. A node has
   position, euler rotation, scale, colour, `unlit`, `visible`, specular

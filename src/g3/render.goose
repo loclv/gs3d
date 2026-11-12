@@ -34,6 +34,7 @@ var g_stats: Stats;
 var g_view: Mat4;
 var g_view_proj: Mat4;
 var g_frustum: Frustum;
+var g_output_srgb: bool;
 var g_shadow_center: float3;
 var g_shadow_extent: f32;
 var g_shadow_bias: f32;
@@ -126,6 +127,10 @@ fn set_fog(color: float3, density: f32) {
 
 fn set_background(color: float4) { g_view_state.clear = color; }
 
+// When enabled, lighting and blending occur in linear space and the final
+// framebuffer is encoded to sRGB. Disabled by default for existing scenes.
+fn set_output_srgb(enabled: bool) { g_output_srgb = enabled; }
+
 fn view_state() -> ViewState& { return g_view_state }
 fn stats() -> Stats { return g_stats }
 fn draw_list() -> DrawItem[:] { return g_draws[..] }
@@ -147,7 +152,7 @@ fn begin_frame(time: f64, width: i32, height: i32) {
                            g_view);
     g_frustum = frustum_from_view_proj(g_view_proj);
     g_view_state.eye = g_camera.pos;
-    g_view_state.params = float4 { time as f32, 0.0, 0.0, 0.0 };
+    g_view_state.params = float4 { time as f32, if g_output_srgb { 1.0 } else { 0.0 }, 0.0, 0.0 };
 }
 
 // Where an item sorts. Opaque items sort by mesh id, so the backend sees runs

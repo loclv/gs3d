@@ -328,6 +328,55 @@ fn case_texture_filter() {
     testing::check(!g3::texture_set_filter(tex, g3::FILTER_LINEAR, 9987), "mipmap magnification filter is rejected");
 }
 
+fn case_color_space() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_background(float4 { 0.0, 0.0, 0.0, 1.0 });
+    let gray: u8[4] = [128, 128, 128, 128];
+    let tex = g3::texture_create_srgb(1, 1, gray[..]);
+    let n .= g3::node(g3::node_add(uv_triangle(0.5, 0.5)));
+    n.texture = tex;
+    n.unlit = true;
+    // sRGB 128/255 decodes to about 0.216 linear, or 55/255.
+    g3::set_output_srgb(false);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 55, 55, 55, 1), "sRGB texture decodes to linear");
+    g3::set_output_srgb(true);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 2), "sRGB output encodes linear texture colour");
+    n.alpha_mode = 2;
+    g3::frame(1.0 / 60.0);
+    // Alpha is linear 128/255: 0.216 * 0.502 over black encodes to ~92.
+    testing::check(is_color(g3::read_pixel(200, 200), 93, 93, 93, 2), "alpha blends in linear space before output encoding");
+    n.alpha_mode = 0;
+    let bw: u8[8] = [0, 0, 0, 255, 255, 255, 255, 255];
+    n.texture = g3::texture_create_srgb(2, 1, bw[..]);
+    n.mesh = uv_triangle(0.5, 0.5);
+    g3::set_output_srgb(false);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 2), "sRGB texels are decoded before linear filtering");
+    g3::set_output_srgb(true);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 188, 188, 188, 2), "linear texture midpoint encodes to sRGB");
+    let fv = g3::g_verts.len;
+    let fi = g3::g_indices.len;
+    let normal = float3 { 0.0, 0.0, 1.0 };
+    g3::push_vertex_uv(float3 { -1.0, -1.0, 0.0 }, normal, float2 { 0.0, 0.0 });
+    g3::push_vertex_uv(float3 { 1.0, -1.0, 0.0 }, normal, float2 { 400.0, 0.0 });
+    g3::push_vertex_uv(float3 { 0.0, 1.0, 0.0 }, normal, float2 { 200.0, 400.0 });
+    g3::push_triangle(0, 1, 2);
+    n.mesh = g3::mesh_close(fv, fi);
+    let wrap = g3::texture_set_wrap(n.texture, g3::WRAP_REPEAT, g3::WRAP_REPEAT);
+    let mip = g3::texture_set_filter(n.texture, g3::FILTER_LINEAR_MIPMAP_LINEAR, g3::FILTER_LINEAR);
+    g3::frame(1.0 / 60.0);
+    testing::check(wrap && mip && is_color(g3::read_pixel(200, 200), 188, 188, 188, 2), "sRGB mipmaps average texels in linear space");
+    n.visible = false;
+    g3::set_background(float4 { 0.25, 0.25, 0.25, 1.0 });
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(3, 3), 137, 137, 137, 2), "sRGB output encodes the background too");
+    g3::set_output_srgb(false);
+}
+
 fn case_lights() {
     g3::scene_clear();
     flat_camera();
@@ -536,6 +585,7 @@ fn main() {
     case_texture_alpha();
     case_texture_wrap();
     case_texture_filter();
+    case_color_space();
     case_lights();
     case_shadow();
     case_clipping();

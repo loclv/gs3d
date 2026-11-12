@@ -30,7 +30,7 @@ async function decodeImage(bytes, type) {
   finally { if (bitmap) bitmap.close(); }
 }
 
-function uploadImage(engine, image, wrapU = 0, wrapV = 0, minFilter = 9729, magFilter = 9729) {
+function uploadImage(engine, image, wrapU = 0, wrapV = 0, minFilter = 9729, magFilter = 9729, srgb = false) {
   const ptr = engine._malloc(image.pixels.length);
   if (!ptr) throw new AssetError('MEMORY', 'Could not allocate image upload buffer');
   let id = -1;
@@ -38,7 +38,8 @@ function uploadImage(engine, image, wrapU = 0, wrapV = 0, minFilter = 9729, magF
     engine.HEAPU8.set(image.pixels, ptr);
     id = engine._g3_asset_texture();
     if (id < 0) throw new AssetError('MEMORY', 'Could not allocate texture');
-    engine._g3_host_texture(id, ptr, image.width, image.height);
+    if (srgb) engine._g3_host_texture_srgb(id, ptr, image.width, image.height);
+    else engine._g3_host_texture(id, ptr, image.width, image.height);
     engine._g3_host_texture_wrap(id, wrapU, wrapV);
     engine._g3_host_texture_filter(id, minFilter, magFilter);
     return id;
@@ -54,10 +55,11 @@ function releaseTexture(engine, id) {
 }
 
 // The caller owns the returned texture and must dispose it once unused.
-export async function loadImage(engine, url) {
+export async function loadImage(engine, url, { colorSpace = 'linear' } = {}) {
+  if (colorSpace !== 'linear' && colorSpace !== 'srgb') throw new AssetError('COLOR_SPACE', `Unsupported texture color space: ${colorSpace}`);
   const bytes = await fetchBytes(url);
   const image = await decodeImage(bytes, '');
-  const id = uploadImage(engine, image);
+  const id = uploadImage(engine, image, 0, 0, 9729, 9729, colorSpace === 'srgb');
   let disposed = false;
   return { id, width: image.width, height: image.height, dispose() {
     if (!disposed) { disposed = true; releaseTexture(engine, id); }
@@ -81,6 +83,12 @@ export function pickNode(engine, canvas, clientX, clientY) {
   const y = 1 - (clientY - rect.top) / rect.height * 2;
   const node = engine._g3_asset_pick(x, y, rect.width / rect.height);
   return node < 0 ? null : node;
+}
+
+// sRGB output performs the transfer after linear lighting and blending.
+export function setOutputColorSpace(engine, space) {
+  if (space !== 'linear' && space !== 'srgb') throw new AssetError('COLOR_SPACE', `Unsupported output color space: ${space}`);
+  engine._g3_asset_output_srgb(space === 'srgb' ? 1 : 0);
 }
 
 function unpack(bytes) {
@@ -247,7 +255,7 @@ export async function loadGLTF(engine, url) {
     for (const id of textures) releaseTexture(engine, id);
   };
   try {
-    for (const spec of data.textureSpecs) textures.push(uploadImage(engine, data.images[spec.image], spec.wrapU, spec.wrapV, spec.minFilter, spec.magFilter));
+    for (const spec of data.textureSpecs) textures.push(uploadImage(engine, data.images[spec.image], spec.wrapU, spec.wrapV, spec.minFilter, spec.magFilter, true));
     function createNode(node, parent) {
       const group = engine._g3_asset_node(-1, parent);
       nodes.push(group);
