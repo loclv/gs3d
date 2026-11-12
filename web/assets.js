@@ -30,7 +30,7 @@ async function decodeImage(bytes, type) {
   finally { if (bitmap) bitmap.close(); }
 }
 
-function uploadImage(engine, image) {
+function uploadImage(engine, image, wrapU = 0, wrapV = 0) {
   const ptr = engine._malloc(image.pixels.length);
   if (!ptr) throw new AssetError('MEMORY', 'Could not allocate image upload buffer');
   let id = -1;
@@ -39,6 +39,7 @@ function uploadImage(engine, image) {
     id = engine._g3_asset_texture();
     if (id < 0) throw new AssetError('MEMORY', 'Could not allocate texture');
     engine._g3_host_texture(id, ptr, image.width, image.height);
+    engine._g3_host_texture_wrap(id, wrapU, wrapV);
     return id;
   } catch (error) {
     if (id >= 0) releaseTexture(engine, id);
@@ -164,6 +165,19 @@ async function prepare(url) {
     if (!Number.isInteger(start) || start < 0 || !Number.isInteger(end) || end > data.byteLength) invalid('Image exceeds its buffer');
     return decodeImage(data.slice(start, end), image.mimeType || '');
   }));
+  const wrapModes = { 33071: 0, 10497: 1, 33648: 2 };
+  const textureSpecs = (doc.textures || []).map(texture => {
+    item(images, texture.source, 'image');
+    const sampler = texture.sampler === undefined ? {} : item(doc.samplers, texture.sampler, 'sampler');
+    if (sampler.extensions || texture.extensions) unsupported('Texture or sampler extensions are not supported');
+    if (sampler.magFilter !== undefined && ![9728, 9729].includes(sampler.magFilter)) invalid('Invalid magnification filter');
+    if (sampler.minFilter !== undefined && ![9728, 9729, 9984, 9985, 9986, 9987].includes(sampler.minFilter)) invalid('Invalid minification filter');
+    if ((sampler.magFilter !== undefined && sampler.magFilter !== 9729) ||
+        (sampler.minFilter !== undefined && sampler.minFilter !== 9729)) unsupported('Nearest and mipmap texture filters are not supported');
+    const s = sampler.wrapS ?? 10497, t = sampler.wrapT ?? 10497;
+    if (!Object.hasOwn(wrapModes, s) || !Object.hasOwn(wrapModes, t)) invalid('Invalid texture wrapping mode');
+    return { image: texture.source, wrapU: wrapModes[s], wrapV: wrapModes[t] };
+  });
   const meshes = (doc.meshes || []).map(mesh => (mesh.primitives || []).map(p => {
     if ((p.mode ?? 4) !== 4 || p.targets?.length) unsupported('Only triangle meshes without morph targets are supported');
     const pos = accessor(doc, buffers, p.attributes?.POSITION, 'VEC3');
@@ -185,16 +199,15 @@ async function prepare(url) {
     if (pbr.metallicRoughnessTexture) unsupported('Metallic-roughness textures are not supported');
     const color = pbr.baseColorFactor || [1, 1, 1, 1];
     if (color.length !== 4 || !color.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid base color');
-    let image = -1;
+    let textureIndex = -1;
     if (pbr.baseColorTexture) {
       if (!uv || (pbr.baseColorTexture.texCoord || 0) !== 0 || pbr.baseColorTexture.extensions) unsupported('Unsupported texture coordinates');
-      const texture = item(doc.textures, pbr.baseColorTexture.index, 'texture');
-      item(images, texture.source, 'image');
-      image = texture.source;
+      item(textureSpecs, pbr.baseColorTexture.index, 'texture');
+      textureIndex = pbr.baseColorTexture.index;
     }
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
     return { pos: pos.values, normal: normal.values, uv: uv?.values, indices,
-      color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], image,
+      color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff };
   }));
   const nodes = doc.nodes || [], roots = item(doc.scenes, doc.scene ?? 0, 'scene').nodes || [];
@@ -207,7 +220,7 @@ async function prepare(url) {
     const primitives = n.mesh === undefined ? [] : item(meshes, n.mesh, 'mesh');
     return { matrix: localMatrix(n), primitives, children: (n.children || []).map(child => visit(child, depth + 1)) };
   }
-  return { images, roots: roots.map(root => visit(root, 0)) };
+  return { images, textureSpecs, roots: roots.map(root => visit(root, 0)) };
 }
 
 // Model disposal is idempotent. GPU objects are released; arena records remain.
@@ -234,7 +247,7 @@ export async function loadGLTF(engine, url) {
     for (const id of textures) releaseTexture(engine, id);
   };
   try {
-    for (const image of data.images) textures.push(uploadImage(engine, image));
+    for (const spec of data.textureSpecs) textures.push(uploadImage(engine, data.images[spec.image], spec.wrapU, spec.wrapV));
     function createNode(node, parent) {
       const group = engine._g3_asset_node(-1, parent);
       nodes.push(group);
@@ -247,7 +260,7 @@ export async function loadGLTF(engine, url) {
         meshes.push(mesh);
         const id = engine._g3_asset_node(mesh, group);
         nodes.push(id);
-        engine._g3_asset_material(id, ...p.color, p.image < 0 ? -1 : textures[p.image], p.alphaMode, p.alphaCutoff);
+        engine._g3_asset_material(id, ...p.color, p.textureIndex < 0 ? -1 : textures[p.textureIndex], p.alphaMode, p.alphaCutoff);
       }
       for (const child of node.children) createNode(child, group);
       return group;

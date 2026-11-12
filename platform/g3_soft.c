@@ -46,7 +46,7 @@ static uint8_t *fb;      /* rgb, top row first */
 static float *depth;     /* [0, 1], 1 is far */
 static soft_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
-typedef struct { uint8_t *pixels; int32_t w, h; } soft_texture;
+typedef struct { uint8_t *pixels; int32_t w, h, wrap_u, wrap_v; } soft_texture;
 static soft_texture *textures;
 static int32_t texture_count;
 #define SHADOW_SIZE 512
@@ -242,7 +242,13 @@ void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t h
     if (!copy) { fprintf(stderr, "g3_soft: out of memory for texture pixels\n"); exit(1); }
     memcpy(copy, pixels.data, (size_t)pixels.len);
     free(textures[id].pixels);
-    textures[id] = (soft_texture){ copy, width, height };
+    textures[id] = (soft_texture){ .pixels = copy, .w = width, .h = height };
+}
+
+void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
+    if (id < 0 || id >= texture_count || !textures[id].pixels || wrap_u < 0 || wrap_u > 2 || wrap_v < 0 || wrap_v > 2) return;
+    textures[id].wrap_u = wrap_u;
+    textures[id].wrap_v = wrap_v;
 }
 
 /* Resizing a headless surface means reallocating the framebuffer and the z
@@ -360,17 +366,34 @@ static float clamp01(float v) {
     return v;
 }
 
-/* GL_LINEAR and CLAMP_TO_EDGE, with texel centres at (i + 0.5) / size. */
+/* Reduce before converting to integer so large UVs cannot overflow. */
+static float wrap_coordinate(float value, int mode) {
+    if (mode == 0) return clamp01(value);
+    if (mode == 1) return value - floorf(value);
+    float v = fmodf(value, 2.0f);
+    if (v < 0.0f) v += 2.0f;
+    return v > 1.0f ? 2.0f - v : v;
+}
+
+static int wrap_index(int index, int size, int mode) {
+    if (mode == 0) return index < 0 ? 0 : index >= size ? size - 1 : index;
+    if (mode == 1) { int n = index % size; return n < 0 ? n + size : n; }
+    /* Reduced mirror coordinates require only the adjacent edge texel. */
+    return index < 0 ? 0 : index >= size ? size - 1 : index;
+}
+
+/* Bilinear filtering with GL-compatible edge wrapping, including seams. */
 static void sample_texture(int32_t id, float u, float v, float out[4]) {
     out[0] = out[1] = out[2] = out[3] = 1.0f;
     if (id < 0 || id >= texture_count || !textures[id].pixels) return;
     const soft_texture *t = &textures[id];
-    float x = clamp01(u) * t->w - 0.5f, y = clamp01(v) * t->h - 0.5f;
+    float x = wrap_coordinate(u, t->wrap_u) * t->w - 0.5f;
+    float y = wrap_coordinate(v, t->wrap_v) * t->h - 0.5f;
     int x0 = (int)floorf(x), y0 = (int)floorf(y);
     float fx = x - x0, fy = y - y0;
     int x1 = x0 + 1, y1 = y0 + 1;
-    if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0;
-    if (x1 >= t->w) x1 = t->w - 1; if (y1 >= t->h) y1 = t->h - 1;
+    x0 = wrap_index(x0, t->w, t->wrap_u); x1 = wrap_index(x1, t->w, t->wrap_u);
+    y0 = wrap_index(y0, t->h, t->wrap_v); y1 = wrap_index(y1, t->h, t->wrap_v);
     for (int c = 0; c < 4; c++) {
         float a = t->pixels[((size_t)y0 * t->w + x0) * 4 + c];
         float b = t->pixels[((size_t)y0 * t->w + x1) * 4 + c];

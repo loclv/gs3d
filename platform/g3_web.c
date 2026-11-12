@@ -391,6 +391,18 @@ void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t h
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data);
 }
 
+void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
+    if (id < 0 || id >= texture_count || !textures[id] || wrap_u < 0 || wrap_u > 2 || wrap_v < 0 || wrap_v > 2) return;
+    const GLint modes[3] = { GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT };
+    glBindTexture(GL_TEXTURE_2D, textures[id]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, modes[wrap_u]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, modes[wrap_v]);
+}
+
+EMSCRIPTEN_KEEPALIVE void g3_host_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
+    g3p_texture_wrap(id, wrap_u, wrap_v);
+}
+
 /* Browser hosts may replace an already allocated texture with decoded RGBA. */
 EMSCRIPTEN_KEEPALIVE void g3_host_texture(int32_t id, const uint8_t *pixels, int32_t width, int32_t height) {
     if (width <= 0 || height <= 0 || !pixels) return;

@@ -116,6 +116,7 @@ int32_t g3p_width(void);
 int32_t g3p_height(void);
 void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices);
 void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
+void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v);
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view);
 uint8_t g3p_key_down(int32_t key);
 float g3p_mouse_dx(void);

@@ -251,6 +251,46 @@ fn case_texture_alpha() {
     testing::check(is_color(g3::read_pixel(120, 200), 255, 255, 255, 2), "opaque material ignores texture alpha");
 }
 
+fn uv_triangle(u: f32, v: f32) -> i32 {
+    let fv = g3::g_verts.len;
+    let fi = g3::g_indices.len;
+    let normal = float3 { 0.0, 0.0, 1.0 };
+    g3::push_vertex_uv(float3 { -1.0, -1.0, 0.0 }, normal, float2 { u, v });
+    g3::push_vertex_uv(float3 { 1.0, -1.0, 0.0 }, normal, float2 { u, v });
+    g3::push_vertex_uv(float3 { 0.0, 1.0, 0.0 }, normal, float2 { u, v });
+    g3::push_triangle(0, 1, 2);
+    return g3::mesh_close(fv, fi);
+}
+
+fn case_texture_wrap() {
+    g3::scene_clear();
+    flat_camera();
+    // First row red/green, second row blue/white. At (1.25,-0.25),
+    // clamp gives green, repeat blue, and mirrored repeat green.
+    let pixels: u8[16] = [255, 0, 0, 255, 0, 255, 0, 255,
+                          0, 0, 255, 255, 255, 255, 255, 255];
+    let tex = g3::texture_create(2, 2, pixels[..]);
+    let n .= g3::node(g3::node_add(uv_triangle(1.25, -0.25)));
+    n.texture = tex;
+    n.unlit = true;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 0, 255, 0, 2), "clamp samples the edge texel");
+    let repeat = g3::texture_set_wrap(tex, g3::WRAP_REPEAT, g3::WRAP_REPEAT);
+    g3::frame(1.0 / 60.0);
+    testing::check(repeat && is_color(g3::read_pixel(200, 200), 0, 0, 255, 2), "repeat wraps positive and negative UVs");
+    let mirror = g3::texture_set_wrap(tex, g3::WRAP_MIRROR, g3::WRAP_MIRROR);
+    g3::frame(1.0 / 60.0);
+    testing::check(mirror && is_color(g3::read_pixel(200, 200), 0, 255, 0, 2), "mirrored repeat reflects both axes");
+    let mixed = g3::texture_set_wrap(tex, g3::WRAP_MIRROR, g3::WRAP_REPEAT);
+    g3::frame(1.0 / 60.0);
+    testing::check(mixed && is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "U and V wrap modes are independent");
+    n.mesh = uv_triangle(1.0, 0.25);
+    let seam = g3::texture_set_wrap(tex, g3::WRAP_REPEAT, g3::WRAP_CLAMP);
+    g3::frame(1.0 / 60.0);
+    testing::check(seam && is_color(g3::read_pixel(200, 200), 128, 128, 0, 2), "repeat blends across the texture seam");
+    testing::check(!g3::texture_set_wrap(tex, 7, 0), "invalid wrap modes are rejected");
+}
+
 fn case_lights() {
     g3::scene_clear();
     flat_camera();
@@ -457,6 +497,7 @@ fn main() {
     case_backface();
     case_texture();
     case_texture_alpha();
+    case_texture_wrap();
     case_lights();
     case_shadow();
     case_clipping();

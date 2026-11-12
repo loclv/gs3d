@@ -77,6 +77,8 @@ extern fn g3p_height() -> i32;
 // once and drawn by that id for the rest of the program.
 extern fn g3p_upload_mesh(id: i32, verts: const Vertex[:], indices: const u32[:]);
 extern fn g3p_upload_texture(id: i32, pixels: const u8[:], width: i32, height: i32);
+// 0 clamp, 1 repeat, 2 mirrored repeat, independently for U and V.
+extern fn g3p_texture_wrap(id: i32, wrap_u: i32, wrap_v: i32);
 
 // Draw one whole frame: clear, then each item in order.
 extern fn g3p_draw_frame(items: const DrawItem[:], view: const ViewState&);

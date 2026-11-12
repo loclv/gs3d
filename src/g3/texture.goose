@@ -2,6 +2,10 @@
 import g3.platform;
 namespace g3;
 
+let WRAP_CLAMP = 0;
+let WRAP_REPEAT = 1;
+let WRAP_MIRROR = 2;
+
 var g_texture_count: i32;
 var g_asset_textures: i32[>..];
 
@@ -11,6 +15,13 @@ fn texture_create(width: i32, height: i32, pixels: const u8[:]) -> i32 {
     g_texture_count += 1;
     g3p_upload_texture(id, pixels, width, height);
     return id;
+}
+
+// New uploads start clamp-to-edge. Set wrapping after each upload.
+fn texture_set_wrap(id: i32, wrap_u: i32, wrap_v: i32) -> bool {
+    guard id >= 0 && id < g_texture_count && wrap_u >= 0 && wrap_u <= 2 && wrap_v >= 0 && wrap_v <= 2 else { return false; }
+    g3p_texture_wrap(id, wrap_u, wrap_v);
+    return true;
 }
 
 // Only asset-owned textures are recycled. The browser host releases the
