@@ -82,6 +82,13 @@ fn set_environment(sky: float3, ground: float3, intensity: f32) {
     g_view_state.env_ground = float4 { ground.x, ground.y, ground.z, 0.0 };
 }
 
+// Equirectangular texture sampled in the surface-normal direction. This is a
+// diffuse approximation; it does not prefilter or render specular reflections.
+fn set_environment_map(texture: i32, intensity: f32) {
+    g_view_state.environment_texture = texture;
+    g_view_state.environment_intensity = intensity;
+}
+
 fn set_ambient(color: float3, intensity: f32) {
     g_view_state.ambient = float4 { color.x, color.y, color.z, intensity };
 }

@@ -242,7 +242,10 @@ What the API gives you:
 * **Lighting** — a primary directional light (`set_light`), up to four extra
   directional, point or spot lights (`add_directional_light`, `add_point_light`,
   `add_spot_light`, `clear_lights`), ambient light and a hemispherical sky/ground
-  fill (`set_ambient`, `set_environment`), plus fog and background colour.
+  fill (`set_ambient`, `set_environment`) or an equirectangular RGB texture
+  (`set_environment_map`), plus fog and background colour. The texture is
+  sampled along the surface normal as a diffuse approximation; it is not a
+  prefiltered image-based lighting solution or a skybox.
   Add functions return false when parameters are invalid or the limit is reached.
   Point and spot lights use squared linear range falloff; spot angles are
   inner and outer half-angles in radians.
@@ -328,8 +331,8 @@ Deliberately out of scope for now, in rough order of how much they would add:
 
 * **No material system or texture alpha.** Each node has a colour and an
   optional RGB texture; blending is controlled by the node's colour alpha.
-* **No shadows, image-based environment maps, or normal maps.** The environment
-  light is a diffuse sky/ground approximation. Normals use `mat3(model)`, so a
+* **No shadows, prefiltered environment lighting, or normal maps.** Environment
+  textures provide a diffuse approximation. Normals use `mat3(model)`, so a
   non-uniformly scaled node skews its normals.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.

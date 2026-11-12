@@ -68,6 +68,7 @@ fn init(width: i32, height: i32, title: const u8[:]) -> bool {
     set_light(float3 { -0.45, -0.8, -0.4 }, float3 { 1.0, 0.96, 0.88 });
     clear_lights();
     set_environment(float3_0, float3_0, 0.0);
+    set_environment_map(-1, 0.0);
     set_ambient(float3 { 0.34, 0.38, 0.5 }, 0.7);
     set_fog(float3 { 0.09, 0.1, 0.14 }, 0.0022);
     set_background(float4 { 0.09, 0.1, 0.14, 1.0 });

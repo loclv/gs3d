@@ -51,7 +51,7 @@ The procedural checklist lives in
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
 
-### `g3_view_state` — 344 bytes
+### `g3_view_state` — 352 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -66,6 +66,8 @@ order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
 | 308 | `int32_t` | `light_count` | number of active extra lights, 0–4 |
 | 312 | `g3_vec4` | `env_sky` | hemispherical sky RGB and intensity |
 | 328 | `g3_vec4` | `env_ground` | hemispherical ground RGB |
+| 344 | `int32_t` | `environment_texture` | equirectangular RGB texture handle, or -1 |
+| 348 | `float` | `environment_intensity` | multiplier for texture-based diffuse fill |
 
 Each packed `g3_light` is 52 bytes: position and type in a `vec4`, direction
 and range in a `vec4`, colour and outer-cone cosine in a `vec4`, followed by

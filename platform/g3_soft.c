@@ -264,6 +264,8 @@ int g3_backend_resize(int w, int h) {
 
 /* --- shading: the GLSL in g3_web.c, term for term --- */
 
+static void sample_texture(int32_t id, float u, float v, float out[3]);
+
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
                   const g3_vec3 wp, g3_vec3 n, const float tex[3], float *out_rgb) {
     float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
@@ -295,6 +297,15 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     r += it->color.x * tex[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w;
     g += it->color.y * tex[1] * (vs->env_ground.y * (1.0f - sky) + vs->env_sky.y * sky) * vs->env_sky.w;
     b += it->color.z * tex[2] * (vs->env_ground.z * (1.0f - sky) + vs->env_sky.z * sky) * vs->env_sky.w;
+    if (vs->environment_texture >= 0 && vs->environment_texture < texture_count && textures[vs->environment_texture].pixels) {
+        float env[3];
+        float y = n.y < -1.0f ? -1.0f : n.y > 1.0f ? 1.0f : n.y;
+        sample_texture(vs->environment_texture, atan2f(n.z, n.x) / 6.28318530718f + 0.5f,
+                       acosf(y) / 3.14159265359f, env);
+        r += it->color.x * tex[0] * env[0] * vs->environment_intensity;
+        g += it->color.y * tex[1] * env[1] * vs->environment_intensity;
+        b += it->color.z * tex[2] * env[2] * vs->environment_intensity;
+    }
     int count = vs->light_count < 0 ? 0 : vs->light_count > 4 ? 4 : vs->light_count;
     for (int i = 0; i < count; i++) {
         const g3_light *light = &vs->lights[i];

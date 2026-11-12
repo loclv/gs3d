@@ -39,6 +39,7 @@ typedef struct {
     GLint mvp, model, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
     GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4];
     GLint env_sky, env_ground;
+    GLint env_map, env_map_enabled, env_map_intensity;
 } web_shader;
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
@@ -88,6 +89,9 @@ static const char *FRAGMENT_SRC =
     "uniform int u_light_count;\n"
     "uniform vec4 u_env_sky;\n"
     "uniform vec4 u_env_ground;\n"
+    "uniform sampler2D u_env_map;\n"
+    "uniform bool u_env_map_enabled;\n"
+    "uniform float u_env_map_intensity;\n"
     "uniform vec4 u_ambient;\n"
     "uniform vec4 u_fog;\n"
     "out vec4 out_color;\n"
@@ -103,6 +107,10 @@ static const char *FRAGMENT_SRC =
     "             + u_light_color * spec;\n"
     "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
     "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a;\n"
+    "    if (u_env_map_enabled) {\n"
+    "        vec2 env_uv = vec2(atan(n.z, n.x) / 6.28318530718 + 0.5, acos(clamp(n.y, -1.0, 1.0)) / 3.14159265359);\n"
+    "        col += base * texture(u_env_map, env_uv).rgb * u_env_map_intensity;\n"
+    "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
     "        Light light = u_lights[i];\n"
     "        vec3 delta = light.position.xyz - v_world;\n"
@@ -187,6 +195,9 @@ static void find_uniforms(void) {
     shader.light_count = glGetUniformLocation(shader.program, "u_light_count");
     shader.env_sky = glGetUniformLocation(shader.program, "u_env_sky");
     shader.env_ground = glGetUniformLocation(shader.program, "u_env_ground");
+    shader.env_map = glGetUniformLocation(shader.program, "u_env_map");
+    shader.env_map_enabled = glGetUniformLocation(shader.program, "u_env_map_enabled");
+    shader.env_map_intensity = glGetUniformLocation(shader.program, "u_env_map_intensity");
     for (int i = 0; i < 4; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_lights[%d].position", i); shader.light_position[i] = glGetUniformLocation(shader.program, name);
@@ -383,6 +394,13 @@ static void bind_view(const g3_view_state *view) {
     glUniform4f(shader.fog, view->fog.x, view->fog.y, view->fog.z, view->fog.w);
     glUniform4f(shader.env_sky, view->env_sky.x, view->env_sky.y, view->env_sky.z, view->env_sky.w);
     glUniform4f(shader.env_ground, view->env_ground.x, view->env_ground.y, view->env_ground.z, view->env_ground.w);
+    int env = view->environment_texture;
+    int has_env = env >= 0 && env < texture_count && textures[env];
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, has_env ? textures[env] : 0);
+    glUniform1i(shader.env_map, 1);
+    glUniform1i(shader.env_map_enabled, has_env);
+    glUniform1f(shader.env_map_intensity, view->environment_intensity);
     int count = view->light_count < 0 ? 0 : view->light_count > 4 ? 4 : view->light_count;
     glUniform1i(shader.light_count, count);
     for (int i = 0; i < count; i++) {

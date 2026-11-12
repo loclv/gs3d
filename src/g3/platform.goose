@@ -53,6 +53,8 @@ struct ViewState {
     light_count: i32,
     env_sky: float4,        // rgb, w = intensity
     env_ground: float4,
+    environment_texture: i32, // equirectangular RGB texture, -1 disables
+    environment_intensity: f32,
 }
 
 // --- the backend interface
