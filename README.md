@@ -249,7 +249,9 @@ What the API gives you:
 * **Nodes** — `node_add(mesh)`, `node_group()`, `node(id) -> Node&`,
   `node_parent(child, parent)`, `scene_clear()`, and `node_count()`. A node has
   position, euler rotation, scale, colour, `unlit`, `visible`, specular
-  strength and shininess.
+  strength and shininess. `node_handle(id)` and `node_handle_valid(handle)`
+  add generation and scene-epoch checks for retained handles; raw indices and
+  references must not be used after an asset slot is released.
 * **Camera** — `camera() -> Camera&` (fov, near, far, up), `camera_look_at`,
   `camera_orbit(yaw, pitch, distance, target)`, `camera_orbit_nudge`,
   `camera_zoom`.

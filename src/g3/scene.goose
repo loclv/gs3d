@@ -41,7 +41,12 @@ struct Node {
     use_local_matrix: bool,
     asset_owned: bool,
     asset_free: bool,
+    generation: i32 = 1,
 }
+
+// Raw node indices are retained for existing Goose code. A NodeHandle adds
+// slot generation and scene epoch for clients that retain reusable nodes.
+struct NodeHandle { index: i64 = -1, generation: i32, epoch: i32 }
 
 struct Camera {
     pos: float3 = float3 { 0.0, 4.0, 10.0 },
@@ -71,6 +76,16 @@ fn scene_clear() { g_nodes.clear(); g_scene_epoch += 1; }
 // the program runs.
 fn node(id: i64) -> Node& { return g_nodes[id] }
 
+fn node_handle(id: i64) -> NodeHandle {
+    guard id >= 0 && id < g_nodes.len && !g_nodes[id].asset_free else { return NodeHandle { .. }; }
+    return NodeHandle { index: id, generation: g_nodes[id].generation, epoch: g_scene_epoch };
+}
+
+fn node_handle_valid(handle: NodeHandle) -> bool {
+    return handle.epoch == g_scene_epoch && handle.index >= 0 && handle.index < g_nodes.len &&
+           !g_nodes[handle.index].asset_free && g_nodes[handle.index].generation == handle.generation;
+}
+
 // Add a node and get its handle back; `node` turns the handle into a
 // reference once, and the reference is what the rest of the code uses.
 fn node_add(mesh_id: i32) -> i64 {
@@ -81,13 +96,20 @@ fn node_add(mesh_id: i32) -> i64 {
 // Asset nodes may be recycled only after their owner has been disposed.
 fn node_asset_add(mesh_id: i32) -> i64 {
     for i in 0..g_nodes.len {
-        if g_nodes[i].asset_owned && g_nodes[i].asset_free {
-            g_nodes[i] = Node { mesh: mesh_id, asset_owned: true, .. };
+        if g_nodes[i].asset_owned && g_nodes[i].asset_free && g_nodes[i].generation < 2147483647 {
+            let generation = g_nodes[i].generation + 1;
+            g_nodes[i] = Node { mesh: mesh_id, asset_owned: true, generation: generation, .. };
             return i;
         }
     }
     g_nodes.push(Node { mesh: mesh_id, asset_owned: true, .. });
     return g_nodes.len - 1;
+}
+
+fn node_asset_release_handle(handle: NodeHandle) -> bool {
+    guard node_handle_valid(handle) && g_nodes[handle.index].asset_owned else { return false; }
+    node_asset_release(handle.index);
+    return true;
 }
 
 fn node_asset_release(id: i64) {

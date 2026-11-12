@@ -510,6 +510,7 @@ fn case_asset_reuse() {
     let indices: u32[3] = [0, 1, 2];
     let mesh = g3::mesh_asset_create(vertices[..], indices[..]);
     let first = g3::node_asset_add(mesh);
+    let first_handle = g3::node_handle(first);
     g3::node(first).unlit = true;
     let vertex_count = g3::g_verts.len;
     let index_count = g3::g_indices.len;
@@ -520,6 +521,9 @@ fn case_asset_reuse() {
     g3::mesh_asset_release(mesh);
     let replacement = g3::mesh_asset_create(vertices[..], indices[..]);
     let second = g3::node_asset_add(replacement);
+    let second_handle = g3::node_handle(second);
+    testing::check(!g3::node_handle_valid(first_handle) && g3::node_handle_valid(second_handle) &&
+        !g3::node_asset_release_handle(first_handle), "stale node handle cannot release a reused slot");
     g3::node(second).unlit = true;
     g3::frame(1.0 / 60.0);
     testing::check(first == second && mesh == replacement && g3::node_count() == node_count &&
@@ -543,6 +547,22 @@ fn case_asset_reuse() {
     testing::check(replacement_texture == texture && other_texture != texture, "released texture id is reused only once");
     g3::node_asset_release(second);
     g3::mesh_asset_release(replacement);
+}
+
+fn case_node_epoch() {
+    g3::scene_clear();
+    let original = g3::node_asset_add(-1);
+    let stale = g3::node_handle(original);
+    g3::scene_clear();
+    let next = g3::node_asset_add(-1);
+    let current = g3::node_handle(next);
+    testing::check(original == next && !g3::node_handle_valid(stale) && g3::node_handle_valid(current) &&
+        !g3::node_asset_release_handle(stale), "scene reset invalidates old handles even when an index is reused");
+    testing::check(g3::node_asset_release_handle(current) && !g3::node_handle_valid(current), "checked release invalidates the current handle");
+    let ordinary = g3::node_add(-1);
+    let ordinary_handle = g3::node_handle(ordinary);
+    testing::check(!g3::node_asset_release_handle(ordinary_handle) && g3::node_handle_valid(ordinary_handle),
+        "asset release cannot remove an ordinary node");
 }
 
 fn case_asset_fragmentation() {
@@ -641,6 +661,7 @@ fn main() {
     case_clipping();
     case_normal_transform();
     case_asset_reuse();
+    case_node_epoch();
     case_asset_fragmentation();
     case_picking();
 

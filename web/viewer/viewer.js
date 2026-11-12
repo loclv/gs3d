@@ -48,7 +48,7 @@ async function start() {
       if (!drag || event.pointerId !== drag.id) return;
       if (drag.travel < 4 && model) {
         const hit = model.pick(canvas, event.clientX, event.clientY);
-        status.textContent = hit === null ? 'No mesh selected.' : `Selected mesh node ${hit}.`;
+        status.textContent = hit === null ? 'No mesh selected.' : `Selected mesh node ${hit.index}.`;
       }
       drag = null;
     });

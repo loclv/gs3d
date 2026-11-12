@@ -73,8 +73,25 @@ const item = (array, index, name) => {
   return array[index];
 };
 
-// Client coordinates work with CSS-scaled and high-DPI canvases. Return the
-// nearest visible front-facing mesh node, or null when there is no hit.
+// A handle is bound to its engine and carries a slot generation and scene
+// epoch. Checking it after disposal or scene replacement cannot alias a new
+// node occupying the same numeric slot.
+const nodeHandleOwners = new WeakMap();
+function makeNodeHandle(engine, index) {
+  const generation = engine._g3_asset_node_generation(index);
+  if (generation <= 0) return null;
+  const handle = Object.freeze({ index, generation, epoch: engine._g3_asset_scene_epoch() });
+  nodeHandleOwners.set(handle, engine);
+  return handle;
+}
+
+export function isNodeHandleValid(engine, handle) {
+  return !!handle && nodeHandleOwners.get(handle) === engine &&
+    !!engine._g3_asset_node_valid(handle.index, handle.generation, handle.epoch);
+}
+
+// Client coordinates work with CSS-scaled and high-DPI canvases. Return a
+// checked handle for the nearest visible front-facing node, or null on a miss.
 export function pickNode(engine, canvas, clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
   if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || rect.width <= 0 || rect.height <= 0 ||
@@ -82,7 +99,7 @@ export function pickNode(engine, canvas, clientX, clientY) {
   const x = (clientX - rect.left) / rect.width * 2 - 1;
   const y = 1 - (clientY - rect.top) / rect.height * 2;
   const node = engine._g3_asset_pick(x, y, rect.width / rect.height);
-  return node < 0 ? null : node;
+  return node < 0 ? null : makeNodeHandle(engine, node);
 }
 
 // sRGB output performs the transfer after linear lighting and blending.
@@ -245,9 +262,7 @@ export async function loadGLTF(engine, url) {
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    if (sceneEpoch === engine._g3_asset_scene_epoch()) {
-      for (const id of nodes) engine._g3_asset_hide(id);
-    }
+    for (const node of nodes) engine._g3_asset_node_release(node.index, node.generation, node.epoch);
     for (const id of meshes) {
       engine._g3_host_release_mesh(id);
       engine._g3_asset_release_mesh(id);
@@ -258,7 +273,9 @@ export async function loadGLTF(engine, url) {
     for (const spec of data.textureSpecs) textures.push(uploadImage(engine, data.images[spec.image], spec.wrapU, spec.wrapV, spec.minFilter, spec.magFilter, true));
     function createNode(node, parent) {
       const group = engine._g3_asset_node(-1, parent);
-      nodes.push(group);
+      const groupHandle = makeNodeHandle(engine, group);
+      if (!groupHandle) throw new AssetError('UPLOAD', 'Could not create node');
+      nodes.push(groupHandle);
       node.matrix.forEach((value, index) => engine._g3_asset_matrix(group, index, value));
       for (const p of node.primitives) {
         engine._g3_asset_mesh_begin();
@@ -267,20 +284,22 @@ export async function loadGLTF(engine, url) {
         const mesh = engine._g3_asset_mesh_end();
         meshes.push(mesh);
         const id = engine._g3_asset_node(mesh, group);
-        nodes.push(id);
+        const nodeHandle = makeNodeHandle(engine, id);
+        if (!nodeHandle) throw new AssetError('UPLOAD', 'Could not create node');
+        nodes.push(nodeHandle);
         engine._g3_asset_material(id, ...p.color, p.textureIndex < 0 ? -1 : textures[p.textureIndex], p.alphaMode, p.alphaCutoff);
       }
       for (const child of node.children) createNode(child, group);
-      return group;
+      return groupHandle;
     }
     const roots = data.roots.map(root => createNode(root, -1));
     return {
-      roots,
+      roots: Object.freeze(roots),
       // A nearer object belonging to another model occludes this model.
       pick(canvas, clientX, clientY) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return null;
         const node = pickNode(engine, canvas, clientX, clientY);
-        return nodes.includes(node) ? node : null;
+        return node && nodes.some(owned => owned.index === node.index && owned.generation === node.generation && owned.epoch === node.epoch) ? node : null;
       },
       dispose,
     };

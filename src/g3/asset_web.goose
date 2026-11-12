@@ -37,7 +37,13 @@ export fn g3_asset_material(id: i32, r: f32, g: f32, b: f32, a: f32, texture: i3
     n.alpha_mode = alpha_mode;
     n.alpha_cutoff = alpha_cutoff;
 }
-export fn g3_asset_hide(id: i32) { g3::node_asset_release(id); }
+export fn g3_asset_node_generation(id: i32) -> i32 { return g3::node_handle(id).generation; }
+export fn g3_asset_node_valid(id: i32, generation: i32, epoch: i32) -> bool {
+    return g3::node_handle_valid(g3::NodeHandle { index: id, generation: generation, epoch: epoch });
+}
+export fn g3_asset_node_release(id: i32, generation: i32, epoch: i32) -> bool {
+    return g3::node_asset_release_handle(g3::NodeHandle { index: id, generation: generation, epoch: epoch });
+}
 export fn g3_asset_scene_epoch() -> i32 { return g3::g_scene_epoch; }
 export fn g3_asset_texture() -> i32 { return g3::texture_asset_create(); }
 export fn g3_asset_release_texture(id: i32) { g3::texture_asset_release(id); }
