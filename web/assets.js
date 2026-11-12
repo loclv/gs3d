@@ -69,6 +69,18 @@ const item = (array, index, name) => {
   return array[index];
 };
 
+// Client coordinates work with CSS-scaled and high-DPI canvases. Return the
+// nearest visible front-facing mesh node, or null when there is no hit.
+export function pickNode(engine, canvas, clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || rect.width <= 0 || rect.height <= 0 ||
+      clientX < rect.left || clientX >= rect.right || clientY < rect.top || clientY >= rect.bottom) return null;
+  const x = (clientX - rect.left) / rect.width * 2 - 1;
+  const y = 1 - (clientY - rect.top) / rect.height * 2;
+  const node = engine._g3_asset_pick(x, y, rect.width / rect.height);
+  return node < 0 ? null : node;
+}
+
 function unpack(bytes) {
   const view = new DataView(bytes);
   if (bytes.byteLength >= 4 && view.getUint32(0, true) === 0x46546c67) {
@@ -234,7 +246,16 @@ export async function loadGLTF(engine, url) {
       return group;
     }
     const roots = data.roots.map(root => createNode(root, -1));
-    return { roots, dispose };
+    return {
+      roots,
+      // A nearer object belonging to another model occludes this model.
+      pick(canvas, clientX, clientY) {
+        if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return null;
+        const node = pickNode(engine, canvas, clientX, clientY);
+        return nodes.includes(node) ? node : null;
+      },
+      dispose,
+    };
   } catch (error) {
     dispose();
     if (error instanceof AssetError) throw error;

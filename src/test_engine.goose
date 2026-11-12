@@ -20,6 +20,7 @@ import g3.scene;
 import g3.render;
 import g3.engine;
 import g3.texture;
+import g3.picking;
 import testing;
 
 let W = 400;
@@ -382,6 +383,30 @@ fn case_asset_reuse() {
     testing::check(replacement_texture == texture && other_texture != texture, "released texture id is reused only once");
 }
 
+fn case_picking() {
+    g3::scene_clear();
+    flat_camera();
+    let mesh = g3::mesh_cube(0.5);
+    let far = g3::node_add(mesh);
+    g3::node(far).pos.z = -1.0;
+    let parent = g3::node_group();
+    g3::node(parent).pos.x = 0.25;
+    let near = g3::node_add(mesh);
+    g3::node_parent(near, parent);
+    g3::node(near).scale = float3 { 2.0, 1.0, 1.0 };
+    // Eye (0,0,5) reaches the front face z=0.5 at distance 4.5.
+    let hit = g3::raycast(float3 { 0.0, 0.0, 5.0 }, float3 { 0.0, 0.0, -2.0 }, 0.0, 20.0);
+    testing::check(hit.node == near && abs(hit.distance - 4.5) < 0.0001 && abs(hit.point.z - 0.5) < 0.0001,
+        "raycast chooses nearest transformed mesh and world distance");
+    testing::check(g3::pick_screen(0.0, 0.0, 1.0).node == near, "screen center picks nearest visible mesh");
+    testing::check(g3::pick_screen(0.99, 0.99, 1.0).node == -1, "screen ray misses empty space");
+    g3::node(near).visible = false;
+    testing::check(g3::pick_screen(0.0, 0.0, 1.0).node == far, "hidden mesh does not block picking");
+    g3::camera().near = 6.0;
+    testing::check(g3::pick_screen(0.0, 0.0, 1.0).node == -1, "screen picking respects the camera near plane");
+    testing::check(g3::raycast(float3_0, float3_0, 0.0, 20.0).node == -1, "zero direction produces no hit");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -402,6 +427,7 @@ fn main() {
     case_clipping();
     case_normal_transform();
     case_asset_reuse();
+    case_picking();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

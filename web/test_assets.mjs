@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { loadGLTF, loadImage, AssetError } from './assets.js';
+import { readFile } from 'node:fs/promises';
+import { loadGLTF, loadImage, pickNode, AssetError } from './assets.js';
 
 const binary = new ArrayBuffer(78);
 const view = new DataView(binary);
@@ -29,6 +30,7 @@ function glb(document, data) {
 }
 const glbDoc = structuredClone(doc); delete glbDoc.buffers[0].uri;
 const resources = new Map([['http://localhost/model.gltf', bytes(doc)], ['http://localhost/mesh.bin', binary], ['http://localhost/model.glb', glb(glbDoc, binary)], ['http://localhost/image.png', new Uint8Array([1])]]);
+resources.set('http://localhost/sample.glb', await readFile(new URL('./viewer/sample.glb', import.meta.url)));
 globalThis.fetch = async url => resources.has(String(url)) ? new Response(resources.get(String(url))) : new Response('', { status: 404 });
 globalThis.createImageBitmap = async () => ({ width: 1, height: 1, close() {} });
 globalThis.document = { createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8Array([255, 0, 0, 255]) }) }) }) };
@@ -46,6 +48,7 @@ function fakeEngine() {
   engine._g3_asset_release_mesh = id => calls.push(['recycle_mesh', id]);
   engine._g3_asset_release_texture = id => calls.push(['recycle_texture', id]);
   engine._g3_asset_scene_epoch = () => engine.epoch || 0;
+  engine._g3_asset_pick = (...args) => { calls.push(['pick', ...args]); return engine.picked ?? -1; };
   engine._malloc = () => 4; engine._free = () => {};
   return engine;
 }
@@ -57,7 +60,15 @@ for (const path of ['model.gltf', 'model.glb']) {
   assert.deepEqual(engine.calls.find(x => x[0] === 'triangle'), ['triangle', 0, 1, 2]);
   assert.deepEqual(engine.calls.find(x => x[0] === 'material'), ['material', 1, 0.25, 0.5, 1, 1, -1]);
   assert.deepEqual(engine.calls.find(x => x[0] === 'matrix' && x[2] === 12), ['matrix', 0, 12, 2]);
+  const canvas = { getBoundingClientRect: () => ({ left: 20, top: 10, right: 220, bottom: 110, width: 200, height: 100 }) };
+  engine.picked = 1;
+  assert.equal(model.pick(canvas, 120, 60), 1);
+  assert.deepEqual(engine.calls.find(x => x[0] === 'pick'), ['pick', 0, 0, 2]);
+  engine.picked = 99;
+  assert.equal(model.pick(canvas, 120, 60), null);
+  assert.equal(pickNode(engine, canvas, 220, 60), null);
   model.dispose(); model.dispose();
+  assert.equal(model.pick(canvas, 120, 60), null);
   assert.equal(engine.calls.filter(x => x[0] === 'hide').length, 2);
   assert.equal(engine.calls.filter(x => x[0] === 'release_mesh').length, 1);
 }
@@ -77,6 +88,12 @@ const texturedModel = await loadGLTF(texturedEngine, 'http://localhost/textured.
 assert.equal(texturedEngine.calls.find(x => x[0] === 'material').at(-1), 5);
 texturedModel.dispose();
 assert.equal(texturedEngine.calls.filter(x => x[0] === 'release_texture').length, 1);
+const sampleEngine = fakeEngine();
+const sample = await loadGLTF(sampleEngine, 'http://localhost/sample.glb');
+assert.equal(sampleEngine.calls.filter(x => x[0] === 'vertex').length, 24);
+assert.equal(sampleEngine.calls.filter(x => x[0] === 'triangle').length, 12);
+assert.equal(sampleEngine.calls.find(x => x[0] === 'material').at(-1), 5);
+sample.dispose();
 const clearedEngine = fakeEngine();
 const clearedModel = await loadGLTF(clearedEngine, 'http://localhost/model.gltf');
 clearedEngine.epoch = 1;

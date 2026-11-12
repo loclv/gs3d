@@ -4,6 +4,7 @@
 #   ./build_web.sh           build web/app.js + web/app.wasm
 #   ./build_web.sh --serve   build, then serve web/ on http://localhost:8080
 #   ./build_web.sh --game --serve  build and serve the Beacon Run sample
+#   ./build_web.sh --viewer --serve build and serve the model viewer
 #
 # Emscripten is expected in .toolchain/emsdk (see README) or on PATH.
 
@@ -30,10 +31,14 @@ if [ "${1:-}" = "--game" ]; then
   root=src/game_web.goose
   output=web/game/app.js
   exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_game_reset","_game_score","_game_state","_game_time","_game_floor_texture","_g3_input_key","_g3_input_mouse","_g3_input_resize","_malloc","_free"]'
+elif [ "${1:-}" = "--viewer" ]; then
+  root=src/viewer_web.goose
+  output=web/viewer/app.js
+  exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_viewer_orbit","_g3_viewer_zoom","_g3_input_resize","_malloc","_free"]'
 fi
 
 # The asset bridge is available to either browser entry point.
-asset_exports='"_g3_asset_mesh_begin","_g3_asset_vertex","_g3_asset_triangle","_g3_asset_mesh_end","_g3_asset_release_mesh","_g3_asset_node","_g3_asset_matrix","_g3_asset_material","_g3_asset_hide","_g3_asset_scene_epoch","_g3_asset_texture","_g3_asset_release_texture","_g3_host_texture","_g3_host_release_mesh","_g3_host_release_texture"'
+asset_exports='"_g3_asset_mesh_begin","_g3_asset_vertex","_g3_asset_triangle","_g3_asset_mesh_end","_g3_asset_release_mesh","_g3_asset_node","_g3_asset_matrix","_g3_asset_material","_g3_asset_hide","_g3_asset_scene_epoch","_g3_asset_texture","_g3_asset_release_texture","_g3_asset_pick","_g3_host_texture","_g3_host_release_mesh","_g3_host_release_texture"'
 exports="${exports%]},${asset_exports}]"
 
 # 1. Goose to C. --standalone means no C main is generated: the host below is

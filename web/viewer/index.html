@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Goose 3D model viewer</title>
+<style>
+  body { margin: 0; background: #111820; color: #edf3f3; font: 14px/1.5 system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  .panel { position: fixed; left: 18px; top: 18px; max-width: 320px; padding: 16px; border-radius: 8px; background: #101a20e8; }
+  h1 { margin: 0 0 4px; font-size: 21px; }
+  p { margin: 8px 0; color: #c6d5d5; }
+  button { padding: 8px 12px; border: 0; border-radius: 4px; cursor: pointer; }
+  #status { color: #ffe6a5; }
+</style>
+</head>
+<body>
+<canvas id="canvas" aria-label="3D model viewer"></canvas>
+<section class="panel">
+  <h1>Model viewer</h1>
+  <p>Drag to orbit, scroll to zoom, and click the model to select a mesh.</p>
+  <button id="reload" type="button">Reload model</button>
+  <p id="status" role="status">Loading…</p>
+</section>
+<script type="module" src="./viewer.js"></script>
+</body>
+</html>

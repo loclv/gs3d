@@ -37,7 +37,7 @@ if [ "${1:-}" = "--test" ]; then
 
   echo
   echo "== zero-warning check (ideal 11) =="
-  for f in src/test_math.goose src/test_engine.goose src/test_game.goose src/app_native.goose src/app_web.goose src/game_web.goose; do
+  for f in src/test_math.goose src/test_engine.goose src/test_game.goose src/app_native.goose src/app_web.goose src/game_web.goose src/viewer_web.goose; do
     log="build/check_$(basename "$f").log"
     goose check "$f" >"$log" 2>&1
     if grep -qi "warning" "$log"; then

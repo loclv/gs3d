@@ -20,7 +20,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
 | Scene management | Parent hierarchy and one camera | Object and resource removal, reusable resources, multiple cameras, orthographic camera rendering |
-| Interaction | Keyboard and mouse input | Raycasting and picking, touch controls, reusable camera controls |
+| Interaction | Keyboard and mouse input, triangle raycasting, example viewer orbit and selection | General touch controls and reusable browser camera controls |
 | Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
 | Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
 
@@ -45,8 +45,9 @@ and a browser integration check for behavior exposed through WebGL.
   varied model load/dispose cycles do not grow memory indefinitely.
 * Implement texture alpha, mipmaps, wrapping, and colour-space handling; expand
   the glTF loader's material and sampler support.
-* Add orbit controls and raycasting against loaded meshes, and expose a minimal
-  browser API for loading, inspecting, selecting, and disposing a model.
+* **Implemented:** triangle picking and an example viewer with orbit controls,
+  selection, and reload. Expand the browser API for model inspection and
+  reusable controls, and validate those paths in a real browser.
 
 **Done when:** a documented example loads a static textured GLB, orbits it,
 selects a mesh with a click, and repeatedly loads and disposes models without

@@ -52,6 +52,13 @@ same scene renders identically in a tab and on disk.
 
 ## Run it in the browser
 
+### View a textured model
+
+Run `./build_web.sh --viewer --serve` and open <http://localhost:8080/viewer/>.
+Drag to orbit, scroll to zoom, click the model to select a mesh, and use Reload
+to load and dispose it again. The bundled GLB uses the CC0 Ground Grey texture
+credited below; `web/viewer/generate_sample.py` regenerates it.
+
 ### Play Beacon Run
 
 Build and serve the sample game with `./build_web.sh --game --serve`, then open

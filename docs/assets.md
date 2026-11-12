@@ -5,11 +5,13 @@ build after `g3_host_start` has succeeded. It uses browser fetch and image
 decoding; it is not a native Goose or CPU-backend loader.
 
 ```js
-import { loadGLTF, loadImage, AssetError } from './assets.js';
+import { loadGLTF, loadImage, pickNode, AssetError } from './assets.js';
 
 try {
   const model = await loadGLTF(engine, './model.glb');
   // model.roots contains the engine node handles for the loaded scene.
+  // model.pick(canvas, event.clientX, event.clientY) returns a node or null.
+  // pickNode(engine, canvas, clientX, clientY) can pick any visible mesh.
   // When no longer needed:
   model.dispose();
 
@@ -38,6 +40,12 @@ loads of the same model therefore do not keep growing the arenas. Spans are not
 split, compacted, or returned to the operating system, however, so changing
 asset sizes and allocation order can cause fragmentation and memory grows to a
 high-water mark. This is not yet general-purpose resource reclamation.
+
+Picking uses the active perspective camera, the canvas's CSS dimensions,
+and retained geometry. It returns the nearest front-facing visible triangle;
+an object from another model can occlude the selected model. It is currently
+a linear scan of all triangles and does not inspect texture alpha. Model picking
+returns null after disposal or a scene reset.
 
 `AssetError.code` is `FETCH`, `IMAGE`, `INVALID_GLTF`, `UNSUPPORTED`, `MEMORY`,
 or `UPLOAD`. The loader validates and decodes before creating scene objects;

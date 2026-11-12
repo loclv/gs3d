@@ -5,6 +5,7 @@ import g3.mesh;
 import g3.scene;
 import g3.texture;
 import g3.platform;
+import g3.picking;
 
 var asset_vertices: g3::Vertex[>..];
 var asset_indices: u32[>..];
@@ -37,3 +38,6 @@ export fn g3_asset_hide(id: i32) { g3::node_asset_release(id); }
 export fn g3_asset_scene_epoch() -> i32 { return g3::g_scene_epoch; }
 export fn g3_asset_texture() -> i32 { return g3::texture_asset_create(); }
 export fn g3_asset_release_texture(id: i32) { g3::texture_asset_release(id); }
+export fn g3_asset_pick(x: f32, y: f32, aspect: f32) -> i32 {
+    return g3::pick_screen(x, y, aspect).node as i32;
+}
