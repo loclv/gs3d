@@ -22,6 +22,7 @@ namespace g3;
 
 struct Node {
     mesh: i32 = -1,             // -1: a group, it draws nothing
+    material: i32 = -1,         // -1: use this node's inline surface fields
     texture: i32 = -1,          // texture_create handle, or -1 for solid colour
     parent: i32 = -1,           // -1: a root
     pos: float3,
@@ -40,6 +41,18 @@ struct Node {
     asset_owned: bool,
     asset_free: bool,
     generation: i32 = 1,
+}
+
+// A shared surface. Node transforms and visibility remain per-node.
+struct Material {
+    color: float4 = float4_1,
+    texture: i32 = -1,
+    alpha_mode: i32,
+    alpha_cutoff: f32 = 0.5,
+    unlit: bool,
+    spec: f32 = 0.25,
+    shine: f32 = 24.0,
+    removed: bool,
 }
 
 // Raw node indices are retained for existing Goose code. A NodeHandle adds
@@ -64,6 +77,7 @@ struct CameraState {
 }
 
 var g_nodes: Node[>..];
+var g_materials: Material[>..];
 var g_scene_epoch: i32;
 var g_camera: Camera;
 var g_camera_yaw: f32 = 0.5;
@@ -74,6 +88,26 @@ var g_cameras: CameraState[>..];
 var g_active_camera: i64 = -1;
 
 fn node_count() -> i64 { g_nodes.len }
+
+// Material IDs are never reused. Removal detaches every node using the
+// material; those nodes then use their existing inline surface fields.
+fn material_add() -> i32 {
+    g_materials.push(Material { .. });
+    return (g_materials.len - 1) as i32;
+}
+
+fn material(id: i32) -> Material& { return g_materials[id] }
+
+fn material_valid(id: i32) -> bool {
+    return id >= 0 && id < g_materials.len && !g_materials[id].removed;
+}
+
+fn material_remove(id: i32) -> bool {
+    guard material_valid(id) else { return false; }
+    for &n in g_nodes { if n.material == id { n.material = -1; } }
+    g_materials[id].removed = true;
+    return true;
+}
 
 // Empty the scene, for a program that builds more than one. The compiler
 // refuses this while any reference into a node is still live, which is what

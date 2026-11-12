@@ -756,6 +756,40 @@ fn case_multiple_cameras() {
     testing::check(g3::camera_select(perspective) && g3::camera_active() == perspective, "cameras persist across scene reset");
 }
 
+fn case_shared_material() {
+    g3::scene_clear();
+    flat_camera();
+    g3::camera().orthographic = true;
+    g3::camera().ortho_height = 4.0;
+    let mesh = g3::mesh_cube(0.5);
+    let left = g3::node_add(mesh);
+    let right = g3::node_add(mesh);
+    g3::node(left).pos.x = -1.0;
+    g3::node(right).pos.x = 1.0;
+    g3::node(left).color = float4 { 1.0, 0.0, 0.0, 1.0 };
+    g3::node(left).unlit = true;
+    g3::node(right).unlit = true;
+    let mat = g3::material_add();
+    g3::material(mat).unlit = true;
+    g3::material(mat).color = float4 { 0.0, 1.0, 0.0, 1.0 };
+    g3::node(left).material = mat;
+    g3::node(right).material = mat;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(100, 200), 0, 255, 0, 2) &&
+        is_color(g3::read_pixel(300, 200), 0, 255, 0, 2), "two nodes render the same shared material");
+    g3::material(mat).color = float4 { 0.0, 0.0, 1.0, 0.5 };
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(100, 200), 128, 0, 255, 2) &&
+        is_color(g3::read_pixel(300, 200), 128, 0, 255, 2), "shared material updates and alpha blending affect both nodes");
+    testing::check(g3::material_remove(mat) && !g3::material_valid(mat) && !g3::material_remove(mat),
+        "material removal is checked and idempotent");
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(100, 200), 255, 0, 0, 2) &&
+        is_color(g3::read_pixel(300, 200), 255, 255, 255, 2), "removing a material restores each node's inline fields");
+    testing::check(g3::material_add() != mat, "removed material IDs are not reused");
+    g3::camera().orthographic = false;
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -786,6 +820,7 @@ fn main() {
     case_picking();
     case_orthographic_camera();
     case_multiple_cameras();
+    case_shared_material();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

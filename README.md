@@ -259,6 +259,14 @@ What the API gives you:
   or texture. Its children are reparented to its former parent with their
   transforms preserved; their local transforms become baked matrices. Raw
   indices and references must not be used after removal or scene reset.
+* **Materials** — `material_add()` creates a shared surface, and
+  `material(id)` exposes its colour, texture, alpha, unlit and specular fields.
+  Assign the ID to `node.material` to use it on any number of nodes; edits
+  affect each of them on the next frame. With `node.material = -1`, the node's
+  own surface fields apply. `material_remove(id)` detaches the material from
+  its nodes, which revert to their inline fields. Material IDs are not reused;
+  materials and their textures are separate resources, and `scene_clear()`
+  does not remove them. The glTF loader currently uses inline node fields.
 * **Camera** — `camera() -> Camera&` (fov, near, far, up), `camera_look_at`,
   `camera_orbit(yaw, pitch, distance, target)`, `camera_orbit_nudge`,
   `camera_zoom`. Set `camera().orthographic = true` and a positive
@@ -365,8 +373,9 @@ and tests show both forms.
 
 Deliberately out of scope for now, in rough order of how much they would add:
 
-* **No reusable material system.** Each node has colour, an optional texture,
-  and alpha settings; glTF metallic/roughness shading is not yet implemented.
+* **No PBR material system.** Shared and inline materials have colour, an
+  optional texture, and alpha settings; glTF metallic/roughness shading is not
+  yet implemented.
 * **Limited shadows, environment lighting, and normals.** Only the primary
   directional light casts hard shadows; blended objects do not cast them.
   The map has fixed resolution and explicit bounds, and shadow-enabled frames
