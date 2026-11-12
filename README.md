@@ -192,7 +192,7 @@ import g3.engine;
 fn main() {
     guard g3::init(1280, 720, "hello") else { return; }
 
-    // Meshes live in two arenas; a handle is an i32 that stays valid forever.
+    // Ordinary meshes live in two arenas and keep their numeric IDs.
     let cube = g3::mesh_cube(1.0);
     let ball = g3::mesh_sphere(0.5, 16, 24);
 
@@ -231,9 +231,11 @@ What the API gives you:
 
 * **Meshes** — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
-  for your own geometry. A handle is uploaded to the backend once.
+  for your own geometry. Asset mesh IDs can be checked with `mesh_handle` and
+  `mesh_handle_valid` across disposal and reuse.
 * **Textures** — import `g3.texture`, call `texture_create(width, height, rgba)`
-  with row-major RGBA8 pixels, and assign the returned handle to `node.texture`.
+  with row-major RGBA8 pixels, and assign the returned ID to `node.texture`.
+  Asset textures also support `texture_handle` and `texture_handle_valid`.
   Built-in meshes have UVs; custom meshes can use `push_vertex_uv`. Both
   backends support nearest, linear, and mipmapped filtering via
   `texture_set_filter`, and clamp, repeat, and mirrored repeat per axis via

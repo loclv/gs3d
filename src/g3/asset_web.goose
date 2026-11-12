@@ -20,7 +20,9 @@ export fn g3_asset_vertex(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, u: 
 }
 export fn g3_asset_triangle(a: u32, b: u32, c: u32) { asset_indices.push(a); asset_indices.push(b); asset_indices.push(c); }
 export fn g3_asset_mesh_end() -> i32 { return g3::mesh_asset_create(asset_vertices[..], asset_indices[..]); }
-export fn g3_asset_release_mesh(id: i32) { g3::mesh_asset_release(id); }
+export fn g3_asset_mesh_generation(id: i32) -> i32 { return g3::mesh_handle(id).generation; }
+export fn g3_asset_mesh_valid(id: i32, generation: i32) -> bool { return g3::mesh_handle_valid(g3::MeshHandle { id: id, generation: generation }); }
+export fn g3_asset_release_mesh(id: i32, generation: i32) -> bool { return g3::mesh_asset_release_handle(g3::MeshHandle { id: id, generation: generation }); }
 export fn g3_asset_node(mesh: i32, parent: i32) -> i32 {
     let id = g3::node_asset_add(mesh);
     let n .= g3::node(id);
@@ -46,7 +48,9 @@ export fn g3_asset_node_release(id: i32, generation: i32, epoch: i32) -> bool {
 }
 export fn g3_asset_scene_epoch() -> i32 { return g3::g_scene_epoch; }
 export fn g3_asset_texture() -> i32 { return g3::texture_asset_create(); }
-export fn g3_asset_release_texture(id: i32) { g3::texture_asset_release(id); }
+export fn g3_asset_texture_generation(id: i32) -> i32 { return g3::texture_handle(id).generation; }
+export fn g3_asset_texture_valid(id: i32, generation: i32) -> bool { return g3::texture_handle_valid(g3::TextureHandle { id: id, generation: generation }); }
+export fn g3_asset_release_texture(id: i32, generation: i32) -> bool { return g3::texture_asset_release_handle(g3::TextureHandle { id: id, generation: generation }); }
 export fn g3_asset_pick(x: f32, y: f32, aspect: f32) -> i32 {
     return g3::pick_screen(x, y, aspect).node as i32;
 }

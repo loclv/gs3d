@@ -33,25 +33,25 @@ async function decodeImage(bytes, type) {
 function uploadImage(engine, image, wrapU = 0, wrapV = 0, minFilter = 9729, magFilter = 9729, srgb = false) {
   const ptr = engine._malloc(image.pixels.length);
   if (!ptr) throw new AssetError('MEMORY', 'Could not allocate image upload buffer');
-  let id = -1;
+  let handle = null;
   try {
     engine.HEAPU8.set(image.pixels, ptr);
-    id = engine._g3_asset_texture();
+    const id = engine._g3_asset_texture();
     if (id < 0) throw new AssetError('MEMORY', 'Could not allocate texture');
+    handle = makeResourceHandle(engine, id, 'texture');
     if (srgb) engine._g3_host_texture_srgb(id, ptr, image.width, image.height);
     else engine._g3_host_texture(id, ptr, image.width, image.height);
     engine._g3_host_texture_wrap(id, wrapU, wrapV);
     engine._g3_host_texture_filter(id, minFilter, magFilter);
-    return id;
+    return handle;
   } catch (error) {
-    if (id >= 0) releaseTexture(engine, id);
+    if (handle) releaseTexture(engine, handle);
     throw error;
   } finally { engine._free(ptr); }
 }
 
-function releaseTexture(engine, id) {
-  engine._g3_host_release_texture(id);
-  engine._g3_asset_release_texture(id);
+function releaseTexture(engine, handle) {
+  if (engine._g3_asset_release_texture(handle.id, handle.generation)) engine._g3_host_release_texture(handle.id);
 }
 
 // The caller owns the returned texture and must dispose it once unused.
@@ -59,10 +59,10 @@ export async function loadImage(engine, url, { colorSpace = 'linear' } = {}) {
   if (colorSpace !== 'linear' && colorSpace !== 'srgb') throw new AssetError('COLOR_SPACE', `Unsupported texture color space: ${colorSpace}`);
   const bytes = await fetchBytes(url);
   const image = await decodeImage(bytes, '');
-  const id = uploadImage(engine, image, 0, 0, 9729, 9729, colorSpace === 'srgb');
+  const handle = uploadImage(engine, image, 0, 0, 9729, 9729, colorSpace === 'srgb');
   let disposed = false;
-  return { id, width: image.width, height: image.height, dispose() {
-    if (!disposed) { disposed = true; releaseTexture(engine, id); }
+  return { id: handle.id, handle, width: image.width, height: image.height, dispose() {
+    if (!disposed) { disposed = true; releaseTexture(engine, handle); }
   } };
 }
 
@@ -77,6 +77,20 @@ const item = (array, index, name) => {
 // epoch. Checking it after disposal or scene replacement cannot alias a new
 // node occupying the same numeric slot.
 const nodeHandleOwners = new WeakMap();
+const meshHandleOwners = new WeakMap(), textureHandleOwners = new WeakMap();
+function makeResourceHandle(engine, id, kind) {
+  const generation = engine[`_g3_asset_${kind}_generation`](id);
+  if (generation <= 0) throw new AssetError('UPLOAD', `Could not create ${kind} handle`);
+  const handle = Object.freeze({ id, generation });
+  (kind === 'mesh' ? meshHandleOwners : textureHandleOwners).set(handle, engine);
+  return handle;
+}
+export function isMeshHandleValid(engine, handle) {
+  return !!handle && meshHandleOwners.get(handle) === engine && !!engine._g3_asset_mesh_valid(handle.id, handle.generation);
+}
+export function isTextureHandleValid(engine, handle) {
+  return !!handle && textureHandleOwners.get(handle) === engine && !!engine._g3_asset_texture_valid(handle.id, handle.generation);
+}
 function makeNodeHandle(engine, index) {
   const generation = engine._g3_asset_node_generation(index);
   if (generation <= 0) return null;
@@ -263,9 +277,8 @@ export async function loadGLTF(engine, url) {
     if (disposed) return;
     disposed = true;
     for (const node of nodes) engine._g3_asset_node_release(node.index, node.generation, node.epoch);
-    for (const id of meshes) {
-      engine._g3_host_release_mesh(id);
-      engine._g3_asset_release_mesh(id);
+    for (const handle of meshes) {
+      if (engine._g3_asset_release_mesh(handle.id, handle.generation)) engine._g3_host_release_mesh(handle.id);
     }
     for (const id of textures) releaseTexture(engine, id);
   };
@@ -282,12 +295,12 @@ export async function loadGLTF(engine, url) {
         for (let i = 0; i < p.pos.length / 3; i++) engine._g3_asset_vertex(...p.pos.slice(i*3, i*3+3), ...p.normal.slice(i*3, i*3+3), ...(p.uv ? p.uv.slice(i*2, i*2+2) : [0, 0]));
         for (let i = 0; i < p.indices.length; i += 3) engine._g3_asset_triangle(...p.indices.slice(i, i+3));
         const mesh = engine._g3_asset_mesh_end();
-        meshes.push(mesh);
+        meshes.push(makeResourceHandle(engine, mesh, 'mesh'));
         const id = engine._g3_asset_node(mesh, group);
         const nodeHandle = makeNodeHandle(engine, id);
         if (!nodeHandle) throw new AssetError('UPLOAD', 'Could not create node');
         nodes.push(nodeHandle);
-        engine._g3_asset_material(id, ...p.color, p.textureIndex < 0 ? -1 : textures[p.textureIndex], p.alphaMode, p.alphaCutoff);
+        engine._g3_asset_material(id, ...p.color, p.textureIndex < 0 ? -1 : textures[p.textureIndex].id, p.alphaMode, p.alphaCutoff);
       }
       for (const child of node.children) createNode(child, group);
       return groupHandle;
@@ -295,6 +308,8 @@ export async function loadGLTF(engine, url) {
     const roots = data.roots.map(root => createNode(root, -1));
     return {
       roots: Object.freeze(roots),
+      meshes: Object.freeze([...meshes]),
+      textures: Object.freeze([...textures]),
       // A nearer object belonging to another model occludes this model.
       pick(canvas, clientX, clientY) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return null;

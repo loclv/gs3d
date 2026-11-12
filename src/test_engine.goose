@@ -509,6 +509,7 @@ fn case_asset_reuse() {
         g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 } }];
     let indices: u32[3] = [0, 1, 2];
     let mesh = g3::mesh_asset_create(vertices[..], indices[..]);
+    let mesh_handle = g3::mesh_handle(mesh);
     let first = g3::node_asset_add(mesh);
     let first_handle = g3::node_handle(first);
     g3::node(first).unlit = true;
@@ -520,6 +521,9 @@ fn case_asset_reuse() {
     g3::node_asset_release(first);
     g3::mesh_asset_release(mesh);
     let replacement = g3::mesh_asset_create(vertices[..], indices[..]);
+    let replacement_handle = g3::mesh_handle(replacement);
+    testing::check(!g3::mesh_handle_valid(mesh_handle) && g3::mesh_handle_valid(replacement_handle) &&
+        !g3::mesh_asset_release_handle(mesh_handle), "stale mesh handle cannot release a reused slot");
     let second = g3::node_asset_add(replacement);
     let second_handle = g3::node_handle(second);
     testing::check(!g3::node_handle_valid(first_handle) && g3::node_handle_valid(second_handle) &&
@@ -540,10 +544,14 @@ fn case_asset_reuse() {
     testing::check(g3::node_count() == node_count && g3::g_verts.len == vertex_count && g3::g_indices.len == index_count,
         "repeated load and release keeps arena lengths bounded");
     let texture = g3::texture_asset_create();
+    let texture_handle = g3::texture_handle(texture);
     g3::texture_asset_release(texture);
     g3::texture_asset_release(texture);
     let replacement_texture = g3::texture_asset_create();
     let other_texture = g3::texture_asset_create();
+    let replacement_texture_handle = g3::texture_handle(replacement_texture);
+    testing::check(!g3::texture_handle_valid(texture_handle) && g3::texture_handle_valid(replacement_texture_handle) &&
+        !g3::texture_asset_release_handle(texture_handle), "stale texture handle cannot release a reused slot");
     testing::check(replacement_texture == texture && other_texture != texture, "released texture id is reused only once");
     g3::node_asset_release(second);
     g3::mesh_asset_release(replacement);

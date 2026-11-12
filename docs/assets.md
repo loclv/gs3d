@@ -5,7 +5,7 @@ build after `g3_host_start` has succeeded. It uses browser fetch and image
 decoding; it is not a native Goose or CPU-backend loader.
 
 ```js
-import { loadGLTF, loadImage, pickNode, isNodeHandleValid, setOutputColorSpace, AssetError } from './assets.js';
+import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, setOutputColorSpace, AssetError } from './assets.js';
 
 try {
   setOutputColorSpace(engine, 'srgb'); // after engine startup
@@ -18,7 +18,8 @@ try {
   model.dispose();
 
   const image = await loadImage(engine, './image.png');
-  // image.id is a texture handle; image.width and image.height are pixels.
+  // image.handle is checked; image.id is the low-level texture ID.
+  // image.width and image.height are pixels.
   // Keep it alive while any node uses it, then call image.dispose().
 } catch (error) {
   if (error instanceof AssetError) console.error(error.code, error.message);
@@ -37,8 +38,13 @@ Use `isNodeHandleValid` before retaining or using a handle: it becomes invalid
 after disposal or `scene_clear()`, even if the same index is reused. Disposal
 after `scene_clear()` still releases the model's GPU resources without touching
 nodes in the new scene. The `index` is for inspection; passing it directly to
-low-level engine functions bypasses the safety check. Texture IDs and legacy
-Goose node indices do not yet carry generation checks.
+low-level engine functions bypasses the safety check. `model.meshes` and
+`model.textures` contain engine-bound handles with an ID and generation;
+`image.handle` has the same form. Use `isMeshHandleValid` and
+`isTextureHandleValid` to check them. Disposal invalidates these handles and
+cannot release a different resource that later reuses the ID. Raw IDs and
+legacy Goose node indices bypass these checks. Goose callers can also use
+`mesh_handle`/`mesh_handle_valid` and `texture_handle`/`texture_handle_valid`.
 
 CPU geometry remains available for picking while a model is live. Freed vertex
 and index spans are tracked independently, split on allocation, and coalesced

@@ -27,7 +27,10 @@ struct Mesh {
     vertex_capacity: i64, index_capacity: i64,
     asset_owned: bool,
     asset_free: bool,
+    generation: i32 = 1,
 }
+
+struct MeshHandle { id: i32 = -1, generation: i32 }
 
 var g_verts: Vertex[>..];
 var g_indices: u32[>..];
@@ -105,6 +108,16 @@ fn mesh_count() -> i64 { g_meshes.len }
 
 fn mesh(id: i32) -> Mesh& { return g_meshes[id] }
 
+fn mesh_handle(id: i32) -> MeshHandle {
+    guard id >= 0 && id < g_meshes.len && !g_meshes[id].asset_free else { return MeshHandle { .. }; }
+    return MeshHandle { id: id, generation: g_meshes[id].generation };
+}
+
+fn mesh_handle_valid(handle: MeshHandle) -> bool {
+    return handle.id >= 0 && handle.id < g_meshes.len && !g_meshes[handle.id].asset_free &&
+           g_meshes[handle.id].generation == handle.generation;
+}
+
 fn push_vertex(p: float3, n: float3) {
     push_vertex_uv(p, n, float2 { 0.0, 0.0 });
 }
@@ -176,7 +189,7 @@ fn mesh_asset_create(verts: const Vertex[:], indices: const u32[:]) -> i32 {
     for j in 0..indices.len { g_indices[fi + j] = indices[j]; }
     for i in 0..g_meshes.len {
         let m .= g_meshes[i];
-        if m.asset_owned && m.asset_free {
+        if m.asset_owned && m.asset_free && m.generation < 2147483647 {
             m.first_vertex = fv;
             m.first_index = fi;
             m.vertex_count = verts.len;
@@ -185,6 +198,7 @@ fn mesh_asset_create(verts: const Vertex[:], indices: const u32[:]) -> i32 {
             m.index_capacity = indices.len;
             m.bounds = bounds;
             m.asset_free = false;
+            m.generation += 1;
             g3p_upload_mesh(m.id, g_verts[fv..fv + verts.len], g_indices[fi..fi + indices.len]);
             return m.id;
         }
@@ -205,6 +219,12 @@ fn mesh_asset_release(id: i32) {
         span_release(m.first_index, m.index_capacity, 1);
         m.asset_free = true;
     }
+}
+
+fn mesh_asset_release_handle(handle: MeshHandle) -> bool {
+    guard mesh_handle_valid(handle) && g_meshes[handle.id].asset_owned else { return false; }
+    mesh_asset_release(handle.id);
+    return true;
 }
 
 // A cube of the given half extent, 4 corners and 2 triangles per face, with

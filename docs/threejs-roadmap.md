@@ -41,9 +41,9 @@ and a browser integration check for behavior exposed through WebGL.
 * **Implemented:** view-volume clipping and inverse-transpose normals for
   non-uniform scale. Continue expanding CPU and browser rendering checks.
 * **Partly implemented:** asset-owned slots are reused, adjacent free mesh
-  spans are split and coalesced, and browser node handles check generation and
-  scene epoch. Extend safe handles and removal to general meshes, textures,
-  and scene objects; handle fragmentation between live meshes so varied
+  spans are split and coalesced, browser asset handles check generation, and
+  node handles also check scene epoch. Extend removal to general meshes,
+  textures, and scene objects; handle fragmentation between live meshes so varied
   load/dispose cycles remain bounded.
 * **Implemented:** texture alpha, wrapping, filtering, and opt-in sRGB output,
   including glTF base-colour decoding and per-texture sampler settings. Expand

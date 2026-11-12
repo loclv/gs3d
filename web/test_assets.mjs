@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { loadGLTF, loadImage, pickNode, isNodeHandleValid, setOutputColorSpace, AssetError } from './assets.js';
+import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, setOutputColorSpace, AssetError } from './assets.js';
 
 const binary = new ArrayBuffer(78);
 const view = new DataView(binary);
@@ -38,20 +38,28 @@ globalThis.document = { createElement: () => ({ getContext: () => ({ drawImage()
 function fakeEngine() {
   const calls = [], engine = { calls, HEAPU8: new Uint8Array(32) };
   for (const name of ['mesh_begin','vertex','triangle','matrix','material']) engine['_g3_asset_' + name] = (...args) => calls.push([name, ...args]);
-  let next = 0, nextTexture = 5;
+  let next = 0, nextTexture = 5, nextMesh = 7;
   const generations = new Map();
+  const meshGenerations = new Map(), textureGenerations = new Map();
   engine.generations = generations;
-  engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); return 7; };
+  engine.meshGenerations = meshGenerations; engine.textureGenerations = textureGenerations;
+  engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); const id = nextMesh++; meshGenerations.set(id, 1); return id; };
   engine._g3_asset_node = (...args) => { calls.push(['node', ...args]); const id = next++; generations.set(id, 1); return id; };
-  engine._g3_asset_texture = () => nextTexture++;
+  engine._g3_asset_texture = () => { const id = nextTexture++; textureGenerations.set(id, 1); return id; };
   engine._g3_host_texture = (...args) => calls.push(['texture', ...args]);
   engine._g3_host_texture_srgb = (...args) => calls.push(['texture_srgb', ...args]);
   engine._g3_host_texture_wrap = (...args) => calls.push(['wrap', ...args]);
   engine._g3_host_texture_filter = (...args) => calls.push(['filter', ...args]);
   engine._g3_host_release_mesh = id => calls.push(['release_mesh', id]);
   engine._g3_host_release_texture = id => calls.push(['release_texture', id]);
-  engine._g3_asset_release_mesh = id => calls.push(['recycle_mesh', id]);
-  engine._g3_asset_release_texture = id => calls.push(['recycle_texture', id]);
+  for (const [kind, slots] of [['mesh', meshGenerations], ['texture', textureGenerations]]) {
+    engine[`_g3_asset_${kind}_generation`] = id => slots.get(id) || 0;
+    engine[`_g3_asset_${kind}_valid`] = (id, generation) => slots.get(id) === generation;
+    engine[`_g3_asset_release_${kind}`] = (id, generation) => {
+      if (slots.get(id) !== generation) return 0;
+      slots.delete(id); calls.push([`recycle_${kind}`, id]); return 1;
+    };
+  }
   engine._g3_asset_scene_epoch = () => engine.epoch || 0;
   engine._g3_asset_node_generation = id => generations.get(id) || 0;
   engine._g3_asset_node_valid = (id, generation, epoch) => epoch === (engine.epoch || 0) && generations.get(id) === generation;
@@ -70,6 +78,8 @@ for (const path of ['model.gltf', 'model.glb']) {
   assert.deepEqual(model.roots, [{ index: 0, generation: 1, epoch: 0 }]);
   assert.equal(isNodeHandleValid(engine, model.roots[0]), true);
   assert.equal(isNodeHandleValid(fakeEngine(), model.roots[0]), false);
+  assert.equal(isMeshHandleValid(engine, model.meshes[0]), true);
+  assert.equal(isMeshHandleValid(fakeEngine(), model.meshes[0]), false);
   assert.equal(engine.calls.filter(x => x[0] === 'vertex').length, 3);
   assert.deepEqual(engine.calls.find(x => x[0] === 'triangle'), ['triangle', 0, 1, 2]);
   assert.deepEqual(engine.calls.find(x => x[0] === 'material'), ['material', 1, 0.25, 0.5, 1, 1, -1, 0, 0.5]);
@@ -84,6 +94,7 @@ for (const path of ['model.gltf', 'model.glb']) {
   assert.equal(model.pick(canvas, 120, 60), null);
   assert.equal(pickNode(engine, canvas, 220, 60), null);
   model.dispose(); model.dispose();
+  assert.equal(isMeshHandleValid(engine, model.meshes[0]), false);
   assert.equal(isNodeHandleValid(engine, selected), false);
   engine.generations.set(selected.index, 2);
   assert.equal(isNodeHandleValid(engine, selected), false);
@@ -96,7 +107,10 @@ const image = await loadImage(engine, 'http://localhost/image.png');
 setOutputColorSpace(engine, 'srgb');
 assert.deepEqual(engine.calls.find(x => x[0] === 'output_srgb'), ['output_srgb', 1]);
 assert.throws(() => setOutputColorSpace(engine, 'unknown'), e => e.code === 'COLOR_SPACE');
-assert.equal(image.id, 5); image.dispose(); image.dispose();
+assert.equal(image.id, 5); assert.equal(isTextureHandleValid(engine, image.handle), true);
+assert.equal(isTextureHandleValid(fakeEngine(), image.handle), false);
+image.dispose(); image.dispose();
+assert.equal(isTextureHandleValid(engine, image.handle), false);
 assert.equal(engine.calls.filter(x => x[0] === 'release_texture').length, 1);
 const srgbImage = await loadImage(engine, 'http://localhost/image.png', { colorSpace: 'srgb' });
 assert.equal(engine.calls.filter(x => x[0] === 'texture_srgb').length, 1);
@@ -170,12 +184,23 @@ assert.equal(clearedEngine.calls.filter(x => x[0] === 'hide').length, 0);
 assert.equal(clearedEngine.calls.filter(x => x[0] === 'recycle_mesh').length, 1);
 const reusedEngine = fakeEngine();
 const oldModel = await loadGLTF(reusedEngine, 'http://localhost/model.gltf');
+const oldMesh = oldModel.meshes[0];
+reusedEngine.meshGenerations.set(oldMesh.id, oldMesh.generation + 1);
+assert.equal(isMeshHandleValid(reusedEngine, oldMesh), false);
 const oldRoot = oldModel.roots[0];
 reusedEngine.generations.set(oldRoot.index, oldRoot.generation + 1);
 assert.equal(isNodeHandleValid(reusedEngine, oldRoot), false);
 oldModel.dispose();
+assert.equal(reusedEngine.meshGenerations.get(oldMesh.id), oldMesh.generation + 1);
+assert.equal(reusedEngine.calls.filter(x => x[0] === 'release_mesh').length, 0);
 assert.equal(reusedEngine.generations.get(oldRoot.index), oldRoot.generation + 1);
 assert.equal(reusedEngine.calls.filter(x => x[0] === 'hide').length, 1);
+const staleTextureEngine = fakeEngine();
+const staleImage = await loadImage(staleTextureEngine, 'http://localhost/image.png');
+staleTextureEngine.textureGenerations.set(staleImage.id, staleImage.handle.generation + 1);
+staleImage.dispose();
+assert.equal(staleTextureEngine.textureGenerations.get(staleImage.id), staleImage.handle.generation + 1);
+assert.equal(staleTextureEngine.calls.filter(x => x[0] === 'release_texture').length, 0);
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/missing'), e => e instanceof AssetError && e.code === 'FETCH');
 const invalid = structuredClone(doc); invalid.meshes[0].primitives[0].mode = 1;
 resources.set('http://localhost/bad.gltf', bytes(invalid));
