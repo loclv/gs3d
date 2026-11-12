@@ -264,9 +264,10 @@ What the API gives you:
   Assign the ID to `node.material` to use it on any number of nodes; edits
   affect each of them on the next frame. With `node.material = -1`, the node's
   own surface fields apply. `material_remove(id)` detaches the material from
-  its nodes, which revert to their inline fields. Material IDs are not reused;
+  its nodes, which revert to their inline fields. Ordinary material IDs are not reused;
   materials and their textures are separate resources, and `scene_clear()`
-  does not remove them. The glTF loader currently uses inline node fields.
+  does not remove them. glTF materials are shared within each loaded model and
+  their asset-owned slots are reused after disposal.
 * **Camera** — `camera() -> Camera&` (fov, near, far, up), `camera_look_at`,
   `camera_orbit(yaw, pitch, distance, target)`, `camera_orbit_nudge`,
   `camera_zoom`. Set `camera().orthographic = true` and a positive

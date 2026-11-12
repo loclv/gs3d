@@ -53,7 +53,11 @@ struct Material {
     spec: f32 = 0.25,
     shine: f32 = 24.0,
     removed: bool,
+    asset_owned: bool,
+    generation: i32 = 1,
 }
+
+struct MaterialHandle { id: i32 = -1, generation: i32 }
 
 // Raw node indices are retained for existing Goose code. A NodeHandle adds
 // slot generation and scene epoch for clients that retain reusable nodes.
@@ -89,8 +93,8 @@ var g_active_camera: i64 = -1;
 
 fn node_count() -> i64 { g_nodes.len }
 
-// Material IDs are never reused. Removal detaches every node using the
-// material; those nodes then use their existing inline surface fields.
+// Ordinary material IDs are never reused. Removal detaches every node using
+// the material; those nodes then use their existing inline surface fields.
 fn material_add() -> i32 {
     g_materials.push(Material { .. });
     return (g_materials.len - 1) as i32;
@@ -103,9 +107,40 @@ fn material_valid(id: i32) -> bool {
 }
 
 fn material_remove(id: i32) -> bool {
-    guard material_valid(id) else { return false; }
+    guard material_valid(id) && !g_materials[id].asset_owned else { return false; }
+    material_release_slot(id);
+    return true;
+}
+
+fn material_release_slot(id: i32) {
     for &n in g_nodes { if n.material == id { n.material = -1; } }
     g_materials[id].removed = true;
+}
+
+fn material_asset_add() -> i32 {
+    for i in 0..g_materials.len {
+        if g_materials[i].asset_owned && g_materials[i].removed && g_materials[i].generation < 2147483647 {
+            let generation = g_materials[i].generation + 1;
+            g_materials[i] = Material { asset_owned: true, generation: generation, .. };
+            return i as i32;
+        }
+    }
+    g_materials.push(Material { asset_owned: true, .. });
+    return (g_materials.len - 1) as i32;
+}
+
+fn material_handle(id: i32) -> MaterialHandle {
+    if !material_valid(id) { return MaterialHandle { .. }; }
+    return MaterialHandle { id: id, generation: g_materials[id].generation };
+}
+
+fn material_handle_valid(handle: MaterialHandle) -> bool {
+    return material_valid(handle.id) && g_materials[handle.id].generation == handle.generation;
+}
+
+fn material_asset_release(handle: MaterialHandle) -> bool {
+    guard material_handle_valid(handle) && g_materials[handle.id].asset_owned else { return false; }
+    material_release_slot(handle.id);
     return true;
 }
 

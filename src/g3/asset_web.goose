@@ -32,13 +32,19 @@ export fn g3_asset_node(mesh: i32, parent: i32) -> i32 {
     return id as i32;
 }
 export fn g3_asset_matrix(id: i32, index: i32, value: f32) { g3::node(id).local_matrix.m[index] = value; }
-export fn g3_asset_material(id: i32, r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_mode: i32, alpha_cutoff: f32) {
-    let n .= g3::node(id);
-    n.color = float4 { r, g, b, a };
-    n.texture = texture;
-    n.alpha_mode = alpha_mode;
-    n.alpha_cutoff = alpha_cutoff;
+export fn g3_asset_material(r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_mode: i32, alpha_cutoff: f32) -> i32 {
+    let id = g3::material_asset_add();
+    let m .= g3::material(id);
+    m.color = float4 { r, g, b, a };
+    m.texture = texture;
+    m.alpha_mode = alpha_mode;
+    m.alpha_cutoff = alpha_cutoff;
+    return id;
 }
+export fn g3_asset_node_material(node: i32, material: i32) { g3::node(node).material = material; }
+export fn g3_asset_material_generation(id: i32) -> i32 { return g3::material_handle(id).generation; }
+export fn g3_asset_material_valid(id: i32, generation: i32) -> bool { return g3::material_handle_valid(g3::MaterialHandle { id: id, generation: generation }); }
+export fn g3_asset_release_material(id: i32, generation: i32) -> bool { return g3::material_asset_release(g3::MaterialHandle { id: id, generation: generation }); }
 export fn g3_asset_node_generation(id: i32) -> i32 { return g3::node_handle(id).generation; }
 export fn g3_asset_node_valid(id: i32, generation: i32, epoch: i32) -> bool {
     return g3::node_handle_valid(g3::NodeHandle { index: id, generation: generation, epoch: epoch });

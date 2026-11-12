@@ -787,6 +787,22 @@ fn case_shared_material() {
     testing::check(is_color(g3::read_pixel(100, 200), 255, 0, 0, 2) &&
         is_color(g3::read_pixel(300, 200), 255, 255, 255, 2), "removing a material restores each node's inline fields");
     testing::check(g3::material_add() != mat, "removed material IDs are not reused");
+    let asset = g3::material_asset_add();
+    let stale = g3::material_handle(asset);
+    g3::node(left).material = asset;
+    testing::check(!g3::material_remove(asset) && g3::material_asset_release(stale) && g3::node(left).material == -1,
+        "asset material release requires ownership and detaches nodes");
+    let reused = g3::material_asset_add();
+    let current = g3::material_handle(reused);
+    testing::check(reused == asset && !g3::material_handle_valid(stale) && g3::material_handle_valid(current) &&
+        !g3::material_asset_release(stale), "reused asset material rejects a stale handle");
+    g3::material_asset_release(current);
+    let material_count = g3::g_materials.len;
+    for i in 100 {
+        let loaded = g3::material_asset_add();
+        g3::material_asset_release(g3::material_handle(loaded));
+    }
+    testing::check(g3::g_materials.len == material_count, "repeated asset material loads reuse bounded storage");
     g3::camera().orthographic = false;
 }
 

@@ -5,7 +5,7 @@ build after `g3_host_start` has succeeded. It uses browser fetch and image
 decoding; it is not a native Goose or CPU-backend loader.
 
 ```js
-import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, setOutputColorSpace, AssetError } from './assets.js';
+import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
 
 try {
   setOutputColorSpace(engine, 'srgb'); // after engine startup
@@ -53,18 +53,19 @@ Disposal removes listeners and restores the canvas's previous `touch-action`.
 The controls do not provide panning or keyboard navigation.
 
 The API decodes images into RGBA8 and copies them to the renderer. `dispose()`
-is idempotent. A model owns the nodes, meshes, and textures it creates: disposal
-releases its GPU buffers and textures and makes its asset-owned node, mesh,
-and texture slots available for reuse. Browser node handles contain an index,
+is idempotent. A model owns the nodes, meshes, materials and textures it creates:
+disposal releases its GPU buffers and textures and makes its asset-owned slots
+available for reuse. Primitives in a model that reference the same glTF material
+share one engine material. Browser node handles contain an index,
 generation, and scene epoch, and are bound to the engine that created them.
 Use `isNodeHandleValid` before retaining or using a handle: it becomes invalid
 after disposal or `scene_clear()`, even if the same index is reused. Disposal
 after `scene_clear()` still releases the model's GPU resources without touching
 nodes in the new scene. The `index` is for inspection; passing it directly to
-low-level engine functions bypasses the safety check. `model.meshes` and
-`model.textures` contain engine-bound handles with an ID and generation;
+low-level engine functions bypasses the safety check. `model.meshes`,
+`model.materials` and `model.textures` contain engine-bound handles with an ID and generation;
 `image.handle` has the same form. Use `isMeshHandleValid` and
-`isTextureHandleValid` to check them. Disposal invalidates these handles and
+`isTextureHandleValid` and `isMaterialHandleValid` to check them. Disposal invalidates these handles and
 cannot release a different resource that later reuses the ID. Raw IDs and
 legacy Goose node indices bypass these checks. Goose callers can also use
 `mesh_handle`/`mesh_handle_valid` and `texture_handle`/`texture_handle_valid`.

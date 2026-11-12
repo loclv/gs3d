@@ -77,12 +77,12 @@ const item = (array, index, name) => {
 // epoch. Checking it after disposal or scene replacement cannot alias a new
 // node occupying the same numeric slot.
 const nodeHandleOwners = new WeakMap();
-const meshHandleOwners = new WeakMap(), textureHandleOwners = new WeakMap();
+const meshHandleOwners = new WeakMap(), textureHandleOwners = new WeakMap(), materialHandleOwners = new WeakMap();
 function makeResourceHandle(engine, id, kind) {
   const generation = engine[`_g3_asset_${kind}_generation`](id);
   if (generation <= 0) throw new AssetError('UPLOAD', `Could not create ${kind} handle`);
   const handle = Object.freeze({ id, generation });
-  (kind === 'mesh' ? meshHandleOwners : textureHandleOwners).set(handle, engine);
+  (kind === 'mesh' ? meshHandleOwners : kind === 'texture' ? textureHandleOwners : materialHandleOwners).set(handle, engine);
   return handle;
 }
 export function isMeshHandleValid(engine, handle) {
@@ -90,6 +90,9 @@ export function isMeshHandleValid(engine, handle) {
 }
 export function isTextureHandleValid(engine, handle) {
   return !!handle && textureHandleOwners.get(handle) === engine && !!engine._g3_asset_texture_valid(handle.id, handle.generation);
+}
+export function isMaterialHandleValid(engine, handle) {
+  return !!handle && materialHandleOwners.get(handle) === engine && !!engine._g3_asset_material_valid(handle.id, handle.generation);
 }
 function makeNodeHandle(engine, index) {
   const generation = engine._g3_asset_node_generation(index);
@@ -247,7 +250,7 @@ async function prepare(url) {
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
     return { pos: pos.values, normal: normal.values, uv: uv?.values, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
-      alphaMode: alphaModes[mode], alphaCutoff: cutoff };
+      alphaMode: alphaModes[mode], alphaCutoff: cutoff, materialIndex: p.material ?? -1 };
   }));
   const nodes = doc.nodes || [], roots = item(doc.scenes, doc.scene ?? 0, 'scene').nodes || [];
   const seen = new Set();
@@ -270,13 +273,14 @@ export async function loadGLTF(engine, url) {
     if (error instanceof AssetError) throw error;
     throw new AssetError('INVALID_GLTF', 'Invalid glTF structure or URL', error);
   }
-  const nodes = [], meshes = [], textures = [];
+  const nodes = [], meshes = [], textures = [], materials = new Map();
   const sceneEpoch = engine._g3_asset_scene_epoch();
   let disposed = false;
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     for (const node of nodes) engine._g3_asset_node_release(node.index, node.generation, node.epoch);
+    for (const handle of materials.values()) engine._g3_asset_release_material(handle.id, handle.generation);
     for (const handle of meshes) {
       if (engine._g3_asset_release_mesh(handle.id, handle.generation)) engine._g3_host_release_mesh(handle.id);
     }
@@ -300,7 +304,13 @@ export async function loadGLTF(engine, url) {
         const nodeHandle = makeNodeHandle(engine, id);
         if (!nodeHandle) throw new AssetError('UPLOAD', 'Could not create node');
         nodes.push(nodeHandle);
-        engine._g3_asset_material(id, ...p.color, p.textureIndex < 0 ? -1 : textures[p.textureIndex].id, p.alphaMode, p.alphaCutoff);
+        let material = materials.get(p.materialIndex);
+        if (!material) {
+          const materialId = engine._g3_asset_material(...p.color, p.textureIndex < 0 ? -1 : textures[p.textureIndex].id, p.alphaMode, p.alphaCutoff);
+          material = makeResourceHandle(engine, materialId, 'material');
+          materials.set(p.materialIndex, material);
+        }
+        engine._g3_asset_node_material(id, material.id);
       }
       for (const child of node.children) createNode(child, group);
       return groupHandle;
@@ -309,6 +319,7 @@ export async function loadGLTF(engine, url) {
     return {
       roots: Object.freeze(roots),
       meshes: Object.freeze([...meshes]),
+      materials: Object.freeze([...materials.values()]),
       textures: Object.freeze([...textures]),
       // A nearer object belonging to another model occludes this model.
       pick(canvas, clientX, clientY) {
