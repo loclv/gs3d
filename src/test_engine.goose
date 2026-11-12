@@ -541,6 +541,56 @@ fn case_asset_reuse() {
     let replacement_texture = g3::texture_asset_create();
     let other_texture = g3::texture_asset_create();
     testing::check(replacement_texture == texture && other_texture != texture, "released texture id is reused only once");
+    g3::node_asset_release(second);
+    g3::mesh_asset_release(replacement);
+}
+
+fn case_asset_fragmentation() {
+    let v = g3::Vertex { pos: float3 { 1.0, 2.0, 3.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 } };
+    let small: g3::Vertex[6] = [v; 6];
+    let large: g3::Vertex[12] = [v; 12];
+    let small_i: u32[6] = [0, 1, 2, 3, 4, 5];
+    let large_i: u32[12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+    let a = g3::mesh_asset_create(small[..], small_i[..]);
+    let b = g3::mesh_asset_create(small[..], small_i[..]);
+    let live = g3::mesh_asset_create(small[..], small_i[..]);
+    let a_start = g3::mesh(a).first_vertex;
+    let b_start = g3::mesh(b).first_vertex;
+    let live_start = g3::mesh(live).first_vertex;
+    g3::g_verts[live_start].pos.x = 9.0; // sentinel in the still-live allocation
+    let before_v = g3::g_verts.len;
+    let before_i = g3::g_indices.len;
+    g3::mesh_asset_release(a);
+    g3::mesh_asset_release(a); // duplicate releases must not create overlapping free spans
+    g3::mesh_asset_release(b);
+    let combined = g3::mesh_asset_create(large[..], large_i[..]);
+    testing::check(b_start == a_start + 6 && g3::mesh(combined).first_vertex == a_start &&
+        g3::g_verts.len == before_v && g3::g_indices.len == before_i,
+        "adjacent free asset spans coalesce for a larger mesh");
+    g3::mesh_asset_release(combined);
+    let first = g3::mesh_asset_create(small[..], small_i[..]);
+    let second = g3::mesh_asset_create(small[..], small_i[..]);
+    testing::check(g3::mesh(first).first_vertex == a_start && g3::mesh(second).first_vertex == b_start &&
+        g3::mesh(live).first_vertex == live_start && g3::g_verts[live_start].pos.x == 9.0 &&
+        g3::g_verts.len == before_v && g3::g_indices.len == before_i,
+        "free spans split without moving a live mesh");
+    g3::mesh_asset_release(first);
+    g3::mesh_asset_release(second);
+    g3::mesh_asset_release(live);
+    let initial_v = g3::g_verts.len;
+    let initial_i = g3::g_indices.len;
+    let small_id = g3::mesh_asset_create(small[..], small_i[..]);
+    g3::mesh_asset_release(small_id);
+    let bigger = g3::mesh_asset_create(large[..], large_i[..]);
+    testing::check(g3::g_verts.len == initial_v && g3::g_indices.len == initial_i,
+        "changing asset sizes reuses merged storage");
+    g3::mesh_asset_release(bigger);
+    let huge: g3::Vertex[24] = [v; 24];
+    let huge_i: u32[24] = [0; 24];
+    let grown = g3::mesh_asset_create(huge[..], huge_i[..]);
+    testing::check(g3::g_verts.len <= initial_v + 6 && g3::g_indices.len <= initial_i + 6,
+        "a larger asset extends a free tail instead of abandoning it");
+    g3::mesh_asset_release(grown);
 }
 
 fn case_picking() {
@@ -591,6 +641,7 @@ fn main() {
     case_clipping();
     case_normal_transform();
     case_asset_reuse();
+    case_asset_fragmentation();
     case_picking();
 
     g3::shutdown();

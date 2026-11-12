@@ -40,9 +40,10 @@ and a browser integration check for behavior exposed through WebGL.
 
 * **Implemented:** view-volume clipping and inverse-transpose normals for
   non-uniform scale. Continue expanding CPU and browser rendering checks.
-* Extend asset-owned slot reuse to general object and resource removal with
-  well-defined ownership and safe handles; handle fragmented mesh spans so
-  varied model load/dispose cycles do not grow memory indefinitely.
+* **Partly implemented:** asset-owned slots are reused and adjacent free mesh
+  spans are split and coalesced. Extend this to general object and resource
+  removal with well-defined ownership and safe handles; handle fragmentation
+  between live meshes so varied load/dispose cycles remain bounded.
 * **Implemented:** texture alpha, wrapping, filtering, and opt-in sRGB output,
   including glTF base-colour decoding and per-texture sampler settings. Expand
   the glTF loader's material and sampler support.

@@ -356,8 +356,9 @@ Deliberately out of scope for now, in rough order of how much they would add:
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
 * **Limited removal.** Browser-loaded assets recycle their owned nodes, mesh
-  spans, and texture IDs on disposal. Ordinary scene nodes and meshes remain
-  grow-only, and freed asset spans can become fragmented. `scene_clear()`
+  spans, and texture IDs on disposal. Free mesh spans split and coalesce, but
+  ordinary scene nodes and meshes remain grow-only and live meshes are not
+  compacted. `scene_clear()`
   clears the scene; asset handles are invalid after their owner is disposed.
 * **Singular transforms.** A zero-scale transform has no inverse normal matrix;
   its surface normals become zero rather than receiving directional lighting.

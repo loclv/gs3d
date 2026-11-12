@@ -33,6 +33,74 @@ var g_verts: Vertex[>..];
 var g_indices: u32[>..];
 var g_meshes: Mesh[>..];
 
+// Free ranges are tracked independently: a mesh's vertex and index spans
+// need not have been released by the same asset. Empty entries are reusable.
+struct FreeSpan { first: i64, count: i64, kind: i32 }
+var g_free_spans: FreeSpan[>..];
+
+fn span_release(first: i64, count: i64, kind: i32) {
+    if count <= 0 { return; }
+    var start = first;
+    var size = count;
+    // Restart after each merge because a newly extended range may touch a
+    // range visited earlier. Existing live allocations are never moved.
+    var merged = true;
+    while merged {
+        merged = false;
+        for i in 0..g_free_spans.len {
+            let s .= g_free_spans[i];
+            if s.kind != kind || s.count == 0 { continue; }
+            if s.first + s.count == start {
+                start = s.first;
+                size += s.count;
+                s.count = 0;
+                merged = true;
+            } else if start + size == s.first {
+                size += s.count;
+                s.count = 0;
+                merged = true;
+            }
+        }
+    }
+    for i in 0..g_free_spans.len {
+        if g_free_spans[i].count == 0 {
+            g_free_spans[i] = FreeSpan { first: start, count: size, kind: kind };
+            return;
+        }
+    }
+    g_free_spans.push(FreeSpan { first: start, count: size, kind: kind });
+}
+
+// Best-fit allocation splits a larger free span and retains its remainder.
+fn span_take(count: i64, kind: i32) -> i64 {
+    if count <= 0 { return -1; }
+    var best: i64 = -1;
+    for i in 0..g_free_spans.len {
+        let s = g_free_spans[i];
+        if s.kind == kind && s.count >= count && (best < 0 || s.count < g_free_spans[best].count) { best = i; }
+    }
+    if best < 0 { return -1; }
+    let s .= g_free_spans[best];
+    let first = s.first;
+    s.first += count;
+    s.count -= count;
+    return first;
+}
+
+// A free span at the end can be extended instead of abandoned when a larger
+// model follows a smaller one. Return its start and consume the free span.
+fn span_take_tail(end: i64, kind: i32) -> i64 {
+    for i in 0..g_free_spans.len {
+        let s .= g_free_spans[i];
+        if s.kind == kind && s.count > 0 && s.first + s.count == end {
+            let first = s.first;
+            s.count = 0;
+            return first;
+        }
+    }
+    return -1;
+}
+
 fn mesh_count() -> i64 { g_meshes.len }
 
 fn mesh(id: i32) -> Mesh& { return g_meshes[id] }
@@ -86,38 +154,57 @@ fn mesh_close(fv: i64, fi: i64) -> i32 {
     return id;
 }
 
-// Asset meshes retain CPU geometry for picking. Reuse a released allocation
-// only when both of its spans fit; ordinary mesh handles remain permanent.
+// Asset meshes retain CPU geometry for picking. Their released spans are
+// independently reused and coalesced; ordinary mesh handles remain permanent.
 fn mesh_asset_create(verts: const Vertex[:], indices: const u32[:]) -> i32 {
+    guard verts.len > 0 && indices.len > 0 else { return -1; }
     var bounds = aabb_empty();
     for v in verts { aabb_add(bounds, v.pos); }
+    var fv = span_take(verts.len, 0);
+    if fv < 0 {
+        fv = span_take_tail(g_verts.len, 0);
+        if fv < 0 { fv = g_verts.len; }
+        while g_verts.len < fv + verts.len { g_verts.push(verts[g_verts.len - fv]); }
+    }
+    var fi = span_take(indices.len, 1);
+    if fi < 0 {
+        fi = span_take_tail(g_indices.len, 1);
+        if fi < 0 { fi = g_indices.len; }
+        while g_indices.len < fi + indices.len { g_indices.push(indices[g_indices.len - fi]); }
+    }
+    for j in 0..verts.len { g_verts[fv + j] = verts[j]; }
+    for j in 0..indices.len { g_indices[fi + j] = indices[j]; }
     for i in 0..g_meshes.len {
         let m .= g_meshes[i];
-        if m.asset_owned && m.asset_free && m.vertex_capacity >= verts.len && m.index_capacity >= indices.len {
-            for j in 0..verts.len { g_verts[m.first_vertex + j] = verts[j]; }
-            for j in 0..indices.len { g_indices[m.first_index + j] = indices[j]; }
+        if m.asset_owned && m.asset_free {
+            m.first_vertex = fv;
+            m.first_index = fi;
             m.vertex_count = verts.len;
             m.index_count = indices.len;
+            m.vertex_capacity = verts.len;
+            m.index_capacity = indices.len;
             m.bounds = bounds;
             m.asset_free = false;
-            g3p_upload_mesh(m.id, g_verts[m.first_vertex..m.first_vertex + m.vertex_count],
-                            g_indices[m.first_index..m.first_index + m.index_count]);
+            g3p_upload_mesh(m.id, g_verts[fv..fv + verts.len], g_indices[fi..fi + indices.len]);
             return m.id;
         }
     }
-    let fv = g_verts.len;
-    let fi = g_indices.len;
-    for v in verts { g_verts.push(v); }
-    for i in indices { g_indices.push(i); }
-    let id = mesh_close(fv, fi);
-    g_meshes[id].asset_owned = true;
+    let id = g_meshes.len as i32;
+    g_meshes.push(Mesh { id: id, first_vertex: fv, vertex_count: verts.len,
+        first_index: fi, index_count: indices.len, bounds: bounds,
+        vertex_capacity: verts.len, index_capacity: indices.len, asset_owned: true, .. });
+    g3p_upload_mesh(id, g_verts[fv..fv + verts.len], g_indices[fi..fi + indices.len]);
     return id;
 }
 
 fn mesh_asset_release(id: i32) {
     guard id >= 0 && id < g_meshes.len else { return; }
     let m .= g_meshes[id];
-    if m.asset_owned { m.asset_free = true; }
+    if m.asset_owned && !m.asset_free {
+        span_release(m.first_vertex, m.vertex_capacity, 0);
+        span_release(m.first_index, m.index_capacity, 1);
+        m.asset_free = true;
+    }
 }
 
 // A cube of the given half extent, 4 corners and 2 triangles per face, with

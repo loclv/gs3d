@@ -35,12 +35,13 @@ are invalid after disposal and must not be shared past that point; a reused
 integer can refer to a different object. Disposal after `scene_clear()` will
 still release the model's GPU resources without touching nodes in the new scene.
 
-CPU geometry remains available for future picking while a model is live. Freed
-mesh spans are reused when both the new vertex and index data fit; repeated
-loads of the same model therefore do not keep growing the arenas. Spans are not
-split, compacted, or returned to the operating system, however, so changing
-asset sizes and allocation order can cause fragmentation and memory grows to a
-high-water mark. This is not yet general-purpose resource reclamation.
+CPU geometry remains available for picking while a model is live. Freed vertex
+and index spans are tracked independently, split on allocation, and coalesced
+with adjacent free spans; a free span at an arena's end can grow for a larger
+asset. Existing live mesh geometry never moves. The arenas do not compact live
+allocations or return storage to the operating system, so fragmented free
+space between live meshes can still raise the high-water mark. This is not yet
+general-purpose resource reclamation.
 
 Picking uses the active perspective camera, the canvas's CSS dimensions,
 and retained geometry. It returns the nearest front-facing visible triangle;
