@@ -261,6 +261,8 @@ What the API gives you:
   indices and references must not be used after removal or scene reset.
 * **Materials** — `material_add()` creates a shared surface, and
   `material(id)` exposes its colour, texture, alpha, unlit and specular fields.
+  Set `pbr = true` to use metallic-roughness direct lighting with `metallic`
+  and `roughness` factors in [0, 1]; otherwise the legacy specular model applies.
   Assign the ID to `node.material` to use it on any number of nodes; edits
   affect each of them on the next frame. With `node.material = -1`, the node's
   own surface fields apply. `material_remove(id)` detaches the material from
@@ -321,7 +323,7 @@ Blended items get keys above 1000000 and are ordered far to
 near, so they are drawn after everything opaque and read the depth they should.
 
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
-`Mat4`s, two `float4`s, the sort key, texture id and alpha settings, 180 bytes. `g3p_draw_frame` hands the
+`Mat4`s, colour, shading parameters, the sort key, texture id and alpha settings, 196 bytes. `g3p_draw_frame` hands the
 backend a slice of them plus the frame's `ViewState`, and `platform/g3_abi.h`
 static-asserts every offset, so the Goose and C sides cannot drift apart
 silently.
@@ -374,9 +376,9 @@ and tests show both forms.
 
 Deliberately out of scope for now, in rough order of how much they would add:
 
-* **No PBR material system.** Shared and inline materials have colour, an
-  optional texture, and alpha settings; glTF metallic/roughness shading is not
-  yet implemented.
+* **Partial PBR.** Shared materials support metallic-roughness factors for
+  direct lights. Metallic-roughness and normal maps, prefiltered specular
+  environment lighting, HDR, and tone mapping remain to be implemented.
 * **Limited shadows, environment lighting, and normals.** Only the primary
   directional light casts hard shadows; blended objects do not cast them.
   The map has fixed resolution and explicit bounds, and shadow-enabled frames

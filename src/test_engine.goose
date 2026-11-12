@@ -806,6 +806,42 @@ fn case_shared_material() {
     g3::camera().orthographic = false;
 }
 
+// At normal incidence, roughness 1 gives GGX D=1/pi and Smith V=1/4.
+// With light 0.5, base 0.5 and dielectric F0=0.04, output is
+// 0.5 * (0.96 * 0.5 / pi + 0.04 / (4*pi)) = 0.078, or 20/255.
+fn case_pbr() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_environment(float3_0, float3_0, 0.0);
+    g3::set_environment_map(-1, 0.0);
+    g3::clear_lights();
+    g3::set_light(float3 { 0.0, 0.0, -1.0 }, float3 { 0.5, 0.5, 0.5 });
+    g3::camera().orthographic = true;
+    let node = g3::node_add(g3::mesh_cube(1.0));
+    let mat = g3::material_add();
+    g3::node(node).material = mat;
+    g3::material(mat).pbr = true;
+    g3::material(mat).metallic = 0.0;
+    g3::material(mat).roughness = 1.0;
+    g3::material(mat).color = float4 { 0.5, 0.5, 0.5, 1.0 };
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 20, 20, 20, 2), "PBR dielectric matches normal-incidence GGX calculation");
+    g3::material(mat).metallic = 1.0;
+    g3::material(mat).color = float4 { 0.8, 0.4, 0.2, 1.0 };
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 8, 4, 2, 2), "PBR metal has coloured specular and no diffuse term");
+    g3::material(mat).roughness = 0.5;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 130, 65, 32, 3), "lower roughness sharpens the normal-incidence highlight");
+    g3::material(mat).roughness = 1.0;
+    g3::add_directional_light(float3 { 0.0, 0.0, -1.0 }, float3 { 0.5, 0.5, 0.5 });
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 16, 8, 4, 2), "additional lights use the PBR model");
+    g3::camera().orthographic = false;
+    g3::material_remove(mat);
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -837,6 +873,7 @@ fn main() {
     case_orthographic_camera();
     case_multiple_cameras();
     case_shared_material();
+    case_pbr();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

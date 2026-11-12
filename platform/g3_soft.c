@@ -337,6 +337,34 @@ int g3_backend_resize(int w, int h) {
 static void sample_texture(int32_t id, float u, float v, float rho, float out[4]);
 static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 
+/* glTF metallic-roughness direct BRDF: GGX, correlated Smith, Schlick. */
+static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
+                      float metallic, float roughness, float out[3]) {
+    float nl = fmaxf(n.x*l.x + n.y*l.y + n.z*l.z, 0.0f);
+    float nv = fmaxf(n.x*v.x + n.y*v.y + n.z*v.z, 0.0f);
+    if (nl <= 0.0f || nv <= 0.0f) { out[0] = out[1] = out[2] = 0.0f; return; }
+    float hx = l.x + v.x, hy = l.y + v.y, hz = l.z + v.z;
+    float len = sqrtf(hx*hx + hy*hy + hz*hz);
+    if (len <= 1e-12f) { out[0] = out[1] = out[2] = 0.0f; return; }
+    hx /= len; hy /= len; hz /= len;
+    float nh = fmaxf(n.x*hx + n.y*hy + n.z*hz, 0.0f);
+    float vh = fmaxf(v.x*hx + v.y*hy + v.z*hz, 0.0f);
+    float rough = fmaxf(0.045f, fminf(roughness, 1.0f));
+    float alpha = rough * rough, a2 = alpha * alpha;
+    float denom = nh*nh*(a2 - 1.0f) + 1.0f;
+    float distribution = a2 / (3.14159265359f * denom * denom);
+    float gv = nl * sqrtf(nv*nv*(1.0f-a2)+a2);
+    float gl = nv * sqrtf(nl*nl*(1.0f-a2)+a2);
+    float visibility = 0.5f / fmaxf(gv + gl, 1e-6f);
+    float m = fmaxf(0.0f, fminf(metallic, 1.0f));
+    float fresnel_weight = powf(1.0f - fminf(vh, 1.0f), 5.0f);
+    for (int i = 0; i < 3; i++) {
+        float f0 = 0.04f*(1.0f-m) + base[i]*m;
+        float f = f0 + (1.0f-f0)*fresnel_weight;
+        out[i] = ((1.0f-f)*(1.0f-m)*base[i]/3.14159265359f + distribution*visibility*f)*nl;
+    }
+}
+
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
                   const g3_vec3 wp, g3_vec3 n, const float tex[3], float *out_rgb) {
     float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
@@ -365,20 +393,30 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     float r = it->color.x * tex[0] * (vs->ambient.x * amb + vs->light_color.x * diff * visible) + vs->light_color.x * spec * visible;
     float g = it->color.y * tex[1] * (vs->ambient.y * amb + vs->light_color.y * diff * visible) + vs->light_color.y * spec * visible;
     float b = it->color.z * tex[2] * (vs->ambient.z * amb + vs->light_color.z * diff * visible) + vs->light_color.z * spec * visible;
+    float base[3] = { it->color.x * tex[0], it->color.y * tex[1], it->color.z * tex[2] };
+    if (it->pbr.x > 0.5f) {
+        float brdf[3];
+        pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, it->pbr.y, it->pbr.z, brdf);
+        float diffuse = 1.0f - fmaxf(0.0f, fminf(it->pbr.y, 1.0f));
+        r = base[0]*vs->ambient.x*amb*diffuse + brdf[0]*vs->light_color.x*visible;
+        g = base[1]*vs->ambient.y*amb*diffuse + brdf[1]*vs->light_color.y*visible;
+        b = base[2]*vs->ambient.z*amb*diffuse + brdf[2]*vs->light_color.z*visible;
+    }
     float sky = n.y * 0.5f + 0.5f;
+    float env_scale = it->pbr.x > 0.5f ? 1.0f - fmaxf(0.0f, fminf(it->pbr.y, 1.0f)) : 1.0f;
     if (sky < 0.0f) sky = 0.0f;
     if (sky > 1.0f) sky = 1.0f;
-    r += it->color.x * tex[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w;
-    g += it->color.y * tex[1] * (vs->env_ground.y * (1.0f - sky) + vs->env_sky.y * sky) * vs->env_sky.w;
-    b += it->color.z * tex[2] * (vs->env_ground.z * (1.0f - sky) + vs->env_sky.z * sky) * vs->env_sky.w;
+    r += base[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w * env_scale;
+    g += base[1] * (vs->env_ground.y * (1.0f - sky) + vs->env_sky.y * sky) * vs->env_sky.w * env_scale;
+    b += base[2] * (vs->env_ground.z * (1.0f - sky) + vs->env_sky.z * sky) * vs->env_sky.w * env_scale;
     if (vs->environment_texture >= 0 && vs->environment_texture < texture_count && textures[vs->environment_texture].pixels) {
         float env[4];
         float y = n.y < -1.0f ? -1.0f : n.y > 1.0f ? 1.0f : n.y;
         sample_texture(vs->environment_texture, atan2f(n.z, n.x) / 6.28318530718f + 0.5f,
                        acosf(y) / 3.14159265359f, 0.0f, env);
-        r += it->color.x * tex[0] * env[0] * vs->environment_intensity;
-        g += it->color.y * tex[1] * env[1] * vs->environment_intensity;
-        b += it->color.z * tex[2] * env[2] * vs->environment_intensity;
+        r += base[0] * env[0] * vs->environment_intensity * env_scale;
+        g += base[1] * env[1] * vs->environment_intensity * env_scale;
+        b += base[2] * env[2] * vs->environment_intensity * env_scale;
     }
     int count = vs->light_count < 0 ? 0 : vs->light_count > 4 ? 4 : vs->light_count;
     for (int i = 0; i < count; i++) {
@@ -409,9 +447,15 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
         float nh2 = n.x * ax + n.y * ay + n.z * az;
         if (nh2 < 0.0f) nh2 = 0.0f;
         float s = powf(nh2, shine) * it->params.y;
-        r += (it->color.x * tex[0] * d + s) * light->color.x * falloff;
-        g += (it->color.y * tex[1] * d + s) * light->color.y * falloff;
-        b += (it->color.z * tex[2] * d + s) * light->color.z * falloff;
+        if (it->pbr.x > 0.5f) {
+            float brdf[3];
+            pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){ex,ey,ez}, base, it->pbr.y, it->pbr.z, brdf);
+            r += brdf[0]*light->color.x*falloff; g += brdf[1]*light->color.y*falloff; b += brdf[2]*light->color.z*falloff;
+        } else {
+            r += (base[0] * d + s) * light->color.x * falloff;
+            g += (base[1] * d + s) * light->color.y * falloff;
+            b += (base[2] * d + s) * light->color.z * falloff;
+        }
     }
     if (it->params.x > 0.5f) { r = it->color.x * tex[0]; g = it->color.y * tex[1]; b = it->color.z * tex[2]; }
 

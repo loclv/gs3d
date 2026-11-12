@@ -239,6 +239,8 @@ async function prepare(url) {
     if (!Number.isFinite(cutoff) || cutoff < 0) invalid('Invalid alpha cutoff');
     const pbr = material.pbrMetallicRoughness || {};
     if (pbr.metallicRoughnessTexture) unsupported('Metallic-roughness textures are not supported');
+    const metallic = pbr.metallicFactor ?? 1, roughness = pbr.roughnessFactor ?? 1;
+    if (![metallic, roughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid metallic or roughness factor');
     const color = pbr.baseColorFactor || [1, 1, 1, 1];
     if (color.length !== 4 || !color.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid base color');
     let textureIndex = -1;
@@ -250,7 +252,7 @@ async function prepare(url) {
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
     return { pos: pos.values, normal: normal.values, uv: uv?.values, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
-      alphaMode: alphaModes[mode], alphaCutoff: cutoff, materialIndex: p.material ?? -1 };
+      alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, materialIndex: p.material ?? -1 };
   }));
   const nodes = doc.nodes || [], roots = item(doc.scenes, doc.scene ?? 0, 'scene').nodes || [];
   const seen = new Set();
@@ -306,7 +308,7 @@ export async function loadGLTF(engine, url) {
         nodes.push(nodeHandle);
         let material = materials.get(p.materialIndex);
         if (!material) {
-          const materialId = engine._g3_asset_material(...p.color, p.textureIndex < 0 ? -1 : textures[p.textureIndex].id, p.alphaMode, p.alphaCutoff);
+          const materialId = engine._g3_asset_material(...p.color, p.textureIndex < 0 ? -1 : textures[p.textureIndex].id, p.alphaMode, p.alphaCutoff, p.metallic, p.roughness);
           material = makeResourceHandle(engine, materialId, 'material');
           materials.set(p.materialIndex, material);
         }

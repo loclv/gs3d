@@ -43,6 +43,7 @@ typedef struct {
     int32_t texture;
     int32_t alpha_mode;
     float alpha_cutoff;
+    g3_vec4 pbr;
 } g3_draw_item;
 
 typedef struct { g3_vec4 position, direction, color; float inner; } g3_light;
@@ -77,10 +78,11 @@ typedef struct { const uint8_t *data; int64_t len; } g3_u8_slice;
 _Static_assert(sizeof(g3_vertex) == 32, "g3_vertex must be 32 bytes");
 _Static_assert(offsetof(g3_vertex, uv) == 24, "Vertex.uv offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
-_Static_assert(sizeof(g3_draw_item) == 180, "g3_draw_item must be 180 bytes");
+_Static_assert(sizeof(g3_draw_item) == 196, "g3_draw_item must be 196 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
 _Static_assert(offsetof(g3_draw_item, alpha_mode) == 172, "DrawItem.alpha_mode offset");
 _Static_assert(offsetof(g3_draw_item, alpha_cutoff) == 176, "DrawItem.alpha_cutoff offset");
+_Static_assert(offsetof(g3_draw_item, pbr) == 180, "DrawItem.pbr offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
 _Static_assert(sizeof(g3_view_state) == 448, "g3_view_state must be 448 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");

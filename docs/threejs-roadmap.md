@@ -16,7 +16,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for static glTF/GLB with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
-| Materials | Shared or inline colour, including shared glTF materials, one RGBA texture, alpha mask/blend, wrapping, mipmapped filtering, sRGB input/output and specular controls | Physically based rendering (PBR), normal, roughness and metallic maps, HDR tone mapping |
+| Materials | Shared glTF materials with metallic-roughness direct lighting, base-colour texture, alpha, wrapping, filtering and sRGB | Normal and metallic-roughness maps, prefiltered environment lighting, HDR tone mapping, browser reference validation |
 | Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
 | Scene management | Parent hierarchy, checked node removal, and selectable perspective or orthographic cameras | General mesh and texture removal, reusable resources, camera lifecycle |
@@ -58,9 +58,9 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
 
 ### 2. Materials and lighting
 
-* Introduce a metallic-roughness PBR shading model including the corresponding
-  glTF factors and texture maps. Shared non-PBR materials are available to
-  Goose callers and used by the glTF loader.
+* Extend the metallic-roughness direct-lighting model with the corresponding
+  glTF texture maps and prefiltered environment lighting. Shared materials and
+  glTF metallic and roughness factors are available in both backends.
 * Improve shadow quality and coverage, add point/spot shadows and prefiltered
   image-based environment lighting. The existing primary directional shadow
   map and hemispherical fill remain available; specify light and map limits.

@@ -86,7 +86,7 @@ for (const path of ['model.gltf', 'model.glb']) {
   assert.equal(isMaterialHandleValid(fakeEngine(), model.materials[0]), false);
   assert.equal(engine.calls.filter(x => x[0] === 'vertex').length, 3);
   assert.deepEqual(engine.calls.find(x => x[0] === 'triangle'), ['triangle', 0, 1, 2]);
-  assert.deepEqual(engine.calls.find(x => x[0] === 'material'), ['material', 1, 0.25, 0.5, 1, 1, -1, 0, 0.5]);
+  assert.deepEqual(engine.calls.find(x => x[0] === 'material'), ['material', 1, 0.25, 0.5, 1, 1, -1, 0, 0.5, 1, 1]);
   assert.deepEqual(engine.calls.find(x => x[0] === 'matrix' && x[2] === 12), ['matrix', 0, 12, 2]);
   const canvas = { getBoundingClientRect: () => ({ left: 20, top: 10, right: 220, bottom: 110, width: 200, height: 100 }) };
   engine.picked = 1;
@@ -108,6 +108,17 @@ for (const path of ['model.gltf', 'model.glb']) {
   assert.equal(engine.calls.filter(x => x[0] === 'release_mesh').length, 1);
 }
 const engine = fakeEngine();
+const factorsDoc = structuredClone(doc);
+factorsDoc.materials[0].pbrMetallicRoughness.metallicFactor = 0.25;
+factorsDoc.materials[0].pbrMetallicRoughness.roughnessFactor = 0.7;
+resources.set('http://localhost/factors.gltf', bytes(factorsDoc));
+const factorsEngine = fakeEngine();
+const factorsModel = await loadGLTF(factorsEngine, 'http://localhost/factors.gltf');
+assert.deepEqual(factorsEngine.calls.find(x => x[0] === 'material').slice(-2), [0.25, 0.7]);
+factorsModel.dispose();
+factorsDoc.materials[0].pbrMetallicRoughness.roughnessFactor = 1.1;
+resources.set('http://localhost/bad-factors.gltf', bytes(factorsDoc));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/bad-factors.gltf'), e => e.code === 'INVALID_GLTF');
 const image = await loadImage(engine, 'http://localhost/image.png');
 setOutputColorSpace(engine, 'srgb');
 assert.deepEqual(engine.calls.find(x => x[0] === 'output_srgb'), ['output_srgb', 1]);
@@ -191,7 +202,7 @@ for (const [mode, expected, cutoff] of [['MASK', 1, 0.3], ['BLEND', 2, 0.5]]) {
   resources.set(`http://localhost/${mode}.gltf`, bytes(materialDoc));
   const materialEngine = fakeEngine();
   const asset = await loadGLTF(materialEngine, `http://localhost/${mode}.gltf`);
-  assert.deepEqual(materialEngine.calls.find(x => x[0] === 'material'), ['material', 1, 0.25, 0.5, 1, 0.5, 5, expected, cutoff]);
+  assert.deepEqual(materialEngine.calls.find(x => x[0] === 'material'), ['material', 1, 0.25, 0.5, 1, 0.5, 5, expected, cutoff, 1, 1]);
   asset.dispose();
 }
 const clearedEngine = fakeEngine();

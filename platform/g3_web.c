@@ -38,7 +38,7 @@ typedef struct {
     GLuint program;
     GLint mvp, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
     GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4];
-    GLint env_sky, env_ground, view_direction;
+    GLint env_sky, env_ground, view_direction, pbr;
     GLint env_map, env_map_enabled, env_map_intensity;
     GLint shadow_map, shadow_matrix, shadow_params;
     GLint alpha_mode, alpha_cutoff;
@@ -91,6 +91,7 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_textured;\n"
     "uniform vec4 u_color;\n"
     "uniform vec4 u_params;\n"   /* x unlit, y specular strength, z shininess, w blended */
+    "uniform vec4 u_pbr;\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform vec3 u_eye;\n"
@@ -111,6 +112,19 @@ static const char *FRAGMENT_SRC =
     "uniform vec4 u_ambient;\n"
     "uniform vec4 u_fog;\n"
     "out vec4 out_color;\n"
+    "vec3 pbr_light(vec3 n, vec3 v, vec3 l, vec3 base) {\n"
+    "    float nl = max(dot(n,l), 0.0), nv = max(dot(n,v), 0.0);\n"
+    "    vec3 sum = l + v; float len = length(sum);\n"
+    "    if (nl <= 0.0 || nv <= 0.0 || len <= 1e-12) return vec3(0.0);\n"
+    "    vec3 h = sum / len; float nh = max(dot(n,h), 0.0), vh = max(dot(v,h), 0.0);\n"
+    "    float rough = clamp(u_pbr.z, 0.045, 1.0), alpha = rough*rough, a2 = alpha*alpha;\n"
+    "    float denom = nh*nh*(a2-1.0)+1.0; float d = a2 / (3.14159265359*denom*denom);\n"
+    "    float gv = nl*sqrt(nv*nv*(1.0-a2)+a2), gl = nv*sqrt(nl*nl*(1.0-a2)+a2);\n"
+    "    float vis = 0.5/max(gv+gl, 1e-6), metal = clamp(u_pbr.y, 0.0, 1.0);\n"
+    "    vec3 f0 = mix(vec3(0.04), base, metal);\n"
+    "    vec3 f = f0 + (1.0-f0)*pow(1.0-min(vh, 1.0), 5.0);\n"
+    "    return ((1.0-f)*(1.0-metal)*base/3.14159265359 + d*vis*f)*nl;\n"
+    "}\n"
     "void main() {\n"
     "    float normal_length = length(v_normal);\n"
     "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
@@ -132,11 +146,13 @@ static const char *FRAGMENT_SRC =
     "    }\n"
     "    vec3 col = base * (u_ambient.rgb * u_ambient.a + u_light_color * diff * visibility)\n"
     "             + u_light_color * spec * visibility;\n"
+    "    float env_scale = u_pbr.x > 0.5 ? 1.0-clamp(u_pbr.y,0.0,1.0) : 1.0;\n"
+    "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale + pbr_light(n,v,l,base)*u_light_color*visibility;\n"
     "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
-    "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a;\n"
+    "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale;\n"
     "    if (u_env_map_enabled) {\n"
     "        vec2 env_uv = vec2(atan(n.z, n.x) / 6.28318530718 + 0.5, acos(clamp(n.y, -1.0, 1.0)) / 3.14159265359);\n"
-    "        col += base * texture(u_env_map, env_uv).rgb * u_env_map_intensity;\n"
+    "        col += base * texture(u_env_map, env_uv).rgb * u_env_map_intensity * env_scale;\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
     "        Light light = u_lights[i];\n"
@@ -155,7 +171,7 @@ static const char *FRAGMENT_SRC =
     "        float d = max(dot(n, ld), 0.0);\n"
     "        vec3 halfdir = normalize(ld + v);\n"
     "        float s = pow(max(dot(n, halfdir), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
-    "        col += (base * d + vec3(s)) * light.color.rgb * falloff;\n"
+    "        col += (u_pbr.x > 0.5 ? pbr_light(n,v,ld,base) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
     "    }\n"
     "    if (u_params.x > 0.5) col = base;\n"
     "    float dist = length(u_eye - v_world);\n"
@@ -213,6 +229,7 @@ static void find_uniforms(void) {
     shader.normal_matrix = glGetUniformLocation(shader.program, "u_normal_matrix");
     shader.color = glGetUniformLocation(shader.program, "u_color");
     shader.params = glGetUniformLocation(shader.program, "u_params");
+    shader.pbr = glGetUniformLocation(shader.program, "u_pbr");
     shader.eye = glGetUniformLocation(shader.program, "u_eye");
     shader.view_direction = glGetUniformLocation(shader.program, "u_view_direction");
     shader.light_dir = glGetUniformLocation(shader.program, "u_light_dir");
@@ -592,6 +609,7 @@ static void draw_item(const g3_draw_item *it) {
     glUniformMatrix3fv(shader.normal_matrix, 1, GL_FALSE, normal_matrix);
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
+    glUniform4f(shader.pbr, it->pbr.x, it->pbr.y, it->pbr.z, it->pbr.w);
     glUniform1i(shader.alpha_mode, it->alpha_mode);
     glUniform1f(shader.alpha_cutoff, it->alpha_cutoff);
     int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];

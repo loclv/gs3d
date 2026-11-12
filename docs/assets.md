@@ -101,9 +101,10 @@ mechanism.
 * The selected scene's hierarchy, matrix or TRS transforms, indexed or
   non-indexed triangle primitives, float positions and normals, and optional
   `TEXCOORD_0`. Positions and normals are required.
-* Opaque, masked and blended base-colour factors and base-colour textures. The engine's existing
-  lighting approximates these materials; metallic/roughness values are not
-  physically rendered. Nearest, linear and mipmapped filters are supported,
+* Opaque, masked and blended base-colour factors and base-colour textures.
+  Metallic and roughness factors drive GGX direct lighting; both default to 1.
+  Ambient and environment lighting remain diffuse approximations without
+  prefiltered specular reflections. Nearest, linear and mipmapped filters are supported,
   as are clamp, repeat and mirrored repeat separately for each axis. An omitted
   glTF wrapping mode defaults to repeat; omitted filters use linear. The CPU
   rasterizer estimates mip level from neighboring perspective-correct UVs;
@@ -113,7 +114,8 @@ mechanism.
 This is **not a complete glTF implementation**. It rejects required extensions,
 skins, animations, morph targets, sparse accessors, non-triangle modes,
 double-sided materials, and normal, occlusion, emissive, or
-metallic-roughness textures, and advanced texture/sampler extensions. It does not implement material PBR.
+metallic-roughness textures, and advanced texture/sampler extensions. PBR is
+limited to direct lights and factors; roughness is clamped to at least 0.045.
 Unsupported optional data may be
 ignored. Files needing these features require a fuller loader and renderer.
 

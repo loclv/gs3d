@@ -183,6 +183,7 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         texture: surface.texture,
         alpha_mode: if surface.alpha_mode == 1 { 1 } else if blended { 2 } else { 0 },
         alpha_cutoff: surface.alpha_cutoff,
+        pbr: float4 { if surface.pbr { 1.0 } else { 0.0 }, surface.metallic, surface.roughness, 0.0 },
     };
 }
 
