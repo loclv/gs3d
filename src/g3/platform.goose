@@ -19,10 +19,8 @@ import g3.math;
 
 namespace g3;
 
-// A vertex as the backend receives it: 24 bytes, position then normal.
-// A future textured mesh would add uv coordinates here, and a matching
-// attribute in the two backends.
-struct Vertex { pos: float3, normal: float3 }
+// UV (0,0) addresses the first row of the supplied RGBA image.
+struct Vertex { pos: float3, normal: float3, uv: float2 }
 
 // One triangle soup to draw with one state: mesh, its matrices, its colour.
 struct DrawItem {
@@ -35,6 +33,7 @@ struct DrawItem {
     // The engine's sort key: backends draw in list order, so this only says
     // why that order is what it is (mesh id for opaque, distance for blended).
     key: f32,
+    texture: i32,       // -1 means untextured
 }
 
 // The frame's constants: what every draw of the frame shares.
@@ -63,6 +62,7 @@ extern fn g3p_height() -> i32;
 // Hand a mesh to the backend: verts, and indices into them. An id is uploaded
 // once and drawn by that id for the rest of the program.
 extern fn g3p_upload_mesh(id: i32, verts: const Vertex[:], indices: const u32[:]);
+extern fn g3p_upload_texture(id: i32, pixels: const u8[:], width: i32, height: i32);
 
 // Draw one whole frame: clear, then each item in order.
 extern fn g3p_draw_frame(items: const DrawItem[:], view: const ViewState&);

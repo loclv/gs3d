@@ -23,17 +23,21 @@ goose build -o build/test_math src/test_math.goose
 echo "goose -> build/test_engine"
 goose build -o build/test_engine src/test_engine.goose
 
-echo "built build/app_native, build/test_math and build/test_engine"
+echo "goose -> build/test_game"
+goose build -o build/test_game src/test_game.goose
+
+echo "built build/app_native, build/test_math, build/test_engine and build/test_game"
 
 if [ "${1:-}" = "--test" ]; then
   echo
   ./build/test_math
   echo
   ./build/test_engine
+  ./build/test_game
 
   echo
   echo "== zero-warning check (ideal 11) =="
-  for f in src/test_math.goose src/test_engine.goose src/app_native.goose src/app_web.goose; do
+  for f in src/test_math.goose src/test_engine.goose src/test_game.goose src/app_native.goose src/app_web.goose src/game_web.goose; do
     log="build/check_$(basename "$f").log"
     goose check "$f" >"$log" 2>&1
     if grep -qi "warning" "$log"; then
@@ -41,7 +45,7 @@ if [ "${1:-}" = "--test" ]; then
     fi
     rm -f "$log"
   done
-  echo "ok: 0 warnings on all four roots"
+  echo "ok: 0 warnings on all roots"
 
   echo
   echo "== determinism check (ideal 7): byte-identical PPM across worker counts =="

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Beacon Run</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #09121a; color: #f3f7ed; font: 15px/1.4 system-ui, sans-serif; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    .hud { position: fixed; top: 24px; left: 24px; pointer-events: none; }
+    .eyebrow { color: #84c9c5; text-transform: uppercase; letter-spacing: .18em; font-size: 11px; font-weight: 700; }
+    h1 { margin: 4px 0 10px; font-size: clamp(25px, 5vw, 38px); letter-spacing: -.04em; }
+    #score { font-size: 20px; font-weight: 700; color: #ffdb74; }
+    .help { color: #c5d5d2; max-width: 270px; }
+    #message { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; background: #09121ac9; padding: 24px; }
+    #message.hidden { display: none; }
+    #message h2 { font-size: 36px; margin: 0 0 8px; }
+    button { margin: 18px auto 0; padding: 12px 24px; border: 0; border-radius: 5px; background: #ffda70; color: #172527; font: inherit; font-weight: 700; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" aria-label="Beacon Run game arena"></canvas>
+  <div class="hud"><div class="eyebrow">A goose-3d game</div><h1>Beacon Run</h1><div id="score">0 / 8 beacons</div><p class="help">Move with WASD or arrow keys. Collect every gold beacon and stay away from the red sentinel.</p></div>
+  <div id="message" role="status"><h2>Loading…</h2></div>
+  <script type="module" src="./game.js"></script>
+</body>
+</html>

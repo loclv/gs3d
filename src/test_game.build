@@ -1,0 +1,4 @@
+c_sources = ["../platform/g3_soft.c", "../platform/g3_input.c"];
+c_include = ["../platform"];
+c_libs = ["m"];
+output = "test_game";

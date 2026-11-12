@@ -47,6 +47,9 @@ static uint8_t *fb;      /* rgb, top row first */
 static float *depth;     /* [0, 1], 1 is far */
 static soft_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
+typedef struct { uint8_t *pixels; int32_t w, h; } soft_texture;
+static soft_texture *textures;
+static int32_t texture_count;
 
 /* --- the frame's scratch
 
@@ -64,6 +67,7 @@ typedef struct {
     float inv_w[3];
     float world[3][3];
     float nrm[3][3];
+    float uv[3][2];
     float det;              /* twice the signed area in pixels */
     float edge_sense;       /* +1 or -1: the sign l0 has when an edge is 0 */
     int x0, y0, x1, y1;
@@ -170,6 +174,8 @@ static void report_profile(void) {
 
 void g3p_shutdown(void) {
     report_profile();
+    for (int32_t i = 0; i < texture_count; i++) free(textures[i].pixels);
+    free(textures); textures = NULL; texture_count = 0;
     free(queue);
     queue = NULL;
     queue_len = queue_cap = 0;
@@ -222,6 +228,22 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     if (id >= mesh_count) mesh_count = id + 1;
 }
 
+void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
+    if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
+    if (id >= texture_count) {
+        soft_texture *grown = realloc(textures, ((size_t)id + 1) * sizeof(*textures));
+        if (!grown) { fprintf(stderr, "g3_soft: out of memory for textures\n"); exit(1); }
+        textures = grown;
+        memset(textures + texture_count, 0, ((size_t)id + 1 - (size_t)texture_count) * sizeof(*textures));
+        texture_count = id + 1;
+    }
+    uint8_t *copy = malloc((size_t)pixels.len);
+    if (!copy) { fprintf(stderr, "g3_soft: out of memory for texture pixels\n"); exit(1); }
+    memcpy(copy, pixels.data, (size_t)pixels.len);
+    free(textures[id].pixels);
+    textures[id] = (soft_texture){ copy, width, height };
+}
+
 /* Resizing a headless surface means reallocating the framebuffer and the z
    buffer; the meshes stay where they are. */
 int g3_backend_resize(int w, int h) {
@@ -243,7 +265,7 @@ int g3_backend_resize(int w, int h) {
 /* --- shading: the GLSL in g3_web.c, term for term --- */
 
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
-                  const g3_vec3 wp, g3_vec3 n, float *out_rgb) {
+                  const g3_vec3 wp, g3_vec3 n, const float tex[3], float *out_rgb) {
     float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 1e-12f) { n.x /= len; n.y /= len; n.z /= len; }
     else { n.x = n.y = n.z = 0.0f; }
@@ -264,10 +286,10 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     float spec = powf(nh, shine) * it->params.y;
 
     float amb = vs->ambient.w;
-    float r = it->color.x * (vs->ambient.x * amb + vs->light_color.x * diff) + vs->light_color.x * spec;
-    float g = it->color.y * (vs->ambient.y * amb + vs->light_color.y * diff) + vs->light_color.y * spec;
-    float b = it->color.z * (vs->ambient.z * amb + vs->light_color.z * diff) + vs->light_color.z * spec;
-    if (it->params.x > 0.5f) { r = it->color.x; g = it->color.y; b = it->color.z; }
+    float r = it->color.x * tex[0] * (vs->ambient.x * amb + vs->light_color.x * diff) + vs->light_color.x * spec;
+    float g = it->color.y * tex[1] * (vs->ambient.y * amb + vs->light_color.y * diff) + vs->light_color.y * spec;
+    float b = it->color.z * tex[2] * (vs->ambient.z * amb + vs->light_color.z * diff) + vs->light_color.z * spec;
+    if (it->params.x > 0.5f) { r = it->color.x * tex[0]; g = it->color.y * tex[1]; b = it->color.z * tex[2]; }
 
     float fog = 1.0f - expf(-vl * vs->fog.w);
     if (fog < 0.0f) fog = 0.0f;
@@ -285,6 +307,26 @@ static float clamp01(float v) {
     return v;
 }
 
+/* GL_LINEAR and CLAMP_TO_EDGE, with texel centres at (i + 0.5) / size. */
+static void sample_texture(int32_t id, float u, float v, float out[3]) {
+    out[0] = out[1] = out[2] = 1.0f;
+    if (id < 0 || id >= texture_count || !textures[id].pixels) return;
+    const soft_texture *t = &textures[id];
+    float x = clamp01(u) * t->w - 0.5f, y = clamp01(v) * t->h - 0.5f;
+    int x0 = (int)floorf(x), y0 = (int)floorf(y);
+    float fx = x - x0, fy = y - y0;
+    int x1 = x0 + 1, y1 = y0 + 1;
+    if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0;
+    if (x1 >= t->w) x1 = t->w - 1; if (y1 >= t->h) y1 = t->h - 1;
+    for (int c = 0; c < 3; c++) {
+        float a = t->pixels[((size_t)y0 * t->w + x0) * 4 + c];
+        float b = t->pixels[((size_t)y0 * t->w + x1) * 4 + c];
+        float d = t->pixels[((size_t)y1 * t->w + x0) * 4 + c];
+        float e = t->pixels[((size_t)y1 * t->w + x1) * 4 + c];
+        out[c] = ((a + (b - a) * fx) * (1.0f - fy) + (d + (e - d) * fx) * fy) / 255.0f;
+    }
+}
+
 /* Transform a triangle and reject it if it cannot be drawn: a corner at or
    behind the eye, a back face, a depth outside the buffer, or a box that
    misses the screen. Returns 1 when `t` is ready to rasterize. */
@@ -300,6 +342,8 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
         if (cw <= 1e-6f) return 0;   /* at or behind the eye: dropped, not clipped */
         float w = 1.0f / cw;
         t->inv_w[k] = w;
+        t->uv[k][0] = tri[k]->uv.x;
+        t->uv[k][1] = tri[k]->uv.y;
         ndc[k][0] = cx * w;
         ndc[k][1] = cy * w;
         ndc[k][2] = cz * w;
@@ -405,8 +449,11 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             n.y = t->nrm[0][1] * b0 + t->nrm[1][1] * b1 + t->nrm[2][1] * b2;
             n.z = t->nrm[0][2] * b0 + t->nrm[1][2] * b1 + t->nrm[2][2] * b2;
 
-            float rgb[3];
-            shade(it, vs, wp, n, rgb);
+            float rgb[3], tex[3];
+            float u = t->uv[0][0] * b0 + t->uv[1][0] * b1 + t->uv[2][0] * b2;
+            float v = t->uv[0][1] * b0 + t->uv[1][1] * b1 + t->uv[2][1] * b2;
+            sample_texture(it->texture, u, v, tex);
+            shade(it, vs, wp, n, tex, rgb);
             if (counting) shaded += 1;
             blend_pixel(fb + at * 3, rgb, alpha, blended);
             if (!blended) depth[at] = z;

@@ -100,6 +100,7 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         params: float4 { if n.unlit { 1.0 } else { 0.0 }, n.spec, n.shine,
                          if blended { 1.0 } else { 0.0 } },
         key: sort_key(n.mesh, dist, blended),
+        texture: n.texture,
     };
 }
 

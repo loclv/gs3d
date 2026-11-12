@@ -19,10 +19,11 @@
 #pragma pack(push, 1)
 
 typedef struct { float x, y, z; } g3_vec3;
+typedef struct { float x, y; } g3_vec2;
 typedef struct { float x, y, z, w; } g3_vec4;
 typedef struct { float m[16]; } g3_mat4;          /* column-major */
 
-typedef struct { g3_vec3 pos, normal; } g3_vertex; /* 24 bytes */
+typedef struct { g3_vec3 pos, normal; g3_vec2 uv; } g3_vertex;
 
 /* One primitive: mesh, matrices, colour, and the shading parameters.
    params.x is 1 for unlit, .y specular strength, .z shininess, .w 1 when
@@ -38,6 +39,7 @@ typedef struct {
     g3_vec4 color;
     g3_vec4 params;
     float key;
+    int32_t texture;
 } g3_draw_item;
 
 /* The frame's shared constants. */
@@ -59,9 +61,11 @@ typedef struct { const uint8_t *data; int64_t len; } g3_u8_slice;
 
 #pragma pack(pop)
 
-_Static_assert(sizeof(g3_vertex) == 24, "g3_vertex must be 24 bytes");
+_Static_assert(sizeof(g3_vertex) == 32, "g3_vertex must be 32 bytes");
+_Static_assert(offsetof(g3_vertex, uv) == 24, "Vertex.uv offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
-_Static_assert(sizeof(g3_draw_item) == 168, "g3_draw_item must be 168 bytes");
+_Static_assert(sizeof(g3_draw_item) == 172, "g3_draw_item must be 172 bytes");
+_Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
 _Static_assert(sizeof(g3_view_state) == 100, "g3_view_state must be 100 bytes");
 _Static_assert(offsetof(g3_draw_item, mvp) == 4, "DrawItem.mvp offset");
 _Static_assert(offsetof(g3_draw_item, color) == 132, "DrawItem.color offset");
@@ -76,6 +80,7 @@ void g3p_shutdown(void);
 int32_t g3p_width(void);
 int32_t g3p_height(void);
 void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices);
+void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view);
 uint8_t g3p_key_down(int32_t key);
 float g3p_mouse_dx(void);

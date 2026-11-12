@@ -3,6 +3,7 @@
 #
 #   ./build_web.sh           build web/app.js + web/app.wasm
 #   ./build_web.sh --serve   build, then serve web/ on http://localhost:8080
+#   ./build_web.sh --game --serve  build and serve the Beacon Run sample
 #
 # Emscripten is expected in .toolchain/emsdk (see README) or on PATH.
 
@@ -21,10 +22,19 @@ command -v goose >/dev/null || { echo "goose not found: put the Goose compiler o
 
 mkdir -p build/web
 
+root=src/app_web.goose
+output=web/app.js
+exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_app_drawn","_g3_app_culled","_g3_app_triangles","_g3_app_meshes","_g3_app_nodes","_g3_input_key","_g3_input_mouse","_g3_input_resize","_malloc","_free"]'
+if [ "${1:-}" = "--game" ]; then
+  root=src/game_web.goose
+  output=web/game/app.js
+  exports='["_g3_host_start","_g3_host_texture","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_game_reset","_game_score","_game_state","_game_time","_game_floor_texture","_g3_input_key","_g3_input_mouse","_g3_input_resize","_malloc","_free"]'
+fi
+
 # 1. Goose to C. --standalone means no C main is generated: the host below is
 #    the entry point, and `goose_init` sets the runtime up.
 echo "goose -> build/web/g3.c"
-goose --standalone --header build/web/g3.h -o build/web/g3.c src/app_web.goose
+goose --standalone --header build/web/g3.h -o build/web/g3.c "$root"
 
 # 2. C to WebAssembly, with the WebGL2 backend linked in.
 #
@@ -32,8 +42,8 @@ goose --standalone --header build/web/g3.h -o build/web/g3.c src/app_web.goose
 #    default is 2 GiB of address space per stack, which is free natively and is
 #    not free in a wasm heap: the engine keeps several arenas, so 64 MiB each
 #    is the difference between a 2 GiB heap and a few hundred MiB.
-echo "c -> web/app.js, web/app.wasm"
-emcc build/web/g3.c platform/g3_web.c platform/g3_input.c -o web/app.js \
+echo "c -> $output and wasm"
+emcc build/web/g3.c platform/g3_web.c platform/g3_input.c -o "$output" \
   -Ibuild/web -Iplatform \
   -O3 \
   -DGS_STACK_RESERVE='(64ull<<20)' \
@@ -43,11 +53,11 @@ emcc build/web/g3.c platform/g3_web.c platform/g3_input.c -o web/app.js \
   -sEXIT_RUNTIME=0 \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createGoose3D \
   -sENVIRONMENT=web,node \
-  -sEXPORTED_FUNCTIONS='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_app_drawn","_g3_app_culled","_g3_app_triangles","_g3_app_meshes","_g3_app_nodes","_g3_input_key","_g3_input_mouse","_g3_input_resize","_malloc","_free"]'
+  -sEXPORTED_FUNCTIONS="$exports"
 
-echo "built web/app.js ($(du -h web/app.wasm | cut -f1) wasm)"
+echo "built $output"
 
-if [ "${1:-}" = "--serve" ]; then
+if [ "${1:-}" = "--serve" ] || [ "${2:-}" = "--serve" ]; then
   echo "serving http://localhost:8080/ (ctrl-c to stop)"
   # A module script needs a real http origin; file:// will not load it.
   python3 -m http.server 8080 --directory web

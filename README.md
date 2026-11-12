@@ -52,6 +52,18 @@ same scene renders identically in a tab and on disk.
 
 ## Run it in the browser
 
+### Play Beacon Run
+
+Build and serve the sample game with `./build_web.sh --game --serve`, then open
+<http://localhost:8080/game/>. Move with WASD or the arrow keys, collect all
+eight gold beacons, and avoid the red sentinel. Play again after winning or
+being caught. The game logic is in `src/game/arena.goose` and uses the engine's
+scene, input, camera, and rendering APIs.
+The arena floor uses [Ground Grey](https://polyhaven.com/a/ground_grey), by
+Rob Tuytel / Poly Haven (CC0); a local copy is included.
+
+### Engine demo
+
 ```bash
 ./build_web.sh --serve        # builds web/app.js + app.wasm, serves on :8080
 ```
@@ -213,6 +225,13 @@ What the API gives you:
 * **Meshes** — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
   for your own geometry. A handle is uploaded to the backend once.
+* **Textures** — import `g3.texture`, call `texture_create(width, height, rgba)`
+  with row-major RGBA8 pixels, and assign the returned handle to `node.texture`.
+  Built-in meshes have UVs; custom meshes can use `push_vertex_uv`. Both
+  backends use bilinear filtering and clamp to the image edges. Image decoding
+  belongs to the host; the game demonstrates browser-side decoding. Texture RGB
+  multiplies the node colour. Texture alpha is ignored; node colour alpha
+  controls blending.
 * **Nodes** — `node_add(mesh)`, `node_group()`, `node(id) -> Node&`,
   `node_parent(child, parent)`, `scene_clear()`, and `node_count()`. A node has
   position, euler rotation, scale, colour, `unlit`, `visible`, specular
@@ -249,7 +268,7 @@ Blended items (`colour.a < 1`) get keys above 1000000 and are ordered far to
 near, so they are drawn after everything opaque and read the depth they should.
 
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
-`Mat4`s, two `float4`s and the sort key, 168 bytes. `g3p_draw_frame` hands the
+`Mat4`s, two `float4`s, the sort key and a texture id, 172 bytes. `g3p_draw_frame` hands the
 backend a slice of them plus the frame's `ViewState`, and `platform/g3_abi.h`
 static-asserts every offset, so the Goose and C sides cannot drift apart
 silently.
@@ -300,8 +319,8 @@ and tests show both forms.
 
 Deliberately out of scope for now, in rough order of how much they would add:
 
-* **No textures or materials beyond a colour.** A material would be a second
-  arena plus a bind call on the seam; the shader would take a uv attribute.
+* **No material system or texture alpha.** Each node has a colour and an
+  optional RGB texture; blending is controlled by the node's colour alpha.
 * **No shadows, no point lights, no normal maps.** One directional light, lit
   per vertex normal in world space; `mat3(model)` means a non-uniformly scaled
   node skews its normals.

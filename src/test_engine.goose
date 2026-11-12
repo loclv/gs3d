@@ -19,6 +19,7 @@ import g3.mesh;
 import g3.scene;
 import g3.render;
 import g3.engine;
+import g3.texture;
 import testing;
 
 let W = 400;
@@ -180,6 +181,27 @@ fn case_backface() {
     testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "a plane seen from above is drawn");
 }
 
+// The front face spans x/y 96.5..303.5. At 120/280 each coordinate
+// lies past the centre of its nearest texel, so clamp-to-edge gives the
+// exact corner colour; the midpoint is the average of all four colours.
+fn case_texture() {
+    g3::scene_clear();
+    flat_camera();
+    let pixels: u8[16] = [255, 0, 0, 255, 0, 255, 0, 255,
+                          0, 0, 255, 255, 255, 255, 255, 255];
+    let texture = g3::texture_create(2, 2, pixels[..]);
+    testing::check(texture >= 0 && g3::texture_create(2, 3, pixels[..]) == -1, "texture dimensions are validated");
+    let n .= g3::node(g3::node_add(g3::mesh_cube(1.0)));
+    n.texture = texture;
+    n.unlit = true;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(120, 280), 255, 0, 0, 1), "texture lower left is red");
+    testing::check(is_color(g3::read_pixel(280, 280), 0, 255, 0, 1), "texture lower right is green");
+    testing::check(is_color(g3::read_pixel(120, 120), 0, 0, 255, 1), "texture upper left is blue");
+    testing::check(is_color(g3::read_pixel(280, 120), 255, 255, 255, 1), "texture upper right is white");
+    testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 3), "texture centre bilinearly mixes all four texels");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -193,6 +215,7 @@ fn main() {
     case_hierarchy();
     case_culling();
     case_backface();
+    case_texture();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

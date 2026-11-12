@@ -24,6 +24,7 @@ namespace g3;
 
 struct Node {
     mesh: i32 = -1,             // -1: a group, it draws nothing
+    texture: i32 = -1,          // texture_create handle, or -1 for solid colour
     parent: i32 = -1,           // -1: a root
     pos: float3,
     rot: float3,                // euler radians, applied Z then Y then X

@@ -24,18 +24,19 @@ The procedural checklist lives in
 
 ## Types
 
-### `g3_vertex` — 24 bytes
+### `g3_vertex` — 32 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
 | 0 | `float[3]` | `pos` | local-space position |
 | 12 | `float[3]` | `normal` | local-space normal, unit length (the shader re-normalizes after `mat3(model)`) |
+| 24 | `float[2]` | `uv` | texture coordinates, first image row at v = 0 |
 
 ### `g3_mat4` — 64 bytes
 
 `float m[16]`, column-major: element `(row r, column c)` is `m[c*4 + r]`.
 
-### `g3_draw_item` — 168 bytes
+### `g3_draw_item` — 172 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -45,6 +46,7 @@ The procedural checklist lives in
 | 132 | `g3_vec4` | `color` | rgb, a; `a < 1` means the item is in the blended pass |
 | 148 | `g3_vec4` | `params` | x unlit, y specular strength, z shininess, w blended (1.0) |
 | 164 | `float` | `key` | the engine's sort key; **draw in list order** |
+| 168 | `int32_t` | `texture` | texture id, or -1 for no texture |
 
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
@@ -82,6 +84,7 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 | `void g3p_shutdown(void)` | release everything |
 | `int32_t g3p_width(void)` / `g3p_height(void)` | current surface size in pixels |
 | `void g3p_upload_mesh(int32_t id, g3_vertex_slice, g3_u32_slice)` | store geometry under `id`; may be called repeatedly; ids are dense from 0 |
+| `void g3p_upload_texture(int32_t id, g3_u8_slice, int32_t w, int32_t h)` | copy row-major RGBA8 pixels for the texture; bilinear filtering and clamp-to-edge |
 | `void g3p_draw_frame(g3_draw_item_slice, const g3_view_state *)` | clear, then draw every item in order |
 | `uint8_t g3p_key_down(int32_t key)` | is this key down right now |
 | `float g3p_mouse_dx(void)` / `g3p_mouse_dy(void)` | movement since last read; **reading consumes it** |

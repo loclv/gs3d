@@ -36,7 +36,7 @@ typedef struct {
 /* The one program every item draws with, and where its uniforms live. */
 typedef struct {
     GLuint program;
-    GLint mvp, model, color, params, eye, light_dir, light_color, ambient, fog;
+    GLint mvp, model, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
 } web_shader;
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
@@ -45,19 +45,24 @@ static web_shader shader;
 static int32_t surf_w = 1280, surf_h = 720;
 static web_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
+static GLuint *textures;
+static int32_t texture_count;
 static int checked_gl;
 
 static const char *VERTEX_SRC =
     "#version 300 es\n"
     "layout(location = 0) in vec3 a_pos;\n"
     "layout(location = 1) in vec3 a_normal;\n"
+    "layout(location = 2) in vec2 a_uv;\n"
     "uniform mat4 u_mvp;\n"
     "uniform mat4 u_model;\n"
     "out vec3 v_normal;\n"
     "out vec3 v_world;\n"
+    "out vec2 v_uv;\n"
     "void main() {\n"
     "    vec4 world = u_model * vec4(a_pos, 1.0);\n"
     "    v_world = world.xyz;\n"
+    "    v_uv = a_uv;\n"
     "    v_normal = mat3(u_model) * a_normal;\n"
     "    gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
     "}\n";
@@ -68,6 +73,9 @@ static const char *FRAGMENT_SRC =
     "precision highp float;\n"
     "in vec3 v_normal;\n"
     "in vec3 v_world;\n"
+    "in vec2 v_uv;\n"
+    "uniform sampler2D u_tex;\n"
+    "uniform bool u_textured;\n"
     "uniform vec4 u_color;\n"
     "uniform vec4 u_params;\n"   /* x unlit, y specular strength, z shininess, w blended */
     "uniform vec3 u_eye;\n"
@@ -83,9 +91,10 @@ static const char *FRAGMENT_SRC =
     "    vec3 v = normalize(u_eye - v_world);\n"
     "    vec3 h = normalize(l + v);\n"
     "    float spec = pow(max(dot(n, h), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
-    "    vec3 col = u_color.rgb * (u_ambient.rgb * u_ambient.a + u_light_color * diff)\n"
+    "    vec3 base = u_color.rgb * (u_textured ? texture(u_tex, v_uv).rgb : vec3(1.0));\n"
+    "    vec3 col = base * (u_ambient.rgb * u_ambient.a + u_light_color * diff)\n"
     "             + u_light_color * spec;\n"
-    "    if (u_params.x > 0.5) col = u_color.rgb;\n"
+    "    if (u_params.x > 0.5) col = base;\n"
     "    float dist = length(u_eye - v_world);\n"
     "    float fog = clamp(1.0 - exp(-dist * u_fog.a), 0.0, 1.0);\n"
     "    col = mix(col, u_fog.rgb, fog);\n"
@@ -145,6 +154,8 @@ static void find_uniforms(void) {
     shader.light_color = glGetUniformLocation(shader.program, "u_light_color");
     shader.ambient = glGetUniformLocation(shader.program, "u_ambient");
     shader.fog = glGetUniformLocation(shader.program, "u_fog");
+    shader.tex = glGetUniformLocation(shader.program, "u_tex");
+    shader.textured = glGetUniformLocation(shader.program, "u_textured");
 }
 
 /* Compile both stages, link them, and look the uniforms up. 0 on any failure,
@@ -210,6 +221,8 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
 }
 
 void g3p_shutdown(void) {
+    for (int32_t i = 0; i < texture_count; i++) glDeleteTextures(1, &textures[i]);
+    free(textures); textures = NULL; texture_count = 0;
     for (int32_t i = 0; i < mesh_count; i++) {
         glDeleteVertexArrays(1, &meshes[i].vao);
         glDeleteBuffers(1, &meshes[i].vbo);
@@ -269,10 +282,38 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(g3_vertex),
                           (const void *)(sizeof(float) * 3));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(g3_vertex),
+                          (const void *)(sizeof(float) * 6));
     glBindVertexArray(0);
 
     m->count = (GLsizei)indices.len;
     if (id >= mesh_count) mesh_count = id + 1;
+}
+
+void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
+    if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
+    if (id >= texture_count) {
+        GLuint *grown = realloc(textures, ((size_t)id + 1) * sizeof(*textures));
+        if (!grown) return;
+        textures = grown;
+        memset(textures + texture_count, 0, ((size_t)id + 1 - (size_t)texture_count) * sizeof(*textures));
+        texture_count = id + 1;
+    }
+    if (!textures[id]) glGenTextures(1, &textures[id]);
+    glBindTexture(GL_TEXTURE_2D, textures[id]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data);
+}
+
+/* Browser hosts may replace an already allocated texture with decoded RGBA. */
+EMSCRIPTEN_KEEPALIVE void g3_host_texture(int32_t id, const uint8_t *pixels, int32_t width, int32_t height) {
+    if (width <= 0 || height <= 0 || !pixels) return;
+    g3_u8_slice s = { pixels, (int64_t)width * height * 4 };
+    g3p_upload_texture(id, s, width, height);
 }
 
 /* --- a frame --- */
@@ -305,6 +346,11 @@ static void draw_item(const g3_draw_item *it) {
     glUniformMatrix4fv(shader.model, 1, GL_FALSE, it->model.m);
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
+    int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];
+    glUniform1i(shader.textured, textured);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textured ? textures[it->texture] : 0);
+    glUniform1i(shader.tex, 0);
 
     glBindVertexArray(m->vao);
     glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0);

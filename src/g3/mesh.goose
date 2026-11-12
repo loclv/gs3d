@@ -33,7 +33,11 @@ fn mesh_count() -> i64 { g_meshes.len }
 fn mesh(id: i32) -> Mesh& { return g_meshes[id] }
 
 fn push_vertex(p: float3, n: float3) {
-    g_verts.push(Vertex { pos: p, normal: n });
+    push_vertex_uv(p, n, float2 { 0.0, 0.0 });
+}
+
+fn push_vertex_uv(p: float3, n: float3, uv: float2) {
+    g_verts.push(Vertex { pos: p, normal: n, uv: uv });
 }
 
 fn push_triangle(a: u32, b: u32, c: u32) {
@@ -95,7 +99,7 @@ fn mesh_cube(half: f32) -> i32 {
         let base = (g_verts.len - fv) as u32;
         for c in corners {
             let p = n + u * float3 { c.x, c.x, c.x } + v * float3 { c.y, c.y, c.y };
-            push_vertex(p * half, n);
+            push_vertex_uv(p * half, n, float2 { (c.x + 1.0) * 0.5, (c.y + 1.0) * 0.5 });
         }
         push_triangle(base, base + 1, base + 2);
         push_triangle(base, base + 2, base + 3);
@@ -114,7 +118,7 @@ fn mesh_sphere(radius: f32, rings: i64, segments: i64) -> i32 {
         for s in 0..segments + 1 {
             let theta = (s as f32 / segments) * TAU;
             let n = float3 { sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta) };
-            push_vertex(n * radius, n);
+            push_vertex_uv(n * radius, n, float2 { s as f32 / segments, r as f32 / rings });
         }
     }
     push_grid(rings, segments, segments + 1, false);
@@ -133,7 +137,7 @@ fn mesh_plane(size: f32, tiles: i64) -> i32 {
         let z = -half + size * (t as f32 / tiles);
         for s in 0..tiles + 1 {
             let x = -half + size * (s as f32 / tiles);
-            push_vertex(float3 { x, 0.0, z }, n);
+            push_vertex_uv(float3 { x, 0.0, z }, n, float2 { s as f32 / tiles, t as f32 / tiles });
         }
     }
     // Seen from above these must wind counterclockwise; the flipped order
