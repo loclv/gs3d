@@ -9,21 +9,26 @@ import g3.texture;
 
 namespace game;
 
+let BEACON_COUNT = 8;
+let PLAYING = 0;
+let WON = 1;
+let CAUGHT = 2;
+
 var player: i64;
 var sentinel: i64;
-var beacons: i64[8];
+var beacons: i64[BEACON_COUNT];
 var score: i32;
-var state: i32; // 0 playing, 1 won, 2 caught
+var state: i32;
 var elapsed: f32;
 var floor_texture: i32;
 
 fn reset() {
     score = 0;
-    state = 0;
+    state = PLAYING;
     elapsed = 0.0;
     g3::node(player).pos = float3 { 0.0, 0.55, 4.5 };
     g3::node(sentinel).pos = float3 { 0.0, 0.65, -3.0 };
-    for i in 8 { g3::node(beacons[i]).visible = true; }
+    for i in BEACON_COUNT { g3::node(beacons[i]).visible = true; }
 }
 
 fn build() {
@@ -56,10 +61,10 @@ fn build() {
     let s .= g3::node(sentinel);
     s.scale = float3 { 1.3, 1.3, 1.3 };
     s.color = float4 { 1.0, 0.22, 0.2, 1.0 };
-    for i in 8 {
+    for i in BEACON_COUNT {
         beacons[i] = g3::node_add(ball);
         let b .= g3::node(beacons[i]);
-        let a = i as f32 * TAU / 8.0;
+        let a = i as f32 * TAU / BEACON_COUNT;
         b.pos = float3 { cos(a) * 4.2, 0.55, sin(a) * 4.2 };
         b.scale = float3 { 0.65, 0.65, 0.65 };
         b.color = float4 { 1.0, 0.78, 0.25, 1.0 };
@@ -71,9 +76,8 @@ fn build() {
     reset();
 }
 
-fn update(dt: f32) {
-    if state != 0 { return; }
-    elapsed += dt;
+// Movement is in arena coordinates, independent of the camera.
+fn move_player(dt: f32) {
     var direction = float3_0;
     if g3::key_down(g3::KEY_W) || g3::key_down(g3::KEY_UP) { direction.z -= 1.0; }
     if g3::key_down(g3::KEY_S) || g3::key_down(g3::KEY_DOWN) { direction.z += 1.0; }
@@ -83,12 +87,20 @@ fn update(dt: f32) {
     if length(direction) > 0.0 { p.pos += normalize(direction) * (4.0 * dt); }
     p.pos.x = max(-5.9, min(5.9, p.pos.x));
     p.pos.z = max(-5.9, min(5.9, p.pos.z));
+}
+
+fn move_sentinel(dt: f32) {
+    let p .= g3::node(player);
     let s .= g3::node(sentinel);
     let chase = float3 { p.pos.x - s.pos.x, 0.0, p.pos.z - s.pos.z };
     let distance = length(chase);
-    if distance < 0.9 { state = 2; return; }
+    if distance < 0.9 { state = CAUGHT; return; }
     s.pos += normalize(chase) * min(distance, (1.8 + min(elapsed * 0.025, 1.2)) * dt);
-    for i in 8 {
+}
+
+fn update_beacons() {
+    let p .= g3::node(player);
+    for i in BEACON_COUNT {
         let b .= g3::node(beacons[i]);
         if b.visible {
             b.pos.y = 0.55 + sin(elapsed * 3.0 + i) * 0.12;
@@ -96,5 +108,14 @@ fn update(dt: f32) {
             if length(delta) < 0.8 { b.visible = false; score += 1; }
         }
     }
-    if score == 8 { state = 1; }
+    if score == BEACON_COUNT { state = WON; }
+}
+
+fn update(dt: f32) {
+    if state != PLAYING { return; }
+    elapsed += dt;
+    move_player(dt);
+    move_sentinel(dt);
+    if state == CAUGHT { return; }
+    update_beacons();
 }

@@ -47,26 +47,32 @@ async function loadFloorTexture() {
   } finally { engine._free(ptr); }
 }
 
+function showResult(state) {
+  shownState = state;
+  const title = document.createElement('h2');
+  title.textContent = state === 1 ? 'All lights found!' : 'Caught!';
+  const detail = document.createElement('div');
+  detail.textContent = state === 1 ? `You finished in ${engine._game_time().toFixed(1)} seconds.` : 'The sentinel caught up with you.';
+  const button = document.createElement('button');
+  button.textContent = 'Play again';
+  button.addEventListener('click', () => {
+    engine._game_reset();
+    shownState = 0;
+    message.classList.add('hidden');
+    canvas.focus();
+  });
+  message.replaceChildren(title, detail, button);
+  message.classList.remove('hidden');
+  button.focus();
+}
+
 function frame(now) {
   const dt = previous ? Math.min((now - previous) / 1000, 0.1) : 1 / 60;
   previous = now;
   engine._g3_app_frame(dt);
   score.textContent = `${engine._game_score()} / 8 beacons`;
   const state = engine._game_state();
-  if (state && state !== shownState) {
-    shownState = state;
-    message.replaceChildren();
-    const title = document.createElement('h2');
-    title.textContent = state === 1 ? 'All lights found!' : 'Caught!';
-    const detail = document.createElement('div');
-    detail.textContent = state === 1 ? `You finished in ${engine._game_time().toFixed(1)} seconds.` : 'The sentinel caught up with you.';
-    const button = document.createElement('button');
-    button.textContent = 'Play again';
-    button.addEventListener('click', () => { engine._game_reset(); shownState = 0; message.classList.add('hidden'); canvas.focus(); });
-    message.append(title, detail, button);
-    message.classList.remove('hidden');
-    button.focus();
-  }
+  if (state && state !== shownState) showResult(state);
   requestAnimationFrame(frame);
 }
 start();
