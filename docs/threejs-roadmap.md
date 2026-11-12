@@ -7,7 +7,7 @@ materials correctly, and let a user interact with it. This roadmap describes
 capabilities to build, not a promise of API or visual compatibility with Three.js.
 
 The engine already provides a scene hierarchy, transforms, a perspective
-camera, primitive and custom meshes, basic lighting, RGB textures, transparency,
+cameras, primitive and custom meshes, basic lighting, RGB textures, transparency,
 frustum culling, WebGL2 rendering, and a headless CPU renderer. The CPU backend
 and pixel tests provide a useful reference for rendering changes.
 
@@ -19,7 +19,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Materials | Colour, one RGBA texture, alpha mask/blend, wrapping, mipmapped filtering, sRGB input/output and specular controls | Reusable materials, physically based rendering (PBR), normal, roughness and metallic maps, HDR tone mapping |
 | Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
-| Scene management | Parent hierarchy, checked node removal, and one perspective or orthographic camera | General mesh and texture removal, reusable resources, multiple cameras |
+| Scene management | Parent hierarchy, checked node removal, and selectable perspective or orthographic cameras | General mesh and texture removal, reusable resources, camera lifecycle |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit and pinch controls, viewer selection | Additional touch gestures, panning, keyboard camera controls, browser integration tests |
 | Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
 | Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
@@ -74,9 +74,9 @@ shadow behavior and browser reference images for the GPU path.
 
 * Add keyframe playback, skeletal animation and skinning; follow with morph
   targets. Extend glTF loading to populate those features.
-* Support multiple cameras and expand camera controls and touch input. Reusable
-  orbit and pinch controls are available. The active camera supports perspective
-  and orthographic projection; validate both features in a real browser.
+* Expand camera controls and touch input. Selectable perspective and orthographic
+  cameras and reusable orbit and pinch controls are available; validate both
+  features in a real browser and add camera removal.
 
 **Done when:** an imported animated character plays, pauses, and switches
 clips, and a scene can switch between perspective and orthographic cameras.

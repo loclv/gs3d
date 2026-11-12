@@ -1,4 +1,4 @@
-// The scene: a flat array of nodes and one camera.
+// The scene: a flat array of nodes and selectable cameras.
 //
 // Nodes are records in a global arena. `node_add` returns an index and `node`
 // provides a writable reference. Use a NodeHandle to detect slot reuse.
@@ -57,6 +57,12 @@ struct Camera {
     far: f32 = 400.0,
 }
 
+struct CameraState {
+    camera: Camera,
+    yaw: f32, pitch: f32, distance: f32,
+    orbit_target: float3,
+}
+
 var g_nodes: Node[>..];
 var g_scene_epoch: i32;
 var g_camera: Camera;
@@ -64,6 +70,8 @@ var g_camera_yaw: f32 = 0.5;
 var g_camera_pitch: f32 = 0.35;
 var g_camera_distance: f32 = 10.0;
 var g_camera_target: float3 = float3 { 0.0, 1.0, 0.0 };
+var g_cameras: CameraState[>..];
+var g_active_camera: i64 = -1;
 
 fn node_count() -> i64 { g_nodes.len }
 
@@ -180,6 +188,37 @@ fn node_update_worlds() {
 }
 
 fn camera() -> Camera& { return g_camera }
+
+fn camera_state() -> CameraState {
+    return CameraState { camera: g_camera, yaw: g_camera_yaw, pitch: g_camera_pitch,
+                         distance: g_camera_distance, orbit_target: g_camera_target };
+}
+
+// Save a copy of the current view. The first saved camera becomes active.
+fn camera_add() -> i64 {
+    g_cameras.push(camera_state());
+    let id = g_cameras.len - 1;
+    if g_active_camera < 0 { g_active_camera = id; }
+    return id;
+}
+
+fn camera_active() -> i64 { return g_active_camera }
+fn camera_count() -> i64 { return g_cameras.len }
+
+// Switching saves direct camera() edits as well as orbit state. Cameras persist
+// across scene_clear(); invalid IDs leave the current view untouched.
+fn camera_select(id: i64) -> bool {
+    guard id >= 0 && id < g_cameras.len else { return false; }
+    if g_active_camera >= 0 { g_cameras[g_active_camera] = camera_state(); }
+    let state = g_cameras[id];
+    g_camera = state.camera;
+    g_camera_yaw = state.yaw;
+    g_camera_pitch = state.pitch;
+    g_camera_distance = state.distance;
+    g_camera_target = state.orbit_target;
+    g_active_camera = id;
+    return true;
+}
 
 // Both renderers consume this projection through the common view-projection matrix.
 fn camera_projection(cam: Camera, aspect: f32) -> Mat4 {

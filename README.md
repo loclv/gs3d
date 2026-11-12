@@ -265,6 +265,13 @@ What the API gives you:
   `camera().ortho_height` (the full vertical extent in world units) for an
   orthographic view; set it to false to restore perspective. Width follows
   the viewport aspect ratio. Picking uses the selected projection.
+  `camera_add()` saves a copy of the current camera and returns its ID;
+  `camera_select(id)` saves the active camera's edits and restores that copy,
+  including orbit state. The first added camera becomes active. Configure an
+  inactive camera by selecting it first. Cameras persist across `scene_clear()`;
+  `camera_active()` returns `-1` until the first is added. A reference returned
+  by `camera()` refers to the active camera storage and should not be retained
+  across a switch.
 * **Lighting** — a primary directional light (`set_light`), up to four extra
   directional, point or spot lights (`add_directional_light`, `add_point_light`,
   `add_spot_light`, `clear_lights`), ambient light and a hemispherical sky/ground

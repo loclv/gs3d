@@ -722,6 +722,40 @@ fn case_orthographic_camera() {
     testing::check(is_color(g3::read_pixel(340, 200), 255, 0, 255, 2), "switching back restores perspective projection");
 }
 
+fn case_multiple_cameras() {
+    g3::scene_clear();
+    flat_camera();
+    g3::camera_orbit(0.0, 0.0, 5.0, float3_0);
+    let perspective = g3::camera_add();
+    let orthographic = g3::camera_add();
+    testing::check(g3::camera_count() == 2 && g3::camera_active() == perspective && !g3::camera_select(-1),
+        "camera creation retains the active camera and rejects invalid selections");
+    let cube = g3::node_add(g3::mesh_cube(0.5));
+    g3::node(cube).pos.x = 1.0;
+    g3::node(cube).unlit = true;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(340, 200), 255, 0, 255, 2) && g3::pick_screen(0.7, 0.0, 1.0).node == -1,
+        "perspective camera projects and picks its view");
+    testing::check(g3::camera_select(orthographic), "select a second camera");
+    g3::camera().orthographic = true;
+    g3::camera().ortho_height = 4.0;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(340, 200), 255, 255, 255, 2) && g3::pick_screen(0.7, 0.0, 1.0).node == cube,
+        "selected orthographic camera controls rendering and picking");
+    g3::camera_orbit(0.5, 0.0, 8.0, float3_0);
+    let ortho_pos = g3::camera().pos;
+    g3::camera_select(perspective);
+    g3::camera_orbit_nudge(0.0, 0.0);
+    testing::check(!g3::camera().orthographic && length(g3::camera().pos - float3 { 0.0, 0.0, 5.0 }) < 0.0001,
+        "switching restores perspective and its orbit state");
+    g3::camera_select(orthographic);
+    g3::camera_orbit_nudge(0.0, 0.0);
+    testing::check(g3::camera().orthographic && length(g3::camera().pos - ortho_pos) < 0.0001,
+        "switching restores orthographic and its orbit state");
+    g3::scene_clear();
+    testing::check(g3::camera_select(perspective) && g3::camera_active() == perspective, "cameras persist across scene reset");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -751,6 +785,7 @@ fn main() {
     case_asset_fragmentation();
     case_picking();
     case_orthographic_camera();
+    case_multiple_cameras();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }
