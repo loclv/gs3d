@@ -55,6 +55,8 @@ same scene renders identically in a tab and on disk.
 ### View a textured model
 
 Run `./build_web.sh --viewer --serve` and open <http://localhost:8080/viewer/>.
+The viewer uses reusable mouse and touch controls from `web/orbit-controls.js`;
+their callback API and cleanup are documented in [assets.md](docs/assets.md).
 Drag to orbit, scroll to zoom, click the model to select a mesh, and use Reload
 to load and dispose it again. The bundled GLB uses the CC0 Ground Grey texture
 credited below; `web/viewer/generate_sample.py` regenerates it.

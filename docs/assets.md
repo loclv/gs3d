@@ -29,6 +29,29 @@ try {
 
 URLs are resolved relative to the document or, for external glTF resources,
 relative to the model URL. Resources require normal browser fetch/CORS access.
+
+The viewer's input controls can also be used independently of the viewer host:
+
+```js
+import { createOrbitControls } from './orbit-controls.js';
+
+const controls = createOrbitControls(canvas, {
+  onOrbit: (yawDelta, pitchDelta) => engine._g3_viewer_orbit(yawDelta, pitchDelta),
+  onZoom: factor => engine._g3_viewer_zoom(factor),
+  onSelect: (clientX, clientY) => model.pick(canvas, clientX, clientY),
+});
+// When the canvas is no longer in use:
+controls.dispose();
+```
+
+The callbacks can target any camera implementation; the example's exported
+`_g3_viewer_*` functions belong to the viewer build. Mouse drag and one-finger
+touch orbit, the wheel and a two-finger pinch zoom, and a click or tap invokes
+`onSelect` when movement stays below the threshold. Options `rotateSpeedX`,
+`rotateSpeedY`, `wheelSpeed`, and `clickTolerance` adjust input sensitivity.
+Disposal removes listeners and restores the canvas's previous `touch-action`.
+The controls do not provide panning or keyboard navigation.
+
 The API decodes images into RGBA8 and copies them to the renderer. `dispose()`
 is idempotent. A model owns the nodes, meshes, and textures it creates: disposal
 releases its GPU buffers and textures and makes its asset-owned node, mesh,

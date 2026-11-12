@@ -1,11 +1,12 @@
 import createGoose3D from './app.js';
 import { fitToDisplay } from '../canvas.js';
 import { loadGLTF } from '../assets.js';
+import { createOrbitControls } from '../orbit-controls.js';
 
 const canvas = document.getElementById('canvas');
 const status = document.getElementById('status');
 const reload = document.getElementById('reload');
-let engine, model, last = 0, drag;
+let engine, model, last = 0;
 
 window.gooseError = message => { status.textContent = message; };
 window.gooseSurfaceFailed = () => window.gooseError('WebGL2 could not be started.');
@@ -33,30 +34,15 @@ async function start() {
       engine._g3_input_resize(next.width, next.height);
     });
     reload.addEventListener('click', loadModel);
-    canvas.addEventListener('pointerdown', event => {
-      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, travel: 0 };
-      canvas.setPointerCapture(event.pointerId);
-    });
-    canvas.addEventListener('pointermove', event => {
-      if (!drag || event.pointerId !== drag.id) return;
-      const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
-      if (dx || dy) engine._g3_viewer_orbit(-dx * 0.006, dy * 0.005);
-      drag.travel += Math.abs(dx) + Math.abs(dy);
-      drag.x = event.clientX; drag.y = event.clientY;
-    });
-    canvas.addEventListener('pointerup', event => {
-      if (!drag || event.pointerId !== drag.id) return;
-      if (drag.travel < 4 && model) {
-        const hit = model.pick(canvas, event.clientX, event.clientY);
+    createOrbitControls(canvas, {
+      onOrbit: (yaw, pitch) => engine._g3_viewer_orbit(yaw, pitch),
+      onZoom: factor => engine._g3_viewer_zoom(factor),
+      onSelect: (x, y) => {
+        if (!model) return;
+        const hit = model.pick(canvas, x, y);
         status.textContent = hit === null ? 'No mesh selected.' : `Selected mesh node ${hit.index}.`;
-      }
-      drag = null;
+      },
     });
-    canvas.addEventListener('pointercancel', () => { drag = null; });
-    canvas.addEventListener('wheel', event => {
-      event.preventDefault();
-      engine._g3_viewer_zoom(Math.exp(Math.max(-1, Math.min(1, event.deltaY * 0.001))));
-    }, { passive: false });
     requestAnimationFrame(frame);
     await loadModel();
   } catch (error) { status.textContent = error.message; }

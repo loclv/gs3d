@@ -20,7 +20,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
 | Scene management | Parent hierarchy and one perspective or orthographic camera | Object and resource removal, reusable resources, multiple cameras |
-| Interaction | Keyboard and mouse input, triangle raycasting, example viewer orbit and selection | General touch controls and reusable browser camera controls |
+| Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit and pinch controls, viewer selection | Additional touch gestures, panning, keyboard camera controls, browser integration tests |
 | Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
 | Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
 
@@ -48,9 +48,9 @@ and a browser integration check for behavior exposed through WebGL.
 * **Implemented:** texture alpha, wrapping, filtering, and opt-in sRGB output,
   including glTF base-colour decoding and per-texture sampler settings. Expand
   the glTF loader's material and sampler support.
-* **Implemented:** triangle picking and an example viewer with orbit controls,
-  selection, and reload. Expand the browser API for model inspection and
-  reusable controls, and validate those paths in a real browser.
+* **Implemented:** triangle picking and an example viewer with reusable orbit
+  and pinch controls, selection, and reload. Expand the browser API for model
+  inspection and validate those paths in a real browser.
 
 **Done when:** a documented example loads a static textured GLB, orbits it,
 selects a mesh with a click, and repeatedly loads and disposes models without
@@ -74,9 +74,9 @@ shadow behavior and browser reference images for the GPU path.
 
 * Add keyframe playback, skeletal animation and skinning; follow with morph
   targets. Extend glTF loading to populate those features.
-* Support multiple cameras, reusable camera controls, and touch input. The
-  active camera supports perspective and orthographic projection; validate
-  orthographic rendering in a real browser.
+* Support multiple cameras and expand camera controls and touch input. Reusable
+  orbit and pinch controls are available. The active camera supports perspective
+  and orthographic projection; validate both features in a real browser.
 
 **Done when:** an imported animated character plays, pauses, and switches
 clips, and a scene can switch between perspective and orthographic cameras.
