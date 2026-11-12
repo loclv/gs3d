@@ -19,7 +19,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Materials | Colour, one RGBA texture, alpha mask/blend, wrapping, mipmapped filtering, sRGB input/output and specular controls | Reusable materials, physically based rendering (PBR), normal, roughness and metallic maps, HDR tone mapping |
 | Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
-| Scene management | Parent hierarchy and one camera | Object and resource removal, reusable resources, multiple cameras, orthographic camera rendering |
+| Scene management | Parent hierarchy and one perspective or orthographic camera | Object and resource removal, reusable resources, multiple cameras |
 | Interaction | Keyboard and mouse input, triangle raycasting, example viewer orbit and selection | General touch controls and reusable browser camera controls |
 | Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
 | Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
@@ -74,8 +74,9 @@ shadow behavior and browser reference images for the GPU path.
 
 * Add keyframe playback, skeletal animation and skinning; follow with morph
   targets. Extend glTF loading to populate those features.
-* Support multiple and orthographic cameras, reusable camera controls, and
-  touch input.
+* Support multiple cameras, reusable camera controls, and touch input. The
+  active camera supports perspective and orthographic projection; validate
+  orthographic rendering in a real browser.
 
 **Done when:** an imported animated character plays, pauses, and switches
 clips, and a scene can switch between perspective and orthographic cameras.

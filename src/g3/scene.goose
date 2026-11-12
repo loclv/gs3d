@@ -53,6 +53,8 @@ struct Camera {
     target: float3,
     up: float3 = float3 { 0.0, 1.0, 0.0 },
     fov: f32 = 0.9,             // vertical, radians
+    orthographic: bool,         // perspective by default
+    ortho_height: f32 = 10.0,  // full vertical extent, world units
     near: f32 = 0.1,
     far: f32 = 400.0,
 }
@@ -156,6 +158,15 @@ fn node_update_worlds() {
 }
 
 fn camera() -> Camera& { return g_camera }
+
+// Both renderers consume this projection through the common view-projection matrix.
+fn camera_projection(cam: Camera, aspect: f32) -> Mat4 {
+    if cam.orthographic {
+        let half = cam.ortho_height * 0.5;
+        return mat4_ortho(-half * aspect, half * aspect, -half, half, cam.near, cam.far);
+    }
+    return mat4_perspective(cam.fov, aspect, cam.near, cam.far);
+}
 
 // Point the camera at a place from a place.
 fn camera_look_at(eye: float3, target: float3) {

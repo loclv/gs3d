@@ -147,11 +147,11 @@ fn begin_frame(time: f64, width: i32, height: i32) {
     let w = if width < 1 { 1 } else { width };
     let h = if height < 1 { 1 } else { height };
     g_view = mat4_look_at(g_camera.pos, g_camera.target, g_camera.up);
-    g_view_proj = mat4_mul(mat4_perspective(g_camera.fov, w as f32 / h,
-                                            g_camera.near, g_camera.far),
-                           g_view);
+    g_view_proj = mat4_mul(camera_projection(g_camera, w as f32 / h), g_view);
     g_frustum = frustum_from_view_proj(g_view_proj);
     g_view_state.eye = g_camera.pos;
+    // The third row of look-at points from the scene toward the camera.
+    g_view_state.view_direction = float4 { g_view.m[2], g_view.m[6], g_view.m[10], if g_camera.orthographic { 1.0 } else { 0.0 } };
     g_view_state.params = float4 { time as f32, if g_output_srgb { 1.0 } else { 0.0 }, 0.0, 0.0 };
 }
 
@@ -193,7 +193,8 @@ fn render_scene() {
             g_stats.culled += 1;
             continue;
         }
-        let dist = length(aabb_center(box) - g_camera.pos);
+        let center = aabb_center(box);
+        let dist = if g_camera.orthographic { -mat4_apply(g_view, center).z } else { length(center - g_camera.pos) };
         g_draws.push(pack_item(n, m, dist));
         g_stats.drawn += 1;
         g_stats.triangles += m.index_count / 3;

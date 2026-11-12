@@ -347,7 +347,9 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     float diff = n.x * lx + n.y * ly + n.z * lz;
     if (diff < 0.0f) diff = 0.0f;
 
-    float vx = vs->eye.x - wp.x, vy = vs->eye.y - wp.y, vz = vs->eye.z - wp.z;
+    float vx = vs->view_direction.w > 0.5f ? vs->view_direction.x : vs->eye.x - wp.x;
+    float vy = vs->view_direction.w > 0.5f ? vs->view_direction.y : vs->eye.y - wp.y;
+    float vz = vs->view_direction.w > 0.5f ? vs->view_direction.z : vs->eye.z - wp.z;
     float vl = sqrtf(vx * vx + vy * vy + vz * vz);
     if (vl > 1e-12f) { vx /= vl; vy /= vl; vz /= vl; }
     float hx = lx + vx, hy = ly + vy, hz = lz + vz;

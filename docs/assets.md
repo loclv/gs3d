@@ -54,7 +54,7 @@ allocations or return storage to the operating system, so fragmented free
 space between live meshes can still raise the high-water mark. This is not yet
 general-purpose resource reclamation.
 
-Picking uses the active perspective camera, the canvas's CSS dimensions,
+Picking uses the active perspective or orthographic camera, the canvas's CSS dimensions,
 and retained geometry. It returns the nearest front-facing visible triangle;
 an object from another model can occlude the selected model. It is currently
 a linear scan of all triangles and does not inspect texture alpha. Model picking

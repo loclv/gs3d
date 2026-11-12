@@ -57,7 +57,7 @@ discarded, including in the shadow pass. Blended items read depth but do not
 write it; opaque and surviving mask fragments write depth. Texture alpha is
 ignored for opaque items.
 
-### `g3_view_state` — 432 bytes
+### `g3_view_state` — 448 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -76,6 +76,7 @@ ignored for opaque items.
 | 348 | `float` | `environment_intensity` | multiplier for texture-based diffuse fill |
 | 352 | `g3_mat4` | `shadow_view_proj` | primary directional light's world-to-shadow clip transform |
 | 416 | `g3_vec4` | `shadow_params` | x enabled, y normalized depth bias |
+| 432 | `g3_vec4` | `view_direction` | xyz direction toward viewer, w selects orthographic shading |
 
 Each packed `g3_light` is 52 bytes: position and type in a `vec4`, direction
 and range in a `vec4`, colour and outer-cone cosine in a `vec4`, followed by

@@ -38,7 +38,7 @@ typedef struct {
     GLuint program;
     GLint mvp, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
     GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4];
-    GLint env_sky, env_ground;
+    GLint env_sky, env_ground, view_direction;
     GLint env_map, env_map_enabled, env_map_intensity;
     GLint shadow_map, shadow_matrix, shadow_params;
     GLint alpha_mode, alpha_cutoff;
@@ -94,6 +94,7 @@ static const char *FRAGMENT_SRC =
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform vec3 u_eye;\n"
+    "uniform vec4 u_view_direction;\n"
     "uniform vec3 u_light_dir;\n"
     "uniform vec3 u_light_color;\n"
     "struct Light { vec4 position; vec4 direction; vec4 color; float inner; };\n"
@@ -115,7 +116,7 @@ static const char *FRAGMENT_SRC =
     "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
     "    vec3 l = -u_light_dir;\n"
     "    float diff = max(dot(n, l), 0.0);\n"
-    "    vec3 v = normalize(u_eye - v_world);\n"
+    "    vec3 v = normalize(u_view_direction.w > 0.5 ? u_view_direction.xyz : u_eye - v_world);\n"
     "    vec3 h = normalize(l + v);\n"
     "    float spec = pow(max(dot(n, h), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
     "    vec4 texel = u_textured ? texture(u_tex, v_uv) : vec4(1.0);\n"
@@ -213,6 +214,7 @@ static void find_uniforms(void) {
     shader.color = glGetUniformLocation(shader.program, "u_color");
     shader.params = glGetUniformLocation(shader.program, "u_params");
     shader.eye = glGetUniformLocation(shader.program, "u_eye");
+    shader.view_direction = glGetUniformLocation(shader.program, "u_view_direction");
     shader.light_dir = glGetUniformLocation(shader.program, "u_light_dir");
     shader.light_color = glGetUniformLocation(shader.program, "u_light_color");
     shader.ambient = glGetUniformLocation(shader.program, "u_ambient");
@@ -470,6 +472,7 @@ EMSCRIPTEN_KEEPALIVE void g3_host_release_texture(int32_t id) {
 /* What every item of this frame shares. */
 static void bind_view(const g3_view_state *view) {
     glUniform3f(shader.eye, view->eye.x, view->eye.y, view->eye.z);
+    glUniform4f(shader.view_direction, view->view_direction.x, view->view_direction.y, view->view_direction.z, view->view_direction.w);
     glUniform3f(shader.light_dir, view->light_dir.x, view->light_dir.y, view->light_dir.z);
     glUniform3f(shader.light_color, view->light_color.x, view->light_color.y,
                 view->light_color.z);

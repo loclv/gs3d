@@ -256,7 +256,10 @@ What the API gives you:
   references must not be used after an asset slot is released.
 * **Camera** — `camera() -> Camera&` (fov, near, far, up), `camera_look_at`,
   `camera_orbit(yaw, pitch, distance, target)`, `camera_orbit_nudge`,
-  `camera_zoom`.
+  `camera_zoom`. Set `camera().orthographic = true` and a positive
+  `camera().ortho_height` (the full vertical extent in world units) for an
+  orthographic view; set it to false to restore perspective. Width follows
+  the viewport aspect ratio. Picking uses the selected projection.
 * **Lighting** — a primary directional light (`set_light`), up to four extra
   directional, point or spot lights (`add_directional_light`, `add_point_light`,
   `add_spot_light`, `clear_lights`), ambient light and a hemispherical sky/ground

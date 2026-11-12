@@ -645,6 +645,44 @@ fn case_picking() {
     testing::check(g3::raycast(float3_0, float3_0, 0.0, 20.0).node == -1, "zero direction produces no hit");
 }
 
+// An orthographic 4-unit-high view on a square surface maps one unit to
+// 100 pixels regardless of depth. The two cubes are equal on screen.
+fn case_orthographic_camera() {
+    g3::scene_clear();
+    flat_camera();
+    let c .= g3::camera();
+    c.orthographic = true;
+    c.ortho_height = 4.0;
+    let mesh = g3::mesh_cube(0.5);
+    let left = g3::node_add(mesh);
+    g3::node(left).pos = float3 { -1.0, 0.0, 1.0 };
+    g3::node(left).unlit = true;
+    let right = g3::node_add(mesh);
+    g3::node(right).pos = float3 { 1.0, 0.0, -2.0 };
+    g3::node(right).unlit = true;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(140, 200), 255, 255, 255, 2) &&
+        is_color(g3::read_pixel(340, 200), 255, 255, 255, 2), "orthographic objects keep their size at different depths");
+    testing::check(is_color(g3::read_pixel(155, 200), 255, 0, 255, 2) &&
+        is_color(g3::read_pixel(355, 200), 255, 0, 255, 2), "orthographic silhouettes end at the expected positions");
+    testing::check(g3::pick_screen(-0.5, 0.0, 1.0).node == left && g3::pick_screen(0.5, 0.0, 1.0).node == right,
+        "orthographic picking uses parallel offset rays");
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_light(float3 { 0.0, 0.0, -1.0 }, float3 { 0.25, 0.25, 0.25 });
+    g3::node(left).unlit = false; g3::node(right).unlit = false;
+    g3::node(left).spec = 1.0; g3::node(right).spec = 1.0;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(100, 200), 128, 128, 128, 2) &&
+        is_color(g3::read_pixel(300, 200), 128, 128, 128, 2), "orthographic specular viewing direction is parallel across the frame");
+    c.near = 5.0;
+    testing::check(g3::pick_screen(-0.5, 0.0, 1.0).node == -1 && g3::pick_screen(0.5, 0.0, 1.0).node == right,
+        "orthographic picking respects near clipping");
+    c.orthographic = false;
+    c.near = 0.1;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(340, 200), 255, 0, 255, 2), "switching back restores perspective projection");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -672,6 +710,7 @@ fn main() {
     case_node_epoch();
     case_asset_fragmentation();
     case_picking();
+    case_orthographic_camera();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

@@ -70,7 +70,7 @@ fn raycast(origin: float3, direction: float3, near: f32, far: f32) -> RayHit {
     return hit;
 }
 
-// Perspective-camera ray for NDC coordinates, x/y in [-1,1] (y up).
+// Camera ray for NDC coordinates, x/y in [-1,1] (y up).
 // Match mat4_look_at's fallbacks for degenerate camera directions.
 fn pick_screen(x: f32, y: f32, aspect: f32) -> RayHit {
     guard x >= -1.0 && x <= 1.0 && y >= -1.0 && y <= 1.0 && aspect > 0.0 else { return RayHit { .. }; }
@@ -82,6 +82,12 @@ fn pick_screen(x: f32, y: f32, aspect: f32) -> RayHit {
     if length(right) > 0.000001 { right = normalize(right); }
     else { right = float3 { 1.0, 0.0, 0.0 }; }
     let up = cross(right, forward);
+    if cam.orthographic {
+        guard cam.ortho_height > 0.0 else { return RayHit { .. }; }
+        let half = cam.ortho_height * 0.5;
+        let origin = cam.pos + right * (x * aspect * half) + up * (y * half);
+        return raycast(origin, forward, cam.near, cam.far);
+    }
     let half = tan(cam.fov * 0.5);
     let direction = normalize(forward + right * (x * aspect * half) + up * (y * half));
     let depth = dot(direction, forward);
