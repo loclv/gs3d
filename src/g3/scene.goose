@@ -35,6 +35,8 @@ struct Node {
     spec: f32 = 0.25,           // specular strength
     shine: f32 = 24.0,          // specular exponent
     world: Mat4,                // filled by `node_update_worlds`, do not set
+    local_matrix: Mat4,         // optional imported affine transform
+    use_local_matrix: bool,
 }
 
 struct Camera {
@@ -81,7 +83,10 @@ fn node_parent(child: i64, parent: i64) {
     g_nodes[child].parent = parent as i32;
 }
 
-fn node_local(n: Node&) -> Mat4 { mat4_trs(n.pos, n.rot, n.scale) }
+fn node_local(n: Node&) -> Mat4 {
+    if n.use_local_matrix { return n.local_matrix; }
+    return mat4_trs(n.pos, n.rot, n.scale);
+}
 
 // Multiplied out from the root down, into every node's `world`. A chain
 // longer than 64 is treated as a loop and stops there rather than hanging.

@@ -316,6 +316,22 @@ EMSCRIPTEN_KEEPALIVE void g3_host_texture(int32_t id, const uint8_t *pixels, int
     g3p_upload_texture(id, s, width, height);
 }
 
+/* Imported assets own their backend resources; Goose arena handles stay valid. */
+EMSCRIPTEN_KEEPALIVE void g3_host_release_mesh(int32_t id) {
+    if (id < 0 || id >= mesh_count) return;
+    web_mesh *m = &meshes[id];
+    glDeleteVertexArrays(1, &m->vao);
+    glDeleteBuffers(1, &m->vbo);
+    glDeleteBuffers(1, &m->ebo);
+    memset(m, 0, sizeof(*m));
+}
+
+EMSCRIPTEN_KEEPALIVE void g3_host_release_texture(int32_t id) {
+    if (id < 0 || id >= texture_count) return;
+    glDeleteTextures(1, &textures[id]);
+    textures[id] = 0;
+}
+
 /* --- a frame --- */
 
 /* What every item of this frame shares. */

@@ -142,6 +142,25 @@ fn case_hierarchy() {
     testing::check(is_color(g3::read_pixel(200, 200), 255, 0, 255, 2), "and nowhere else");
 }
 
+// An imported local matrix translating the parent by one places the child at
+// x = 1.5. It must compose with the child's ordinary TRS transform.
+fn case_import_matrix() {
+    g3::scene_clear();
+    flat_camera();
+    let parent = g3::node_group();
+    let p .= g3::node(parent);
+    p.local_matrix = g3::mat4_translate(float3 { 1.0, 0.0, 0.0 });
+    p.use_local_matrix = true;
+    let child = g3::node_add(g3::mesh_cube(0.25));
+    g3::node_parent(child, parent);
+    let n .= g3::node(child);
+    n.pos.x = 0.5;
+    n.unlit = true;
+    g3::frame(1.0 / 60.0);
+    let x, y = pixel_of(1.5, 0.0, 0.25);
+    testing::check(is_color(g3::read_pixel(x, y), 255, 255, 255, 2), "imported matrix composes with child transform");
+}
+
 // The camera turns around: the cube is behind it and the frustum leaves it out.
 fn case_culling() {
     g3::scene_clear();
@@ -213,6 +232,7 @@ fn main() {
     case_blending();
     case_depth();
     case_hierarchy();
+    case_import_matrix();
     case_culling();
     case_backface();
     case_texture();

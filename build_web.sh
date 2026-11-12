@@ -17,6 +17,7 @@ elif [ -f .toolchain/emsdk/emsdk_env.sh ]; then
   # shellcheck disable=SC1091
   source .toolchain/emsdk/emsdk_env.sh >/dev/null 2>&1
 fi
+
 command -v emcc >/dev/null || { echo "emcc not found: install the Emscripten SDK (see README)"; exit 1; }
 command -v goose >/dev/null || { echo "goose not found: put the Goose compiler on PATH"; exit 1; }
 
@@ -28,8 +29,12 @@ exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g
 if [ "${1:-}" = "--game" ]; then
   root=src/game_web.goose
   output=web/game/app.js
-  exports='["_g3_host_start","_g3_host_texture","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_game_reset","_game_score","_game_state","_game_time","_game_floor_texture","_g3_input_key","_g3_input_mouse","_g3_input_resize","_malloc","_free"]'
+  exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_game_reset","_game_score","_game_state","_game_time","_game_floor_texture","_g3_input_key","_g3_input_mouse","_g3_input_resize","_malloc","_free"]'
 fi
+
+# The asset bridge is available to either browser entry point.
+asset_exports='"_g3_asset_mesh_begin","_g3_asset_vertex","_g3_asset_triangle","_g3_asset_mesh_end","_g3_asset_node","_g3_asset_matrix","_g3_asset_material","_g3_asset_hide","_g3_asset_texture","_g3_host_texture","_g3_host_release_mesh","_g3_host_release_texture"'
+exports="${exports%]},${asset_exports}]"
 
 # 1. Goose to C. --standalone means no C main is generated: the host below is
 #    the entry point, and `goose_init` sets the runtime up.
