@@ -68,6 +68,10 @@ low-level engine functions bypasses the safety check. `model.meshes` and
 cannot release a different resource that later reuses the ID. Raw IDs and
 legacy Goose node indices bypass these checks. Goose callers can also use
 `mesh_handle`/`mesh_handle_valid` and `texture_handle`/`texture_handle_valid`.
+When an asset node is released, surviving children are reparented to its former
+parent and their local transforms are baked into matrices to preserve their
+world transforms. Changing a baked child's TRS fields has no effect until its
+`use_local_matrix` flag is cleared or its matrix is updated.
 
 CPU geometry remains available for picking while a model is live. Freed vertex
 and index spans are tracked independently, split on allocation, and coalesced

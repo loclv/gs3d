@@ -19,7 +19,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Materials | Colour, one RGBA texture, alpha mask/blend, wrapping, mipmapped filtering, sRGB input/output and specular controls | Reusable materials, physically based rendering (PBR), normal, roughness and metallic maps, HDR tone mapping |
 | Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
-| Scene management | Parent hierarchy and one perspective or orthographic camera | Object and resource removal, reusable resources, multiple cameras |
+| Scene management | Parent hierarchy, checked node removal, and one perspective or orthographic camera | General mesh and texture removal, reusable resources, multiple cameras |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit and pinch controls, viewer selection | Additional touch gestures, panning, keyboard camera controls, browser integration tests |
 | Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
 | Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
@@ -42,8 +42,8 @@ and a browser integration check for behavior exposed through WebGL.
   non-uniform scale. Continue expanding CPU and browser rendering checks.
 * **Partly implemented:** asset-owned slots are reused, adjacent free mesh
   spans are split and coalesced, browser asset handles check generation, and
-  node handles also check scene epoch. Extend removal to general meshes,
-  textures, and scene objects; handle fragmentation between live meshes so varied
+  node handles also check scene epoch. Ordinary nodes can be removed with checked
+  handles. Extend removal to general meshes and textures; handle fragmentation between live meshes so varied
   load/dispose cycles remain bounded.
 * **Implemented:** texture alpha, wrapping, filtering, and opt-in sRGB output,
   including glTF base-colour decoding and per-texture sampler settings. Expand

@@ -1,9 +1,7 @@
 // The scene: a flat array of nodes and one camera.
 //
-// Nodes are records in a global grow-only array, and a node's handle is its
-// index. `node_add` returns a reference to the new record, which stays valid
-// for the program's life: the array only grows, so a scene is built by
-// pushing and then edited in place through the references it hands out.
+// Nodes are records in a global arena. `node_add` returns an index and `node`
+// provides a writable reference. Use a NodeHandle to detect slot reuse.
 //
 //   let cube_id = g3::node_add(g3::mesh_cube(1.0));   // a handle: an i64
 //   let cube .= g3::node(cube_id);                    // `.` binds the reference
@@ -13,8 +11,8 @@
 //
 // Parenting is an index into the same array, `-1` for a root. The world matrix
 // is recomputed each frame by walking up the chain, so the order nodes were
-// added in does not matter. Ordinary nodes remain permanent until scene_clear;
-// asset-owned nodes can be released and their slots reused by the asset loader.
+// added in does not matter. Removed node slots may be reused; retain checked
+// handles rather than raw indices across removal.
 
 import vec;
 import math;
@@ -74,8 +72,7 @@ fn node_count() -> i64 { g_nodes.len }
 // keeps a stale handle from surviving it.
 fn scene_clear() { g_nodes.clear(); g_scene_epoch += 1; }
 
-// The node with this handle, as a reference: writable, and valid as long as
-// the program runs.
+// References must not be retained across removal or scene_clear().
 fn node(id: i64) -> Node& { return g_nodes[id] }
 
 fn node_handle(id: i64) -> NodeHandle {
@@ -91,6 +88,13 @@ fn node_handle_valid(handle: NodeHandle) -> bool {
 // Add a node and get its handle back; `node` turns the handle into a
 // reference once, and the reference is what the rest of the code uses.
 fn node_add(mesh_id: i32) -> i64 {
+    for i in 0..g_nodes.len {
+        if !g_nodes[i].asset_owned && g_nodes[i].asset_free && g_nodes[i].generation < 2147483647 {
+            let generation = g_nodes[i].generation + 1;
+            g_nodes[i] = Node { mesh: mesh_id, generation: generation, .. };
+            return i;
+        }
+    }
     g_nodes.push(Node { mesh: mesh_id, .. });
     return g_nodes.len - 1;
 }
@@ -116,19 +120,37 @@ fn node_asset_release_handle(handle: NodeHandle) -> bool {
 
 fn node_asset_release(id: i64) {
     guard id >= 0 && id < g_nodes.len else { return; }
-    let n .= g_nodes[id];
-    if n.asset_owned && !n.asset_free {
-        n.visible = false;
-        n.asset_free = true;
-        n.mesh = -1;
-        n.parent = -1;
+    guard g_nodes[id].asset_owned && !g_nodes[id].asset_free else { return; }
+    node_release_slot(id);
+}
+
+// Remove an ordinary node, retaining its children under its former parent.
+// The baked local matrix preserves their world transforms, including shear.
+fn node_remove(handle: NodeHandle) -> bool {
+    guard node_handle_valid(handle) && !g_nodes[handle.index].asset_owned else { return false; }
+    node_release_slot(handle.index);
+    return true;
+}
+
+fn node_release_slot(id: i64) {
+    let local = node_local(g_nodes[id]);
+    let parent = g_nodes[id].parent;
+    for i in 0..g_nodes.len {
+        if i != id && !g_nodes[i].asset_free && g_nodes[i].parent == id {
+            g_nodes[i].local_matrix = mat4_mul(local, node_local(g_nodes[i]));
+            g_nodes[i].use_local_matrix = true;
+            g_nodes[i].parent = parent;
+        }
     }
+    g_nodes[id].visible = false;
+    g_nodes[id].asset_free = true;
+    g_nodes[id].mesh = -1;
+    g_nodes[id].parent = -1;
 }
 
 // A node with children and no geometry of its own: the pivot of a hierarchy.
 fn node_group() -> i64 {
-    g_nodes.push(Node { .. });
-    return g_nodes.len - 1;
+    return node_add(-1);
 }
 
 fn node_parent(child: i64, parent: i64) {

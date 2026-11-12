@@ -573,6 +573,45 @@ fn case_node_epoch() {
         "asset release cannot remove an ordinary node");
 }
 
+fn case_node_removal() {
+    g3::scene_clear();
+    flat_camera();
+    let root = g3::node_group();
+    g3::node(root).pos.x = 1.0;
+    let parent = g3::node_group();
+    g3::node(parent).pos.y = 2.0;
+    g3::node(parent).rot.z = 0.5;
+    g3::node_parent(parent, root);
+    let child = g3::node_add(g3::mesh_cube(0.25));
+    g3::node(child).pos.x = 1.0;
+    g3::node_parent(child, parent);
+    g3::node_update_worlds();
+    let before = g3::mat4_apply(g3::node(child).world, float3_0);
+    let old = g3::node_handle(parent);
+    testing::check(g3::node_remove(old) && !g3::node_handle_valid(old), "ordinary node removal invalidates its handle");
+    g3::node_update_worlds();
+    let after = g3::mat4_apply(g3::node(child).world, float3_0);
+    testing::check(length(after - before) < 0.0001 && g3::node(child).parent == root,
+        "removed parent's children keep their world transforms and hierarchy");
+    let replacement = g3::node_group();
+    testing::check(replacement == parent && !g3::node_remove(old) && g3::node_handle_valid(g3::node_handle(replacement)),
+        "stale handle cannot remove reused ordinary node");
+    let asset = g3::node_asset_add(-1);
+    let external = g3::node_group();
+    g3::node(asset).pos.z = 2.0;
+    g3::node(external).pos.x = 3.0;
+    g3::node_parent(external, asset);
+    testing::check(!g3::node_remove(g3::node_handle(asset)), "ordinary removal cannot remove an asset-owned node");
+    g3::node_asset_release(asset);
+    let asset_replacement = g3::node_asset_add(-1);
+    g3::node(asset_replacement).pos.z = 9.0;
+    g3::node_update_worlds();
+    let external_world = g3::mat4_apply(g3::node(external).world, float3_0);
+    testing::check(asset == asset_replacement && g3::node(external).parent == -1 &&
+        length(external_world - float3 { 3.0, 0.0, 2.0 }) < 0.0001,
+        "asset release detaches surviving children before slot reuse");
+}
+
 fn case_asset_fragmentation() {
     let v = g3::Vertex { pos: float3 { 1.0, 2.0, 3.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 } };
     let small: g3::Vertex[6] = [v; 6];
@@ -708,6 +747,7 @@ fn main() {
     case_normal_transform();
     case_asset_reuse();
     case_node_epoch();
+    case_node_removal();
     case_asset_fragmentation();
     case_picking();
     case_orthographic_camera();

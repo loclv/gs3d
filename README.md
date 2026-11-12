@@ -254,8 +254,11 @@ What the API gives you:
   `node_parent(child, parent)`, `scene_clear()`, and `node_count()`. A node has
   position, euler rotation, scale, colour, `unlit`, `visible`, specular
   strength and shininess. `node_handle(id)` and `node_handle_valid(handle)`
-  add generation and scene-epoch checks for retained handles; raw indices and
-  references must not be used after an asset slot is released.
+  add generation and scene-epoch checks for retained handles. Call
+  `node_remove(handle)` to remove an ordinary node without releasing its mesh
+  or texture. Its children are reparented to its former parent with their
+  transforms preserved; their local transforms become baked matrices. Raw
+  indices and references must not be used after removal or scene reset.
 * **Camera** — `camera() -> Camera&` (fov, near, far, up), `camera_look_at`,
   `camera_orbit(yaw, pitch, distance, target)`, `camera_orbit_nudge`,
   `camera_zoom`. Set `camera().orthographic = true` and a positive
@@ -286,9 +289,9 @@ What the API gives you:
 **Everything is an arena.** There is no heap in Goose, so geometry lives in two
 grow-only global arrays — all vertices, all indices — and each mesh is a small
 record saying where its run lies inside them. The scene is a third array of
-nodes, and a node's handle is its index. Because a grow-only array never moves
-its elements, `node_add` can hand out a reference that stays valid for the life
-of the program, and a scene is built by pushing and then edited in place.
+nodes. `node_add` returns an index and `node` gives access to the record;
+checked node handles also record the generation and scene epoch so reuse can be
+detected. References and raw indices must not outlive the node they identify.
 
 **One pass per frame.** `frame(dt)` samples input, multiplies out each node's
 world matrix by walking its parent chain, builds the view-projection matrix,
@@ -364,9 +367,9 @@ Deliberately out of scope for now, in rough order of how much they would add:
   provide a diffuse approximation rather than prefiltered reflections.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
-* **Limited removal.** Browser-loaded assets recycle their owned nodes, mesh
+* **Limited removal.** Ordinary nodes can be removed and reused. Browser-loaded assets recycle their owned nodes, mesh
   spans, and texture IDs on disposal. Free mesh spans split and coalesce, but
-  ordinary scene nodes and meshes remain grow-only and live meshes are not
+  ordinary meshes remain grow-only and live meshes are not
   compacted. `scene_clear()`
   clears the scene; asset handles are invalid after their owner is disposed.
 * **Singular transforms.** A zero-scale transform has no inverse normal matrix;
