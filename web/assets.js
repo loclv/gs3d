@@ -477,7 +477,8 @@ async function prepare(url) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  if (extensionsRequired.some(extension => extension !== 'KHR_materials_unlit')) unsupported('Required glTF extensions are not supported');
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength'];
+  if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   const buffers = await Promise.all((doc.buffers || []).map(async (buffer, i) => {
     const data = buffer.uri !== undefined ? await fetchBytes(new URL(buffer.uri, absolute)) : i === 0 ? bin : undefined;
     if (!data || !Number.isInteger(buffer.byteLength) || buffer.byteLength < 0 || data.byteLength < buffer.byteLength) invalid('Missing or truncated buffer');
@@ -558,16 +559,23 @@ async function prepare(url) {
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
     const material = p.material === undefined ? {} : item(doc.materials, p.material, 'material');
-    let unlit = false;
+    let unlit = false, emissiveStrength = 1;
     if (material.extensions !== undefined) {
       if (!material.extensions || typeof material.extensions !== 'object' || Array.isArray(material.extensions)) invalid('Invalid material extensions');
       const materialExtensions = Object.keys(material.extensions);
-      if (materialExtensions.some(extension => extension !== 'KHR_materials_unlit')) unsupported('Unsupported material feature');
+      if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength'].includes(extension))) unsupported('Unsupported material feature');
       if (materialExtensions.includes('KHR_materials_unlit')) {
         if (!extensionsUsed.includes('KHR_materials_unlit')) invalid('KHR_materials_unlit must be listed in extensionsUsed');
         const unlitExtension = material.extensions.KHR_materials_unlit;
         if (!unlitExtension || typeof unlitExtension !== 'object' || Array.isArray(unlitExtension)) invalid('Invalid KHR_materials_unlit extension');
         unlit = true;
+      }
+      if (materialExtensions.includes('KHR_materials_emissive_strength')) {
+        if (!extensionsUsed.includes('KHR_materials_emissive_strength')) invalid('KHR_materials_emissive_strength must be listed in extensionsUsed');
+        const emissiveExtension = material.extensions.KHR_materials_emissive_strength;
+        if (!emissiveExtension || typeof emissiveExtension !== 'object' || Array.isArray(emissiveExtension)) invalid('Invalid KHR_materials_emissive_strength extension');
+        emissiveStrength = emissiveExtension.emissiveStrength ?? 1;
+        if (!Number.isFinite(emissiveStrength) || emissiveStrength < 0) invalid('Invalid emissive strength');
       }
     }
     if (material.doubleSided !== undefined && typeof material.doubleSided !== 'boolean') invalid('Invalid doubleSided material flag');
@@ -622,7 +630,7 @@ async function prepare(url) {
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
-      emissive, emissiveTextureIndex, doubleSided: material.doubleSided ?? false, unlit, materialIndex: p.material ?? -1 };
+      emissive: emissive.map(value => value * emissiveStrength), emissiveTextureIndex, doubleSided: material.doubleSided ?? false, unlit, materialIndex: p.material ?? -1 };
     });
     if (!primitives.length) invalid(`Mesh ${meshIndex} has no primitives`);
     const targetCount = primitives[0].targets.length;
