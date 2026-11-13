@@ -233,10 +233,13 @@ What the API gives you:
 
 * **Meshes** — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
-  for your own geometry. `mesh_handle` and `mesh_handle_valid` check ordinary
+  for your own geometry. Pushes stage one mesh and `mesh_close(fv, fi)` closes
+  that batch; the two offset arguments remain accepted for source compatibility.
+  `mesh_handle` and `mesh_handle_valid` check ordinary
   and asset mesh IDs; call `mesh_remove(handle)` after removing all nodes that
   use an ordinary mesh. Removal releases backend geometry and makes its arena
-  spans available to asset meshes. Numeric mesh IDs are never reused.
+  spans available to ordinary meshes and asset loads. Numeric mesh IDs are
+  never reused.
 * **Textures** — import `g3.texture`, call `texture_create(width, height, rgba)`
   with row-major RGBA8 pixels or `texture_create_hdr(width, height, rgba)` with
   linear RGBA32F pixels for HDR radiance, then select an environment with
@@ -337,8 +340,8 @@ What the API gives you:
 
 **Everything is an arena.** There is no heap in Goose, so geometry lives in two
   global arrays — all vertices, all indices — and each mesh is a small record
-saying where its run lies inside them. Released spans can be reused by asset
-meshes; array capacity is retained. The scene is a third array of
+saying where its run lies inside them. Released spans can be reused by ordinary
+and asset meshes; array capacity is retained. The scene is a third array of
 nodes. `node_add` returns an index and `node` gives access to the record;
 checked node handles also record the generation and scene epoch so reuse can be
 detected. References and raw indices must not outlive the node they identify.
@@ -429,10 +432,10 @@ Deliberately out of scope for now, in rough order of how much they would add:
   palettes and native asset loading remain future work.
 * **Limited removal.** Ordinary nodes can be removed and reused. Unreferenced
   ordinary meshes and textures can be removed; mesh backend allocations are
-  freed and their arena spans can be reused by asset meshes. Browser-loaded
-  assets recycle their owned nodes, mesh spans, and texture IDs on disposal.
-  Reusable ordinary geometry allocation and compaction of live meshes remain
-  future work. `scene_clear()`
+  freed and their arena spans can be reused by ordinary meshes and asset loads.
+  Browser-loaded assets recycle their owned nodes, mesh spans, and texture IDs
+  on disposal. Mesh descriptor records remain append-only, and live geometry
+  is not compacted. `scene_clear()`
   clears the scene; asset handles are invalid after their owner is disposed.
 * **Singular transforms.** A zero-scale transform has no inverse normal matrix;
   its surface normals become zero rather than receiving directional lighting.

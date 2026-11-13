@@ -19,7 +19,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and ACES tone mapping with exposure | Browser reference validation, native HDR image decoding |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Native HDR environment decoding |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; CPU-deformed skins and morphs | GPU joint palettes and deformation performance |
-| Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal; selectable perspective or orthographic cameras with stable removable IDs | Reusable ordinary geometry and compaction |
+| Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and compaction of live geometry |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit and pinch controls, viewer selection | Additional touch gestures, panning, keyboard camera controls, browser integration tests |
 | Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
 | Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
@@ -41,13 +41,13 @@ and a browser integration check for behavior exposed through WebGL.
 * **Implemented:** view-volume clipping and inverse-transpose normals for
   non-uniform scale. Continue expanding CPU and browser rendering checks.
 * **Partly implemented:** asset-owned slots are reused, adjacent free mesh
-  spans are split and coalesced, checked ordinary mesh removal releases backend
-  geometry and makes its spans available to asset loads, ordinary textures can
-  be removed when no scene or environment field references them, browser asset
-  handles check generation, and node handles also check scene epoch. Ordinary
-  nodes can be removed with checked handles. Add reusable ordinary mesh
-  allocation; handle fragmentation between live meshes so varied
-  load/dispose cycles remain bounded.
+  spans are split and coalesced, ordinary mesh creation reuses released spans,
+  checked ordinary mesh removal releases backend geometry, ordinary textures
+  can be removed when no live node, material or environment references them,
+  and browser asset handles check generation. Node handles also check scene
+  epoch, and ordinary nodes can be removed with checked handles. Reclaim mesh
+  descriptor records and compact live geometry so varied load/dispose cycles
+  remain bounded.
 * **Implemented:** texture alpha, wrapping, filtering, and opt-in sRGB output,
   including glTF base-colour decoding and per-texture sampler settings. Expand
   the glTF loader's material and sampler support.

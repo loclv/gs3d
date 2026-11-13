@@ -45,8 +45,8 @@ to fragment maths in one and not the other fails it.
 
 **Claim.** Arena backing arrays grow without relocating live elements. Checked
 handles validate resources that can be removed or reused; ordinary mesh and
-texture IDs remain append-only, and removed mesh spans can be reused by asset
-loads without moving live geometry.
+texture IDs remain append-only, and removed mesh spans can be reused without
+moving live geometry.
 
 **Why.** Goose has no heap. Stable slots preserve caller references across
 frames, while explicit release frees backend allocations and prevents stale

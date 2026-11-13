@@ -9,8 +9,8 @@
 //
 // A mesh id is an `i32` because it is a backend handle. `-1` means "no mesh"
 // and is what a group node (a node with children and nothing to draw) uses.
-// Ordinary mesh ids are permanent; asset-owned ids and their spans may be
-// reused after their owner releases them.
+// Mesh IDs are permanent for ordinary geometry; freed vertex/index spans are
+// reusable by later ordinary or asset meshes. Asset-owned IDs may also recycle.
 
 import vec;
 import math;
@@ -35,6 +35,10 @@ struct MeshHandle { id: i32 = -1, generation: i32 }
 
 var g_verts: Vertex[>..];
 var g_indices: u32[>..];
+// Primitive and custom-mesh builders use scratch vectors so closing a mesh can
+// allocate from reclaimed arena spans without retaining a second copy.
+var g_build_verts: Vertex[>..];
+var g_build_indices: u32[>..];
 var g_meshes: Mesh[>..];
 
 // Free ranges are tracked independently: a mesh's vertex and index spans
@@ -124,13 +128,13 @@ fn push_vertex(p: float3, n: float3) {
 }
 
 fn push_vertex_uv(p: float3, n: float3, uv: float2) {
-    g_verts.push(Vertex { pos: p, normal: n, uv: uv });
+    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv });
 }
 
 fn push_triangle(a: u32, b: u32, c: u32) {
-    g_indices.push(a);
-    g_indices.push(b);
-    g_indices.push(c);
+    g_build_indices.push(a);
+    g_build_indices.push(b);
+    g_build_indices.push(c);
 }
 
 // Emit the two triangles of every cell of a grid whose vertices were pushed
@@ -154,17 +158,39 @@ fn push_grid(rows: i64, cols: i64, stride: i64, flip: bool) {
     }
 }
 
-// Close the mesh that started at vertex `fv` and index `fi`: measure its
-// bounds, record it, and upload it. The vertex positions are only read here,
-// so a mesh costs nothing on the Goose side afterwards.
-fn mesh_close(fv: i64, fi: i64) -> i32 {
+// Close the staged mesh: measure its bounds, allocate geometry spans, and
+// upload it. The scratch vectors are cleared after the arena copy.
+fn mesh_close(_fv: i64, _fi: i64) -> i32 {
+    // Keep the original arguments for source compatibility. Builders now use
+    // bounded scratch vectors and close the whole current batch at once.
+    let fv: i64 = 0;
+    let fi: i64 = 0;
+    let vertex_count = g_build_verts.len - fv;
+    let index_count = g_build_indices.len - fi;
     var b = aabb_empty();
-    for i in fv..g_verts.len { aabb_add(b, g_verts[i].pos); }
+    for i in fv..g_build_verts.len { aabb_add(b, g_build_verts[i].pos); }
+    var first_vertex = if vertex_count > 0 { span_take(vertex_count, 0) } else { g_verts.len };
+    if first_vertex < 0 {
+        first_vertex = span_take_tail(g_verts.len, 0);
+        if first_vertex < 0 { first_vertex = g_verts.len; }
+        while g_verts.len < first_vertex + vertex_count { g_verts.push(Vertex { .. }); }
+    }
+    var first_index = if index_count > 0 { span_take(index_count, 1) } else { g_indices.len };
+    if first_index < 0 {
+        first_index = span_take_tail(g_indices.len, 1);
+        if first_index < 0 { first_index = g_indices.len; }
+        while g_indices.len < first_index + index_count { g_indices.push(0); }
+    }
+    for i in 0..vertex_count { g_verts[first_vertex + i] = g_build_verts[fv + i]; }
+    for i in 0..index_count { g_indices[first_index + i] = g_build_indices[fi + i]; }
     let id = g_meshes.len as i32;
-    g_meshes.push(Mesh { id: id, first_vertex: fv, vertex_count: g_verts.len - fv,
-                         first_index: fi, index_count: g_indices.len - fi, bounds: b,
-                         vertex_capacity: g_verts.len - fv, index_capacity: g_indices.len - fi, .. });
-    g3p_upload_mesh(id, g_verts[fv..], g_indices[fi..]);
+    g_meshes.push(Mesh { id: id, first_vertex: first_vertex, vertex_count: vertex_count,
+                         first_index: first_index, index_count: index_count, bounds: b,
+                         vertex_capacity: vertex_count, index_capacity: index_count, .. });
+    g3p_upload_mesh(id, g_verts[first_vertex..first_vertex + vertex_count],
+                    g_indices[first_index..first_index + index_count]);
+    g_build_verts.clear();
+    g_build_indices.clear();
     return id;
 }
 
@@ -269,8 +295,8 @@ fn mesh_asset_release_handle(handle: MeshHandle) -> bool {
 // A cube of the given half extent, 4 corners and 2 triangles per face, with
 // flat per-face normals, counterclockwise seen from outside.
 fn mesh_cube(half: f32) -> i32 {
-    let fv = g_verts.len;
-    let fi = g_indices.len;
+    let fv = g_build_verts.len;
+    let fi = g_build_indices.len;
     let axes: float3[3] = [float3 { 1.0, 0.0, 0.0 }, float3 { 0.0, 1.0, 0.0 },
                            float3 { 0.0, 0.0, 1.0 }];
     let corners: float2[4] = [float2 { -1.0, -1.0 }, float2 { 1.0, -1.0 },
@@ -282,7 +308,7 @@ fn mesh_cube(half: f32) -> i32 {
         let n = axes[f / 2] * float3 { sign, sign, sign };
         let u = axes[(f / 2 + 1) % 3] * float3 { sign, sign, sign };
         let v = cross(n, u);
-        let base = (g_verts.len - fv) as u32;
+        let base = (g_build_verts.len - fv) as u32;
         for c in corners {
             let p = n + u * float3 { c.x, c.x, c.x } + v * float3 { c.y, c.y, c.y };
             push_vertex_uv(p * half, n, float2 { (c.x + 1.0) * 0.5, (c.y + 1.0) * 0.5 });
@@ -297,8 +323,8 @@ fn mesh_cube(half: f32) -> i32 {
 // The poles end up with a whole fan of coincident vertices, which is one
 // triangle fan's worth of waste and no work to avoid.
 fn mesh_sphere(radius: f32, rings: i64, segments: i64) -> i32 {
-    let fv = g_verts.len;
-    let fi = g_indices.len;
+    let fv = g_build_verts.len;
+    let fi = g_build_indices.len;
     for r in 0..rings + 1 {
         let phi = (r as f32 / rings) * PI;
         for s in 0..segments + 1 {
@@ -315,8 +341,8 @@ fn mesh_sphere(radius: f32, rings: i64, segments: i64) -> i32 {
 // tiles = 1 this is a single quad; more lets a per-vertex lighting model show
 // up on it, and gives the fog something to do along its length.
 fn mesh_plane(size: f32, tiles: i64) -> i32 {
-    let fv = g_verts.len;
-    let fi = g_indices.len;
+    let fv = g_build_verts.len;
+    let fi = g_build_indices.len;
     let half = size * 0.5;
     let n = float3 { 0.0, 1.0, 0.0 };
     for t in 0..tiles + 1 {

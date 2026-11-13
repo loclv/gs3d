@@ -572,6 +572,15 @@ fn case_ordinary_mesh_removal() {
     g3::node(stale_node).mesh = mesh;
     g3::frame(1.0 / 60.0);
     testing::check(g3::stats().nodes == 0, "rendering skips a removed mesh assigned through a stale node reference");
+    let arena_vertices = g3::g_verts.len;
+    let arena_indices = g3::g_indices.len;
+    var all_removed = true;
+    for i in 100 {
+        let next = g3::mesh_cube(1.0 + i * 0.001);
+        if !g3::mesh_remove(g3::mesh_handle(next)) { all_removed = false; }
+    }
+    testing::check(all_removed && g3::g_verts.len == arena_vertices && g3::g_indices.len == arena_indices,
+        "repeated ordinary mesh creation reuses released geometry spans");
 }
 
 fn case_ordinary_texture_removal() {
