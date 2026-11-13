@@ -99,9 +99,11 @@ for i in 0..g3::native_glb_mesh_primitive_count(model_mesh) {
 g3::native_glb_mesh_dispose(model_mesh);
 ```
 
-The loader supports float32 `POSITION`, `NORMAL`, and optional `TEXCOORD_0`
-and `TANGENT` attributes, `COLOR_0` as float32 or normalized unsigned 8-/16-bit
-data, triangle primitives, and unsigned 8-, 16-, or 32-bit indices. It
+The loader supports float32 and `KHR_mesh_quantization` `POSITION`, `NORMAL`,
+`TEXCOORD_0`, and `TANGENT` attributes, `COLOR_0` as float32 or normalized
+unsigned 8-/16-bit data, triangle primitives, and unsigned 8-, 16-, or 32-bit
+indices. Quantized attributes require `KHR_mesh_quantization` in both
+`extensionsUsed` and `extensionsRequired`. It
 applies the first matching node instance's matrix or TRS transform composed
 with its ancestors. It imports
 material base colour, metallic and roughness factors, emissive factor, alpha

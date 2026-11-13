@@ -77,7 +77,8 @@ and a browser integration check for behavior exposed through WebGL.
   falls back to the core source when fetching or decoding WebP fails.
 * **Partly implemented:** native Goose programs can load and dispose every
   static primitive on one selected GLB node beneath a checked group root,
-  including float positions/normals/tangents, normalized `COLOR_0`, triangle
+  including float and required `KHR_mesh_quantization` positions, normals,
+  tangents and `TEXCOORD_0`, plus normalized `COLOR_0` and triangle
   indices, the node instance's world transform composed through its ancestors,
   scalar material factors and flags, plus declared `KHR_materials_unlit`,
   `KHR_materials_emissive_strength`, `KHR_materials_ior`, and factor-only

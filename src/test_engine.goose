@@ -433,6 +433,25 @@ fn case_native_glb_load() {
     let tangent, tangent_ok = g3::glb_vertex_tangent(tangent_bytes[..], 0, g3::GlbAccessor { stride: 16, components: 4, .. }, 0);
     testing::check(tangent_ok && tangent.x == 1.0 && tangent.y == 0.0 && tangent.z == 0.0 && tangent.w == 1.0,
                    "native GLB decodes authored float32 tangent frames");
+    var quantized_doc: json::Node[>..] = [];
+    var quantized_decoded: u8[>..] = [];
+    let quantized_root, quantized_error = json::parse("{\"extensionsUsed\":[\"KHR_mesh_quantization\"],\"accessors\":[{\"bufferView\":0,\"componentType\":5122,\"normalized\":true,\"count\":2,\"type\":\"VEC3\"}],\"bufferViews\":[{\"byteLength\":16,\"byteStride\":8}]}", quantized_doc, quantized_decoded);
+    let undeclared_quantized, undeclared_quantized_ok = g3::glb_attribute_accessor(quantized_root, 16, 0, "POSITION", "VEC3", 3);
+    testing::check(quantized_root && quantized_error.len == 0 && !undeclared_quantized_ok,
+                   "native GLB requires KHR_mesh_quantization in extensionsRequired");
+    let signed_quantized_bytes: u8[6] = [0, 128, 255, 127, 0, 0];
+    let signed_quantized_attr = g3::GlbAttribute { stride: 6, count: 1, components: 3, component_type: 5122, normalized: true, .. };
+    let qx, qx_ok = g3::glb_attribute_value(signed_quantized_bytes[..], 0, signed_quantized_attr, 0, 0);
+    let qy, qy_ok = g3::glb_attribute_value(signed_quantized_bytes[..], 0, signed_quantized_attr, 0, 1);
+    testing::check(qx_ok && qy_ok && qx == -1.0 && qy == 1.0,
+                   "native GLB normalizes signed-short endpoints without overflow");
+    let quantized_model, quantized_loaded = g3::native_glb_load_primitive("testdata/native-quantized.glb", 0, 0);
+    g3::frame(1.0 / 60.0);
+    let quantized_stats = g3::stats();
+    testing::check(quantized_loaded && quantized_stats.drawn == 1 && quantized_stats.triangles == 12 &&
+                   is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
+                   "native GLB decodes required quantized positions, normals, and texture coordinates");
+    testing::check(g3::native_glb_dispose(quantized_model), "native quantized GLB resources dispose cleanly");
     let absent, missing_file = g3::native_glb_load_primitive("testdata/missing.glb", 0, 0);
     testing::check(!missing_file && absent.mesh.id < 0, "native GLB loader reports a missing asset without creating resources");
 }
