@@ -44,6 +44,11 @@ var g_shadow_extent: f32;
 var g_shadow_bias: f32;
 var g_shadow_filter_radius: i32;
 
+let POST_PROCESS_COPY = 0;
+let POST_PROCESS_GRAYSCALE = 1;
+let POST_PROCESS_INVERT = 2;
+let POST_PROCESS_FXAA = 3;
+
 // --- the frame's constants
 
 fn set_light(dir: float3, color: float3) {
@@ -251,6 +256,14 @@ fn set_tone_mapping(enabled: bool) { g_tone_mapping = if enabled { TONE_MAPPING_
 
 // Apply a fast edge-aware antialiasing pass after scene rendering.
 fn set_fxaa(enabled: bool) { g_fxaa = enabled; }
+
+// Apply one built-in pass from any texture to a render target. Calls can be
+// chained in order; source and destination must be different textures.
+fn post_process_run(source: i32, destination: i32, effect: i32) -> bool {
+    guard source != destination && texture_slot_live(source) && texture_slot_live(destination) &&
+          g_texture_slots[destination].render_target && effect >= POST_PROCESS_COPY && effect <= POST_PROCESS_FXAA else { return false; }
+    return g3p_post_process(source, destination, effect);
+}
 
 // Linear exposure multiplier applied before tone mapping.
 fn set_exposure(exposure: f32) -> bool {

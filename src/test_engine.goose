@@ -481,6 +481,30 @@ fn case_fxaa() {
     g3::set_fxaa(false);
 }
 
+fn draw_target_texture(texture: i32) -> u32 {
+    g3::scene_clear();
+    flat_camera();
+    let cube .= g3::node(g3::node_add(g3::mesh_cube(1.0)));
+    cube.texture = texture;
+    cube.unlit = true;
+    g3::frame(1.0 / 60.0);
+    return g3::read_pixel(200, 200);
+}
+
+fn render_target_feedback(target: i32) -> u32 {
+    g3::render_target_set(target);
+    g3::set_background(float4 { 0.0, 0.0, 0.0, 1.0 });
+    g3::frame(1.0 / 60.0);
+    g3::render_target_set(-1);
+    g3::frame(1.0 / 60.0);
+    return g3::read_pixel(200, 200);
+}
+
+fn set_first_node_texture(texture: i32) {
+    let cube .= g3::node(0);
+    cube.texture = texture;
+}
+
 fn case_render_target() {
     g3::scene_clear();
     flat_camera();
@@ -510,15 +534,36 @@ fn case_render_target() {
     cube.unlit = true;
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 2), "render target texture can be sampled with linear values");
-    g3::render_target_set(target);
-    g3::set_background(float4 { 0.0, 0.0, 0.0, 1.0 });
-    g3::frame(1.0 / 60.0);
-    g3::render_target_set(-1);
-    g3::frame(1.0 / 60.0);
-    testing::check(is_color(g3::read_pixel(200, 200), 0, 0, 0, 1), "sampling the active target is suppressed instead of creating feedback");
+
+    let processed = g3::render_target_create(40, 80);
+    testing::check(processed >= 0, "secondary render target allocates");
+    let red_pixels: u8[4] = [255, 0, 0, 255];
+    let red_texture = g3::texture_create(1, 1, red_pixels[..]);
+    testing::check(g3::post_process_run(target, processed, g3::POST_PROCESS_COPY) &&
+                   is_color(draw_target_texture(processed), 128, 128, 128, 2), "copy pass preserves the source target values");
+    testing::check(g3::post_process_run(target, processed, g3::POST_PROCESS_INVERT),
+                   "invert pass writes to a distinct target");
+    testing::check(!g3::post_process_run(target, target, g3::POST_PROCESS_COPY) &&
+                   !g3::post_process_run(target, processed, 99), "post-processing rejects feedback and unknown effects");
+    testing::check(is_color(draw_target_texture(processed), 127, 127, 127, 2), "invert output is sampleable on the next frame");
+    testing::check(g3::post_process_run(processed, target, g3::POST_PROCESS_INVERT), "post-process calls can be chained in order");
+    testing::check(is_color(draw_target_texture(target), 128, 128, 128, 2), "two invert passes restore the original target colour");
+
+    testing::check(g3::post_process_run(red_texture, processed, g3::POST_PROCESS_GRAYSCALE) &&
+                   is_color(draw_target_texture(processed), 76, 76, 76, 2), "grayscale uses the 0.299 red luma weight");
+    let edge_pixels: u8[12] = [0,0,0,255, 255,255,255,255, 0,0,0,255];
+    let edge_texture = g3::texture_create(3, 1, edge_pixels[..]);
+    let fxaa_target = g3::render_target_create(3, 1);
+    testing::check(g3::post_process_run(edge_texture, fxaa_target, g3::POST_PROCESS_FXAA) &&
+                   is_color(draw_target_texture(fxaa_target), 128, 128, 128, 2), "FXAA pass averages a high-contrast centre pixel with its across-edge neighbours");
+
+    set_first_node_texture(target);
+    testing::check(is_color(render_target_feedback(target), 0, 0, 0, 1), "sampling the active target is suppressed instead of creating feedback");
     testing::check(!g3::render_target_remove(target), "a render target referenced by a live node cannot be removed");
     g3::scene_clear();
     testing::check(g3::render_target_remove(target), "render target storage is released after references are removed");
+    testing::check(g3::render_target_remove(processed), "post-process destination is removable after references are removed");
+    testing::check(g3::render_target_remove(fxaa_target), "FXAA destination is removable after references are removed");
 }
 
 fn case_lights() {

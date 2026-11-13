@@ -476,11 +476,13 @@ uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height) {
     if (!sample || !rgb || !hdr || !z) { free(sample); free(rgb); free(hdr); free(z); return 0; }
     for (size_t i = 0; i < pixels; i++) { sample[i*4+3] = 1.0f; z[i] = 1.0f; }
     soft_texture *t = &textures[id];
+    int keep_mips = t->levels > 1;
     free(t->hdr_pixels); free(t->target_fb); free(t->target_hdr_fb); free(t->target_depth);
     for (int j = 0; j < 31; j++) { free(t->mips[j]); free(t->env_mips[j]); free(t->hdr_mips[j]); free(t->hdr_env_mips[j]);
         t->mips[j] = t->env_mips[j] = NULL; t->hdr_mips[j] = t->hdr_env_mips[j] = NULL; }
     t->hdr_pixels = sample; t->target_fb = rgb; t->target_hdr_fb = hdr; t->target_depth = z;
     t->w = width; t->h = height; t->levels = 1; t->env_levels = 0;
+    if (keep_mips) g3p_texture_generate_mips(id);
     return 1;
 }
 
@@ -916,6 +918,44 @@ static void sample_texture(int32_t id, float u, float v, float rho, float out[4]
         sample_level(t, hi, linear, u, v, other);
         for (int c = 0; c < 4; c++) out[c] += (other[c] - out[c]) * fraction;
     }
+}
+
+static float post_luma(const float c[4]) { return 0.299f*c[0] + 0.587f*c[1] + 0.114f*c[2]; }
+
+uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect) {
+    if (source < 0 || source >= texture_count || destination < 0 || destination >= texture_count ||
+        source == destination || (!textures[source].pixels && !textures[source].hdr_pixels) ||
+        !textures[destination].target_fb || effect < 0 || effect > 3) return 0;
+    soft_texture *src = &textures[source], *dst = &textures[destination];
+    int keep_mips = dst->levels > 1;
+    for (int32_t y = 0; y < dst->h; y++) for (int32_t x = 0; x < dst->w; x++) {
+        float u = ((float)x + 0.5f) / dst->w, v = ((float)y + 0.5f) / dst->h;
+        float c[4]; sample_level(src, 0, 0, u, v, c);
+        if (effect == 1) { float l = post_luma(c); c[0] = c[1] = c[2] = l; }
+        else if (effect == 2) { c[0] = 1.0f-c[0]; c[1] = 1.0f-c[1]; c[2] = 1.0f-c[2]; }
+        else if (effect == 3) {
+            float du=1.0f/src->w, dv=1.0f/src->h;
+            float left[4],right[4],up[4],down[4];
+            sample_level(src, 0, 0, fmaxf(0.0f,u-du), v, left);
+            sample_level(src, 0, 0, fminf(1.0f,u+du), v, right);
+            sample_level(src, 0, 0, u, fmaxf(0.0f,v-dv), up);
+            sample_level(src, 0, 0, u, fminf(1.0f,v+dv), down);
+            float lc=post_luma(c), ll=post_luma(left), lr=post_luma(right), lu=post_luma(up), ld=post_luma(down);
+            float lo=fminf(lc,fminf(fminf(ll,lr),fminf(lu,ld))), hi=fmaxf(lc,fmaxf(fmaxf(ll,lr),fmaxf(lu,ld)));
+            if (hi-lo >= 0.125f) {
+                float *a = fabsf(lr-ll) >= fabsf(ld-lu) ? left : up;
+                float *b = fabsf(lr-ll) >= fabsf(ld-lu) ? right : down;
+                for (int k=0;k<3;k++) c[k]=0.5f*(c[k]+0.5f*(a[k]+b[k]));
+            }
+        }
+        size_t at=((size_t)y*dst->w+x)*4;
+        for(int k=0;k<3;k++) dst->hdr_pixels[at+k]=floorf(fminf(fmaxf(c[k],0.0f),1.0f)*255.0f+0.5f)/255.0f;
+        dst->hdr_pixels[at+3]=1.0f;
+    }
+    for (int j=0;j<31;j++) { free(dst->hdr_mips[j]); free(dst->hdr_env_mips[j]); dst->hdr_mips[j]=dst->hdr_env_mips[j]=NULL; }
+    dst->levels=1; dst->env_levels=0;
+    if (keep_mips) g3p_texture_generate_mips(destination);
+    return 1;
 }
 
 /* Explicit trilinear LOD for roughness-filtered environment radiance. */
@@ -1702,6 +1742,7 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     }
     if (!rendering_target && (view->post_process & 1)) apply_fxaa();
     if (rendering_target) {
+        int keep_mips = target->levels > 1;
         size_t pixels = (size_t)fb_w * (size_t)fb_h;
         for (int32_t y = 0; y < fb_h; y++) for (int32_t x = 0; x < fb_w; x++) {
             size_t src = (size_t)y * fb_w + x;
@@ -1711,6 +1752,9 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
             target->hdr_pixels[dst*4+2] = floorf(fminf(fmaxf(hdr_fb[src*3+2], 0.0f), 1.0f) * 255.0f + 0.5f) / 255.0f;
             target->hdr_pixels[dst*4+3] = 1.0f;
         }
+        for (int j=0;j<31;j++) { free(target->hdr_mips[j]); free(target->hdr_env_mips[j]); target->hdr_mips[j]=target->hdr_env_mips[j]=NULL; }
+        target->levels=1; target->env_levels=0;
+        if (keep_mips) g3p_texture_generate_mips(view->render_target);
         fb = surface_fb; hdr_fb = surface_hdr; depth = surface_depth; fb_w = surface_w; fb_h = surface_h;
     }
     const double t3 = prof.on ? now_seconds() : 0.0;

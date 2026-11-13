@@ -234,6 +234,7 @@ void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int3
 void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height);
 uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height);
 uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height);
+uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect);
 int32_t g3p_texture_width(int32_t id);
 int32_t g3p_texture_height(int32_t id);
 uint8_t g3p_load_radiance_hdr(int32_t id, g3_u8_slice path);

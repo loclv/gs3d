@@ -103,7 +103,7 @@ static int32_t scene_draw_calls;
 static GLuint *textures;
 static int32_t *texture_widths, *texture_heights, *texture_is_hdr;
 static int32_t texture_count;
-typedef struct { int32_t id; GLuint fbo, depth; } web_render_target;
+typedef struct { int32_t id; GLuint fbo, depth; int mipmapped; } web_render_target;
 static web_render_target *render_targets;
 static int32_t render_target_count, render_target_cap;
 static GLuint env_sampler;
@@ -123,7 +123,7 @@ static GLint shadow_morph_enabled, shadow_morph_positions;
 static GLint shadow_morph_weights, shadow_morph_target_count;
 static GLint shadow_uv_transform, shadow_uv_rotation, shadow_uv_set;
 static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
-static GLint output_sampler, output_tone_map, output_exposure, output_encode_srgb, output_fxaa;
+static GLint output_sampler, output_tone_map, output_exposure, output_encode_srgb, output_fxaa, output_effect, output_size;
 static int output_width, output_height;
 static int output_is_hdr, float_color_buffer_supported, hdr_color_buffer_supported, tone_map_inline_frame;
 static int shadow_map_size = 512;
@@ -1121,7 +1121,7 @@ uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height) {
         if (!grown) { glDeleteRenderbuffers(1, &depth); glDeleteFramebuffers(1, &fbo); g3p_release_texture(id); return 0; }
         render_targets = grown; render_target_cap = cap;
     }
-    render_targets[render_target_count++] = (web_render_target){ id, fbo, depth };
+    render_targets[render_target_count++] = (web_render_target){ id, fbo, depth, 0 };
     return 1;
 }
 
@@ -1151,6 +1151,10 @@ uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height) {
         return 0;
     }
     texture_widths[id] = width; texture_heights[id] = height;
+    if (target->mipmapped) {
+        glBindTexture(GL_TEXTURE_2D, textures[id]);
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
     return 1;
 }
 
@@ -1177,12 +1181,17 @@ void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter) {
     if (min_filter >= GL_NEAREST_MIPMAP_NEAREST && min_filter <= GL_LINEAR_MIPMAP_LINEAR) glGenerateMipmap(GL_TEXTURE_2D);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag_filter);
+    for (int32_t i = 0; i < render_target_count; i++) if (render_targets[i].id == id) {
+        render_targets[i].mipmapped = min_filter >= GL_NEAREST_MIPMAP_NEAREST && min_filter <= GL_LINEAR_MIPMAP_LINEAR;
+        break;
+    }
 }
 
 void g3p_texture_generate_mips(int32_t id) {
     if (id < 0 || id >= texture_count || !textures[id]) return;
     glBindTexture(GL_TEXTURE_2D, textures[id]);
     glGenerateMipmap(GL_TEXTURE_2D);
+    for (int32_t i = 0; i < render_target_count; i++) if (render_targets[i].id == id) { render_targets[i].mipmapped = 1; break; }
 }
 
 static GLuint ensure_env_source_sampler(void) {
@@ -1713,7 +1722,7 @@ static void report_first_gl_error(void) {
 static int ensure_output_target(int hdr) {
     if (!output_program) {
         const char *vs_src = "#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}\n";
-        const char *fs_src = "#version 300 es\nprecision highp float;\nuniform sampler2D u_linear;uniform int u_tone_map;uniform float u_exposure;uniform bool u_encode_srgb,u_fxaa;out vec4 color;\nvec3 tone_map_color(vec3 x,int mode){x=max(x,vec3(0.0));if(mode==1)return x/(vec3(1.0)+x);if(mode==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\nvec3 display_color(ivec2 p){vec3 c=texelFetch(u_linear,p,0).rgb;if(u_tone_map!=0)c=tone_map_color(c*u_exposure,u_tone_map);if(u_encode_srgb){vec3 lo=c*12.92;vec3 hi=1.055*pow(c,vec3(1.0/2.4))-0.055;c=mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}return c;}\nfloat luma(vec3 c){return dot(c,vec3(0.299,0.587,0.114));}\nvoid main(){ivec2 size=textureSize(u_linear,0),p=clamp(ivec2(gl_FragCoord.xy),ivec2(0),size-1);vec3 c=display_color(p);if(u_fxaa){vec3 l=display_color(clamp(p+ivec2(-1,0),ivec2(0),size-1)),r=display_color(clamp(p+ivec2(1,0),ivec2(0),size-1)),n=display_color(clamp(p+ivec2(0,-1),ivec2(0),size-1)),s=display_color(clamp(p+ivec2(0,1),ivec2(0),size-1));float lc=luma(c),ll=luma(l),lr=luma(r),ln=luma(n),ls=luma(s),lo=min(lc,min(min(ll,lr),min(ln,ls))),hi=max(lc,max(max(ll,lr),max(ln,ls)));if(hi-lo>=0.125){vec3 across=abs(lr-ll)>=abs(ls-ln)?0.5*(l+r):0.5*(n+s);c=0.5*(c+across);}}color=vec4(c,1.0);}\n";
+        const char *fs_src = "#version 300 es\nprecision highp float;\nuniform sampler2D u_linear;uniform int u_tone_map,u_effect;uniform float u_exposure;uniform vec2 u_output_size;uniform bool u_encode_srgb,u_fxaa;out vec4 color;\nvec3 tone_map_color(vec3 x,int mode){x=max(x,vec3(0.0));if(mode==1)return x/(vec3(1.0)+x);if(mode==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\nvec3 display_color(ivec2 p){vec3 c=texelFetch(u_linear,p,0).rgb;if(u_tone_map!=0)c=tone_map_color(c*u_exposure,u_tone_map);if(u_encode_srgb){vec3 lo=c*12.92;vec3 hi=1.055*pow(c,vec3(1.0/2.4))-0.055;c=mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}return c;}\nfloat luma(vec3 c){return dot(c,vec3(0.299,0.587,0.114));}\nvoid main(){ivec2 size=textureSize(u_linear,0),p=clamp(ivec2(gl_FragCoord.xy*vec2(size)/u_output_size),ivec2(0),size-1);vec3 c=display_color(p);if(u_fxaa){vec3 l=display_color(clamp(p+ivec2(-1,0),ivec2(0),size-1)),r=display_color(clamp(p+ivec2(1,0),ivec2(0),size-1)),n=display_color(clamp(p+ivec2(0,-1),ivec2(0),size-1)),s=display_color(clamp(p+ivec2(0,1),ivec2(0),size-1));float lc=luma(c),ll=luma(l),lr=luma(r),ln=luma(n),ls=luma(s),lo=min(lc,min(min(ll,lr),min(ln,ls))),hi=max(lc,max(max(ll,lr),max(ln,ls)));if(hi-lo>=0.125){vec3 across=abs(lr-ll)>=abs(ls-ln)?0.5*(l+r):0.5*(n+s);c=0.5*(c+across);}}if(u_effect==1)c=vec3(luma(c));else if(u_effect==2)c=vec3(1.0)-c;color=vec4(c,1.0);}\n";
         GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "output vertex");
         GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "output fragment");
         if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); return 0; }
@@ -1728,6 +1737,8 @@ static int ensure_output_target(int hdr) {
         output_exposure = glGetUniformLocation(program,"u_exposure");
         output_encode_srgb = glGetUniformLocation(program,"u_encode_srgb");
         output_fxaa = glGetUniformLocation(program,"u_fxaa");
+        output_effect = glGetUniformLocation(program,"u_effect");
+        output_size = glGetUniformLocation(program,"u_output_size");
         glGenVertexArrays(1, &output_vao);
         glGenFramebuffers(1, &output_fbo);
         glGenTextures(1, &output_color);
@@ -1764,10 +1775,42 @@ static void present_output(const g3_view_state *view) {
     glUniform1f(output_exposure,view->params.w);
     glUniform1i(output_encode_srgb,view->params.y>0.5f);
     glUniform1i(output_fxaa,(view->post_process&1)!=0);
+    glUniform1i(output_effect,0);
+    glUniform2f(output_size,(float)surf_w,(float)surf_h);
     glBindVertexArray(output_vao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindVertexArray(0);
     glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
+}
+
+uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect) {
+    web_render_target *target = NULL;
+    for (int32_t i = 0; i < render_target_count; i++) if (render_targets[i].id == destination) { target = &render_targets[i]; break; }
+    if (!ctx || source < 0 || source >= texture_count || destination == source || !textures[source] ||
+        !target || effect < 0 || effect > 3 || !ensure_output_target(0)) return 0;
+    glBindFramebuffer(GL_FRAMEBUFFER, target->fbo);
+    glViewport(0, 0, texture_widths[destination], texture_heights[destination]);
+    glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_BLEND);
+    glUseProgram(output_program);
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, textures[source]);
+    glUniform1i(output_sampler, 0);
+    glUniform1i(output_tone_map, 0);
+    glUniform1f(output_exposure, 1.0f);
+    glUniform1i(output_encode_srgb, GL_FALSE);
+    glUniform1i(output_fxaa, effect == 3);
+    glUniform1i(output_effect, effect == 1 || effect == 2 ? effect : 0);
+    glUniform2f(output_size, (float)texture_widths[destination], (float)texture_heights[destination]);
+    glBindVertexArray(output_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (target->mipmapped) {
+        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, textures[destination]);
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+    glViewport(0, 0, surf_w, surf_h);
+    glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
+    return glGetError() == GL_NO_ERROR;
 }
 
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
@@ -1836,6 +1879,11 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (target) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     if (encode && !target) present_output(view);
+    if (target && target->mipmapped) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, textures[target->id]);
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
 
     report_first_gl_error();
 }

@@ -163,6 +163,7 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 | `void g3p_upload_texture_hdr(int32_t id, g3_f32_slice, int32_t w, int32_t h)` | copy row-major linear RGBA32F radiance; intended for environment maps |
 | `uint8_t g3p_create_render_target(int32_t id, int32_t w, int32_t h)` | create a sampleable linear RGBA8 target with depth storage |
 | `uint8_t g3p_resize_render_target(int32_t id, int32_t w, int32_t h)` | resize a target; its contents are cleared |
+| `uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect)` | run copy (0), grayscale (1), invert (2), or FXAA (3) from a texture into a distinct target |
 | `int32_t g3p_texture_width(int32_t id)` / `g3p_texture_height(int32_t id)` | dimensions of a backend texture |
 | `void g3p_release_texture(int32_t id)` | release backend texture and derived mip storage; the numeric slot remains reserved |
 | `void g3p_texture_wrap(int32_t id, int32_t u, int32_t v)` | set U and V wrapping: 0 clamp, 1 repeat, 2 mirrored repeat |

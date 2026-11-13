@@ -264,6 +264,11 @@ What the API gives you:
   target in the same frame skips that item to avoid framebuffer feedback.
   Texture coordinate v=0 addresses the bottom row of a render target.
   Targets are limited to 4,194,304 pixels each.
+  `post_process_run(source, destination, effect)` applies a built-in
+  `POST_PROCESS_COPY`, `POST_PROCESS_GRAYSCALE`, `POST_PROCESS_INVERT`, or
+  `POST_PROCESS_FXAA` pass to a distinct render target. Chain calls to control
+  pass order. These passes keep linear RGBA8 values and do not tone map or
+  encode sRGB; use `set_fxaa` for the existing screen-output convenience pass.
   `texture_handle` and `texture_handle_valid` check ordinary and asset textures;
   `texture_remove(handle)` releases an ordinary texture only when no live node,
   material or environment uses it. Asset textures are released by their owner.
