@@ -1112,6 +1112,7 @@ export async function loadGLTF(engine, url, options = {}) {
     throw new AssetError('INVALID_GLTF', 'Invalid glTF structure or URL', error);
   }
   const nodes = [], modelNodes = [], meshes = [], deformedMeshes = [], materials = new Map(), textures = new Map(), transformNodes = new Map();
+  const staticPrimitiveMeshes = new Map();
   const variantBindings = [];
   const sceneEpoch = engine._g3_asset_scene_epoch();
   let disposed = false;
@@ -1341,6 +1342,7 @@ export async function loadGLTF(engine, url, options = {}) {
     for (const handle of meshes) {
       engine._g3_asset_release_mesh(handle.id, handle.generation);
     }
+    staticPrimitiveMeshes.clear();
     for (const deformed of deformedMeshes) {
       if (deformed.ptr) engine._free(deformed.ptr);
       if (deformed.palettePtr) engine._free(deformed.palettePtr);
@@ -1480,6 +1482,55 @@ export async function loadGLTF(engine, url, options = {}) {
         if (!enabled && palettePtr) engine._free(palettePtr);
       }
     }
+    function uploadPrimitiveMesh(primitive, node) {
+      engine._g3_asset_mesh_begin();
+      const useAuthoredTangents = !!primitive.tangent;
+      for (let i = 0; i < primitive.pos.length / 3; i++) engine._g3_asset_vertex(
+        ...primitive.pos.slice(i*3, i*3+3), ...primitive.normal.slice(i*3, i*3+3), ...(primitive.uv ? primitive.uv.slice(i*2, i*2+2) : [0, 0]),
+        ...(primitive.uv1 ? primitive.uv1.slice(i*2, i*2+2) : [0, 0]),
+        ...(primitive.uv2 ? primitive.uv2.slice(i*2, i*2+2) : [0, 0]),
+        ...(primitive.uv3 ? primitive.uv3.slice(i*2, i*2+2) : [0, 0]),
+        ...(primitive.uv4 ? primitive.uv4.slice(i*2, i*2+2) : [0, 0]),
+        ...(primitive.uv5 ? primitive.uv5.slice(i*2, i*2+2) : [0, 0]),
+        ...(primitive.uv6 ? primitive.uv6.slice(i*2, i*2+2) : [0, 0]),
+        ...(primitive.uv7 ? primitive.uv7.slice(i*2, i*2+2) : [0, 0]),
+        ...(useAuthoredTangents ? primitive.tangent.slice(i*4, i*4+4) : [0, 0, 0, 0]),
+        ...(primitive.vertexColor ? primitive.vertexColor.slice(i*primitive.colorComponents, i*primitive.colorComponents+primitive.colorComponents) : [1, 1, 1, 1]),
+        ...(primitive.vertexColor && primitive.colorComponents === 3 ? [1] : []));
+      for (let i = 0; i < primitive.indices.length; i += 3) engine._g3_asset_triangle(...primitive.indices.slice(i, i+3));
+      const mesh = engine._g3_asset_mesh_end();
+      const meshHandle = makeResourceHandle(engine, mesh, 'mesh');
+      if (!meshHandle) throw new AssetError('UPLOAD', 'Could not create mesh');
+      meshes.push(meshHandle);
+      if (node.skinIndex >= 0 || primitive.targets.length) {
+        const byteLength = primitive.pos.length * Float32Array.BYTES_PER_ELEMENT;
+        const tangentByteLength = (primitive.pos.length / 3) * 4 * Float32Array.BYTES_PER_ELEMENT;
+        const ptr = engine._malloc(byteLength * 2 + tangentByteLength);
+        if (!ptr) throw new AssetError('MEMORY', 'Could not allocate animated mesh deformation buffers');
+        const deformation = { handle: meshHandle, node: node.index, skinIndex: node.skinIndex,
+          weights: [...node.weights], primitive, ptr, gpuSkin: false, gpuMorph: false,
+          gpuDeform: false, palettePtr: 0, morphWeightsPtr: 0 };
+        deformedMeshes.push(deformation);
+        if (primitive.targets.length) {
+          const morph = uploadMorphTargets(mesh, primitive, node.weights);
+          deformation.gpuMorph = morph.enabled;
+          deformation.morphWeightsPtr = morph.weightsPtr;
+        }
+        if (node.skinIndex >= 0 && (!primitive.targets.length || deformation.gpuMorph)) {
+          const skin = uploadSkin(mesh, node, primitive);
+          deformation.gpuSkin = skin.enabled;
+          deformation.palettePtr = skin.palettePtr;
+        }
+        if (primitive.targets.length && node.skinIndex >= 0 && !deformation.gpuSkin && deformation.gpuMorph) {
+          engine._g3_host_mesh_morph_release(mesh);
+          deformation.gpuMorph = false;
+          engine._free(deformation.morphWeightsPtr);
+          deformation.morphWeightsPtr = 0;
+        }
+        deformation.gpuDeform = deformation.gpuMorph || deformation.gpuSkin;
+      }
+      return meshHandle;
+    }
     function createNode(node, parent, parentIndex = null) {
       const group = engine._g3_asset_node(-1, parent);
       const groupHandle = makeNodeHandle(engine, group);
@@ -1499,52 +1550,13 @@ export async function loadGLTF(engine, url, options = {}) {
         baseWeights: [...node.weights], weights: [...node.weights],
       });
       for (const p of node.primitives) {
-        engine._g3_asset_mesh_begin();
-        const useAuthoredTangents = !!p.tangent;
-        for (let i = 0; i < p.pos.length / 3; i++) engine._g3_asset_vertex(
-          ...p.pos.slice(i*3, i*3+3), ...p.normal.slice(i*3, i*3+3), ...(p.uv ? p.uv.slice(i*2, i*2+2) : [0, 0]),
-          ...(p.uv1 ? p.uv1.slice(i*2, i*2+2) : [0, 0]),
-          ...(p.uv2 ? p.uv2.slice(i*2, i*2+2) : [0, 0]),
-          ...(p.uv3 ? p.uv3.slice(i*2, i*2+2) : [0, 0]),
-          ...(p.uv4 ? p.uv4.slice(i*2, i*2+2) : [0, 0]),
-          ...(p.uv5 ? p.uv5.slice(i*2, i*2+2) : [0, 0]),
-          ...(p.uv6 ? p.uv6.slice(i*2, i*2+2) : [0, 0]),
-          ...(p.uv7 ? p.uv7.slice(i*2, i*2+2) : [0, 0]),
-          ...(useAuthoredTangents ? p.tangent.slice(i*4, i*4+4) : [0, 0, 0, 0]),
-          ...(p.vertexColor ? p.vertexColor.slice(i*p.colorComponents, i*p.colorComponents+p.colorComponents) : [1, 1, 1, 1]),
-          ...(p.vertexColor && p.colorComponents === 3 ? [1] : []));
-        for (let i = 0; i < p.indices.length; i += 3) engine._g3_asset_triangle(...p.indices.slice(i, i+3));
-        const mesh = engine._g3_asset_mesh_end();
-        const meshHandle = makeResourceHandle(engine, mesh, 'mesh');
-        meshes.push(meshHandle);
-        if (node.skinIndex >= 0 || p.targets.length) {
-          const byteLength = p.pos.length * Float32Array.BYTES_PER_ELEMENT;
-          const tangentByteLength = (p.pos.length / 3) * 4 * Float32Array.BYTES_PER_ELEMENT;
-          const ptr = engine._malloc(byteLength * 2 + tangentByteLength);
-          if (!ptr) throw new AssetError('MEMORY', 'Could not allocate animated mesh deformation buffers');
-          const deformation = { handle: meshHandle, node: node.index, skinIndex: node.skinIndex,
-            weights: [...node.weights], primitive: p, ptr, gpuSkin: false, gpuMorph: false,
-            gpuDeform: false, palettePtr: 0, morphWeightsPtr: 0 };
-          deformedMeshes.push(deformation);
-          if (p.targets.length) {
-            const morph = uploadMorphTargets(mesh, p, node.weights);
-            deformation.gpuMorph = morph.enabled;
-            deformation.morphWeightsPtr = morph.weightsPtr;
-          }
-          if (node.skinIndex >= 0 && (!p.targets.length || deformation.gpuMorph)) {
-            const skin = uploadSkin(mesh, node, p);
-            deformation.gpuSkin = skin.enabled;
-            deformation.palettePtr = skin.palettePtr;
-          }
-          if (p.targets.length && node.skinIndex >= 0 && !deformation.gpuSkin && deformation.gpuMorph) {
-            engine._g3_host_mesh_morph_release(mesh);
-            deformation.gpuMorph = false;
-            engine._free(deformation.morphWeightsPtr);
-            deformation.morphWeightsPtr = 0;
-          }
-          deformation.gpuDeform = deformation.gpuMorph || deformation.gpuSkin;
+        const canShareMesh = node.skinIndex < 0 && p.targets.length === 0;
+        let meshHandle = canShareMesh ? staticPrimitiveMeshes.get(p) : null;
+        if (!meshHandle) {
+          meshHandle = uploadPrimitiveMesh(p, node);
+          if (canShareMesh) staticPrimitiveMeshes.set(p, meshHandle);
         }
-        const id = engine._g3_asset_node(mesh, group);
+        const id = engine._g3_asset_node(meshHandle.id, group);
         const nodeHandle = makeNodeHandle(engine, id);
         if (!nodeHandle) throw new AssetError('UPLOAD', 'Could not create node');
         nodes.push(nodeHandle);

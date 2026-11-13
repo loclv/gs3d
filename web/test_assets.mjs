@@ -34,6 +34,10 @@ const multiSceneDoc = structuredClone(doc);
 multiSceneDoc.nodes.push({ translation: [9, 8, 7], mesh: 0 });
 multiSceneDoc.scenes = [{ nodes: [0] }, { nodes: [1] }];
 resources.set('http://localhost/multi-scene.gltf', bytes(multiSceneDoc));
+const repeatedMeshDoc = structuredClone(doc);
+repeatedMeshDoc.nodes = [{ name: 'First copy', mesh: 0 }, { name: 'Second copy', mesh: 0 }];
+repeatedMeshDoc.scenes = [{ nodes: [0, 1] }];
+resources.set('http://localhost/repeated-mesh.gltf', bytes(repeatedMeshDoc));
 const cameraDoc = structuredClone(doc);
 cameraDoc.cameras = [
   { name: 'Perspective', type: 'perspective', perspective: { yfov: 0.75, znear: 0.2, zfar: 90, aspectRatio: 1.5 } },
@@ -529,6 +533,15 @@ assert.deepEqual(selectedSceneModel.roots, [{ index: 0, generation: 1, epoch: 0 
 assert.equal(selectedSceneEngine.calls.some(call => call[0] === 'matrix' && call[2] === 12 && call[3] === 9), true,
   'the requested scene supplies the loaded node hierarchy');
 selectedSceneModel.dispose();
+const repeatedMeshEngine = fakeEngine(), repeatedMeshModel = await loadGLTF(repeatedMeshEngine, 'http://localhost/repeated-mesh.gltf');
+assert.equal(repeatedMeshEngine.calls.filter(call => call[0] === 'mesh_end').length, 1,
+  'nodes that reference one static glTF primitive upload its geometry once');
+assert.equal(repeatedMeshModel.meshes.length, 1);
+assert.deepEqual(repeatedMeshEngine.calls.filter(call => call[0] === 'node' && call[1] >= 0).map(call => call[1]), [7, 7],
+  'both primitive nodes reference the same engine mesh descriptor');
+repeatedMeshModel.dispose();
+assert.equal(repeatedMeshEngine.calls.filter(call => call[0] === 'recycle_mesh').length, 1,
+  'shared geometry is released once when the owning model is disposed');
 const invalidSceneEngine = fakeEngine();
 await assert.rejects(loadGLTF(invalidSceneEngine, 'http://localhost/multi-scene.gltf', { scene: 2 }), error => error.code === 'INVALID_GLTF');
 assert.equal(invalidSceneEngine.calls.length, 0, 'invalid scene indices fail before creating engine resources');

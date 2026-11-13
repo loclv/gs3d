@@ -178,6 +178,8 @@ fetches and decodes assets in JavaScript.
   Vertex colours are linear and multiply the base-colour factor and texture;
   `VEC3` supplies alpha 1. Missing normals are generated as area-weighted
   vertex normals from triangle faces.
+  Repeated nodes referencing the same static primitive share one uploaded mesh;
+  skinned and morphed primitives keep per-node geometry for deformation.
 * Perspective and orthographic glTF cameras attached to nodes in the selected
   scene. `model.cameras` exposes camera definitions and `selectCamera(index)`
   switches the active engine camera; `selectCamera(null)` restores the view
