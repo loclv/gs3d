@@ -829,8 +829,10 @@ async function prepare(url, requestedScene) {
   if (!Array.isArray(imageDefinitions)) invalid('Invalid glTF images');
   const webpFallbacks = new Map();
   for (const texture of doc.textures || []) {
+    if (texture?.source !== undefined) item(imageDefinitions, texture.source, 'fallback image');
     const webpSource = texture?.extensions?.EXT_texture_webp?.source;
     if (webpSource !== undefined) {
+      item(imageDefinitions, webpSource, 'WebP image');
       const fallbackSource = texture.source ?? null;
       if (webpFallbacks.has(webpSource) && webpFallbacks.get(webpSource) !== fallbackSource) invalid('WebP image has conflicting fallback sources');
       webpFallbacks.set(webpSource, fallbackSource);
