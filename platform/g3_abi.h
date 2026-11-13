@@ -67,7 +67,7 @@ typedef struct {
     g3_light lights[4];
     int32_t light_count;
     g3_vec4 env_sky, env_ground;
-    int32_t environment_texture;
+    int32_t environment_texture; /* equirectangular RGB or HDR texture, -1 disables */
     float environment_intensity;
     g3_mat4 shadow_view_proj;
     g3_vec4 shadow_params; /* x enabled, y depth bias, z PCF radius */
@@ -86,6 +86,7 @@ typedef struct { const uint32_t *data; int64_t len; } g3_u32_slice;
 typedef struct { const g3_draw_item *data; int64_t len; } g3_draw_item_slice;
 /* A Goose `const u8[:]`: data and length, with no terminator. */
 typedef struct { const uint8_t *data; int64_t len; } g3_u8_slice;
+typedef struct { const float *data; int64_t len; } g3_f32_slice;
 
 #pragma pack(pop)
 
@@ -194,6 +195,7 @@ int32_t g3p_height(void);
 void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices);
 void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
 void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
+void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height);
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v);
 void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter);
 void g3p_texture_generate_mips(int32_t id);

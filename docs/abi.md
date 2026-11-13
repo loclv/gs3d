@@ -111,9 +111,11 @@ typedef struct { const g3_vertex *data; int64_t len; }    g3_vertex_slice;
 typedef struct { const uint32_t *data; int64_t len; }     g3_u32_slice;
 typedef struct { const g3_draw_item *data; int64_t len; } g3_draw_item_slice;
 typedef struct { const uint8_t *data; int64_t len; }      g3_u8_slice;   /* no NUL */
+typedef struct { const float *data; int64_t len; }        g3_f32_slice;
 ```
 
-`g3_u8_slice` is a Goose `const u8[:]`: **not** null-terminated. A backend that
+`g3_u8_slice` is a Goose `const u8[:]`: **not** null-terminated. `g3_f32_slice`
+is a float pointer and element count for linear HDR texture uploads. A backend that
 needs a C string copies it and appends `'\0'` (see `path_of()` in
 `platform/g3_soft.c`).
 
@@ -127,6 +129,7 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 | `void g3p_upload_mesh(int32_t id, g3_vertex_slice, g3_u32_slice)` | store geometry under `id`; may be called repeatedly; ids are dense from 0 |
 | `void g3p_upload_texture(int32_t id, g3_u8_slice, int32_t w, int32_t h)` | copy row-major RGBA8 pixels; reset to bilinear filtering and clamp-to-edge |
 | `void g3p_upload_texture_srgb(int32_t id, g3_u8_slice, int32_t w, int32_t h)` | same upload, decoding sRGB RGB channels to linear for filtering; alpha remains linear |
+| `void g3p_upload_texture_hdr(int32_t id, g3_f32_slice, int32_t w, int32_t h)` | copy row-major linear RGBA32F radiance; intended for environment maps |
 | `void g3p_texture_wrap(int32_t id, int32_t u, int32_t v)` | set U and V wrapping: 0 clamp, 1 repeat, 2 mirrored repeat |
 | `void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter)` | set glTF/WebGL filter enum values; generate mipmaps when a mipmapped minification filter is requested |
 | `void g3p_texture_generate_env_mips(int32_t id)` | build GGX importance-sampled roughness mips without changing ordinary material mipmaps |

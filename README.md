@@ -236,7 +236,9 @@ What the API gives you:
   for your own geometry. Asset mesh IDs can be checked with `mesh_handle` and
   `mesh_handle_valid` across disposal and reuse.
 * **Textures** — import `g3.texture`, call `texture_create(width, height, rgba)`
-  with row-major RGBA8 pixels, and assign the returned ID to `node.texture`.
+  with row-major RGBA8 pixels or `texture_create_hdr(width, height, rgba)` with
+  linear RGBA32F pixels for HDR radiance, then select an environment with
+  `set_environment_map`.
   Asset textures also support `texture_handle` and `texture_handle_valid`.
   Built-in meshes have UVs; custom meshes can use `push_vertex_uv`. Both
   backends support nearest, linear, and mipmapped filtering via
@@ -254,7 +256,8 @@ What the API gives you:
   multiplier (0–32). The CPU backend composites into a floating-point buffer;
   WebGL uses an RGBA16F target when floating-point color rendering and blending
   are available, and otherwise maps each fragment before blending. Tone mapping
-  works with HDR lighting values but does not add HDR image decoding.
+  works with HDR lighting values. `loadHDRImage` loads Radiance `.hdr`
+  environment maps in browser builds; native HDR image decoding is not included.
 * **Nodes** — `node_add(mesh)`, `node_group()`, `node(id) -> Node&`,
   `node_parent(child, parent)`, `scene_clear()`, and `node_count()`. A node has
   position, euler rotation, scale, colour, `unlit`, `visible`, specular
@@ -293,12 +296,13 @@ What the API gives you:
 * **Lighting** — a primary directional light (`set_light`), up to four extra
   directional, point or spot lights (`add_directional_light`, `add_point_light`,
   `add_spot_light`, `clear_lights`), ambient light and a hemispherical sky/ground
-  fill (`set_ambient`, `set_environment`) or an equirectangular RGB texture
-  (`set_environment_map`), plus fog and background colour. The texture is
-  sampled along the surface normal for diffuse fill. Metallic-roughness
+  fill (`set_ambient`, `set_environment`) or an equirectangular map uploaded
+  with `texture_create` or `texture_create_hdr` and selected by
+  `set_environment_map`, plus fog and background colour. The map is sampled
+  along the surface normal for diffuse fill. Metallic-roughness
   materials reflect it using a GGX importance-sampled mip chain and a
-  split-sum BRDF integration LUT. HDR environment input and a skybox are not
-  implemented.
+  split-sum BRDF integration LUT. HDR input uses Radiance RGBE in browser
+  builds; a skybox is not implemented.
   Add functions return false when parameters are invalid or the limit is reached.
   Point and spot lights use squared linear range falloff; spot angles are
   inner and outer half-angles in radians. `set_directional_shadows(center,

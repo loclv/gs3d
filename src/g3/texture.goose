@@ -1,4 +1,5 @@
-// RGBA8, row-major, first row at v=0. Uploads are copied by the backend.
+// RGBA8 textures and linear RGBA32F HDR textures are row-major, first row at
+// v=0. Uploads are copied by the backend.
 import g3.platform;
 namespace g3;
 
@@ -44,6 +45,16 @@ fn texture_create_srgb(width: i32, height: i32, pixels: const u8[:]) -> i32 {
     g_texture_count += 1;
     g_texture_slots.push(TextureSlot { .. });
     g3p_upload_texture_srgb(id, pixels, width, height);
+    return id;
+}
+
+// HDR linear RGBA32F texture, intended for equirectangular environment maps.
+fn texture_create_hdr(width: i32, height: i32, pixels: const f32[:]) -> i32 {
+    guard width > 0 && height > 0 && pixels.len == width as i64 * height * 4 else { return -1; }
+    let id = g_texture_count;
+    g_texture_count += 1;
+    g_texture_slots.push(TextureSlot { .. });
+    g3p_upload_texture_hdr(id, pixels, width, height);
     return id;
 }
 

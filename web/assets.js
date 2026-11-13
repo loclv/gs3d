@@ -66,6 +66,111 @@ export async function loadImage(engine, url, { colorSpace = 'linear' } = {}) {
   } };
 }
 
+function decodeRadiance(bytes) {
+  const data = new Uint8Array(bytes);
+  let offset = 0;
+  const readLine = () => {
+    const start = offset;
+    while (offset < data.length && data[offset] !== 10) offset++;
+    if (offset >= data.length) throw new AssetError('HDR', 'Truncated Radiance header');
+    let end = offset++;
+    if (end > start && data[end - 1] === 13) end--;
+    return new TextDecoder('ascii').decode(data.subarray(start, end));
+  };
+  const magic = readLine();
+  if (magic !== '#?RADIANCE' && magic !== '#?RGBE') {
+    throw new AssetError('HDR', 'Not a Radiance RGBE image');
+  }
+  let format = false, line;
+  while ((line = readLine()) !== '') if (line === 'FORMAT=32-bit_rle_rgbe') format = true;
+  if (!format) throw new AssetError('HDR', 'Unsupported Radiance pixel format');
+  const resolution = readLine().match(/^-Y (\d+) \+X (\d+)$/);
+  if (!resolution) throw new AssetError('HDR', 'Only -Y +X Radiance orientation is supported');
+  const height = Number(resolution[1]), width = Number(resolution[2]);
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 ||
+      width > 16384 || height > 16384 || width * height > 16777216) {
+    throw new AssetError('HDR', 'Radiance dimensions exceed the supported limit');
+  }
+  const rgbe = new Uint8Array(width * height * 4);
+  const scanline = new Uint8Array(width * 4);
+  for (let y = 0; y < height; y++) {
+    if (offset + 4 > data.length) throw new AssetError('HDR', 'Truncated Radiance pixels');
+    const a = data[offset++], b = data[offset++], hi = data[offset++], lo = data[offset++];
+    if (width >= 8 && width <= 32767 && a === 2 && b === 2 && !(hi & 128) && ((hi << 8) | lo) === width) {
+      for (let channel = 0; channel < 4; channel++) {
+        let x = 0;
+        while (x < width) {
+          if (offset >= data.length) throw new AssetError('HDR', 'Truncated Radiance RLE data');
+          const count = data[offset++];
+          if (count > 128) {
+            const run = count - 128;
+            if (run === 0 || x + run > width || offset >= data.length) throw new AssetError('HDR', 'Invalid Radiance RLE run');
+            const value = data[offset++];
+            scanline.fill(value, channel * width + x, channel * width + x + run);
+            x += run;
+          } else {
+            if (count === 0 || x + count > width || offset + count > data.length) throw new AssetError('HDR', 'Invalid Radiance RLE literal');
+            scanline.set(data.subarray(offset, offset + count), channel * width + x);
+            offset += count;
+            x += count;
+          }
+        }
+      }
+      for (let x = 0; x < width; x++) for (let c = 0; c < 4; c++) rgbe[(y * width + x) * 4 + c] = scanline[c * width + x];
+    } else {
+      const first = ((y * width) * 4);
+      rgbe[first] = a; rgbe[first + 1] = b; rgbe[first + 2] = hi; rgbe[first + 3] = lo;
+      const remaining = (width * (height - y) - 1) * 4;
+      if (offset + remaining > data.length) throw new AssetError('HDR', 'Truncated Radiance pixels');
+      rgbe.set(data.subarray(offset, offset + remaining), first + 4);
+      offset += remaining;
+      break;
+    }
+  }
+  const pixels = new Float32Array(width * height * 4);
+  for (let i = 0; i < rgbe.length; i += 4) {
+    const e = rgbe[i + 3], scale = e ? 2 ** (e - 136) : 0;
+    pixels[i] = (rgbe[i] + 0.5) * scale;
+    pixels[i + 1] = (rgbe[i + 1] + 0.5) * scale;
+    pixels[i + 2] = (rgbe[i + 2] + 0.5) * scale;
+    pixels[i + 3] = 1;
+  }
+  return { width, height, pixels };
+}
+
+// Load a Radiance .hdr image as linear floating-point equirectangular radiance.
+// The caller owns the returned texture and must dispose it once unused.
+export async function loadHDRImage(engine, url) {
+  const image = decodeRadiance(await fetchBytes(url));
+  const ptr = engine._malloc(image.pixels.byteLength);
+  if (!ptr) throw new AssetError('MEMORY', 'Could not allocate HDR image upload buffer');
+  let handle = null;
+  try {
+    engine.HEAPF32.set(image.pixels, ptr >>> 2);
+    const id = engine._g3_asset_texture();
+    if (id < 0) throw new AssetError('MEMORY', 'Could not allocate HDR texture');
+    handle = makeResourceHandle(engine, id, 'texture');
+    engine._g3_host_texture_hdr(id, ptr, image.width, image.height);
+    return { id: handle.id, handle, width: image.width, height: image.height, dispose() {
+      if (handle) { releaseTexture(engine, handle); handle = null; }
+    } };
+  } catch (error) {
+    if (handle) releaseTexture(engine, handle);
+    throw error;
+  } finally { engine._free(ptr); }
+}
+
+export function setEnvironmentMap(engine, texture, intensity = 1) {
+  let id;
+  if (texture === null) id = -1;
+  else if (Number.isInteger(texture)) id = texture;
+  else if (isTextureHandleValid(engine, texture?.handle ?? texture)) id = (texture?.handle ?? texture).id;
+  if (!Number.isInteger(id) || id < -1 || !Number.isFinite(intensity) || intensity < 0) {
+    throw new AssetError('ENVIRONMENT', 'Expected a valid texture or null and non-negative finite intensity');
+  }
+  engine._g3_asset_environment_map(id, intensity);
+}
+
 const invalid = message => { throw new AssetError('INVALID_GLTF', message); };
 const unsupported = message => { throw new AssetError('UNSUPPORTED', message); };
 const item = (array, index, name) => {
@@ -123,6 +228,16 @@ export function pickNode(engine, canvas, clientX, clientY) {
 export function setOutputColorSpace(engine, space) {
   if (space !== 'linear' && space !== 'srgb') throw new AssetError('COLOR_SPACE', `Unsupported output color space: ${space}`);
   engine._g3_asset_output_srgb(space === 'srgb' ? 1 : 0);
+}
+
+export function setToneMapping(engine, enabled) {
+  engine._g3_asset_tone_mapping(enabled ? 1 : 0);
+}
+
+export function setExposure(engine, exposure) {
+  if (!Number.isFinite(exposure) || !engine._g3_asset_exposure(exposure)) {
+    throw new AssetError('EXPOSURE', 'Exposure must be a finite number from 0 to 32');
+  }
 }
 
 function unpack(bytes) {

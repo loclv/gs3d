@@ -49,6 +49,7 @@ static soft_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
 typedef struct {
     uint8_t *pixels, *mips[31], *env_mips[31];
+    float *hdr_pixels, *hdr_mips[31], *hdr_env_mips[31];
     int32_t w, h, wrap_u, wrap_v, min_filter, mag_filter, levels, env_levels, srgb;
 } soft_texture;
 static soft_texture *textures;
@@ -187,7 +188,11 @@ void g3p_shutdown(void) {
     report_profile();
     for (int32_t i = 0; i < texture_count; i++) {
         free(textures[i].pixels);
-        for (int j = 0; j < 31; j++) { free(textures[i].mips[j]); free(textures[i].env_mips[j]); }
+        free(textures[i].hdr_pixels);
+        for (int j = 0; j < 31; j++) {
+            free(textures[i].mips[j]); free(textures[i].env_mips[j]);
+            free(textures[i].hdr_mips[j]); free(textures[i].hdr_env_mips[j]);
+        }
     }
     free(textures); textures = NULL; texture_count = 0;
     free(queue);
@@ -266,10 +271,34 @@ static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_
     uint8_t *copy = malloc((size_t)pixels.len);
     if (!copy) { fprintf(stderr, "g3_soft: out of memory for texture pixels\n"); exit(1); }
     memcpy(copy, pixels.data, (size_t)pixels.len);
-    free(textures[id].pixels);
-    for (int j = 0; j < 31; j++) { free(textures[id].mips[j]); free(textures[id].env_mips[j]); }
+    free(textures[id].pixels); free(textures[id].hdr_pixels);
+    for (int j = 0; j < 31; j++) {
+        free(textures[id].mips[j]); free(textures[id].env_mips[j]);
+        free(textures[id].hdr_mips[j]); free(textures[id].hdr_env_mips[j]);
+    }
     textures[id] = (soft_texture){ .pixels = copy, .w = width, .h = height,
                                    .min_filter = 9729, .mag_filter = 9729, .levels = 1, .srgb = srgb };
+}
+
+void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height) {
+    if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
+    if (id >= texture_count) {
+        soft_texture *grown = realloc(textures, ((size_t)id + 1) * sizeof(*textures));
+        if (!grown) { fprintf(stderr, "g3_soft: out of memory for textures\n"); exit(1); }
+        textures = grown;
+        memset(textures + texture_count, 0, ((size_t)id + 1 - (size_t)texture_count) * sizeof(*textures));
+        texture_count = id + 1;
+    }
+    float *copy = malloc((size_t)pixels.len * sizeof(float));
+    if (!copy) { fprintf(stderr, "g3_soft: out of memory for HDR texture pixels\n"); exit(1); }
+    memcpy(copy, pixels.data, (size_t)pixels.len * sizeof(float));
+    free(textures[id].pixels); free(textures[id].hdr_pixels);
+    for (int j = 0; j < 31; j++) {
+        free(textures[id].mips[j]); free(textures[id].env_mips[j]);
+        free(textures[id].hdr_mips[j]); free(textures[id].hdr_env_mips[j]);
+    }
+    textures[id] = (soft_texture){ .hdr_pixels = copy, .w = width, .h = height,
+                                   .min_filter = 9729, .mag_filter = 9729, .levels = 1 };
 }
 
 void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
@@ -280,7 +309,7 @@ void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int3
 }
 
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
-    if (id < 0 || id >= texture_count || !textures[id].pixels || wrap_u < 0 || wrap_u > 2 || wrap_v < 0 || wrap_v > 2) return;
+    if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels) || wrap_u < 0 || wrap_u > 2 || wrap_v < 0 || wrap_v > 2) return;
     textures[id].wrap_u = wrap_u;
     textures[id].wrap_v = wrap_v;
 }
@@ -288,6 +317,30 @@ void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
 /* Generate each level with bilinear sampling at destination texel centres.
    This also handles non-power-of-two dimensions and preserves alpha. */
 static void generate_mips(soft_texture *t) {
+    if (t->hdr_pixels) {
+        int w = t->w, h = t->h;
+        const float *src = t->hdr_pixels;
+        while ((w > 1 || h > 1) && t->levels < 32) {
+            int nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
+            float *dst = malloc((size_t)nw * (size_t)nh * 4 * sizeof(float));
+            if (!dst) { fprintf(stderr, "g3_soft: out of memory for HDR mipmaps\n"); exit(1); }
+            for (int y = 0; y < nh; y++) for (int x = 0; x < nw; x++) {
+                float sx = ((x + 0.5f) * w / nw) - 0.5f, sy = ((y + 0.5f) * h / nh) - 0.5f;
+                int x0 = (int)floorf(sx), y0 = (int)floorf(sy);
+                int x1 = x0 + 1 < w ? x0 + 1 : x0, y1 = y0 + 1 < h ? y0 + 1 : y0;
+                float fx = sx - x0, fy = sy - y0;
+                for (int c = 0; c < 4; c++) {
+                    float a=src[((size_t)y0*w+x0)*4+c], b=src[((size_t)y0*w+x1)*4+c];
+                    float d=src[((size_t)y1*w+x0)*4+c], e=src[((size_t)y1*w+x1)*4+c];
+                    dst[((size_t)y*nw+x)*4+c] = (a+(b-a)*fx)*(1-fy)+(d+(e-d)*fx)*fy;
+                }
+            }
+            t->hdr_mips[t->levels - 1] = dst;
+            t->levels++;
+            src = dst; w = nw; h = nh;
+        }
+        return;
+    }
     int w = t->w, h = t->h;
     const uint8_t *src = t->pixels;
     while ((w > 1 || h > 1) && t->levels < 32) {
@@ -316,7 +369,7 @@ static void generate_mips(soft_texture *t) {
 
 void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter) {
     int valid_min = min_filter == 9728 || min_filter == 9729 || (min_filter >= 9984 && min_filter <= 9987);
-    if (id < 0 || id >= texture_count || !textures[id].pixels || !valid_min || (mag_filter != 9728 && mag_filter != 9729)) return;
+    if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels) || !valid_min || (mag_filter != 9728 && mag_filter != 9729)) return;
     soft_texture *t = &textures[id];
     if (min_filter >= 9984 && t->levels == 1) generate_mips(t);
     t->min_filter = min_filter;
@@ -324,7 +377,7 @@ void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter) {
 }
 
 void g3p_texture_generate_mips(int32_t id) {
-    if (id < 0 || id >= texture_count || !textures[id].pixels) return;
+    if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels)) return;
     if (textures[id].levels == 1) generate_mips(&textures[id]);
 }
 
@@ -585,6 +638,29 @@ static int wrap_index(int index, int size, int mode) {
 static void sample_level(const soft_texture *t, int level, int linear, float u, float v, float out[4]) {
     int w = t->w >> level, h = t->h >> level;
     if (w < 1) w = 1; if (h < 1) h = 1;
+    if (t->hdr_pixels) {
+        const float *pixels = level ? t->hdr_mips[level - 1] : t->hdr_pixels;
+        float x = wrap_coordinate(u, t->wrap_u) * w;
+        float y = wrap_coordinate(v, t->wrap_v) * h;
+        if (!linear) {
+            int ix = wrap_index((int)floorf(x), w, t->wrap_u);
+            int iy = wrap_index((int)floorf(y), h, t->wrap_v);
+            for (int c = 0; c < 4; c++) out[c] = pixels[((size_t)iy*w+ix)*4+c];
+            return;
+        }
+        x -= 0.5f; y -= 0.5f;
+        int x0 = (int)floorf(x), y0 = (int)floorf(y);
+        float fx = x - x0, fy = y - y0;
+        int x1 = x0 + 1, y1 = y0 + 1;
+        x0 = wrap_index(x0, w, t->wrap_u); x1 = wrap_index(x1, w, t->wrap_u);
+        y0 = wrap_index(y0, h, t->wrap_v); y1 = wrap_index(y1, h, t->wrap_v);
+        for (int c = 0; c < 4; c++) {
+            float a = pixels[((size_t)y0*w+x0)*4+c], b = pixels[((size_t)y0*w+x1)*4+c];
+            float d = pixels[((size_t)y1*w+x0)*4+c], e = pixels[((size_t)y1*w+x1)*4+c];
+            out[c] = (a+(b-a)*fx)*(1.0f-fy)+(d+(e-d)*fx)*fy;
+        }
+        return;
+    }
     const uint8_t *pixels = level ? t->mips[level - 1] : t->pixels;
     float x = wrap_coordinate(u, t->wrap_u) * w;
     float y = wrap_coordinate(v, t->wrap_v) * h;
@@ -621,7 +697,7 @@ static void sample_level(const soft_texture *t, int level, int linear, float u, 
 /* rho is the texture footprint in texels per screen pixel. */
 static void sample_texture(int32_t id, float u, float v, float rho, float out[4]) {
     out[0] = out[1] = out[2] = out[3] = 1.0f;
-    if (id < 0 || id >= texture_count || !textures[id].pixels) return;
+    if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels)) return;
     const soft_texture *t = &textures[id];
     if (rho <= 1.0f) { sample_level(t, 0, t->mag_filter == 9729, u, v, out); return; }
     int f = t->min_filter;
@@ -646,7 +722,7 @@ static void sample_texture(int32_t id, float u, float v, float rho, float out[4]
 /* Explicit trilinear LOD for roughness-filtered environment radiance. */
 static void sample_texture_lod_from(const soft_texture *t, float u, float v, float lod, float out[4]) {
     out[0] = out[1] = out[2] = out[3] = 1.0f;
-    if (!t || !t->pixels) return;
+    if (!t || (!t->pixels && !t->hdr_pixels)) return;
     if (lod < 0.0f) lod = 0.0f;
     if (lod > t->levels - 1) lod = (float)(t->levels - 1);
     int lo=(int)floorf(lod), hi=lo+1<t->levels?lo+1:lo;
@@ -659,13 +735,16 @@ static void sample_texture_lod_from(const soft_texture *t, float u, float v, flo
 
 static void sample_environment_lod(int32_t id, float u, float v, float lod, float out[4]) {
     out[0]=out[1]=out[2]=out[3]=1.0f;
-    if (id < 0 || id >= texture_count || !textures[id].pixels) return;
+    if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels)) return;
     soft_texture environment = textures[id];
     environment.wrap_u = 1; /* equirectangular longitude wraps */
     environment.wrap_v = 0; /* latitude clamps at the poles */
     if (environment.env_levels > 1) {
         environment.levels = environment.env_levels;
-        for (int i=0; i<environment.env_levels-1; i++) environment.mips[i] = environment.env_mips[i];
+        for (int i=0; i<environment.env_levels-1; i++) {
+            if (environment.hdr_pixels) environment.hdr_mips[i] = environment.hdr_env_mips[i];
+            else environment.mips[i] = environment.env_mips[i];
+        }
     }
     sample_texture_lod_from(&environment,u,v,lod,out);
 }
@@ -680,7 +759,7 @@ static float radical_inverse_vdc(uint32_t bits) {
 }
 
 void g3p_texture_generate_env_mips(int32_t id) {
-    if (id < 0 || id >= texture_count || !textures[id].pixels) return;
+    if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels)) return;
     soft_texture *t=&textures[id];
     if (t->env_levels > 1) return;
     int levels=1,w=t->w,h=t->h;
@@ -692,8 +771,9 @@ void g3p_texture_generate_env_mips(int32_t id) {
     const int sample_count=32;
     for (int level=1; level<levels; level++) {
         int nw=w>1?w/2:1, nh=h>1?h/2:1;
-        uint8_t *dst=malloc((size_t)nw*(size_t)nh*4);
-        if (!dst) { fprintf(stderr,"g3_soft: out of memory for GGX environment mipmaps\n"); exit(1); }
+        uint8_t *dst=t->hdr_pixels?NULL:malloc((size_t)nw*(size_t)nh*4);
+        float *hdr_dst=t->hdr_pixels?malloc((size_t)nw*(size_t)nh*4*sizeof(float)):NULL;
+        if ((!t->hdr_pixels && !dst) || (t->hdr_pixels && !hdr_dst)) { fprintf(stderr,"g3_soft: out of memory for GGX environment mipmaps\n"); exit(1); }
         float roughness=(float)level/(float)(levels-1), alpha=roughness*roughness, alpha2=alpha*alpha;
         for (int y=0;y<nh;y++) for (int x=0;x<nw;x++) {
             float u=((float)x+0.5f)/(float)nw, v=((float)y+0.5f)/(float)nh;
@@ -726,12 +806,17 @@ void g3p_texture_generate_env_mips(int32_t id) {
             size_t offset=((size_t)y*nw+x)*4;
             for (int c=0;c<3;c++) {
                 float value=weight>0.0f?sum[c]/weight:0.0f;
-                if (t->srgb) value=srgb_encode(value);
-                dst[offset+c]=(uint8_t)(fmaxf(0.0f,fminf(value,1.0f))*255.0f+0.5f);
+                if (t->hdr_pixels) hdr_dst[offset+c]=value;
+                else {
+                    if (t->srgb) value=srgb_encode(value);
+                    dst[offset+c]=(uint8_t)(fmaxf(0.0f,fminf(value,1.0f))*255.0f+0.5f);
+                }
             }
-            dst[offset+3]=255;
+            if (t->hdr_pixels) hdr_dst[offset+3]=1.0f;
+            else dst[offset+3]=255;
         }
-        t->env_mips[level-1]=dst;
+        if (t->hdr_pixels) t->hdr_env_mips[level-1]=hdr_dst;
+        else t->env_mips[level-1]=dst;
         w=nw; h=nh;
     }
 }
@@ -920,7 +1005,7 @@ static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
 /* Perspective-correct UV at a neighboring pixel, even if it lies just
    outside this triangle. These finite differences approximate GPU LOD. */
 static float texture_footprint(const soft_tri *t, int32_t id, float l0, float l1, float l2, float u, float v) {
-    if (id < 0 || id >= texture_count || !textures[id].pixels) return 0.0f;
+    if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels)) return 0.0f;
     const soft_texture *tex = &textures[id];
     if (tex->min_filter == tex->mag_filter) return 0.0f;
     float dl0x = (t->sy[1] - t->sy[2]) / t->det;

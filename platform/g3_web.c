@@ -56,7 +56,7 @@ static int32_t surf_w = 1280, surf_h = 720;
 static web_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
 static GLuint *textures;
-static int32_t *texture_widths, *texture_heights;
+static int32_t *texture_widths, *texture_heights, *texture_is_hdr;
 static int32_t texture_count;
 static GLuint env_sampler;
 static GLuint env_source_sampler;
@@ -73,7 +73,7 @@ static GLint shadow_mask, shadow_cutoff, shadow_alpha, shadow_tex, shadow_textur
 static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
 static GLint output_sampler, output_tone_map, output_exposure, output_encode_srgb;
 static int output_width, output_height;
-static int output_is_hdr, hdr_color_buffer_supported, tone_map_inline_frame;
+static int output_is_hdr, float_color_buffer_supported, hdr_color_buffer_supported, tone_map_inline_frame;
 static int shadow_map_size = 512;
 static int allocated_shadow_size;
 
@@ -454,8 +454,10 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
         return 0;
     }
     emscripten_webgl_make_context_current(ctx);
-    hdr_color_buffer_supported=emscripten_webgl_enable_extension(ctx,"EXT_color_buffer_float") &&
-        emscripten_webgl_enable_extension(ctx,"EXT_float_blend");
+    float_color_buffer_supported=emscripten_webgl_enable_extension(ctx,"EXT_color_buffer_float");
+    /* RGBA16F targets are blendable without EXT_float_blend, which is needed
+       for 32-bit floating-point draw buffers. */
+    hdr_color_buffer_supported=float_color_buffer_supported;
     set_surface_size(width, height);
 
     if (!build_program() || !ensure_brdf_lut()) return 0;
@@ -499,11 +501,12 @@ void g3p_shutdown(void) {
     free(textures); textures = NULL; texture_count = 0;
     free(texture_widths); texture_widths=NULL;
     free(texture_heights); texture_heights=NULL;
+    free(texture_is_hdr); texture_is_hdr=NULL;
     if (env_sampler) glDeleteSamplers(1, &env_sampler);
     if (env_source_sampler) glDeleteSamplers(1,&env_source_sampler);
     env_sampler = 0;
     env_source_sampler=0;
-    output_is_hdr=0;hdr_color_buffer_supported=0;tone_map_inline_frame=0;
+    output_is_hdr=0;float_color_buffer_supported=0;hdr_color_buffer_supported=0;tone_map_inline_frame=0;
     for (int32_t i = 0; i < mesh_count; i++) {
         glDeleteVertexArrays(1, &meshes[i].vao);
         glDeleteBuffers(1, &meshes[i].vbo);
@@ -585,9 +588,13 @@ static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_
         int32_t *grown_heights=realloc(texture_heights,count*sizeof(*texture_heights));
         if (!grown_heights) return;
         texture_heights=grown_heights;
+        int32_t *grown_hdr=realloc(texture_is_hdr,count*sizeof(*texture_is_hdr));
+        if (!grown_hdr) return;
+        texture_is_hdr=grown_hdr;
         memset(textures + texture_count, 0, (count - (size_t)texture_count) * sizeof(*textures));
         memset(texture_widths + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_widths));
         memset(texture_heights + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_heights));
+        memset(texture_is_hdr + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_hdr));
         texture_count = id + 1;
     }
     if (!textures[id]) glGenTextures(1, &textures[id]);
@@ -602,6 +609,35 @@ static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(GL_TEXTURE_2D, 0, srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data);
     texture_widths[id]=width;texture_heights[id]=height;
+    texture_is_hdr[id]=0;
+}
+
+static void upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height) {
+    if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
+    if (id >= texture_count) {
+        size_t count=(size_t)id+1;
+        GLuint *grown=realloc(textures,count*sizeof(*textures)); if(!grown)return; textures=grown;
+        int32_t *gw=realloc(texture_widths,count*sizeof(*texture_widths)); if(!gw)return; texture_widths=gw;
+        int32_t *gh=realloc(texture_heights,count*sizeof(*texture_heights)); if(!gh)return; texture_heights=gh;
+        int32_t *gi=realloc(texture_is_hdr,count*sizeof(*texture_is_hdr)); if(!gi)return; texture_is_hdr=gi;
+        memset(textures+texture_count,0,(count-(size_t)texture_count)*sizeof(*textures));
+        memset(texture_widths+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_widths));
+        memset(texture_heights+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_heights));
+        memset(texture_is_hdr+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_hdr));
+        texture_count=id+1;
+    }
+    if (!textures[id]) glGenTextures(1,&textures[id]);
+    if (env_prefilter_source_id==id) {
+        if(env_prefilter_texture)glDeleteTextures(1,&env_prefilter_texture);
+        env_prefilter_texture=0;env_prefilter_source_id=-1;env_prefilter_max_lod=0;
+    }
+    glBindTexture(GL_TEXTURE_2D,textures[id]);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA16F,width,height,0,GL_RGBA,GL_FLOAT,pixels.data);
+    texture_widths[id]=width;texture_heights[id]=height;texture_is_hdr[id]=1;
 }
 
 void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
@@ -610,6 +646,10 @@ void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t h
 
 void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
     upload_texture(id, pixels, width, height, 1);
+}
+
+void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height) {
+    upload_texture_hdr(id,pixels,width,height);
 }
 
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
@@ -661,6 +701,7 @@ static GLuint ensure_env_sampler(void) {
 
 void g3p_texture_generate_env_mips(int32_t id) {
     if (id<0 || id>=texture_count || !textures[id]) return;
+    if (texture_is_hdr[id] && !float_color_buffer_supported) return;
     if (env_prefilter_source_id==id && env_prefilter_texture) return;
     if (env_prefilter_texture) glDeleteTextures(1,&env_prefilter_texture);
     env_prefilter_texture=0; env_prefilter_source_id=-1; env_prefilter_max_lod=0;
@@ -701,7 +742,7 @@ void g3p_texture_generate_env_mips(int32_t id) {
     glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,textures[id]);glBindSampler(0,ensure_env_source_sampler());
     glUniform1i(env_prefilter_source,0);glBindVertexArray(env_prefilter_vao);
     for(int level=0;level<levels;level++){
-        glTexImage2D(GL_TEXTURE_2D,level,GL_RGBA8,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,NULL);
+        glTexImage2D(GL_TEXTURE_2D,level,texture_is_hdr[id]?GL_RGBA16F:GL_RGBA8,w,h,0,GL_RGBA,texture_is_hdr[id]?GL_FLOAT:GL_UNSIGNED_BYTE,NULL);
         glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,env_prefilter_texture,level);
         GLenum color_attachment=GL_COLOR_ATTACHMENT0;glDrawBuffers(1,&color_attachment);glReadBuffer(GL_COLOR_ATTACHMENT0);
         if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE){
@@ -738,6 +779,12 @@ EMSCRIPTEN_KEEPALIVE void g3_host_texture_srgb(int32_t id, const uint8_t *pixels
     g3p_upload_texture_srgb(id, s, width, height);
 }
 
+EMSCRIPTEN_KEEPALIVE void g3_host_texture_hdr(int32_t id, const float *pixels, int32_t width, int32_t height) {
+    if (width <= 0 || height <= 0 || !pixels) return;
+    g3_f32_slice s = { pixels, (int64_t)width * height * 4 };
+    g3p_upload_texture_hdr(id, s, width, height);
+}
+
 /* Imported assets own their backend resources; Goose arena handles stay valid. */
 EMSCRIPTEN_KEEPALIVE void g3_host_release_mesh(int32_t id) {
     if (id < 0 || id >= mesh_count) return;
@@ -757,6 +804,7 @@ EMSCRIPTEN_KEEPALIVE void g3_host_release_texture(int32_t id) {
     glDeleteTextures(1, &textures[id]);
     textures[id] = 0;
     texture_widths[id]=texture_heights[id]=0;
+    texture_is_hdr[id]=0;
 }
 
 /* --- a frame --- */
@@ -777,13 +825,14 @@ static void bind_view(const g3_view_state *view) {
     glUniform4f(shader.env_ground, view->env_ground.x, view->env_ground.y, view->env_ground.z, view->env_ground.w);
     int env = view->environment_texture;
     int has_env = env >= 0 && env < texture_count && textures[env];
+    int has_prefilter = has_env && env_prefilter_source_id == env && env_prefilter_texture;
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, has_env ? (env_prefilter_source_id==env?env_prefilter_texture:textures[env]) : 0);
-    glBindSampler(1, ensure_env_sampler());
+    glBindTexture(GL_TEXTURE_2D, has_env ? (has_prefilter ? env_prefilter_texture : textures[env]) : 0);
+    glBindSampler(1, has_prefilter ? ensure_env_sampler() : ensure_env_source_sampler());
     glUniform1i(shader.env_map, 1);
     glUniform1i(shader.env_map_enabled, has_env);
     glUniform1f(shader.env_map_intensity, view->environment_intensity);
-    glUniform1f(shader.env_map_max_lod, has_env && env_prefilter_source_id==env ? (float)env_prefilter_max_lod : 0.0f);
+    glUniform1f(shader.env_map_max_lod, has_prefilter ? (float)env_prefilter_max_lod : 0.0f);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
     glUniform1i(shader.shadow_map, 2);

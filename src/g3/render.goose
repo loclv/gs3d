@@ -161,7 +161,7 @@ fn set_environment(sky: float3, ground: float3, intensity: f32) {
     g_view_state.env_ground = float4 { ground.x, ground.y, ground.z, 0.0 };
 }
 
-// Equirectangular environment: diffuse lookup stays on the surface normal;
+// Equirectangular linear or HDR environment: diffuse lookup stays on the surface normal;
 // metallic-roughness materials sample GGX-prefiltered mips along the reflection
 // direction. Longitude wraps and latitude clamps. Specular IBL uses a
 // split-sum BRDF integration LUT.

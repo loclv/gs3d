@@ -5,7 +5,7 @@ build after `g3_host_start` has succeeded. It uses browser fetch and image
 decoding; it is not a native Goose or CPU-backend loader.
 
 ```js
-import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
+import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setToneMapping, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
 
 try {
   setOutputColorSpace(engine, 'srgb'); // after engine startup
@@ -21,6 +21,12 @@ try {
   // image.handle is checked; image.id is the low-level texture ID.
   // image.width and image.height are pixels.
   // Keep it alive while any node uses it, then call image.dispose().
+
+  const environment = await loadHDRImage(engine, './studio.hdr');
+  setEnvironmentMap(engine, environment, 0.8);
+  setToneMapping(engine, true);
+  setExposure(engine, 1.0); // accepted range is 0–32
+  // When no longer needed: setEnvironmentMap(engine, null); environment.dispose();
 } catch (error) {
   if (error instanceof AssetError) console.error(error.code, error.message);
   else throw error;
@@ -52,8 +58,11 @@ touch orbit, the wheel and a two-finger pinch zoom, and a click or tap invokes
 Disposal removes listeners and restores the canvas's previous `touch-action`.
 The controls do not provide panning or keyboard navigation.
 
-The API decodes images into RGBA8 and copies them to the renderer. `dispose()`
-is idempotent. A model owns the nodes, meshes, materials and textures it creates:
+`loadImage` decodes images into RGBA8; `loadHDRImage` decodes Radiance RGBE
+`.hdr` images into linear floating-point radiance. HDR loading supports the
+canonical `-Y +X` orientation and scanline RLE, up to 16,777,216 pixels. The
+renderer copies uploaded pixels. `dispose()` is idempotent. A model owns the
+nodes, meshes, materials and textures it creates:
 disposal releases its GPU buffers and textures and makes its asset-owned slots
 available for reuse. Primitives in a model that reference the same glTF material
 share one engine material. Browser node handles contain an index,
@@ -88,8 +97,8 @@ an object from another model can occlude the selected model. It is currently
 a linear scan of all triangles and does not inspect texture alpha. Model picking
 returns null after disposal or a scene reset.
 
-`AssetError.code` is `FETCH`, `IMAGE`, `INVALID_GLTF`, `UNSUPPORTED`, `MEMORY`,
-or `UPLOAD`. The loader validates and decodes before creating scene objects;
+`AssetError.code` includes `FETCH`, `IMAGE`, `HDR`, `ENVIRONMENT`, `EXPOSURE`,
+`INVALID_GLTF`, `UNSUPPORTED`, `MEMORY`, and `UPLOAD`. The loader validates and decodes before creating scene objects;
 if an upload fails it releases the resources already created. Browser graphics
 driver failures may still be reported separately through the backend's error
 mechanism.
@@ -138,11 +147,15 @@ ignored. Files needing these features require a fuller loader and renderer.
 `setOutputColorSpace(engine, 'srgb')` enables output encoding after linear
 lighting and blending; `'linear'` restores the default. Background, light,
 fog, and material RGB values must be supplied in linear space in sRGB output
-mode. The viewer enables this mode. `loadImage` creates a linear texture by
-default; pass `{ colorSpace: 'srgb' }` for an sRGB image.
-glTF base-colour textures are sRGB. The current output path uses an 8-bit
-linear intermediate and clamps rather than tone mapping HDR values. The WebGL
-intermediate is not multisampled, so antialiasing differs from the default path.
+  mode. The viewer enables this mode. `loadImage` creates a linear texture by
+  default; pass `{ colorSpace: 'srgb' }` for an sRGB image. glTF base-colour
+  textures are sRGB. `setToneMapping(engine, true)` enables the ACES fitted
+  curve and `setExposure(engine, value)` sets exposure. The CPU composites HDR
+  radiance in floating point. WebGL uploads environment radiance as RGBA16F
+  and uses a floating point environment prefilter when `EXT_color_buffer_float`
+  is available; otherwise rough reflections use
+  the unfiltered HDR source map. The display intermediate is not multisampled,
+  so antialiasing differs from the default path.
 
 Run the browser-loader logic tests with `node web/test_assets.mjs`. These use a
 mock engine and image decoder; they do not replace a browser/WebGL integration

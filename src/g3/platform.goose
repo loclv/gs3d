@@ -63,7 +63,7 @@ struct ViewState {
     light_count: i32,
     env_sky: float4,        // rgb, w = intensity
     env_ground: float4,
-    environment_texture: i32, // equirectangular RGB texture, -1 disables
+    environment_texture: i32, // equirectangular RGB or HDR texture, -1 disables
     environment_intensity: f32,
     shadow_view_proj: Mat4,
     shadow_params: float4, // x enabled, y depth bias, z PCF radius in texels
@@ -94,6 +94,7 @@ extern fn g3p_height() -> i32;
 extern fn g3p_upload_mesh(id: i32, verts: const Vertex[:], indices: const u32[:]);
 extern fn g3p_upload_texture(id: i32, pixels: const u8[:], width: i32, height: i32);
 extern fn g3p_upload_texture_srgb(id: i32, pixels: const u8[:], width: i32, height: i32);
+extern fn g3p_upload_texture_hdr(id: i32, pixels: const f32[:], width: i32, height: i32);
 // 0 clamp, 1 repeat, 2 mirrored repeat, independently for U and V.
 extern fn g3p_texture_wrap(id: i32, wrap_u: i32, wrap_v: i32);
 // Filters use glTF/WebGL numeric values: 9728/9729, plus 9984..9987 for minification.
