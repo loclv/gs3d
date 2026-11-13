@@ -18,7 +18,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Assets | Built-in primitives, custom geometry, and a browser loader for glTF/GLB meshes, materials and transform animations with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
 | Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and ACES tone mapping with exposure | Browser reference validation, native HDR image decoding |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Native HDR environment decoding |
-| Animation | glTF translation, rotation and scale clips with LINEAR/STEP/CUBICSPLINE sampling | Skeletal animation and skinning, morph targets |
+| Animation | glTF translation, rotation, scale and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; CPU-deformed skins | Morph targets, GPU joint palettes |
 | Scene management | Parent hierarchy, checked node removal, and selectable perspective or orthographic cameras | General mesh and texture removal, reusable resources, camera lifecycle |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit and pinch controls, viewer selection | Additional touch gestures, panning, keyboard camera controls, browser integration tests |
 | Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
@@ -82,10 +82,11 @@ shadow behavior and browser reference images for the GPU path.
 
 ### 3. Animated assets and richer scenes
 
-* **Partly implemented:** glTF translation, rotation and scale keyframe clips
+* **Partly implemented:** glTF translation, rotation, scale and skeletal clips
   support LINEAR, STEP and CUBICSPLINE sampling with play, pause, seek, stop and
-  loop controls. Add skeletal animation and skinning, then morph targets. Extend
-  glTF loading to populate those features.
+  loop controls. Skins support up to eight influences and update retained CPU
+  geometry on pose changes. Add morph targets and GPU joint palettes; measure
+  CPU deformation cost on representative characters.
 * Expand camera controls and touch input. Selectable perspective and orthographic
   cameras and reusable orbit and pinch controls are available; validate both
   features in a real browser and add camera removal.

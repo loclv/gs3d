@@ -116,6 +116,12 @@ mechanism.
 * The selected scene's hierarchy, matrix or TRS transforms, indexed or
   non-indexed triangle primitives, float positions and normals, and optional
   `TEXCOORD_0`. Positions and normals are required.
+* Skeletal glTF skins with `JOINTS_0`/`WEIGHTS_0` and optional second influence
+  sets, unsigned-byte or unsigned-short joint indices, float or normalized
+  unsigned weights, and optional float inverse-bind matrices. Skin joints must
+  belong to the selected scene. The loader normalizes weights and deforms
+  retained CPU vertices when animation time changes; those vertices are then
+  uploaded to the active backend, so picking and shadows use the deformed pose.
 * Opaque, masked and blended base-colour factors and base-colour textures.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
   Emission adds the linear `emissiveFactor`, multiplied by an sRGB-decoded
@@ -140,7 +146,7 @@ mechanism.
   images are decoded from sRGB before filtering; factors and alpha are linear.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
-skins, morph targets, sparse accessors, non-triangle modes,
+more than eight skin influences, morph targets, sparse accessors, non-triangle modes,
 double-sided materials and advanced
 texture/sampler extensions. Tangent frames for normal maps are derived per
 triangle from positions and `TEXCOORD_0`; explicit glTF tangent attributes are
@@ -171,8 +177,10 @@ and scale channels. Call
 interpolation are supported. LINEAR rotations use quaternion spherical
 interpolation. CUBICSPLINE uses glTF's in-tangent, value, out-tangent key layout
 and normalizes interpolated rotation quaternions. Clips can target only nodes in
-the selected glTF scene. Skinning, morph weights, and matrix-form animated
-nodes are unsupported.
+the selected glTF scene and animate both ordinary transforms and skin joints.
+Skinning is evaluated on the CPU and reuploads each affected mesh when its pose
+changes; GPU-side joint palettes are not implemented. Morph weights and
+matrix-form animated nodes are unsupported.
 
 Run the browser-loader logic tests with `node web/test_assets.mjs`. These use a
 mock engine and image decoder; they do not replace a browser/WebGL integration

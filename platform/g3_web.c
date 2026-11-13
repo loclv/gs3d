@@ -20,6 +20,7 @@
 
 #include <GLES3/gl3.h>
 #include <emscripten.h>
+#include <emscripten/heap.h>
 #include <emscripten/html5.h>
 
 #include <stdio.h>
@@ -27,6 +28,21 @@
 #include <string.h>
 
 #include "g3.h"   /* the exported Goose functions: g3_app_init, g3_app_frame, ... */
+
+/* JS needs a scalar-argument bridge for the Goose slice ABI. The generated
+   g3_asset_mesh_update takes two {data,len} structs, so construct them here
+   from pointers into WebAssembly memory. */
+EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_update(int32_t id, uint32_t positions_ptr,
+                                                 uint32_t normals_ptr, int32_t float_count) {
+    if (id < 0 || !positions_ptr || !normals_ptr || positions_ptr % 4 || normals_ptr % 4 ||
+        float_count <= 0 || float_count > INT32_MAX / (int32_t)sizeof(float)) return 0;
+    const uint64_t bytes = (uint64_t)float_count * sizeof(float);
+    const uint64_t heap_size = emscripten_get_heap_size();
+    if ((uint64_t)positions_ptr + bytes > heap_size || (uint64_t)normals_ptr + bytes > heap_size) return 0;
+    sl_f32 positions = { (float *)(uintptr_t)positions_ptr, float_count };
+    sl_f32 normals = { (float *)(uintptr_t)normals_ptr, float_count };
+    return g3_asset_mesh_update(id, positions, normals);
+}
 
 typedef struct {
     GLuint vao, vbo, ebo;

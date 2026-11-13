@@ -976,6 +976,32 @@ fn case_emissive_material() {
     testing::check(is_color(g3::read_pixel(200, 200), 64, 32, 16, 2), "emissive texture is multiplied by its linear factor");
 }
 
+// Moving this retained triangle by half a unit puts its interior at x=0.5
+// (pixel 241 at depth 5); pixel 188 at depth 5 is clearly outside the moved
+// triangle. This checks both the updated CPU arena and backend mesh upload.
+fn case_asset_mesh_update() {
+    g3::scene_clear();
+    flat_camera();
+    let verts: g3::Vertex[3] = [
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0 },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0 },
+        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0 },
+    ];
+    let indices: u32[3] = [0, 1, 2];
+    let mesh = g3::mesh_asset_create(verts[..], indices[..]);
+    let positions: f32[9] = [-0.5, -1.0, 0.0, 1.5, -1.0, 0.0, 0.5, 1.0, 0.0];
+    let normals: f32[9] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
+    testing::check(g3::mesh_asset_update(mesh, positions[..], normals[..]), "asset mesh deformation accepts matching finite vertex buffers");
+    testing::check(g3::mesh(mesh).bounds.lo.x == -0.5 && g3::mesh(mesh).bounds.hi.x == 1.5,
+                    "asset mesh deformation refreshes local bounds");
+    let node = g3::node_add(mesh);
+    g3::node(node).color = float4_1;
+    g3::node(node).spec = 0.0;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(241, 200), 255, 255, 255, 2), "updated vertex data renders at its deformed position");
+    testing::check(is_color(g3::read_pixel(188, 200), 255, 0, 255, 2), "the original left-side position is no longer rendered");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -1012,6 +1038,7 @@ fn main() {
     case_environment_specular();
     case_occlusion_map();
     case_emissive_material();
+    case_asset_mesh_update();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

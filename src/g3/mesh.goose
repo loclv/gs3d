@@ -221,6 +221,32 @@ fn mesh_asset_release(id: i32) {
     }
 }
 
+// Replace an asset mesh's deformed positions and normals without moving its
+// arena spans or changing its handle. CPU geometry stays current for bounds,
+// picking, and the next upload to either backend.
+fn mesh_asset_update(id: i32, positions: const f32[:], normals: const f32[:]) -> bool {
+    guard id >= 0 && id < g_meshes.len else { return false; }
+    let m .= g_meshes[id];
+    guard m.asset_owned && !m.asset_free && positions.len == m.vertex_count * 3 &&
+          normals.len == m.vertex_count * 3 else { return false; }
+    var bounds = aabb_empty();
+    for i in 0..m.vertex_count {
+        let p = float3 { positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2] };
+        let n = float3 { normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2] };
+        if !(abs(p.x) <= 3.4e38) || !(abs(p.y) <= 3.4e38) || !(abs(p.z) <= 3.4e38) ||
+           !(abs(n.x) <= 3.4e38) || !(abs(n.y) <= 3.4e38) || !(abs(n.z) <= 3.4e38) { return false; }
+        aabb_add(bounds, p);
+    }
+    for i in 0..m.vertex_count {
+        g_verts[m.first_vertex + i].pos = float3 { positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2] };
+        g_verts[m.first_vertex + i].normal = float3 { normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2] };
+    }
+    m.bounds = bounds;
+    g3p_upload_mesh(id, g_verts[m.first_vertex..m.first_vertex + m.vertex_count],
+                    g_indices[m.first_index..m.first_index + m.index_count]);
+    return true;
+}
+
 fn mesh_asset_release_handle(handle: MeshHandle) -> bool {
     guard mesh_handle_valid(handle) && g_meshes[handle.id].asset_owned else { return false; }
     mesh_asset_release(handle.id);

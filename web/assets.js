@@ -265,7 +265,7 @@ function accessor(doc, buffers, index, expected) {
   const a = item(doc.accessors, index, 'accessor');
   if (a.sparse || a.bufferView === undefined) unsupported('Sparse or unbacked accessors are not supported');
   if (a.type !== expected) invalid(`Expected ${expected} accessor`);
-  const widths = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+  const widths = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
   const formats = { 5121: [1, 'getUint8'], 5123: [2, 'getUint16'], 5125: [4, 'getUint32'], 5126: [4, 'getFloat32'] };
   const format = formats[a.componentType], components = widths[expected];
   if (!format || !Number.isInteger(a.count) || a.count < 1) unsupported('Unsupported accessor component type or count');
@@ -315,6 +315,59 @@ function normalizedQuaternion(q) {
   const length = Math.hypot(...q);
   if (!(length > 0) || !Number.isFinite(length)) invalid('Invalid animation rotation');
   return q.map(value => value / length);
+}
+
+function multiply4(a, b) {
+  const out = new Array(16).fill(0);
+  for (let column = 0; column < 4; column++) for (let row = 0; row < 4; row++) {
+    for (let k = 0; k < 4; k++) out[column * 4 + row] += a[k * 4 + row] * b[column * 4 + k];
+  }
+  return out;
+}
+
+function invert4(matrix) {
+  const rows = Array.from({ length: 4 }, (_, row) => [
+    matrix[row], matrix[4 + row], matrix[8 + row], matrix[12 + row],
+    +(row === 0), +(row === 1), +(row === 2), +(row === 3),
+  ]);
+  for (let column = 0; column < 4; column++) {
+    let pivot = column;
+    for (let row = column + 1; row < 4; row++) if (Math.abs(rows[row][column]) > Math.abs(rows[pivot][column])) pivot = row;
+    if (!(Math.abs(rows[pivot][column]) > 0)) invalid('Singular skinned mesh transform');
+    [rows[column], rows[pivot]] = [rows[pivot], rows[column]];
+    const scale = rows[column][column];
+    for (let c = 0; c < 8; c++) rows[column][c] /= scale;
+    for (let row = 0; row < 4; row++) if (row !== column) {
+      const factor = rows[row][column];
+      for (let c = 0; c < 8; c++) rows[row][c] -= factor * rows[column][c];
+    }
+  }
+  const out = new Array(16);
+  for (let row = 0; row < 4; row++) for (let column = 0; column < 4; column++) out[column * 4 + row] = rows[row][column + 4];
+  if (!out.every(Number.isFinite)) invalid('Invalid skinned mesh transform');
+  return out;
+}
+
+function transformPoint4(matrix, point) {
+  const x = point[0], y = point[1], z = point[2];
+  const w = matrix[3] * x + matrix[7] * y + matrix[11] * z + matrix[15];
+  if (!(Math.abs(w) > 0) || !Number.isFinite(w)) invalid('Invalid skinned position');
+  return [(matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12]) / w,
+    (matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13]) / w,
+    (matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14]) / w];
+}
+
+function transformDirection4(matrix, direction) {
+  const x = direction[0], y = direction[1], z = direction[2];
+  return [matrix[0] * x + matrix[4] * y + matrix[8] * z,
+    matrix[1] * x + matrix[5] * y + matrix[9] * z,
+    matrix[2] * x + matrix[6] * y + matrix[10] * z];
+}
+
+function normalize3(vector) {
+  const length = Math.hypot(...vector);
+  if (!(length > 0) || !Number.isFinite(length)) invalid('Invalid skinned normal');
+  return vector.map(value => value / length);
 }
 
 function sampleChannel(channel, time) {
@@ -367,7 +420,7 @@ async function prepare(url) {
   try { doc = JSON.parse(new TextDecoder().decode(json)); }
   catch (error) { throw new AssetError('INVALID_GLTF', 'Invalid glTF JSON', error); }
   if (doc.asset?.version !== '2.0') unsupported('Only glTF 2.0 is supported');
-  if (doc.extensionsRequired?.length || doc.skins?.length) unsupported('Required extensions and skins are not supported');
+  if (doc.extensionsRequired?.length) unsupported('Required glTF extensions are not supported');
   const buffers = await Promise.all((doc.buffers || []).map(async (buffer, i) => {
     const data = buffer.uri !== undefined ? await fetchBytes(new URL(buffer.uri, absolute)) : i === 0 ? bin : undefined;
     if (!data || !Number.isInteger(buffer.byteLength) || buffer.byteLength < 0 || data.byteLength < buffer.byteLength) invalid('Missing or truncated buffer');
@@ -381,6 +434,20 @@ async function prepare(url) {
     if (!Number.isInteger(start) || start < 0 || !Number.isInteger(end) || end > data.byteLength) invalid('Image exceeds its buffer');
     return decodeImage(data.slice(start, end), image.mimeType || '');
   }));
+  const skins = (doc.skins || []).map((skin, index) => {
+    if (skin.extensions || !Array.isArray(skin.joints) || skin.joints.length < 1 ||
+        skin.joints.length > 65536 || new Set(skin.joints).size !== skin.joints.length ||
+        skin.joints.some(joint => !Number.isInteger(joint) || joint < 0)) invalid(`Invalid skin ${index}`);
+    if (skin.skeleton !== undefined && (!Number.isInteger(skin.skeleton) || skin.skeleton < 0)) invalid(`Invalid skeleton root for skin ${index}`);
+    const inverse = skin.inverseBindMatrices === undefined ? null : accessor(doc, buffers, skin.inverseBindMatrices, 'MAT4');
+    if (inverse && (inverse.componentType !== 5126 || inverse.count !== skin.joints.length)) invalid(`Invalid inverse bind matrices for skin ${index}`);
+    const inverseBindMatrices = inverse ? inverse.values : Array.from({ length: skin.joints.length }, (_, joint) => {
+      const identity = new Array(16).fill(0);
+      identity[0] = identity[5] = identity[10] = identity[15] = 1;
+      return identity;
+    }).flat();
+    return { joints: [...skin.joints], inverseBindMatrices };
+  });
   const wrapModes = { 33071: 0, 10497: 1, 33648: 2 };
   const textureSpecs = (doc.textures || []).map(texture => {
     item(images, texture.source, 'image');
@@ -395,10 +462,25 @@ async function prepare(url) {
   });
   const meshes = (doc.meshes || []).map(mesh => (mesh.primitives || []).map(p => {
     if ((p.mode ?? 4) !== 4 || p.targets?.length) unsupported('Only triangle meshes without morph targets are supported');
+    if (Object.keys(p.attributes || {}).some(name => /^(JOINTS|WEIGHTS)_\d+$/.test(name) && Number(name.slice(name.indexOf('_') + 1)) > 1)) unsupported('At most eight skin influences are supported');
     const pos = accessor(doc, buffers, p.attributes?.POSITION, 'VEC3');
     const normal = accessor(doc, buffers, p.attributes?.NORMAL, 'VEC3');
     const uv = p.attributes?.TEXCOORD_0 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_0, 'VEC2');
     if (pos.componentType !== 5126 || normal.componentType !== 5126 || pos.count !== normal.count || (uv && uv.count !== pos.count)) invalid('Invalid vertex attributes');
+    const joints = [], weights = [];
+    for (let set = 0; set < 2; set++) {
+      const jointIndex = p.attributes?.[`JOINTS_${set}`], weightIndex = p.attributes?.[`WEIGHTS_${set}`];
+      if ((jointIndex === undefined) !== (weightIndex === undefined)) invalid(`Incomplete skin attributes in set ${set}`);
+      if (jointIndex === undefined) continue;
+      if (set === 1 && joints.length === 0) invalid('Skin influence set 1 requires set 0');
+      const jointAccessor = accessor(doc, buffers, jointIndex, 'VEC4');
+      const weightAccessor = accessor(doc, buffers, weightIndex, 'VEC4');
+      if (![5121, 5123].includes(jointAccessor.componentType) || jointAccessor.normalized ||
+          (weightAccessor.componentType !== 5126 && !([5121, 5123].includes(weightAccessor.componentType) && weightAccessor.normalized)) ||
+          jointAccessor.count !== pos.count || weightAccessor.count !== pos.count) invalid(`Invalid skin attributes in set ${set}`);
+      joints.push(jointAccessor.values);
+      weights.push(weightAccessor.values);
+    }
     const indexAccessor = p.indices === undefined ? null : accessor(doc, buffers, p.indices, 'SCALAR');
     if (indexAccessor && ![5121, 5123, 5125].includes(indexAccessor.componentType)) invalid('Indices must be unsigned integers');
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
@@ -452,25 +534,53 @@ async function prepare(url) {
       textureIndex = pbr.baseColorTexture.index;
     }
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
-    return { pos: pos.values, normal: normal.values, uv: uv?.values, indices,
+    return { pos: pos.values, normal: normal.values, uv: uv?.values, joints, weights, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
       emissive, emissiveTextureIndex, materialIndex: p.material ?? -1 };
   }));
   const nodes = doc.nodes || [], roots = item(doc.scenes, doc.scene ?? 0, 'scene').nodes || [];
-  const seen = new Set();
+  const seen = new Set(), usedSkinIndices = new Set();
   function visit(index, depth) {
     if (depth > 63 || seen.has(index)) invalid('Invalid or overly deep node hierarchy');
     seen.add(index);
     const n = item(nodes, index, 'node');
-    if (n.skin !== undefined || n.weights || n.extensions) unsupported('Unsupported node feature');
+    if (n.weights || n.extensions) unsupported('Unsupported node feature');
     const primitives = n.mesh === undefined ? [] : item(meshes, n.mesh, 'mesh');
+    if (n.skin !== undefined && (!Number.isInteger(n.skin) || n.skin < 0)) invalid('Invalid node skin index');
+    const skinIndex = n.skin === undefined ? -1 : n.skin;
+    if (skinIndex >= 0) {
+      const skin = item(skins, skinIndex, 'skin');
+      usedSkinIndices.add(skinIndex);
+      if (!primitives.length || primitives.some(primitive => !primitive.joints.length)) invalid('Skinned mesh primitives require JOINTS_0 and WEIGHTS_0');
+      for (const primitive of primitives) for (let vertex = 0; vertex < primitive.pos.length / 3; vertex++) {
+        let totalWeight = 0;
+        for (let set = 0; set < primitive.joints.length; set++) for (let component = 0; component < 4; component++) {
+          const joint = primitive.joints[set][vertex * 4 + component];
+          const weight = primitive.weights[set][vertex * 4 + component];
+          if (!Number.isInteger(joint) || joint < 0 || joint >= skin.joints.length || weight < 0) invalid('Invalid joint index or weight');
+          totalWeight += weight;
+        }
+        if (!(totalWeight > 0) || !Number.isFinite(totalWeight)) invalid('Skinned vertices need positive finite weights');
+      }
+    } else if (primitives.some(primitive => primitive.joints.length)) invalid('Skin attributes require a node skin');
     const transform = localMatrix(n);
-    return { index, ...transform, primitives, children: (n.children || []).map(child => visit(child, depth + 1)) };
+    return { index, skinIndex, ...transform, primitives, children: (n.children || []).map(child => visit(child, depth + 1)) };
   }
   const sceneRoots = roots.map(root => visit(root, 0));
   const sceneNodeIndices = new Set(seen);
+  for (const skinIndex of usedSkinIndices) {
+    const skin = skins[skinIndex];
+    if (skin.skeleton !== undefined) {
+      item(nodes, skin.skeleton, 'skin skeleton');
+      if (!sceneNodeIndices.has(skin.skeleton)) unsupported('Skin skeleton must belong to the selected scene');
+    }
+    for (const joint of skin.joints) {
+      item(nodes, joint, 'skin joint');
+      if (!sceneNodeIndices.has(joint)) unsupported('Skin joints must belong to the selected scene');
+    }
+  }
   const animations = (doc.animations || []).map((animation, animationIndex) => {
     if (!Array.isArray(animation.channels) || !animation.channels.length || !Array.isArray(animation.samplers)) invalid(`Invalid animation ${animationIndex}`);
     if (animation.extensions) unsupported('Animation extensions are not supported');
@@ -508,7 +618,7 @@ async function prepare(url) {
     });
     return { name: typeof animation.name === 'string' ? animation.name : `Animation ${animationIndex}`, duration, channels };
   });
-  return { images, textureSpecs, roots: sceneRoots, animations };
+  return { images, textureSpecs, roots: sceneRoots, skins, animations };
 }
 
 // Model disposal is idempotent. GPU objects are released; arena records remain.
@@ -519,7 +629,7 @@ export async function loadGLTF(engine, url) {
     if (error instanceof AssetError) throw error;
     throw new AssetError('INVALID_GLTF', 'Invalid glTF structure or URL', error);
   }
-  const nodes = [], meshes = [], materials = new Map(), textures = new Map(), transformNodes = new Map();
+  const nodes = [], meshes = [], skinnedMeshes = [], materials = new Map(), textures = new Map(), transformNodes = new Map();
   const sceneEpoch = engine._g3_asset_scene_epoch();
   let disposed = false;
   let activeAnimation = -1, animationTime = 0, animationPlaying = false, animationLoop = true;
@@ -533,6 +643,64 @@ export async function loadGLTF(engine, url) {
     state.translation = [...state.baseTranslation];
     state.rotation = [...state.baseRotation];
     state.scale = [...state.baseScale];
+  };
+  const updateSkinMeshes = () => {
+    if (!skinnedMeshes.length) return true;
+    const worlds = new Map();
+    const visitWorld = (node, parent) => {
+      const state = transformNodes.get(node.index);
+      const local = state ? localMatrix(state).matrix : node.matrix;
+      const world = parent ? multiply4(parent, local) : local;
+      worlds.set(node.index, world);
+      for (const child of node.children) visitWorld(child, world);
+    };
+    for (const root of data.roots) visitWorld(root, null);
+    for (const skinned of skinnedMeshes) {
+      if (!isMeshHandleValid(engine, skinned.handle)) continue;
+      const meshWorld = worlds.get(skinned.node);
+      if (!meshWorld) invalid('Skinned mesh node is outside the selected scene');
+      const inverseMeshWorld = invert4(meshWorld);
+      const skin = data.skins[skinned.skinIndex];
+      const jointMatrices = skin.joints.map((joint, index) => {
+        const jointWorld = worlds.get(joint);
+        if (!jointWorld) invalid('Skin joint is outside the selected scene');
+        const inverseBind = skin.inverseBindMatrices.slice(index * 16, index * 16 + 16);
+        return multiply4(multiply4(inverseMeshWorld, jointWorld), inverseBind);
+      });
+      const { primitive } = skinned;
+      const vertexCount = primitive.pos.length / 3;
+      const positions = new Float32Array(primitive.pos.length), normals = new Float32Array(primitive.normal.length);
+      for (let vertex = 0; vertex < vertexCount; vertex++) {
+        const sourcePosition = primitive.pos.slice(vertex * 3, vertex * 3 + 3);
+        const sourceNormal = primitive.normal.slice(vertex * 3, vertex * 3 + 3);
+        const outPosition = [0, 0, 0], outNormal = [0, 0, 0];
+        let totalWeight = 0;
+        for (let set = 0; set < primitive.joints.length; set++) for (let component = 0; component < 4; component++) {
+          const offset = vertex * 4 + component, weight = primitive.weights[set][offset];
+          if (weight === 0) continue;
+          const matrix = jointMatrices[primitive.joints[set][offset]];
+          const position = transformPoint4(matrix, sourcePosition), normal = transformDirection4(matrix, sourceNormal);
+          for (let axis = 0; axis < 3; axis++) {
+            outPosition[axis] += position[axis] * weight;
+            outNormal[axis] += normal[axis] * weight;
+          }
+          totalWeight += weight;
+        }
+        if (!(totalWeight > 0) || !Number.isFinite(totalWeight)) invalid('Invalid skin weights');
+        const normal = normalize3(outNormal);
+        for (let axis = 0; axis < 3; axis++) {
+          positions[vertex * 3 + axis] = outPosition[axis] / totalWeight;
+          normals[vertex * 3 + axis] = normal[axis];
+        }
+      }
+      const floatOffset = skinned.ptr >>> 2;
+      engine.HEAPF32.set(positions, floatOffset);
+      engine.HEAPF32.set(normals, floatOffset + positions.length);
+      if (!engine._g3_host_mesh_update(skinned.handle.id, skinned.ptr, skinned.ptr + positions.byteLength, positions.length)) {
+        throw new AssetError('UPLOAD', 'Could not update skinned mesh');
+      }
+    }
+    return true;
   };
   const applyAnimation = (index, time) => {
     if (sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
@@ -552,7 +720,7 @@ export async function loadGLTF(engine, url) {
     }
     for (const nodeIndex of nextTouched) writeTransform(transformNodes.get(nodeIndex));
     touchedTransforms = nextTouched;
-    return true;
+    return updateSkinMeshes();
   };
   const dispose = () => {
     if (disposed) return;
@@ -563,6 +731,8 @@ export async function loadGLTF(engine, url) {
     for (const handle of meshes) {
       if (engine._g3_asset_release_mesh(handle.id, handle.generation)) engine._g3_host_release_mesh(handle.id);
     }
+    for (const skinned of skinnedMeshes) if (skinned.ptr) engine._free(skinned.ptr);
+    skinnedMeshes.length = 0;
     for (const handle of textures.values()) releaseTexture(engine, handle);
     for (const animation of data.animations) for (const channel of animation.channels) {
       channel.times.length = 0;
@@ -600,7 +770,14 @@ export async function loadGLTF(engine, url) {
         for (let i = 0; i < p.pos.length / 3; i++) engine._g3_asset_vertex(...p.pos.slice(i*3, i*3+3), ...p.normal.slice(i*3, i*3+3), ...(p.uv ? p.uv.slice(i*2, i*2+2) : [0, 0]));
         for (let i = 0; i < p.indices.length; i += 3) engine._g3_asset_triangle(...p.indices.slice(i, i+3));
         const mesh = engine._g3_asset_mesh_end();
-        meshes.push(makeResourceHandle(engine, mesh, 'mesh'));
+        const meshHandle = makeResourceHandle(engine, mesh, 'mesh');
+        meshes.push(meshHandle);
+        if (node.skinIndex >= 0) {
+          const byteLength = p.pos.length * Float32Array.BYTES_PER_ELEMENT;
+          const ptr = engine._malloc(byteLength * 2);
+          if (!ptr) throw new AssetError('MEMORY', 'Could not allocate skin deformation buffer');
+          skinnedMeshes.push({ handle: meshHandle, node: node.index, skinIndex: node.skinIndex, primitive: p, ptr });
+        }
         const id = engine._g3_asset_node(mesh, group);
         const nodeHandle = makeNodeHandle(engine, id);
         if (!nodeHandle) throw new AssetError('UPLOAD', 'Could not create node');
@@ -620,6 +797,7 @@ export async function loadGLTF(engine, url) {
       return groupHandle;
     }
     const roots = data.roots.map(root => createNode(root, -1));
+    if (!applyAnimation(-1, 0)) throw new AssetError('UPLOAD', 'Could not initialize skinned model');
     return {
       roots: Object.freeze(roots),
       animations: Object.freeze(data.animations.map(({ name, duration }, index) => Object.freeze({ index, name, duration }))),

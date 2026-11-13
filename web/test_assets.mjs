@@ -31,12 +31,44 @@ function glb(document, data) {
 const glbDoc = structuredClone(doc); delete glbDoc.buffers[0].uri;
 const resources = new Map([['http://localhost/model.gltf', bytes(doc)], ['http://localhost/mesh.bin', binary], ['http://localhost/model.glb', glb(glbDoc, binary)], ['http://localhost/image.png', new Uint8Array([1])]]);
 resources.set('http://localhost/sample.glb', await readFile(new URL('./viewer/sample.glb', import.meta.url)));
+const skinChunks = [], skinViews = [], skinAccessors = [];
+let skinByteLength = 0;
+function addSkinAccessor(values, componentType, type, write, componentBytes) {
+  skinByteLength = (skinByteLength + componentBytes - 1) & ~(componentBytes - 1);
+  const offset = skinByteLength, buffer = new ArrayBuffer(values.length * componentBytes), data = new DataView(buffer);
+  values.forEach((value, i) => write(data, i * componentBytes, value));
+  skinChunks.push({ offset, bytes: new Uint8Array(buffer) });
+  skinByteLength += buffer.byteLength;
+  const bufferView = skinViews.push({ buffer: 0, byteOffset: offset, byteLength: buffer.byteLength }) - 1;
+  const components = { SCALAR: 1, VEC3: 3, VEC4: 4, MAT4: 16 }[type];
+  return skinAccessors.push({ bufferView, componentType, count: values.length / components, type }) - 1;
+}
+const skinPosition = addSkinAccessor(positions, 5126, 'VEC3', (d, o, x) => d.setFloat32(o, x, true), 4);
+const skinNormal = addSkinAccessor(normals, 5126, 'VEC3', (d, o, x) => d.setFloat32(o, x, true), 4);
+const skinJoints = addSkinAccessor(Array(12).fill(0), 5121, 'VEC4', (d, o, x) => d.setUint8(o, x), 1);
+const skinWeights = addSkinAccessor([1,0,0,0, 1,0,0,0, 1,0,0,0], 5126, 'VEC4', (d, o, x) => d.setFloat32(o, x, true), 4);
+const skinIndices = addSkinAccessor([0,1,2], 5123, 'SCALAR', (d, o, x) => d.setUint16(o, x, true), 2);
+const inverseBind = addSkinAccessor([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1], 5126, 'MAT4', (d, o, x) => d.setFloat32(o, x, true), 4);
+const skinTimes = addSkinAccessor([0,1], 5126, 'SCALAR', (d, o, x) => d.setFloat32(o, x, true), 4);
+const skinTranslation = addSkinAccessor([0,0,0, 1,0,0], 5126, 'VEC3', (d, o, x) => d.setFloat32(o, x, true), 4);
+const skinBinary = new ArrayBuffer(skinByteLength), skinBytes = new Uint8Array(skinBinary);
+for (const chunk of skinChunks) skinBytes.set(chunk.bytes, chunk.offset);
+const skinDoc = {
+  asset: { version: '2.0' }, buffers: [{ byteLength: skinByteLength, uri: 'skin.bin' }],
+  bufferViews: skinViews, accessors: skinAccessors,
+  meshes: [{ primitives: [{ attributes: { POSITION: skinPosition, NORMAL: skinNormal, JOINTS_0: skinJoints, WEIGHTS_0: skinWeights }, indices: skinIndices }] }],
+  skins: [{ joints: [1], inverseBindMatrices: inverseBind }],
+  nodes: [{ mesh: 0, skin: 0 }, {}], scenes: [{ nodes: [0,1] }], scene: 0,
+  animations: [{ samplers: [{ input: skinTimes, output: skinTranslation }], channels: [{ sampler: 0, target: { node: 1, path: 'translation' } }] }],
+};
+resources.set('http://localhost/skinned.gltf', bytes(skinDoc));
+resources.set('http://localhost/skin.bin', skinBinary);
 globalThis.fetch = async url => resources.has(String(url)) ? new Response(resources.get(String(url))) : new Response('', { status: 404 });
 globalThis.createImageBitmap = async () => ({ width: 1, height: 1, close() {} });
 globalThis.document = { createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8Array([255, 0, 0, 255]) }) }) }) };
 
 function fakeEngine() {
-  const calls = [], engine = { calls, HEAPU8: new Uint8Array(32) };
+  const calls = [], memory = new ArrayBuffer(1 << 20), engine = { calls, HEAPU8: new Uint8Array(memory), HEAPF32: new Float32Array(memory) };
   for (const name of ['mesh_begin','vertex','triangle','matrix','node_material']) engine['_g3_asset_' + name] = (...args) => calls.push([name, ...args]);
   let next = 0, nextTexture = 5, nextMesh = 7, nextMaterial = 1;
   const generations = new Map();
@@ -46,6 +78,11 @@ function fakeEngine() {
   engine.materialGenerations = materialGenerations;
   engine._g3_asset_material = (...args) => { const id = nextMaterial++; materialGenerations.set(id, 1); calls.push(['material', id, ...args]); return id; };
   engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); const id = nextMesh++; meshGenerations.set(id, 1); return id; };
+  engine._g3_host_mesh_update = (id, positions, normals, count) => {
+    calls.push(['mesh_update', id, [...engine.HEAPF32.slice(positions >>> 2, (positions >>> 2) + count)],
+      [...engine.HEAPF32.slice(normals >>> 2, (normals >>> 2) + count)]]);
+    return 1;
+  };
   engine._g3_asset_node = (...args) => { calls.push(['node', ...args]); const id = next++; generations.set(id, 1); return id; };
   engine._g3_asset_texture = () => { const id = nextTexture++; textureGenerations.set(id, 1); return id; };
   engine._g3_host_texture = (...args) => calls.push(['texture', ...args]);
@@ -71,7 +108,9 @@ function fakeEngine() {
   };
   engine._g3_asset_pick = (...args) => { calls.push(['pick', ...args]); return engine.picked ?? -1; };
   engine._g3_asset_output_srgb = value => calls.push(['output_srgb', value]);
-  engine._malloc = () => 4; engine._free = () => {};
+  let heapCursor = 16;
+  engine._malloc = size => { const ptr = heapCursor; heapCursor = (heapCursor + size + 7) & ~7; return ptr; };
+  engine._free = () => {};
   return engine;
 }
 
@@ -302,4 +341,17 @@ resources.set('http://localhost/bad.gltf', bytes(invalid));
 const untouched = fakeEngine();
 await assert.rejects(loadGLTF(untouched, 'http://localhost/bad.gltf'), e => e.code === 'UNSUPPORTED');
 assert.equal(untouched.calls.length, 0);
+const skinEngine = fakeEngine(), skinnedModel = await loadGLTF(skinEngine, 'http://localhost/skinned.gltf');
+assert.equal(skinnedModel.animations.length, 1);
+assert.equal(skinnedModel.playAnimation(0, { loop: false }), true);
+assert.equal(skinnedModel.seekAnimation(1), true);
+const skinnedVertices = skinEngine.calls.filter(x => x[0] === 'mesh_update').at(-1)[2];
+assert.deepEqual(skinnedVertices, [0,-1,0, 2,-1,0, 1,1,0]);
+skinnedModel.dispose();
+const malformedSkin = structuredClone(skinDoc);
+delete malformedSkin.meshes[0].primitives[0].attributes.WEIGHTS_0;
+resources.set('http://localhost/bad-skin.gltf', bytes(malformedSkin));
+const untouchedSkin = fakeEngine();
+await assert.rejects(loadGLTF(untouchedSkin, 'http://localhost/bad-skin.gltf'), e => e.code === 'INVALID_GLTF');
+assert.equal(untouchedSkin.calls.length, 0);
 console.log('asset loading checks passed');
