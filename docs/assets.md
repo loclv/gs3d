@@ -25,6 +25,8 @@ try {
     // model.pauseAnimation(); model.seekAnimation(0.5); model.stopAnimation();
   }
   // model.sceneIndex identifies the loaded scene; roots contains its checked node handles.
+  // model.nodes exposes selected-scene glTF indices, names, parent/child links,
+  // mesh/skin references and a checked handle for each node transform group.
   // model.variants lists KHR_materials_variants names; model.setVariant('Damaged') switches materials.
   // model.setVariant(null) restores each primitive's default material.
   // model.pick(canvas, event.clientX, event.clientY) returns a handle or null.
@@ -87,6 +89,10 @@ disposal releases its GPU buffers and textures and makes its asset-owned slots
 available for reuse. Primitives in a model that reference the same glTF material
 share one engine material. Browser node handles contain an index,
 generation, and scene epoch, and are bound to the engine that created them.
+`model.nodes` is a read-only, depth-first view of the selected glTF scene's node
+hierarchy. Each entry keeps the original glTF node index, optional name, parent
+and child indices, optional mesh and skin indices, and the checked engine handle
+for that node's transform group. Nodes in unselected scenes are not included.
 Use `isNodeHandleValid` before retaining or using a handle: it becomes invalid
 after disposal or `scene_clear()`, even if the same index is reused. Disposal
 after `scene_clear()` still releases the model's GPU resources without touching

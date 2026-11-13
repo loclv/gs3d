@@ -45,10 +45,27 @@ export interface AnimationInfo {
   readonly duration: number;
 }
 
+/** Read-only glTF node metadata for a node in the selected scene. */
+export interface ModelNodeInfo {
+  /** Original node index in the glTF document. */
+  readonly index: number;
+  readonly name: string | null;
+  /** Parent glTF node index, or null for a scene root. */
+  readonly parent: number | null;
+  readonly children: readonly number[];
+  /** Referenced glTF mesh and skin indices, or null when absent. */
+  readonly mesh: number | null;
+  readonly skin: number | null;
+  /** Checked engine node handle for the glTF node's transform group. */
+  readonly handle: NodeHandle;
+}
+
 export interface LoadedModel {
   /** Index of the glTF scene loaded into this model. */
   readonly sceneIndex: number;
   readonly roots: readonly NodeHandle[];
+  /** glTF node hierarchy and references for the selected scene, in depth-first order. */
+  readonly nodes: readonly ModelNodeInfo[];
   readonly animations: readonly AnimationInfo[];
   /** Material variant names declared by KHR_materials_variants. */
   readonly variants: readonly string[];

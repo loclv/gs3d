@@ -210,7 +210,8 @@ const quantizedDoc = {
   ],
   meshes: [{ weights: [1], primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2, TANGENT: 3 }, indices: 7,
     targets: [{ POSITION: 4, NORMAL: 5, TANGENT: 6 }] }] }],
-  nodes: [{ mesh: 0 }], scenes: [{ nodes: [0] }], scene: 0,
+  nodes: [{ name: 'Quantized root', mesh: 0, children: [1] }, { name: 'Marker' }, { name: 'Outside scene' }],
+  scenes: [{ nodes: [0] }, { nodes: [2] }], scene: 0,
 };
 resources.set('http://localhost/quantized.gltf', bytes(quantizedDoc));
 resources.set('http://localhost/quantized.bin', quantizedBinary);
@@ -224,6 +225,11 @@ for (const [name, expected] of [
   sparseModel.dispose();
 }
 const quantizedEngine = fakeEngine(), quantizedModel = await loadGLTF(quantizedEngine, 'http://localhost/quantized.gltf');
+assert.deepEqual(quantizedModel.nodes.map(({ index, name, parent, children, mesh, skin }) => ({ index, name, parent, children, mesh, skin })), [
+  { index: 0, name: 'Quantized root', parent: null, children: [1], mesh: 0, skin: null },
+  { index: 1, name: 'Marker', parent: 0, children: [], mesh: null, skin: null },
+], 'model inspection lists the selected scene hierarchy with mesh and skin references');
+assert.ok(isNodeHandleValid(quantizedEngine, quantizedModel.nodes[0].handle), 'inspected node metadata carries a checked node handle');
 const quantizedVertex = quantizedEngine.calls.find(call => call[0] === 'vertex');
 assert.deepEqual(quantizedVertex.slice(1, 4), [-1, -1, 0], 'quantized integer positions retain their specified values');
 assert.deepEqual(quantizedVertex.slice(4, 7), [0, 0, 1], 'normalized quantized normals decode to floats');

@@ -885,6 +885,7 @@ async function prepare(url, requestedScene) {
     seen.add(index);
     const n = item(nodes, index, 'node');
     if (n.extensions) unsupported('Unsupported node feature');
+    if (n.name !== undefined && typeof n.name !== 'string') invalid('Invalid node name');
     const meshData = n.mesh === undefined ? null : item(meshes, n.mesh, 'mesh');
     const primitives = meshData?.primitives ?? [];
     const targetCount = meshData?.targetCount ?? 0;
@@ -908,7 +909,7 @@ async function prepare(url, requestedScene) {
       }
     } else if (primitives.some(primitive => primitive.joints.length)) invalid('Skin attributes require a node skin');
     const transform = localMatrix(n);
-    return { index, skinIndex, weights: [...morphWeights], ...transform, primitives,
+    return { index, name: n.name ?? null, meshIndex: n.mesh ?? null, skinIndex, weights: [...morphWeights], ...transform, primitives,
       children: (n.children || []).map(child => visit(child, depth + 1)) };
   }
   const sceneRoots = roots.map(root => visit(root, 0));
@@ -979,7 +980,7 @@ export async function loadGLTF(engine, url, options = {}) {
     if (error instanceof AssetError) throw error;
     throw new AssetError('INVALID_GLTF', 'Invalid glTF structure or URL', error);
   }
-  const nodes = [], meshes = [], deformedMeshes = [], materials = new Map(), textures = new Map(), transformNodes = new Map();
+  const nodes = [], modelNodes = [], meshes = [], deformedMeshes = [], materials = new Map(), textures = new Map(), transformNodes = new Map();
   const variantBindings = [];
   const sceneEpoch = engine._g3_asset_scene_epoch();
   let disposed = false;
@@ -1265,11 +1266,16 @@ export async function loadGLTF(engine, url, options = {}) {
         if (!enabled && palettePtr) engine._free(palettePtr);
       }
     }
-    function createNode(node, parent) {
+    function createNode(node, parent, parentIndex = null) {
       const group = engine._g3_asset_node(-1, parent);
       const groupHandle = makeNodeHandle(engine, group);
       if (!groupHandle) throw new AssetError('UPLOAD', 'Could not create node');
       nodes.push(groupHandle);
+      modelNodes.push(Object.freeze({
+        index: node.index, name: node.name, parent: parentIndex,
+        children: Object.freeze(node.children.map(child => child.index)),
+        mesh: node.meshIndex, skin: node.skinIndex < 0 ? null : node.skinIndex, handle: groupHandle,
+      }));
       node.matrix.forEach((value, index) => engine._g3_asset_matrix(group, index, value));
       if (node.translation || node.weights.length) transformNodes.set(node.index, {
         handle: groupHandle,
@@ -1331,7 +1337,7 @@ export async function loadGLTF(engine, url, options = {}) {
         if (p.variantMaterials.size) variantBindings.push({ handle: nodeHandle, defaultMaterial: material.id,
           materials: new Map([...p.variantMaterials].map(([variantIndex, spec]) => [variantIndex, getMaterial(spec).id])) });
       }
-      for (const child of node.children) createNode(child, group);
+      for (const child of node.children) createNode(child, group, node.index);
       return groupHandle;
     }
     const roots = data.roots.map(root => createNode(root, -1));
@@ -1339,6 +1345,7 @@ export async function loadGLTF(engine, url, options = {}) {
     return {
       sceneIndex: data.sceneIndex,
       roots: Object.freeze(roots),
+      nodes: Object.freeze(modelNodes),
       animations: Object.freeze(data.animations.map(({ name, duration }, index) => Object.freeze({ index, name, duration }))),
       variants: Object.freeze([...data.variantNames]),
       meshes: Object.freeze([...meshes]),
