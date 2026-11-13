@@ -42,6 +42,8 @@ struct DrawItem {
     normal_scale: f32,
     occlusion_texture: i32, // linear data texture: R ambient occlusion
     occlusion_strength: f32,
+    emissive: float4,   // RGB emission factor in linear space
+    emissive_texture: i32, // sRGB emissive image, -1 disables
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

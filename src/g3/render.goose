@@ -193,6 +193,8 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         normal_scale: surface.normal_scale,
         occlusion_texture: surface.occlusion_texture,
         occlusion_strength: surface.occlusion_strength,
+        emissive: float4 { surface.emissive.x, surface.emissive.y, surface.emissive.z, 0.0 },
+        emissive_texture: surface.emissive_texture,
     };
 }
 

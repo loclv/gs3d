@@ -40,6 +40,7 @@ typedef struct {
     GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4];
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
+    GLint emissive, emissive_tex, emissive_textured;
     GLint env_map, env_map_enabled, env_map_intensity;
     GLint shadow_map, shadow_matrix, shadow_params;
     GLint alpha_mode, alpha_cutoff;
@@ -102,6 +103,9 @@ static const char *FRAGMENT_SRC =
     "uniform sampler2D u_occlusion_tex;\n"
     "uniform bool u_occlusion_textured;\n"
     "uniform float u_occlusion_strength;\n"
+    "uniform vec4 u_emissive;\n"
+    "uniform sampler2D u_emissive_tex;\n"
+    "uniform bool u_emissive_textured;\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform vec3 u_eye;\n"
@@ -214,6 +218,8 @@ static const char *FRAGMENT_SRC =
     "        col += (u_pbr.x > 0.5 ? pbr_light(n,v,ld,base,mr.x,mr.y) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
     "    }\n"
     "    if (u_params.x > 0.5) col = base;\n"
+    "    vec3 emissive_texel = u_emissive_textured ? texture(u_emissive_tex, v_uv).rgb : vec3(1.0);\n"
+    "    col += u_emissive.rgb * emissive_texel;\n"
     "    float dist = length(u_eye - v_world);\n"
     "    float fog = clamp(1.0 - exp(-dist * u_fog.a), 0.0, 1.0);\n"
     "    col = mix(col, u_fog.rgb, fog);\n"
@@ -278,6 +284,9 @@ static void find_uniforms(void) {
     shader.occlusion_tex = glGetUniformLocation(shader.program, "u_occlusion_tex");
     shader.occlusion_textured = glGetUniformLocation(shader.program, "u_occlusion_textured");
     shader.occlusion_strength = glGetUniformLocation(shader.program, "u_occlusion_strength");
+    shader.emissive = glGetUniformLocation(shader.program, "u_emissive");
+    shader.emissive_tex = glGetUniformLocation(shader.program, "u_emissive_tex");
+    shader.emissive_textured = glGetUniformLocation(shader.program, "u_emissive_textured");
     shader.eye = glGetUniformLocation(shader.program, "u_eye");
     shader.view_direction = glGetUniformLocation(shader.program, "u_view_direction");
     shader.light_dir = glGetUniformLocation(shader.program, "u_light_dir");
@@ -689,7 +698,7 @@ static void draw_item(const g3_draw_item *it) {
     glUniform1i(shader.mr_textured, mr_textured);
 
     /* Keep all shader samplers on separate units: base 0, environment 1,
-       shadow 2, metallic-roughness 3, normal 4, occlusion 5. */
+       shadow 2, metallic-roughness 3, normal 4, occlusion 5, emissive 6. */
     int normal_textured = it->normal_texture >= 0 && it->normal_texture < texture_count && textures[it->normal_texture];
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, normal_textured ? textures[it->normal_texture] : 0);
@@ -703,6 +712,13 @@ static void draw_item(const g3_draw_item *it) {
     glUniform1i(shader.occlusion_tex, 5);
     glUniform1i(shader.occlusion_textured, occlusion_textured);
     glUniform1f(shader.occlusion_strength, it->occlusion_strength);
+
+    int emissive_textured = it->emissive_texture >= 0 && it->emissive_texture < texture_count && textures[it->emissive_texture];
+    glActiveTexture(GL_TEXTURE6);
+    glBindTexture(GL_TEXTURE_2D, emissive_textured ? textures[it->emissive_texture] : 0);
+    glUniform1i(shader.emissive_tex, 6);
+    glUniform1i(shader.emissive_textured, emissive_textured);
+    glUniform4f(shader.emissive, it->emissive.x, it->emissive.y, it->emissive.z, it->emissive.w);
 
     glBindVertexArray(m->vao);
     glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0);

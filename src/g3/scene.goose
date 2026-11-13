@@ -60,6 +60,8 @@ struct Material {
     normal_scale: f32 = 1.0,
     occlusion_texture: i32 = -1,
     occlusion_strength: f32 = 1.0,
+    emissive: float3,
+    emissive_texture: i32 = -1,
     removed: bool,
     asset_owned: bool,
     generation: i32 = 1,

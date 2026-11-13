@@ -103,6 +103,8 @@ mechanism.
   `TEXCOORD_0`. Positions and normals are required.
 * Opaque, masked and blended base-colour factors and base-colour textures.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
+  Emission adds the linear `emissiveFactor`, multiplied by an sRGB-decoded
+  `emissiveTexture` when present.
   Occlusion textures use the glTF red channel and attenuate indirect ambient
   and environment fill according to the material's `occlusionTexture.strength`;
   direct lights remain unaffected.
@@ -124,7 +126,7 @@ mechanism.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
 skins, animations, morph targets, sparse accessors, non-triangle modes,
-double-sided materials, emissive textures, and advanced
+double-sided materials and advanced
 texture/sampler extensions. Tangent frames for normal maps are derived per
 triangle from positions and `TEXCOORD_0`; explicit glTF tangent attributes are
 not used, so mirrored UV seams can differ from MikkTSpace results. Direct PBR

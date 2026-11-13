@@ -956,6 +956,26 @@ fn case_occlusion_map() {
     testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "zero occlusion strength restores ambient light");
 }
 
+// With lighting disabled, linear emissive texture RGB times its factor is
+// added directly to the surface. 128/64/32 texels times 0.5 round to 64/32/16.
+fn case_emissive_material() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_environment(float3_0, float3_0, 0.0);
+    g3::set_environment_map(-1, 0.0);
+    g3::clear_lights();
+    g3::set_light(float3 { 0.0, 0.0, -1.0 }, float3_0);
+    let node = g3::node_add(uv_triangle(0.0, 0.0));
+    let mat = g3::material_add();
+    g3::node(node).material = mat;
+    g3::material(mat).emissive = float3 { 0.5, 0.5, 0.5 };
+    let pixels: u8[4] = [128, 64, 32, 255];
+    g3::material(mat).emissive_texture = g3::texture_create(1, 1, pixels[..]);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 64, 32, 16, 2), "emissive texture is multiplied by its linear factor");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -991,6 +1011,7 @@ fn main() {
     case_normal_map();
     case_environment_specular();
     case_occlusion_map();
+    case_emissive_material();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

@@ -373,7 +373,8 @@ static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
 }
 
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
-                  const g3_vec3 wp, g3_vec3 n, const float tex[3], const float mr[4], float ao, float *out_rgb) {
+                  const g3_vec3 wp, g3_vec3 n, const float tex[3], const float mr[4], float ao,
+                  const float emission[3], float *out_rgb) {
     float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 1e-12f) { n.x /= len; n.y /= len; n.z /= len; }
     else { n.x = n.y = n.z = 0.0f; }
@@ -486,6 +487,7 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
         }
     }
     if (it->params.x > 0.5f) { r = it->color.x * tex[0]; g = it->color.y * tex[1]; b = it->color.z * tex[2]; }
+    r += emission[0]; g += emission[1]; b += emission[2];
 
     float fog = 1.0f - expf(-vl * vs->fog.w);
     if (fog < 0.0f) fog = 0.0f;
@@ -881,7 +883,7 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             n.y = t->nrm[0][1] * b0 + t->nrm[1][1] * b1 + t->nrm[2][1] * b2;
             n.z = t->nrm[0][2] * b0 + t->nrm[1][2] * b1 + t->nrm[2][2] * b2;
 
-            float rgb[3], tex[4], mr[4] = { 1, 1, 1, 1 }, ao = 1.0f;
+            float rgb[3], tex[4], emissive_tex[4], emission[3], mr[4] = { 1, 1, 1, 1 }, ao = 1.0f;
             float u = t->uv[0][0] * b0 + t->uv[1][0] * b1 + t->uv[2][0] * b2;
             float v = t->uv[0][1] * b0 + t->uv[1][1] * b1 + t->uv[2][1] * b2;
             float nl=sqrtf(n.x*n.x+n.y*n.y+n.z*n.z);
@@ -924,9 +926,14 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
                 sample_texture(it->occlusion_texture, u, v, ao_rho, occlusion);
                 ao = 1.0f + it->occlusion_strength * (occlusion[0] - 1.0f);
             }
+            float emissive_rho = texture_footprint(t, it->emissive_texture, l0, l1, l2, u, v);
+            sample_texture(it->emissive_texture, u, v, emissive_rho, emissive_tex);
+            emission[0] = it->emissive.x * emissive_tex[0];
+            emission[1] = it->emissive.y * emissive_tex[1];
+            emission[2] = it->emissive.z * emissive_tex[2];
             float alpha = it->color.w * tex[3];
             if (it->alpha_mode == 1 && alpha < it->alpha_cutoff) continue;
-            shade(it, vs, wp, n, tex, mr, ao, rgb);
+            shade(it, vs, wp, n, tex, mr, ao, emission, rgb);
             if (counting) shaded += 1;
             blend_pixel(fb + at * 3, rgb, alpha, blended);
             if (!blended) depth[at] = z;
