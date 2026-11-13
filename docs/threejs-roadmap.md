@@ -79,9 +79,11 @@ and a browser integration check for behavior exposed through WebGL.
   primitive from a GLB, including float vertex attributes, triangle indices,
   the first matching node's world transform composed through its ancestors,
   scalar material factors and flags, plus declared `KHR_materials_unlit`,
-  `KHR_materials_emissive_strength`, and `KHR_materials_ior`.
-  Material textures, images, full node hierarchy, animations, sparse data, and
-  external `.gltf` buffers remain browser-only.
+  `KHR_materials_emissive_strength`, `KHR_materials_ior`, and factor-only
+  `KHR_materials_specular`, `KHR_materials_clearcoat`, `KHR_materials_sheen`,
+  and `KHR_materials_anisotropy`. Material textures, images, full node
+  hierarchy, animations, sparse data, and external `.gltf` buffers remain
+  browser-only.
 * **Implemented:** glTF `doubleSided` materials disable face culling in colour
   and shadow passes and reverse back-face normals before colour lighting.
   Validate these paths against browser reference images.

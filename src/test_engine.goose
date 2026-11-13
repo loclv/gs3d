@@ -336,6 +336,22 @@ fn case_native_glb_load() {
     let undeclared_material, undeclared_ok = g3::glb_material(undeclared_root, json::member(undeclared_root, "primitive"));
     testing::check(undeclared_root && undeclared_error.len == 0 && !undeclared_ok && !g3::material_handle_valid(undeclared_material),
                    "native GLB rejects undeclared KHR_materials_unlit");
+    var factors_doc: json::Node[>..] = [];
+    var factors_decoded: u8[>..] = [];
+    let factors_root, factors_error = json::parse("{\"extensionsUsed\":[\"KHR_materials_specular\",\"KHR_materials_clearcoat\",\"KHR_materials_sheen\",\"KHR_materials_anisotropy\"],\"materials\":[{\"extensions\":{\"KHR_materials_specular\":{\"specularFactor\":0.6,\"specularColorFactor\":[0.5,0.6,0.7]},\"KHR_materials_clearcoat\":{\"clearcoatFactor\":0.4,\"clearcoatRoughnessFactor\":0.25},\"KHR_materials_sheen\":{\"sheenColorFactor\":[0.1,0.2,0.3],\"sheenRoughnessFactor\":0.4},\"KHR_materials_anisotropy\":{\"anisotropyStrength\":0.8,\"anisotropyRotation\":0.5}}}],\"primitive\":{\"material\":0}}", factors_doc, factors_decoded);
+    let factors_material, factors_ok = g3::glb_material(factors_root, json::member(factors_root, "primitive"));
+    let factors_live = factors_ok && g3::material_handle_valid(factors_material) &&
+                       abs(g3::material(factors_material.id).specular_factor - 0.6) < 0.001 &&
+                       abs(g3::material(factors_material.id).specular_color_factor.z - 0.7) < 0.001 &&
+                       abs(g3::material(factors_material.id).clearcoat_factor - 0.4) < 0.001 &&
+                       abs(g3::material(factors_material.id).clearcoat_roughness - 0.25) < 0.001 &&
+                       abs(g3::material(factors_material.id).sheen_color.y - 0.2) < 0.001 &&
+                       abs(g3::material(factors_material.id).sheen_roughness - 0.4) < 0.001 &&
+                       abs(g3::material(factors_material.id).anisotropy_strength - 0.8) < 0.001 &&
+                       abs(g3::material(factors_material.id).anisotropy_rotation - 0.5) < 0.001;
+    testing::check(factors_root && factors_error.len == 0 && factors_live,
+                   "native GLB imports specular, clearcoat, sheen, and anisotropy factors");
+    if g3::material_handle_valid(factors_material) { g3::material_asset_release(factors_material); }
     let model, loaded = g3::native_glb_load_primitive("web/viewer/sample.glb", 0, 0);
     let live = loaded && g3::mesh_handle_valid(model.mesh) && g3::node_handle_valid(model.node) &&
                g3::material_handle_valid(model.material) && g3::node(model.node.index).material == model.material.id;

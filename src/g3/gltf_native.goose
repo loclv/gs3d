@@ -58,6 +58,16 @@ fn glb_number(node: json::Node?, fallback: f64) -> f64, bool {
     return json::as_f64(node);
 }
 
+fn glb_factor3(node: json::Node?, fallback: float3, min_value: f64, max_value: f64) -> float3, bool {
+    if !node { return fallback, true; }
+    guard glb_array_count(node) == 3 else { return float3_0, false; }
+    let x, x_ok = json::as_f64(glb_json_element(node, 0));
+    let y, y_ok = json::as_f64(glb_json_element(node, 1));
+    let z, z_ok = json::as_f64(glb_json_element(node, 2));
+    guard x_ok && y_ok && z_ok && x >= min_value && x <= max_value && y >= min_value && y <= max_value && z >= min_value && z <= max_value else { return float3_0, false; }
+    return float3 { x as f32, y as f32, z as f32 }, true;
+}
+
 fn glb_array_has_string(node: json::Node?, value: const u8[:]) -> bool {
     for i in 0..glb_array_count(node) {
         let candidate, ok = json::as_string(glb_json_element(node, i));
@@ -113,6 +123,26 @@ fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bo
     guard ior_extension_ok else { return MaterialHandle { .. }, false; }
     let ior, ior_ok = glb_number(json::member(ior_extension, "ior"), 1.5);
     guard ior_ok && ior >= 1.0 && ior <= 2.333 else { return MaterialHandle { .. }, false; }
+    let specular_extension, specular_extension_ok = glb_material_extension(root, source, "KHR_materials_specular");
+    guard specular_extension_ok else { return MaterialHandle { .. }, false; }
+    let specular_factor, specular_factor_ok = glb_number(json::member(specular_extension, "specularFactor"), 1.0);
+    let specular_color, specular_color_ok = glb_factor3(json::member(specular_extension, "specularColorFactor"), float3_1, 0.0, 3.4e38);
+    guard specular_factor_ok && specular_factor >= 0.0 && specular_factor <= 1.0 && specular_color_ok else { return MaterialHandle { .. }, false; }
+    let clearcoat_extension, clearcoat_extension_ok = glb_material_extension(root, source, "KHR_materials_clearcoat");
+    guard clearcoat_extension_ok else { return MaterialHandle { .. }, false; }
+    let clearcoat_factor, clearcoat_factor_ok = glb_number(json::member(clearcoat_extension, "clearcoatFactor"), 0.0);
+    let clearcoat_roughness, clearcoat_roughness_ok = glb_number(json::member(clearcoat_extension, "clearcoatRoughnessFactor"), 0.0);
+    guard clearcoat_factor_ok && clearcoat_roughness_ok && clearcoat_factor >= 0.0 && clearcoat_factor <= 1.0 && clearcoat_roughness >= 0.0 && clearcoat_roughness <= 1.0 else { return MaterialHandle { .. }, false; }
+    let sheen_extension, sheen_extension_ok = glb_material_extension(root, source, "KHR_materials_sheen");
+    guard sheen_extension_ok else { return MaterialHandle { .. }, false; }
+    let sheen_color, sheen_color_ok = glb_factor3(json::member(sheen_extension, "sheenColorFactor"), float3_0, 0.0, 1.0);
+    let sheen_roughness, sheen_roughness_ok = glb_number(json::member(sheen_extension, "sheenRoughnessFactor"), 0.0);
+    guard sheen_color_ok && sheen_roughness_ok && sheen_roughness >= 0.0 && sheen_roughness <= 1.0 else { return MaterialHandle { .. }, false; }
+    let anisotropy_extension, anisotropy_extension_ok = glb_material_extension(root, source, "KHR_materials_anisotropy");
+    guard anisotropy_extension_ok else { return MaterialHandle { .. }, false; }
+    let anisotropy_strength, anisotropy_strength_ok = glb_number(json::member(anisotropy_extension, "anisotropyStrength"), 0.0);
+    let anisotropy_rotation, anisotropy_rotation_ok = glb_number(json::member(anisotropy_extension, "anisotropyRotation"), 0.0);
+    guard anisotropy_strength_ok && anisotropy_rotation_ok && anisotropy_strength >= 0.0 && anisotropy_strength <= 1.0 && anisotropy_rotation >= -3.4e38 && anisotropy_rotation <= 3.4e38 else { return MaterialHandle { .. }, false; }
     var alpha_mode: i32 = 0;
     let mode_node = json::member(source, "alphaMode");
     if mode_node {
@@ -131,6 +161,7 @@ fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bo
     var unlit = false;
     if unlit_node {
         guard glb_array_has_string(json::member(root, "extensionsUsed"), "KHR_materials_unlit") else { return MaterialHandle { .. }, false; }
+        guard !specular_extension && !clearcoat_extension && !sheen_extension && !anisotropy_extension else { return MaterialHandle { .. }, false; }
         unlit = true;
     }
 
@@ -140,6 +171,10 @@ fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bo
     m.alpha_mode = alpha_mode; m.alpha_cutoff = cutoff as f32; m.pbr = true;
     m.metallic = metallic_value as f32; m.roughness = roughness_value as f32; m.ior = ior as f32;
     m.emissive = emissive; m.double_sided = double_sided; m.unlit = unlit;
+    m.specular_factor = specular_factor as f32; m.specular_color_factor = specular_color;
+    m.clearcoat_factor = clearcoat_factor as f32; m.clearcoat_roughness = clearcoat_roughness as f32;
+    m.sheen_color = sheen_color; m.sheen_roughness = sheen_roughness as f32;
+    m.anisotropy_strength = anisotropy_strength as f32; m.anisotropy_rotation = anisotropy_rotation as f32;
     return material_handle(id), true;
 }
 

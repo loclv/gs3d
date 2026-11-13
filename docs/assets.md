@@ -83,7 +83,9 @@ with its ancestors. It imports
 material base colour, metallic and roughness factors, emissive factor, alpha
 mode and cutoff, the double-sided flag, and declared `KHR_materials_unlit`.
 Declared `KHR_materials_emissive_strength` and `KHR_materials_ior` are applied
-to emissive output and dielectric response.
+to emissive output and dielectric response. The factor portions of
+`KHR_materials_specular`, `KHR_materials_clearcoat`, `KHR_materials_sheen`, and
+`KHR_materials_anisotropy` are imported too; their texture maps are not.
 `NativeGlbModel` owns checked mesh, node, and material handles; dispose the model
 to release them. It does not yet
 load material textures, images, external `.gltf` buffers, skins, animations,
