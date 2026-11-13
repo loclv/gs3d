@@ -36,6 +36,8 @@ var g_view: Mat4;
 var g_view_proj: Mat4;
 var g_frustum: Frustum;
 var g_output_srgb: bool;
+var g_tone_mapping: bool;
+var g_exposure: f32 = 1.0;
 var g_shadow_center: float3;
 var g_shadow_extent: f32;
 var g_shadow_bias: f32;
@@ -203,6 +205,17 @@ fn set_background(color: float4) { g_view_state.clear = color; }
 // framebuffer is encoded to sRGB. Disabled by default for existing scenes.
 fn set_output_srgb(enabled: bool) { g_output_srgb = enabled; }
 
+// Apply the ACES fitted curve to HDR output. WebGL uses inline mapping when
+// floating-point color blending is unavailable.
+fn set_tone_mapping(enabled: bool) { g_tone_mapping = enabled; }
+
+// Linear exposure multiplier applied before tone mapping.
+fn set_exposure(exposure: f32) -> bool {
+    guard exposure >= 0.0 && exposure <= 32.0 else { return false; }
+    g_exposure = exposure;
+    return true;
+}
+
 fn view_state() -> ViewState& { return g_view_state }
 fn stats() -> Stats { return g_stats }
 fn draw_list() -> DrawItem[:] { return g_draws[..] }
@@ -224,7 +237,7 @@ fn begin_frame(time: f64, width: i32, height: i32) {
     g_view_state.eye = g_camera.pos;
     // The third row of look-at points from the scene toward the camera.
     g_view_state.view_direction = float4 { g_view.m[2], g_view.m[6], g_view.m[10], if g_camera.orthographic { 1.0 } else { 0.0 } };
-    g_view_state.params = float4 { time as f32, if g_output_srgb { 1.0 } else { 0.0 }, 0.0, 0.0 };
+    g_view_state.params = float4 { time as f32, if g_output_srgb { 1.0 } else { 0.0 }, if g_tone_mapping { 1.0 } else { 0.0 }, g_exposure };
 }
 
 // Where an item sorts. Opaque items sort by mesh id, so the backend sees runs

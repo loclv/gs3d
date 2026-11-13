@@ -73,6 +73,8 @@ fn init(width: i32, height: i32, title: const u8[:]) -> bool {
     set_shadow_filter_radius(0);
     set_shadow_resolution(512);
     set_output_srgb(false);
+    set_tone_mapping(false);
+    set_exposure(1.0);
     set_ambient(float3 { 0.34, 0.38, 0.5 }, 0.7);
     set_fog(float3 { 0.09, 0.1, 0.14 }, 0.0022);
     set_background(float4 { 0.09, 0.1, 0.14, 1.0 });

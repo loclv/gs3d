@@ -249,7 +249,12 @@ What the API gives you:
   Use `texture_create_srgb` for sRGB colour images; RGB is decoded before
   filtering and alpha stays linear. `set_output_srgb(true)` renders and blends
   in linear space before encoding the finished frame. Output encoding is opt-in
-  for compatibility with existing scenes.
+  for compatibility with existing scenes. `set_tone_mapping(true)` enables an
+  ACES fitted curve, and `set_exposure(value)` sets its linear exposure
+  multiplier (0–32). The CPU backend composites into a floating-point buffer;
+  WebGL uses an RGBA16F target when floating-point color rendering and blending
+  are available, and otherwise maps each fragment before blending. Tone mapping
+  works with HDR lighting values but does not add HDR image decoding.
 * **Nodes** — `node_add(mesh)`, `node_group()`, `node(id) -> Node&`,
   `node_parent(child, parent)`, `scene_clear()`, and `node_count()`. A node has
   position, euler rotation, scale, colour, `unlit`, `visible`, specular
@@ -393,15 +398,17 @@ Deliberately out of scope for now, in rough order of how much they would add:
 * **Partial PBR.** Shared materials support metallic-roughness factors and
   maps, tangent-space normal maps for surface shading, and occlusion maps for
   indirect fill, plus emissive factors and textures. GGX-prefiltered
-  environment lighting, HDR, and tone mapping remain to be implemented.
+  environment lighting, ACES tone mapping, and exposure controls are available;
+  HDR environment image input and full colour management remain unimplemented.
 * **Limited shadows, environment lighting, and normals.** The primary
   directional light, one selected extra point light, and one selected spot
   light cast shadows; PCF filtering has hard, 3×3, and 5×5 settings, and
   blended objects do not cast them. Map resolution is selectable from 256 to
   1024 pixels per face or spot map, directional shadows have explicit bounds,
   and shadow-enabled frames submit off-camera nodes so they can cast shadows.
-  Environment textures provide a diffuse approximation rather than prefiltered
-  reflections.
+  Environment textures provide diffuse fill and GGX-prefiltered reflections.
+  Images are currently RGB8, so HDR environment radiance and a skybox are not
+  available.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
 * **Limited removal.** Ordinary nodes can be removed and reused. Browser-loaded assets recycle their owned nodes, mesh

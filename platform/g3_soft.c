@@ -43,6 +43,7 @@ typedef struct {
 
 static int32_t fb_w, fb_h;
 static uint8_t *fb;      /* rgb, top row first */
+static float *hdr_fb;     /* linear RGB, unbounded until tone mapping */
 static float *depth;     /* [0, 1], 1 is far */
 static soft_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
@@ -151,8 +152,9 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     fb_h = height > 0 ? height : 1;
     size_t pixels = (size_t)fb_w * (size_t)fb_h;
     fb = (uint8_t *)calloc(pixels * 3, 1);
+    hdr_fb = (float *)calloc(pixels * 3, sizeof(float));
     depth = (float *)malloc(sizeof(float) * pixels);
-    if (!fb || !depth) {
+    if (!fb || !hdr_fb || !depth) {
         fprintf(stderr, "g3_soft: out of memory for a %dx%d surface\n", fb_w, fb_h);
         return 0;
     }
@@ -192,8 +194,10 @@ void g3p_shutdown(void) {
     queue = NULL;
     queue_len = queue_cap = 0;
     free(fb);
+    free(hdr_fb);
     free(depth);
     fb = NULL;
+    hdr_fb = NULL;
     depth = NULL;
     for (int32_t i = 0; i < mesh_count; i++) {
         free(meshes[i].verts);
@@ -330,12 +334,15 @@ int g3_backend_resize(int w, int h) {
     int32_t nw = w, nh = h;
     size_t pixels = (size_t)nw * (size_t)nh;
     uint8_t *nfb = (uint8_t *)calloc(pixels * 3, 1);
+    float *nhdr = (float *)calloc(pixels * 3, sizeof(float));
     float *nd = (float *)malloc(sizeof(float) * pixels);
-    if (!nfb || !nd) { free(nfb); free(nd); return 0; }
+    if (!nfb || !nhdr || !nd) { free(nfb); free(nhdr); free(nd); return 0; }
     for (size_t i = 0; i < pixels; i++) nd[i] = 1.0f;
     free(fb);
+    free(hdr_fb);
     free(depth);
     fb = nfb;
+    hdr_fb = nhdr;
     depth = nd;
     fb_w = nw;
     fb_h = nh;
@@ -1000,6 +1007,14 @@ static void blend_pixel(uint8_t *dst, const float rgb[3], float alpha, int blend
     }
 }
 
+static void blend_pixel_hdr(float *dst, const float rgb[3], float alpha, int blended) {
+    for (int c=0;c<3;c++) {
+        float value=rgb[c];
+        if (blended) value=value*alpha+dst[c]*(1.0f-alpha);
+        dst[c]=value;
+    }
+}
+
 /* Fill the triangle's box, one pixel at a time: barycentrics, depth test,
    perspective-correct attributes, shade, store. */
 static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
@@ -1093,7 +1108,8 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             if (it->alpha_mode == 1 && alpha < it->alpha_cutoff) continue;
             shade(it, vs, wp, n, tex, mr, ao, emission, rgb);
             if (counting) shaded += 1;
-            blend_pixel(fb + at * 3, rgb, alpha, blended);
+            if (vs->params.z > 0.5f) blend_pixel_hdr(hdr_fb + at * 3, rgb, alpha, blended);
+            else blend_pixel(fb + at * 3, rgb, alpha, blended);
             if (!blended) depth[at] = z;
         }
     }
@@ -1197,6 +1213,11 @@ static void clear_frame(const g3_view_state *view) {
         fb[i * 3 + 0] = r8;
         fb[i * 3 + 1] = g8;
         fb[i * 3 + 2] = b8;
+        if (view->params.z > 0.5f) {
+            hdr_fb[i*3+0]=view->clear.x;
+            hdr_fb[i*3+1]=view->clear.y;
+            hdr_fb[i*3+2]=view->clear.z;
+        }
         depth[i] = 1.0f;
     }
 }
@@ -1275,7 +1296,17 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         rasterize_blocks(view, &one);
         merge_counts(&prof, &one);
     }
-    if (view->params.y > 0.5f) {
+    if (view->params.z > 0.5f) {
+        size_t components=(size_t)fb_w*(size_t)fb_h*3;
+        for(size_t i=0;i<components;i++){
+            float value=hdr_fb[i]*view->params.w;
+            if (!isfinite(value) || value<0.0f) value=0.0f;
+            float mapped=(value*(2.51f*value+0.03f))/(value*(2.43f*value+0.59f)+0.14f);
+            mapped=clamp01(mapped);
+            if(view->params.y>0.5f)mapped=srgb_encode(mapped);
+            fb[i]=(uint8_t)(mapped*255.0f+0.5f);
+        }
+    } else if (view->params.y > 0.5f) {
         size_t components = (size_t)fb_w * (size_t)fb_h * 3;
         for (size_t i = 0; i < components; i++)
             fb[i] = (uint8_t)(srgb_encode(fb[i] / 255.0f) * 255.0f + 0.5f);

@@ -58,7 +58,7 @@ struct ViewState {
     ambient: float4,        // rgb, and a = intensity
     fog: float4,            // rgb, and a = density (0 turns fog off)
     clear: float4,          // the colour the frame starts from
-    params: float4,         // x = seconds, y = sRGB output encoding
+    params: float4,         // x time, y sRGB output, z tone mapping, w exposure
     lights: Light[4],
     light_count: i32,
     env_sky: float4,        // rgb, w = intensity

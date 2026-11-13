@@ -63,7 +63,7 @@ typedef struct {
     g3_vec4 ambient;      /* rgb, a = intensity */
     g3_vec4 fog;          /* rgb, a = density */
     g3_vec4 clear;
-    g3_vec4 params;       /* x = seconds since start */
+    g3_vec4 params;       /* x time, y sRGB output, z tone mapping, w exposure */
     g3_light lights[4];
     int32_t light_count;
     g3_vec4 env_sky, env_ground;
