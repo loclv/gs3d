@@ -7,11 +7,12 @@
 <style>
   body { margin: 0; background: #111820; color: #edf3f3; font: 14px/1.5 system-ui, sans-serif; }
   canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
-  .panel { position: fixed; left: 18px; top: 18px; max-width: 320px; padding: 16px; border-radius: 8px; background: #101a20e8; }
+  .panel { position: fixed; left: 18px; top: 18px; max-width: 320px; max-height: calc(100vh - 68px); overflow: auto; padding: 16px; border-radius: 8px; background: #101a20e8; }
   h1 { margin: 0 0 4px; font-size: 21px; }
   p { margin: 8px 0; color: #c6d5d5; }
   button { padding: 8px 12px; border: 0; border-radius: 4px; cursor: pointer; }
   select { width: 100%; padding: 7px; border-radius: 4px; }
+  input[type="range"] { width: 100%; accent-color: #7ac8ff; }
   #status { color: #ffe6a5; }
   #inspection { white-space: pre-wrap; font: 12px/1.55 ui-monospace, monospace; color: #c6d5d5; }
   #texture-previews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; max-height: 210px; overflow: auto; }
@@ -24,9 +25,10 @@
 <canvas id="canvas" aria-label="3D model viewer"></canvas>
 <section class="panel">
   <h1>Model viewer</h1>
-  <p>The sample plays its turntable clip. Drag to orbit, right-drag or Shift+drag to pan, scroll or pinch to zoom, and click or tap a mesh to see its glTF node name and primitive. Focus the canvas for arrow-key orbit, WASD pan, and +/- zoom.</p>
+  <p>The sample plays its turntable clip. Drag to orbit, right-drag or Shift+drag to pan, scroll or pinch to zoom, and click or tap a mesh to inspect it. Focus the canvas for arrow-key orbit, WASD pan, and +/- zoom.</p>
   <button id="reload" type="button">Reload model</button>
   <p><label for="variant">Material variant</label><br><select id="variant" disabled><option value="-1">Default materials</option></select></p>
+  <p><label for="environment-intensity">Selected material environment <output id="environment-value">1.00</output></label><br><input id="environment-intensity" type="range" min="0" max="2" step="0.05" value="1" disabled></p>
   <p id="status" role="status">Loading…</p>
   <p id="inspection" aria-live="polite">Click a mesh to inspect its material.</p>
   <div id="texture-previews" aria-label="Selected material texture previews"></div>

@@ -119,8 +119,9 @@ and a browser integration check for behavior exposed through WebGL.
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material
   summaries expose texture bindings and a bounded preview API, and the viewer
-  displays maps for the selected material and variant. Validate those paths in
-  a real browser.
+  displays maps for the selected material and variant. Its material selector
+  controls per-material environment intensity. Validate those paths in a real
+  browser.
 
 **Done when:** a documented example loads a static textured GLB, orbits it,
 selects a mesh with a click, and repeatedly loads and disposes models without

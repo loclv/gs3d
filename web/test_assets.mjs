@@ -598,6 +598,9 @@ for (const path of ['model.gltf', 'model.glb']) {
   assert.equal(isMaterialHandleValid(fakeEngine(), model.materials[0]), false);
   assert.equal(setMaterialEnvironmentIntensity(engine, model.materials[0], 0.35), true);
   assert.deepEqual(engine.calls.find(call => call[0] === 'material_environment'), ['material_environment', model.materials[0].id, 0.35]);
+  assert.equal(model.setMaterialEnvironmentIntensity(0, 0.6), true, 'model material indices resolve to checked material handles');
+  assert.deepEqual(engine.calls.filter(call => call[0] === 'material_environment').at(-1), ['material_environment', model.materials[0].id, 0.6]);
+  assert.equal(model.setMaterialEnvironmentIntensity(99, 0.5), false, 'unknown material indices are rejected');
   assert.equal(setMaterialEnvironmentIntensity(engine, model.materials[0], -1), false, 'material environment intensity cannot be negative');
   assert.equal(setMaterialEnvironmentIntensity(fakeEngine(), model.materials[0], 0.5), false, 'material handles belong to their creating engine');
   assert.equal(engine.calls.filter(x => x[0] === 'vertex').length, 3);
@@ -616,6 +619,7 @@ for (const path of ['model.gltf', 'model.glb']) {
   model.dispose(); model.dispose();
   assert.equal(isMaterialHandleValid(engine, model.materials[0]), false);
   assert.equal(setMaterialEnvironmentIntensity(engine, model.materials[0], 0.5), false, 'disposed material handles cannot change rendering state');
+  assert.equal(model.setMaterialEnvironmentIntensity(0, 0.5), false, 'disposed models cannot change material state');
   assert.equal(isMeshHandleValid(engine, model.meshes[0]), false);
   assert.equal(isNodeHandleValid(engine, selected), false);
   engine.generations.set(selected.index, 2);

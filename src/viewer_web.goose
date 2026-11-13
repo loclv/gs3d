@@ -8,6 +8,7 @@ import g3.asset_web;
 export fn g3_app_init(width: i32, height: i32) -> bool {
     guard g3::init(width, height, "Goose 3D viewer") else { return false; }
     g3::set_output_srgb(true);
+    g3::set_environment(float3 { 0.32, 0.48, 0.72 }, float3 { 0.16, 0.12, 0.08 }, 0.55);
     g3::camera_orbit(0.65, 0.35, 5.0, float3_0);
     return true;
 }

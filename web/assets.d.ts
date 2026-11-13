@@ -157,6 +157,8 @@ export interface LoadedModel {
   readonly meshes: readonly ResourceHandle[];
   readonly materials: readonly ResourceHandle[];
   readonly textures: readonly ResourceHandle[];
+  /** Scale environment lighting for a glTF material index (or -1 for the default material). */
+  setMaterialEnvironmentIntensity(materialIndex: number, intensity: number): boolean;
   /** Copy a glTF texture into a bounded RGBA preview (default 256, range 1..1024); null for invalid, stale, or disposed models. */
   getTexturePreview(textureIndex: number, maxDimension?: number): TexturePreview | null;
   readonly activeAnimation: number;

@@ -61,7 +61,8 @@ for this repository example. Their callback API and cleanup are documented in
 [assets.md](docs/assets.md).
 Drag to orbit, scroll to zoom, click the model to select a mesh, and use Reload
 to load and dispose it again. The selected material shows previews of its
-texture maps and updates when you switch variants. The bundled GLB uses the CC0 Ground Grey texture
+texture maps, updates when you switch variants, and has a slider for its
+environment fill. The bundled GLB uses the CC0 Ground Grey texture
 credited below; `web/viewer/generate_sample.py` regenerates it.
 
 ### Play Beacon Run

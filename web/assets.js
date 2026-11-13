@@ -1793,6 +1793,10 @@ export async function loadGLTF(engine, url, options = {}) {
       meshes: Object.freeze([...meshes]),
       materials: Object.freeze([...materials.values()]),
       textures: Object.freeze([...textures.values()]),
+      setMaterialEnvironmentIntensity(materialIndex, intensity) {
+        if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch() || !Number.isInteger(materialIndex)) return false;
+        return setMaterialEnvironmentIntensity(engine, materials.get(materialIndex), intensity);
+      },
       setVariant(variant) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
         const index = variant === null ? -1 : typeof variant === 'string' ? data.variantNames.indexOf(variant) : variant;

@@ -9,19 +9,29 @@ const reload = document.getElementById('reload');
 const inspection = document.getElementById('inspection');
 const previews = document.getElementById('texture-previews');
 const variantSelect = document.getElementById('variant');
+const environmentInput = document.getElementById('environment-intensity');
+const environmentValue = document.getElementById('environment-value');
 let engine, model, last = 0;
 let selectedPrimitive = null;
+let environmentIntensities = new Map();
 
 function updateInspection() {
   previews.replaceChildren();
   if (!model || !selectedPrimitive) {
     inspection.textContent = 'Click a mesh to inspect its material.';
+    environmentInput.disabled = true;
+    environmentInput.value = '1';
+    environmentValue.value = '1.00';
     return;
   }
   const { owner, primitive } = selectedPrimitive;
   const choice = owner.primitiveMaterials[primitive];
   const selectedVariant = choice.variants.find(variant => variant.index === model.activeVariant);
   const material = selectedVariant?.material ?? choice.default;
+  const materialEnvironment = environmentIntensities.get(material.index) ?? 1;
+  environmentInput.disabled = false;
+  environmentInput.value = String(materialEnvironment);
+  environmentValue.value = materialEnvironment.toFixed(2);
   const color = material.baseColorFactor.map(value => value.toFixed(2)).join(', ');
   const emission = material.emissiveFactor.map(value => value.toFixed(2)).join(', ');
   inspection.textContent = [
@@ -67,6 +77,7 @@ async function loadModel() {
     const next = await loadGLTF(engine, './sample.glb');
     if (model) model.dispose();
     model = next;
+    environmentIntensities = new Map();
     selectedPrimitive = null;
     updateInspection();
     variantSelect.replaceChildren(new Option('Default materials', '-1'));
@@ -97,6 +108,17 @@ async function start() {
       if (!model) return;
       const variant = Number(variantSelect.value);
       if (model.setVariant(variant < 0 ? null : variant)) updateInspection();
+    });
+    environmentInput.addEventListener('input', () => {
+      if (!model || !selectedPrimitive) return;
+      const choice = selectedPrimitive.owner.primitiveMaterials[selectedPrimitive.primitive];
+      const selectedVariant = choice.variants.find(variant => variant.index === model.activeVariant);
+      const materialIndex = (selectedVariant?.material ?? choice.default).index;
+      const intensity = Number(environmentInput.value);
+      if (model.setMaterialEnvironmentIntensity(materialIndex, intensity)) {
+        environmentIntensities.set(materialIndex, intensity);
+        environmentValue.value = intensity.toFixed(2);
+      }
     });
     createOrbitControls(canvas, {
       onOrbit: (yaw, pitch) => engine._g3_viewer_orbit(yaw, pitch),

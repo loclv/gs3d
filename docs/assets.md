@@ -12,14 +12,14 @@ their declarations. Applications still build and initialize their own Goose
 WebAssembly engine before calling the helpers.
 
 ```js
-import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setMaterialEnvironmentIntensity, setToneMapping, setFXAA, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
+import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setToneMapping, setFXAA, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
 
 try {
   setOutputColorSpace(engine, 'srgb'); // after engine startup
   setFXAA(engine, true); // optional output edge smoothing
   const model = await loadGLTF(engine, './model.glb');
-  // Scale environment fill/reflections for one material without changing others.
-  if (model.materials.length) setMaterialEnvironmentIntensity(engine, model.materials[0], 0.6);
+  // Scale environment fill/reflections for glTF material 0 without changing others.
+  model.setMaterialEnvironmentIntensity(0, 0.6);
   // Pass { scene: 1 } to load a different scene by index.
   if (model.animations.length) {
     model.playAnimation(0, { loop: true });
@@ -125,6 +125,9 @@ hemispherical and equirectangular environment contribution for that material;
 it returns `false` for a stale, foreign, or invalid handle/value. The default
 multiplier is 1, and 0 disables environment lighting for that material while
 preserving its direct lights.
+`model.setMaterialEnvironmentIntensity(index, value)` resolves a glTF material
+index (or `-1` for the implicit default material) through that model's checked
+handles and returns `false` after disposal or for an unknown index.
 When an asset node is released, surviving children are reparented to its former
 parent and their local transforms are baked into matrices to preserve their
 world transforms. Changing a baked child's TRS fields has no effect until its
