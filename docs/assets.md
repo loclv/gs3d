@@ -117,9 +117,12 @@ mechanism.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
 skins, animations, morph targets, sparse accessors, non-triangle modes,
-double-sided materials, normal, occlusion, emissive textures, and advanced
-texture/sampler extensions. PBR is limited to direct lights and factors/maps;
-roughness is clamped to at least 0.045.
+double-sided materials, occlusion, emissive textures, and advanced
+texture/sampler extensions. Tangent frames for normal maps are derived per
+triangle from positions and `TEXCOORD_0`; explicit glTF tangent attributes are
+not used, so mirrored UV seams can differ from MikkTSpace results. PBR is
+limited to direct lights and factors/maps; roughness is clamped to at least
+0.045.
 Unsupported optional data may be
 ignored. Files needing these features require a fuller loader and renderer.
 

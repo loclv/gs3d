@@ -325,7 +325,7 @@ Blended items get keys above 1000000 and are ordered far to
 near, so they are drawn after everything opaque and read the depth they should.
 
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
-`Mat4`s, colour, shading parameters, the sort key, texture IDs and alpha settings, 200 bytes. `g3p_draw_frame` hands the
+`Mat4`s, colour, shading parameters, the sort key, texture IDs and alpha settings, 208 bytes. `g3p_draw_frame` hands the
 backend a slice of them plus the frame's `ViewState`, and `platform/g3_abi.h`
 static-asserts every offset, so the Goose and C sides cannot drift apart
 silently.
@@ -378,8 +378,8 @@ and tests show both forms.
 
 Deliberately out of scope for now, in rough order of how much they would add:
 
-* **Partial PBR.** Shared materials support metallic-roughness factors and a
-  metallic-roughness map for direct lights. Normal maps, prefiltered specular
+* **Partial PBR.** Shared materials support metallic-roughness factors and
+  maps plus tangent-space normal maps for direct lights. Prefiltered specular
   environment lighting, HDR, and tone mapping remain to be implemented.
 * **Limited shadows, environment lighting, and normals.** Only the primary
   directional light casts hard shadows; blended objects do not cast them.

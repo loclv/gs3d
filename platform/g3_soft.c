@@ -72,6 +72,7 @@ typedef struct {
     float world[3][3];
     float nrm[3][3];
     float uv[3][2];
+    float tangent[3], bitangent[3];
     float det;              /* twice the signed area in pixels */
     float edge_sense;       /* +1 or -1: the sign l0 has when an edge is 0 */
     int x0, y0, x1, y1;
@@ -634,6 +635,17 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
         t->world[k][2] = nm[2] * p[0] + nm[6] * p[1] + nm[10] * p[2] + nm[14];
     }
 
+    /* Derive the tangent frame from this triangle's world positions and UVs,
+       matching the derivative-based frame in the WebGL fragment shader. */
+    float e1[3], e2[3], du1=t->uv[1][0]-t->uv[0][0], dv1=t->uv[1][1]-t->uv[0][1];
+    float du2=t->uv[2][0]-t->uv[0][0], dv2=t->uv[2][1]-t->uv[0][1];
+    for (int c=0;c<3;c++) { e1[c]=t->world[1][c]-t->world[0][c]; e2[c]=t->world[2][c]-t->world[0][c]; }
+    float uv_det=du1*dv2-dv1*du2;
+    if (fabsf(uv_det)>1e-12f) for (int c=0;c<3;c++) {
+        t->tangent[c]=(e1[c]*dv2-e2[c]*dv1)/uv_det;
+        t->bitangent[c]=(-e1[c]*du2+e2[c]*du1)/uv_det;
+    } else { memset(t->tangent,0,sizeof(t->tangent)); memset(t->bitangent,0,sizeof(t->bitangent)); }
+
     /* Front faces are counterclockwise in NDC, which is what GL means by
        GL_CCW with the y-up window it uses. */
     float area = (ndc[1][0] - ndc[0][0]) * (ndc[2][1] - ndc[0][1]) -
@@ -823,6 +835,34 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             float rgb[3], tex[4], mr[4] = { 1, 1, 1, 1 };
             float u = t->uv[0][0] * b0 + t->uv[1][0] * b1 + t->uv[2][0] * b2;
             float v = t->uv[0][1] * b0 + t->uv[1][1] * b1 + t->uv[2][1] * b2;
+            float nl=sqrtf(n.x*n.x+n.y*n.y+n.z*n.z);
+            if (nl>1e-12f) { n.x/=nl; n.y/=nl; n.z/=nl; }
+            if (it->normal_texture >= 0 && nl>1e-12f) {
+                float tx=t->tangent[0], ty=t->tangent[1], tz=t->tangent[2];
+                float ndott=n.x*tx+n.y*ty+n.z*tz;
+                tx-=n.x*ndott; ty-=n.y*ndott; tz-=n.z*ndott;
+                float tl=sqrtf(tx*tx+ty*ty+tz*tz);
+                float bx=t->bitangent[0], by=t->bitangent[1], bz=t->bitangent[2];
+                float ndotb=n.x*bx+n.y*by+n.z*bz;
+                bx-=n.x*ndotb; by-=n.y*ndotb; bz-=n.z*ndotb;
+                if (tl>1e-12f) {
+                    tx/=tl; ty/=tl; tz/=tl;
+                    float tdotb=tx*bx+ty*by+tz*bz;
+                    bx-=tx*tdotb; by-=ty*tdotb; bz-=tz*tdotb;
+                    float bl=sqrtf(bx*bx+by*by+bz*bz);
+                    if (bl>1e-12f) {
+                        bx/=bl; by/=bl; bz/=bl;
+                        float normal_sample[4];
+                        sample_texture(it->normal_texture,u,v,texture_footprint(t,it->normal_texture,l0,l1,l2,u,v),normal_sample);
+                        float mx=(normal_sample[0]*2.0f-1.0f)*it->normal_scale;
+                        float my=(normal_sample[1]*2.0f-1.0f)*it->normal_scale;
+                        float mz=normal_sample[2]*2.0f-1.0f;
+                        float ml=sqrtf(mx*mx+my*my+mz*mz);
+                        if (ml>1e-12f) { mx/=ml; my/=ml; mz/=ml; }
+                        n=(g3_vec3){tx*mx+bx*my+n.x*mz,ty*mx+by*my+n.y*mz,tz*mx+bz*my+n.z*mz};
+                    }
+                }
+            }
             float rho = texture_footprint(t, it->texture, l0, l1, l2, u, v);
             sample_texture(it->texture, u, v, rho, tex);
             if (it->pbr.x > 0.5f && it->metallic_roughness_texture >= 0) {

@@ -231,13 +231,21 @@ async function prepare(url) {
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
     const material = p.material === undefined ? {} : item(doc.materials, p.material, 'material');
-    if (material.doubleSided || material.normalTexture || material.occlusionTexture || material.emissiveTexture || material.extensions) unsupported('Unsupported material feature');
+    if (material.doubleSided || material.occlusionTexture || material.emissiveTexture || material.extensions) unsupported('Unsupported material feature');
     const alphaModes = { OPAQUE: 0, MASK: 1, BLEND: 2 };
     const mode = material.alphaMode ?? 'OPAQUE';
     if (!Object.hasOwn(alphaModes, mode)) invalid('Invalid alpha mode');
     const cutoff = material.alphaCutoff ?? 0.5;
     if (!Number.isFinite(cutoff) || cutoff < 0) invalid('Invalid alpha cutoff');
     const pbr = material.pbrMetallicRoughness || {};
+    let normalTextureIndex = -1;
+    const normalScale = material.normalTexture?.scale ?? 1;
+    if (material.normalTexture) {
+      if (!uv || (material.normalTexture.texCoord || 0) !== 0 || material.normalTexture.extensions) unsupported('Unsupported normal texture coordinates');
+      item(textureSpecs, material.normalTexture.index, 'normal texture');
+      if (!Number.isFinite(normalScale)) invalid('Invalid normal scale');
+      normalTextureIndex = material.normalTexture.index;
+    }
     let metallicRoughnessTextureIndex = -1;
     if (pbr.metallicRoughnessTexture) {
       if (!uv || (pbr.metallicRoughnessTexture.texCoord || 0) !== 0 || pbr.metallicRoughnessTexture.extensions) unsupported('Unsupported metallic-roughness texture coordinates');
@@ -257,7 +265,8 @@ async function prepare(url) {
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
     return { pos: pos.values, normal: normal.values, uv: uv?.values, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
-      alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex, materialIndex: p.material ?? -1 };
+      alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
+      normalTextureIndex, normalScale, materialIndex: p.material ?? -1 };
   }));
   const nodes = doc.nodes || [], roots = item(doc.scenes, doc.scene ?? 0, 'scene').nodes || [];
   const seen = new Set();
@@ -324,7 +333,7 @@ export async function loadGLTF(engine, url) {
         let material = materials.get(p.materialIndex);
         if (!material) {
           const materialId = engine._g3_asset_material(...p.color, getTexture(p.textureIndex, true), p.alphaMode, p.alphaCutoff,
-            p.metallic, p.roughness, getTexture(p.metallicRoughnessTextureIndex, false));
+            p.metallic, p.roughness, getTexture(p.metallicRoughnessTextureIndex, false), getTexture(p.normalTextureIndex, false), p.normalScale);
           material = makeResourceHandle(engine, materialId, 'material');
           materials.set(p.materialIndex, material);
         }

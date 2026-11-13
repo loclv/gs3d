@@ -39,6 +39,7 @@ typedef struct {
     GLint mvp, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
     GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4];
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
+    GLint normal_tex, normal_textured, normal_scale;
     GLint env_map, env_map_enabled, env_map_intensity;
     GLint shadow_map, shadow_matrix, shadow_params;
     GLint alpha_mode, alpha_cutoff;
@@ -94,6 +95,9 @@ static const char *FRAGMENT_SRC =
     "uniform vec4 u_pbr;\n"
     "uniform sampler2D u_mr_tex;\n"
     "uniform bool u_mr_textured;\n"
+    "uniform sampler2D u_normal_tex;\n"
+    "uniform bool u_normal_textured;\n"
+    "uniform float u_normal_scale;\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform vec3 u_eye;\n"
@@ -130,6 +134,24 @@ static const char *FRAGMENT_SRC =
     "void main() {\n"
     "    float normal_length = length(v_normal);\n"
     "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
+    "    if (u_normal_textured && normal_length > 1e-12) {\n"
+    "        vec3 dpdx = dFdx(v_world), dpdy = dFdy(v_world);\n"
+    "        vec2 duvdx = dFdx(v_uv), duvdy = dFdy(v_uv);\n"
+    "        float det = duvdx.x*duvdy.y - duvdx.y*duvdy.x;\n"
+    "        if (abs(det) > 1e-12) {\n"
+    "            vec3 t = (dpdx*duvdy.y - dpdy*duvdx.y) / det;\n"
+    "            vec3 b = (-dpdx*duvdy.x + dpdy*duvdx.x) / det;\n"
+    "            t -= n*dot(n,t); float tl = length(t);\n"
+    "            if (tl > 1e-12) {\n"
+    "                t /= tl; b -= n*dot(n,b) + t*dot(t,b); float bl = length(b);\n"
+    "                if (bl > 1e-12) {\n"
+    "                    b /= bl; vec3 map_n = texture(u_normal_tex, v_uv).xyz*2.0-1.0;\n"
+    "                    map_n.xy *= u_normal_scale; float ml = length(map_n);\n"
+    "                    if (ml > 1e-12) n = normalize(t*map_n.x + b*map_n.y + n*map_n.z);\n"
+    "                }\n"
+    "            }\n"
+    "        }\n"
+    "    }\n"
     "    vec3 l = -u_light_dir;\n"
     "    float diff = max(dot(n, l), 0.0);\n"
     "    vec3 v = normalize(u_view_direction.w > 0.5 ? u_view_direction.xyz : u_eye - v_world);\n"
@@ -236,6 +258,9 @@ static void find_uniforms(void) {
     shader.pbr = glGetUniformLocation(shader.program, "u_pbr");
     shader.mr_tex = glGetUniformLocation(shader.program, "u_mr_tex");
     shader.mr_textured = glGetUniformLocation(shader.program, "u_mr_textured");
+    shader.normal_tex = glGetUniformLocation(shader.program, "u_normal_tex");
+    shader.normal_textured = glGetUniformLocation(shader.program, "u_normal_textured");
+    shader.normal_scale = glGetUniformLocation(shader.program, "u_normal_scale");
     shader.eye = glGetUniformLocation(shader.program, "u_eye");
     shader.view_direction = glGetUniformLocation(shader.program, "u_view_direction");
     shader.light_dir = glGetUniformLocation(shader.program, "u_light_dir");
@@ -629,6 +654,13 @@ static void draw_item(const g3_draw_item *it) {
     glBindTexture(GL_TEXTURE_2D, mr_textured ? textures[it->metallic_roughness_texture] : 0);
     glUniform1i(shader.mr_tex, 3);
     glUniform1i(shader.mr_textured, mr_textured);
+
+    int normal_textured = it->normal_texture >= 0 && it->normal_texture < texture_count && textures[it->normal_texture];
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, normal_textured ? textures[it->normal_texture] : 0);
+    glUniform1i(shader.normal_tex, 2);
+    glUniform1i(shader.normal_textured, normal_textured);
+    glUniform1f(shader.normal_scale, it->normal_scale);
 
     glBindVertexArray(m->vao);
     glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0);

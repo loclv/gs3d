@@ -38,6 +38,8 @@ struct DrawItem {
     alpha_cutoff: f32,
     pbr: float4,        // x enabled, y metallic, z roughness
     metallic_roughness_texture: i32, // linear texture: G roughness, B metallic
+    normal_texture: i32, // linear tangent-space normal texture, -1 disables
+    normal_scale: f32,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

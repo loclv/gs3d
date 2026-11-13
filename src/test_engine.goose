@@ -851,6 +851,34 @@ fn case_pbr() {
     g3::material_remove(mat);
 }
 
+// A tangent-space +X normal on a +Z triangle receives full +X directional
+// light; without the normal map its diffuse response is zero.
+fn case_normal_map() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_environment(float3_0, float3_0, 0.0);
+    g3::set_environment_map(-1, 0.0);
+    g3::clear_lights();
+    g3::set_light(float3 { -1.0, 0.0, 0.0 }, float3_1);
+    let fv = g3::g_verts.len;
+    let fi = g3::g_indices.len;
+    let normal = float3 { 0.0, 0.0, 1.0 };
+    g3::push_vertex_uv(float3 { -1.0, -1.0, 0.0 }, normal, float2 { 0.0, 0.0 });
+    g3::push_vertex_uv(float3 { 1.0, -1.0, 0.0 }, normal, float2 { 1.0, 0.0 });
+    g3::push_vertex_uv(float3 { 0.0, 1.0, 0.0 }, normal, float2 { 0.5, 1.0 });
+    g3::push_triangle(0, 1, 2);
+    let node = g3::node_add(g3::mesh_close(fv, fi));
+    let mat = g3::material_add();
+    g3::node(node).material = mat;
+    g3::material(mat).color = float4_1;
+    g3::material(mat).spec = 0.0;
+    let normal_pixels: u8[4] = [255, 128, 128, 255];
+    g3::material(mat).normal_texture = g3::texture_create(1, 1, normal_pixels[..]);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "normal map rotates the surface normal into tangent-space +X light");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -883,6 +911,7 @@ fn main() {
     case_multiple_cameras();
     case_shared_material();
     case_pbr();
+    case_normal_map();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }
