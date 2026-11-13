@@ -120,7 +120,8 @@ and a browser integration check for behavior exposed through WebGL.
   primitive handles plus default and variant material summaries; material
   summaries expose texture bindings and a bounded preview API, and the viewer
   displays maps for the selected material and variant. Its material selector
-  controls per-material environment intensity. Validate those paths in a real
+  controls per-material environment intensity. The viewer can rotate its HDR
+  equirectangular environment around world up. Validate those paths in a real
   browser.
 
 **Done when:** a documented example loads a static textured GLB, orbits it,
