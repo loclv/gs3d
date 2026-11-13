@@ -28,6 +28,7 @@ struct Mesh {
     asset_owned: bool,
     asset_free: bool,
     removed: bool,
+    compact_mark: bool,
     generation: i32 = 1,
 }
 
@@ -258,6 +259,54 @@ fn mesh_remove_storage(id: i32) {
     span_release(m.first_index, m.index_capacity, 1);
     g3p_release_mesh(id);
     m.removed = true;
+}
+
+// Pack every live geometry range toward index zero without changing mesh IDs.
+// Renderers own copies, so re-upload each mesh after moving its arena data.
+fn mesh_compact() {
+    var vertex_cursor: i64 = 0;
+    while true {
+        var best: i64 = -1;
+        for i in 0..g_meshes.len {
+            let m = g_meshes[i];
+            if m.asset_free || m.removed || m.compact_mark { continue; }
+            if best < 0 || m.first_vertex < g_meshes[best].first_vertex { best = i; }
+        }
+        if best < 0 { break; }
+        let m .= g_meshes[best];
+        for i in 0..m.vertex_count { g_verts[vertex_cursor + i] = g_verts[m.first_vertex + i]; }
+        m.first_vertex = vertex_cursor;
+        m.compact_mark = true;
+        vertex_cursor += m.vertex_count;
+    }
+    for i in 0..g_meshes.len { g_meshes[i].compact_mark = false; }
+
+    var index_cursor: i64 = 0;
+    while true {
+        var best: i64 = -1;
+        for i in 0..g_meshes.len {
+            let m = g_meshes[i];
+            if m.asset_free || m.removed || m.compact_mark { continue; }
+            if best < 0 || m.first_index < g_meshes[best].first_index { best = i; }
+        }
+        if best < 0 { break; }
+        let m .= g_meshes[best];
+        for i in 0..m.index_count { g_indices[index_cursor + i] = g_indices[m.first_index + i]; }
+        m.first_index = index_cursor;
+        m.compact_mark = true;
+        index_cursor += m.index_count;
+    }
+    for i in 0..g_meshes.len { g_meshes[i].compact_mark = false; }
+
+    g_free_spans.clear();
+    if vertex_cursor < g_verts.len { span_release(vertex_cursor, g_verts.len - vertex_cursor, 0); }
+    if index_cursor < g_indices.len { span_release(index_cursor, g_indices.len - index_cursor, 1); }
+    for i in 0..g_meshes.len {
+        let m = g_meshes[i];
+        if m.asset_free || m.removed { continue; }
+        g3p_upload_mesh(m.id, g_verts[m.first_vertex..m.first_vertex + m.vertex_count],
+                        g_indices[m.first_index..m.first_index + m.index_count]);
+    }
 }
 
 // Replace an asset mesh's deformed positions and normals without moving its

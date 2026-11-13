@@ -608,6 +608,40 @@ fn case_ordinary_texture_removal() {
     testing::check(replacement > texture, "ordinary texture IDs remain stable after removal");
 }
 
+fn case_mesh_compaction() {
+    g3::scene_clear();
+    flat_camera();
+    let first = g3::mesh_sphere(1.0, 8, 12);
+    let removed = g3::mesh_sphere(0.5, 8, 12);
+    let last = g3::mesh_sphere(0.75, 8, 12);
+    let first_node = g3::node_add(first);
+    let last_node = g3::node_add(last);
+    g3::node(first_node).unlit = true;
+    g3::node(last_node).unlit = true;
+    testing::check(g3::mesh_remove(g3::mesh_handle(removed)), "remove an unreferenced mesh before compaction");
+    g3::mesh_compact();
+
+    var live_vertices: i64 = 0;
+    var live_indices: i64 = 0;
+    for m in g3::g_meshes { if !m.asset_free && !m.removed { live_vertices += m.vertex_count; live_indices += m.index_count; } }
+    var vertex_tail = false;
+    var index_tail = false;
+    for span in g3::g_free_spans {
+        if span.kind == 0 { vertex_tail = span.first == live_vertices && span.count == g3::g_verts.len - live_vertices; }
+        if span.kind == 1 { index_tail = span.first == live_indices && span.count == g3::g_indices.len - live_indices; }
+    }
+    testing::check(vertex_tail && index_tail, "compaction packs live geometry and leaves reusable tail spans");
+    let vertex_capacity = g3::g_verts.len;
+    let index_capacity = g3::g_indices.len;
+    let recycled = g3::mesh_sphere(0.5, 8, 12);
+    let recycled_in_place = g3::g_verts.len == vertex_capacity && g3::g_indices.len == index_capacity;
+    g3::mesh_remove(g3::mesh_handle(recycled));
+    testing::check(recycled_in_place, "ordinary mesh creation allocates from compacted tail spans");
+    g3::frame(1.0 / 60.0);
+    testing::check(g3::stats().nodes == 2 && g3::stats().drawn == 2 && is_color(g3::read_pixel(200, 200), 255, 255, 255, 2),
+        "compaction reuploads meshes so rendering and node IDs remain valid");
+}
+
 fn case_node_epoch() {
     g3::scene_clear();
     let original = g3::node_asset_add(-1);
@@ -1109,6 +1143,7 @@ fn main() {
     case_asset_mesh_update();
     case_ordinary_mesh_removal();
     case_ordinary_texture_removal();
+    case_mesh_compaction();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

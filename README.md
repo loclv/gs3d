@@ -235,6 +235,7 @@ What the API gives you:
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
   for your own geometry. Pushes stage one mesh and `mesh_close(fv, fi)` closes
   that batch; the two offset arguments remain accepted for source compatibility.
+  `mesh_compact()` packs live geometry and reuploads it without changing mesh IDs.
   `mesh_handle` and `mesh_handle_valid` check ordinary
   and asset mesh IDs; call `mesh_remove(handle)` after removing all nodes that
   use an ordinary mesh. Removal releases backend geometry and makes its arena
@@ -434,8 +435,8 @@ Deliberately out of scope for now, in rough order of how much they would add:
   ordinary meshes and textures can be removed; mesh backend allocations are
   freed and their arena spans can be reused by ordinary meshes and asset loads.
   Browser-loaded assets recycle their owned nodes, mesh spans, and texture IDs
-  on disposal. Mesh descriptor records remain append-only, and live geometry
-  is not compacted. `scene_clear()`
+  on disposal. `mesh_compact()` packs live geometry but retains arena capacity;
+  mesh descriptor records remain append-only. `scene_clear()`
   clears the scene; asset handles are invalid after their owner is disposed.
 * **Singular transforms.** A zero-scale transform has no inverse normal matrix;
   its surface normals become zero rather than receiving directional lighting.
