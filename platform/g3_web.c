@@ -591,6 +591,15 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     if (id >= mesh_count) mesh_count = id + 1;
 }
 
+void g3p_release_mesh(int32_t id) {
+    if (id < 0 || id >= mesh_count) return;
+    web_mesh *m = &meshes[id];
+    glDeleteVertexArrays(1, &m->vao);
+    glDeleteBuffers(1, &m->vbo);
+    glDeleteBuffers(1, &m->ebo);
+    memset(m, 0, sizeof(*m));
+}
+
 static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int srgb) {
     if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
     if (id >= texture_count) {
@@ -801,17 +810,7 @@ EMSCRIPTEN_KEEPALIVE void g3_host_texture_hdr(int32_t id, const float *pixels, i
     g3p_upload_texture_hdr(id, s, width, height);
 }
 
-/* Imported assets own their backend resources; Goose arena handles stay valid. */
-EMSCRIPTEN_KEEPALIVE void g3_host_release_mesh(int32_t id) {
-    if (id < 0 || id >= mesh_count) return;
-    web_mesh *m = &meshes[id];
-    glDeleteVertexArrays(1, &m->vao);
-    glDeleteBuffers(1, &m->vbo);
-    glDeleteBuffers(1, &m->ebo);
-    memset(m, 0, sizeof(*m));
-}
-
-EMSCRIPTEN_KEEPALIVE void g3_host_release_texture(int32_t id) {
+void g3p_release_texture(int32_t id) {
     if (id < 0 || id >= texture_count) return;
     if (env_prefilter_source_id==id) {
         if (env_prefilter_texture) glDeleteTextures(1,&env_prefilter_texture);

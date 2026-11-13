@@ -47,7 +47,7 @@ Field meanings that the comments in `platform.goose` state and the code relies o
 
 ## What a backend must implement
 
-Exactly these eleven symbols (declared in the header, implemented in the
+These symbols (declared in the header, implemented in the
 backend's `.c`):
 
 ```c
@@ -56,6 +56,15 @@ void    g3p_shutdown(void);
 int32_t g3p_width(void);
 int32_t g3p_height(void);
 void    g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices);
+void    g3p_release_mesh(int32_t id);
+void    g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
+void    g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
+void    g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height);
+void    g3p_release_texture(int32_t id);
+void    g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v);
+void    g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter);
+void    g3p_texture_generate_mips(int32_t id);
+void    g3p_texture_generate_env_mips(int32_t id);
 void    g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view);
 uint8_t g3p_key_down(int32_t key);
 float   g3p_mouse_dx(void);      /* reading consumes the accumulated delta */
@@ -142,7 +151,8 @@ as garbage geometry, not as an error.
 
 ## Adding a whole new backend
 
-1. Create `platform/g3_<name>.c` implementing the eleven `g3p_*` symbols (include
+1. Create `platform/g3_<name>.c` implementing every `g3p_*` symbol declared in
+   `src/g3/platform.goose` (include
    `g3_abi.h` and `g3_input.h`) plus `g3_backend_resize`.
 2. Add a root whose sidecar lists it:
    `c_sources = ["../platform/g3_<name>.c", "../platform/g3_input.c"];`

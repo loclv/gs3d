@@ -43,12 +43,14 @@ to fragment maths in one and not the other fails it.
 
 ## 3. Arenas, not heaps
 
-**Claim.** Dynamic data lives in grow-only global arrays. Growth never
-relocates an element, so an index is a stable handle and references handed out
-by the API stay valid for the life of the program. Nothing is removed.
+**Claim.** Arena backing arrays grow without relocating live elements. Checked
+handles validate resources that can be removed or reused; ordinary mesh and
+texture IDs remain append-only, and removed mesh spans can be reused by asset
+loads without moving live geometry.
 
-**Why.** Goose has no heap. Allocation would also destroy the handle stability
-that lets callers keep references across frames.
+**Why.** Goose has no heap. Stable slots preserve caller references across
+frames, while explicit release frees backend allocations and prevents stale
+handles from silently referring to a different resource.
 
 **Enforced by.** `g_verts`, `g_indices`, `g_meshes`, `g_nodes`, `g_draws` in
 `src/g3/*.goose`. `visible = false` hides a node; `scene_clear()` empties the

@@ -249,6 +249,13 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     if (id >= mesh_count) mesh_count = id + 1;
 }
 
+void g3p_release_mesh(int32_t id) {
+    if (id < 0 || id >= mesh_count) return;
+    free(meshes[id].verts);
+    free(meshes[id].idx);
+    memset(&meshes[id], 0, sizeof(meshes[id]));
+}
+
 static float srgb_decode(float x) {
     return x <= 0.04045f ? x / 12.92f : powf((x + 0.055f) / 1.055f, 2.4f);
 }
@@ -306,6 +313,18 @@ void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t h
 }
 void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
     upload_texture(id, pixels, width, height, 1);
+}
+
+void g3p_release_texture(int32_t id) {
+    if (id < 0 || id >= texture_count) return;
+    soft_texture *t = &textures[id];
+    free(t->pixels);
+    free(t->hdr_pixels);
+    for (int j = 0; j < 31; j++) {
+        free(t->mips[j]); free(t->env_mips[j]);
+        free(t->hdr_mips[j]); free(t->hdr_env_mips[j]);
+    }
+    memset(t, 0, sizeof(*t));
 }
 
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {

@@ -46,7 +46,7 @@ fn raycast(origin: float3, direction: float3, near: f32, far: f32) -> RayHit {
     node_update_worlds();
     for id in 0..g_nodes.len {
         let n .= g_nodes[id];
-        if !n.visible || n.mesh < 0 || n.mesh >= g_meshes.len { continue; }
+        if !n.visible || n.mesh < 0 || n.mesh >= g_meshes.len || !mesh_handle_valid(mesh_handle(n.mesh)) { continue; }
         let m .= g_meshes[n.mesh];
         if m.asset_free { continue; }
         var i: i64 = 0;

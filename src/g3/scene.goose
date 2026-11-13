@@ -17,6 +17,7 @@
 import vec;
 import math;
 import g3.math;
+import g3.mesh;
 
 namespace g3;
 
@@ -176,6 +177,7 @@ fn node_handle_valid(handle: NodeHandle) -> bool {
 // Add a node and get its handle back; `node` turns the handle into a
 // reference once, and the reference is what the rest of the code uses.
 fn node_add(mesh_id: i32) -> i64 {
+    guard mesh_id == -1 || mesh_handle_valid(mesh_handle(mesh_id)) else { return -1; }
     for i in 0..g_nodes.len {
         if !g_nodes[i].asset_owned && g_nodes[i].asset_free && g_nodes[i].generation < 2147483647 {
             let generation = g_nodes[i].generation + 1;
@@ -189,6 +191,7 @@ fn node_add(mesh_id: i32) -> i64 {
 
 // Asset nodes may be recycled only after their owner has been disposed.
 fn node_asset_add(mesh_id: i32) -> i64 {
+    guard mesh_id == -1 || mesh_handle_valid(mesh_handle(mesh_id)) else { return -1; }
     for i in 0..g_nodes.len {
         if g_nodes[i].asset_owned && g_nodes[i].asset_free && g_nodes[i].generation < 2147483647 {
             let generation = g_nodes[i].generation + 1;
@@ -198,6 +201,17 @@ fn node_asset_add(mesh_id: i32) -> i64 {
     }
     g_nodes.push(Node { mesh: mesh_id, asset_owned: true, .. });
     return g_nodes.len - 1;
+}
+
+// Remove an ordinary mesh only after all live nodes have stopped referencing it.
+// Mesh IDs stay stable and are never reused; retain a MeshHandle to detect removal.
+fn mesh_remove(handle: MeshHandle) -> bool {
+    guard mesh_handle_valid(handle) && !g_meshes[handle.id].asset_owned else { return false; }
+    for i in 0..g_nodes.len {
+        if !g_nodes[i].asset_free && g_nodes[i].mesh == handle.id { return false; }
+    }
+    mesh_remove_storage(handle.id);
+    return true;
 }
 
 fn node_asset_release_handle(handle: NodeHandle) -> bool {

@@ -69,7 +69,13 @@ export fn g3_asset_scene_epoch() -> i32 { return g3::g_scene_epoch; }
 export fn g3_asset_texture() -> i32 { return g3::texture_asset_create(); }
 export fn g3_asset_texture_generation(id: i32) -> i32 { return g3::texture_handle(id).generation; }
 export fn g3_asset_texture_valid(id: i32, generation: i32) -> bool { return g3::texture_handle_valid(g3::TextureHandle { id: id, generation: generation }); }
-export fn g3_asset_release_texture(id: i32, generation: i32) -> bool { return g3::texture_asset_release_handle(g3::TextureHandle { id: id, generation: generation }); }
+export fn g3_asset_release_texture(id: i32, generation: i32) -> bool {
+    let handle = g3::TextureHandle { id: id, generation: generation };
+    guard g3::texture_handle_valid(handle) else { return false; }
+    guard g3::g_texture_slots[id].asset_owned else { return false; }
+    if g3::g_view_state.environment_texture == id { g3::set_environment_map(-1, 0.0); }
+    return g3::texture_asset_release_handle(handle);
+}
 export fn g3_asset_pick(x: f32, y: f32, aspect: f32) -> i32 {
     return g3::pick_screen(x, y, aspect).node as i32;
 }

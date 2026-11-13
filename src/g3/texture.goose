@@ -15,18 +15,22 @@ let FILTER_LINEAR_MIPMAP_LINEAR = 9987;
 
 var g_texture_count: i32;
 var g_asset_textures: i32[>..];
-struct TextureSlot { generation: i32 = 1, asset_owned: bool, asset_free: bool }
+struct TextureSlot { generation: i32 = 1, asset_owned: bool, asset_free: bool, removed: bool }
 struct TextureHandle { id: i32 = -1, generation: i32 }
 var g_texture_slots: TextureSlot[>..];
 
 fn texture_handle(id: i32) -> TextureHandle {
-    guard id >= 0 && id < g_texture_slots.len && !g_texture_slots[id].asset_free else { return TextureHandle { .. }; }
+    guard id >= 0 && id < g_texture_slots.len && !g_texture_slots[id].asset_free && !g_texture_slots[id].removed else { return TextureHandle { .. }; }
     return TextureHandle { id: id, generation: g_texture_slots[id].generation };
 }
 
 fn texture_handle_valid(handle: TextureHandle) -> bool {
-    return handle.id >= 0 && handle.id < g_texture_slots.len && !g_texture_slots[handle.id].asset_free &&
+    return handle.id >= 0 && handle.id < g_texture_slots.len && !g_texture_slots[handle.id].asset_free && !g_texture_slots[handle.id].removed &&
            g_texture_slots[handle.id].generation == handle.generation;
+}
+
+fn texture_slot_live(id: i32) -> bool {
+    return id >= 0 && id < g_texture_count && !g_texture_slots[id].asset_free && !g_texture_slots[id].removed;
 }
 
 fn texture_create(width: i32, height: i32, pixels: const u8[:]) -> i32 {
@@ -60,7 +64,7 @@ fn texture_create_hdr(width: i32, height: i32, pixels: const f32[:]) -> i32 {
 
 // New uploads start clamp-to-edge. Set wrapping after each upload.
 fn texture_set_wrap(id: i32, wrap_u: i32, wrap_v: i32) -> bool {
-    guard id >= 0 && id < g_texture_count && wrap_u >= 0 && wrap_u <= 2 && wrap_v >= 0 && wrap_v <= 2 else { return false; }
+    guard texture_slot_live(id) && wrap_u >= 0 && wrap_u <= 2 && wrap_v >= 0 && wrap_v <= 2 else { return false; }
     g3p_texture_wrap(id, wrap_u, wrap_v);
     return true;
 }
@@ -68,7 +72,7 @@ fn texture_set_wrap(id: i32, wrap_u: i32, wrap_v: i32) -> bool {
 fn texture_set_filter(id: i32, min_filter: i32, mag_filter: i32) -> bool {
     let min_ok = min_filter == FILTER_NEAREST || min_filter == FILTER_LINEAR ||
                  (min_filter >= FILTER_NEAREST_MIPMAP_NEAREST && min_filter <= FILTER_LINEAR_MIPMAP_LINEAR);
-    guard id >= 0 && id < g_texture_count && min_ok && (mag_filter == FILTER_NEAREST || mag_filter == FILTER_LINEAR) else { return false; }
+    guard texture_slot_live(id) && min_ok && (mag_filter == FILTER_NEAREST || mag_filter == FILTER_LINEAR) else { return false; }
     g3p_texture_filter(id, min_filter, mag_filter);
     return true;
 }
@@ -83,6 +87,7 @@ fn texture_asset_create() -> i32 {
             g_asset_textures[i] = -1;
             g_texture_slots[id].generation += 1;
             g_texture_slots[id].asset_free = false;
+            g_texture_slots[id].removed = false;
             g3p_upload_texture(id, pixel[..], 1, 1);
             return id;
         }
@@ -95,10 +100,18 @@ fn texture_asset_create() -> i32 {
 fn texture_asset_release(id: i32) {
     guard id >= 0 && id < g_texture_count && g_texture_slots[id].asset_owned && !g_texture_slots[id].asset_free else { return; }
     g_texture_slots[id].asset_free = true;
+    g3p_release_texture(id);
     for i in 0..g_asset_textures.len {
         if g_asset_textures[i] < 0 { g_asset_textures[i] = id; return; }
     }
     g_asset_textures.push(id);
+}
+
+fn texture_remove_storage(handle: TextureHandle) -> bool {
+    guard texture_handle_valid(handle) && !g_texture_slots[handle.id].asset_owned else { return false; }
+    g3p_release_texture(handle.id);
+    g_texture_slots[handle.id].removed = true;
+    return true;
 }
 
 fn texture_asset_release_handle(handle: TextureHandle) -> bool {

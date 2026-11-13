@@ -171,6 +171,26 @@ fn set_environment_map(texture: i32, intensity: f32) {
     if texture >= 0 && texture < g_texture_count { g3p_texture_generate_env_mips(texture); }
 }
 
+// Remove an ordinary texture only when no live scene or environment field uses it.
+// Asset textures are released through their owning model.
+fn texture_remove(handle: TextureHandle) -> bool {
+    guard texture_handle_valid(handle) && !g_texture_slots[handle.id].asset_owned else { return false; }
+    let id = handle.id;
+    if g_view_state.environment_texture == id { return false; }
+    for i in 0..g_nodes.len {
+        let n .= g_nodes[i];
+        if n.asset_free { continue; }
+        if n.texture == id { return false; }
+    }
+    for i in 0..g_materials.len {
+        let m .= g_materials[i];
+        if m.removed { continue; }
+        if m.texture == id || m.metallic_roughness_texture == id || m.normal_texture == id ||
+           m.occlusion_texture == id || m.emissive_texture == id { return false; }
+    }
+    return texture_remove_storage(handle);
+}
+
 // The primary directional light casts into an explicitly bounded box. Objects
 // outside this box do not cast or receive shadows. Bias is in depth-map units.
 fn set_directional_shadows(center: float3, extent: f32, bias: f32) -> bool {
@@ -281,7 +301,7 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
 
 fn render_scene() {
     for &n in g_nodes {
-        if !n.visible || n.mesh < 0 { continue; }
+        if !n.visible || n.mesh < 0 || n.mesh >= g_meshes.len || !mesh_handle_valid(mesh_handle(n.mesh)) { continue; }
         g_stats.nodes += 1;
         let m .= mesh(n.mesh);
         let box = aabb_transform(m.bounds, n.world);

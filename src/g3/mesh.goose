@@ -27,6 +27,7 @@ struct Mesh {
     vertex_capacity: i64, index_capacity: i64,
     asset_owned: bool,
     asset_free: bool,
+    removed: bool,
     generation: i32 = 1,
 }
 
@@ -109,12 +110,12 @@ fn mesh_count() -> i64 { g_meshes.len }
 fn mesh(id: i32) -> Mesh& { return g_meshes[id] }
 
 fn mesh_handle(id: i32) -> MeshHandle {
-    guard id >= 0 && id < g_meshes.len && !g_meshes[id].asset_free else { return MeshHandle { .. }; }
+    guard id >= 0 && id < g_meshes.len && !g_meshes[id].asset_free && !g_meshes[id].removed else { return MeshHandle { .. }; }
     return MeshHandle { id: id, generation: g_meshes[id].generation };
 }
 
 fn mesh_handle_valid(handle: MeshHandle) -> bool {
-    return handle.id >= 0 && handle.id < g_meshes.len && !g_meshes[handle.id].asset_free &&
+    return handle.id >= 0 && handle.id < g_meshes.len && !g_meshes[handle.id].asset_free && !g_meshes[handle.id].removed &&
            g_meshes[handle.id].generation == handle.generation;
 }
 
@@ -217,8 +218,20 @@ fn mesh_asset_release(id: i32) {
     if m.asset_owned && !m.asset_free {
         span_release(m.first_vertex, m.vertex_capacity, 0);
         span_release(m.first_index, m.index_capacity, 1);
+        g3p_release_mesh(id);
         m.asset_free = true;
     }
+}
+
+// Release CPU arena spans for a mesh that cannot be drawn or picked again.
+fn mesh_remove_storage(id: i32) {
+    guard id >= 0 && id < g_meshes.len else { return; }
+    let m .= g_meshes[id];
+    guard !m.asset_owned && !m.asset_free && !m.removed else { return; }
+    span_release(m.first_vertex, m.vertex_capacity, 0);
+    span_release(m.first_index, m.index_capacity, 1);
+    g3p_release_mesh(id);
+    m.removed = true;
 }
 
 // Replace an asset mesh's deformed positions and normals without moving its

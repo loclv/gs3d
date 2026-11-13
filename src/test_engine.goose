@@ -557,6 +557,48 @@ fn case_asset_reuse() {
     g3::mesh_asset_release(replacement);
 }
 
+fn case_ordinary_mesh_removal() {
+    g3::scene_clear();
+    flat_camera();
+    let mesh = g3::mesh_cube(1.0);
+    let handle = g3::mesh_handle(mesh);
+    let node = g3::node_add(mesh);
+    let node_handle = g3::node_handle(node);
+    testing::check(!g3::mesh_remove(handle), "a mesh with a live node cannot be removed");
+    testing::check(g3::node_remove(node_handle), "remove the ordinary node before its mesh");
+    testing::check(g3::mesh_remove(handle) && !g3::mesh_handle_valid(handle), "ordinary mesh removal invalidates its checked handle");
+    testing::check(!g3::mesh_remove(handle) && g3::node_add(mesh) == -1, "removed mesh IDs cannot be removed twice or attached again");
+    let stale_node = g3::node_group();
+    g3::node(stale_node).mesh = mesh;
+    g3::frame(1.0 / 60.0);
+    testing::check(g3::stats().nodes == 0, "rendering skips a removed mesh assigned through a stale node reference");
+}
+
+fn case_ordinary_texture_removal() {
+    g3::scene_clear();
+    g3::set_environment_map(-1, 0.0);
+    let pixels: u8[4] = [255, 128, 64, 255];
+    let texture = g3::texture_create(1, 1, pixels[..]);
+    let handle = g3::texture_handle(texture);
+    let node = g3::node_group();
+    g3::node(node).texture = texture;
+    testing::check(!g3::texture_remove(handle), "a texture referenced by a live node cannot be removed");
+    g3::node(node).texture = -1;
+    let material = g3::material_add();
+    g3::material(material).normal_texture = texture;
+    testing::check(!g3::texture_remove(handle), "a texture referenced by a live material cannot be removed");
+    g3::material_remove(material);
+    g3::set_environment_map(texture, 1.0);
+    testing::check(!g3::texture_remove(handle), "the active environment texture cannot be removed");
+    g3::set_environment_map(-1, 0.0);
+    testing::check(g3::texture_remove(handle) && !g3::texture_handle_valid(handle),
+        "ordinary texture removal frees backend storage and invalidates its handle");
+    testing::check(!g3::texture_remove(handle) && !g3::texture_set_wrap(texture, 0, 0),
+        "removed texture IDs cannot be removed twice or modified");
+    let replacement = g3::texture_create(1, 1, pixels[..]);
+    testing::check(replacement > texture, "ordinary texture IDs remain stable after removal");
+}
+
 fn case_node_epoch() {
     g3::scene_clear();
     let original = g3::node_asset_add(-1);
@@ -1056,6 +1098,8 @@ fn main() {
     case_occlusion_map();
     case_emissive_material();
     case_asset_mesh_update();
+    case_ordinary_mesh_removal();
+    case_ordinary_texture_removal();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

@@ -51,7 +51,7 @@ function uploadImage(engine, image, wrapU = 0, wrapV = 0, minFilter = 9729, magF
 }
 
 function releaseTexture(engine, handle) {
-  if (engine._g3_asset_release_texture(handle.id, handle.generation)) engine._g3_host_release_texture(handle.id);
+  engine._g3_asset_release_texture(handle.id, handle.generation);
 }
 
 // The caller owns the returned texture and must dispose it once unused.
@@ -784,7 +784,7 @@ export async function loadGLTF(engine, url) {
     for (const node of nodes) engine._g3_asset_node_release(node.index, node.generation, node.epoch);
     for (const handle of materials.values()) engine._g3_asset_release_material(handle.id, handle.generation);
     for (const handle of meshes) {
-      if (engine._g3_asset_release_mesh(handle.id, handle.generation)) engine._g3_host_release_mesh(handle.id);
+      engine._g3_asset_release_mesh(handle.id, handle.generation);
     }
     for (const deformed of deformedMeshes) if (deformed.ptr) engine._free(deformed.ptr);
     deformedMeshes.length = 0;
