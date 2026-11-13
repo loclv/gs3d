@@ -19,8 +19,9 @@ import g3.math;
 
 namespace g3;
 
-// UV (0,0) addresses the first row of the supplied RGBA image.
-struct Vertex { pos: float3, normal: float3, uv: float2 }
+// UV (0,0) addresses the first row of the supplied RGBA image. A zero tangent
+// selects the backend's UV-derived frame; otherwise tangent.w is handedness.
+struct Vertex { pos: float3, normal: float3, uv: float2, tangent: float4 }
 
 // One triangle soup to draw with one state: mesh, its matrices, its colour.
 struct DrawItem {

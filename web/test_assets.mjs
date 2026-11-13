@@ -30,6 +30,15 @@ function glb(document, data) {
 }
 const glbDoc = structuredClone(doc); delete glbDoc.buffers[0].uri;
 const resources = new Map([['http://localhost/model.gltf', bytes(doc)], ['http://localhost/mesh.bin', binary], ['http://localhost/model.glb', glb(glbDoc, binary)], ['http://localhost/image.png', new Uint8Array([1])]]);
+const tangentBinary = new ArrayBuffer(48), tangentData = new DataView(tangentBinary);
+for (let i = 0; i < 3; i++) [0, 1, 0, -1].forEach((value, component) => tangentData.setFloat32(i * 16 + component * 4, value, true));
+const tangentDoc = structuredClone(doc);
+tangentDoc.buffers.push({ byteLength: tangentBinary.byteLength, uri: 'tangent.bin' });
+const tangentView = tangentDoc.bufferViews.push({ buffer: 1, byteLength: tangentBinary.byteLength }) - 1;
+const tangentAccessor = tangentDoc.accessors.push({ bufferView: tangentView, componentType: 5126, count: 3, type: 'VEC4' }) - 1;
+tangentDoc.meshes[0].primitives[0].attributes.TANGENT = tangentAccessor;
+resources.set('http://localhost/tangent.gltf', bytes(tangentDoc));
+resources.set('http://localhost/tangent.bin', tangentBinary);
 function sparseFixture(name, { base = false, badIndex = false } = {}) {
   const sparseBinary = new ArrayBuffer(16), sparseData = new DataView(sparseBinary);
   sparseData.setUint8(0, badIndex ? 3 : 1);
@@ -142,6 +151,19 @@ for (const [name, expected] of [
   assert.deepEqual(sparseEngine.calls.filter(call => call[0] === 'vertex').flatMap(call => call.slice(1, 4)), expected);
   sparseModel.dispose();
 }
+const tangentEngine = fakeEngine(), tangentModel = await loadGLTF(tangentEngine, 'http://localhost/tangent.gltf');
+assert.deepEqual(tangentEngine.calls.find(call => call[0] === 'vertex').slice(-4), [0, 1, 0, -1], 'authored tangent and handedness reach the vertex upload');
+tangentModel.dispose();
+const badTangentDoc = structuredClone(tangentDoc);
+badTangentDoc.accessors[tangentAccessor].type = 'VEC3';
+resources.set('http://localhost/bad-tangent.gltf', bytes(badTangentDoc));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/bad-tangent.gltf'), error => error.code === 'INVALID_GLTF');
+const badTangentHandedness = structuredClone(tangentDoc), badTangentBytes = tangentBinary.slice(0);
+new DataView(badTangentBytes).setFloat32(12, 0, true);
+badTangentHandedness.buffers[1].uri = 'bad-tangent.bin';
+resources.set('http://localhost/bad-tangent-handedness.gltf', bytes(badTangentHandedness));
+resources.set('http://localhost/bad-tangent.bin', badTangentBytes);
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/bad-tangent-handedness.gltf'), error => error.code === 'INVALID_GLTF');
 const rejectedSparseEngine = fakeEngine();
 await assert.rejects(loadGLTF(rejectedSparseEngine, 'http://localhost/bad-sparse.gltf'), error => error.code === 'INVALID_GLTF');
 assert.equal(rejectedSparseEngine.calls.length, 0, 'invalid sparse accessors fail before creating engine resources');

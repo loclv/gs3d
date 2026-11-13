@@ -256,8 +256,9 @@ What the API gives you:
   `texture_handle` and `texture_handle_valid` check ordinary and asset textures;
   `texture_remove(handle)` releases an ordinary texture only when no live node,
   material or environment uses it. Asset textures are released by their owner.
-  Built-in meshes have UVs; custom meshes can use `push_vertex_uv`. Both
-  backends support nearest, linear, and mipmapped filtering via
+  Built-in meshes have UVs; custom meshes can use `push_vertex_uv`, or
+  `push_vertex_uv_tangent` to provide a tangent and handedness for normal maps.
+  Both backends support nearest, linear, and mipmapped filtering via
   `texture_set_filter`, and clamp, repeat, and mirrored repeat per axis via
   `texture_set_wrap`. Uploading pixels resets those settings. Raster image
   decoding belongs to the host; Radiance HDR is supported by the native API and
@@ -425,7 +426,9 @@ Deliberately out of scope for now, in rough order of how much they would add:
 
 * **Partial PBR.** Shared materials support metallic-roughness factors and
   maps, tangent-space normal maps for surface shading, and occlusion maps for
-  indirect fill, plus emissive factors and textures. GGX-prefiltered
+  indirect fill, plus emissive factors and textures. Static, non-deformed
+  glTF meshes use authored tangent attributes for normal maps; skinned or
+  morphed meshes still use the UV-derived frame. GGX-prefiltered
   environment lighting, ACES tone mapping, exposure controls, and Radiance
   RGBE environment image loading are available. Full colour management remains
   incomplete.

@@ -128,6 +128,7 @@ static const char *VERTEX_SRC =
     "layout(location = 0) in vec3 a_pos;\n"
     "layout(location = 1) in vec3 a_normal;\n"
     "layout(location = 2) in vec2 a_uv;\n"
+    "layout(location = 15) in vec4 a_tangent;\n"
     "layout(location = 3) in vec4 a_joints0;\n"
     "layout(location = 4) in vec4 a_weights0;\n"
     "layout(location = 5) in vec4 a_joints1;\n"
@@ -149,6 +150,7 @@ static const char *VERTEX_SRC =
     "out vec3 v_normal;\n"
     "out vec3 v_world;\n"
     "out vec2 v_uv;\n"
+    "out vec4 v_tangent;\n"
     "mat4 joint_matrix(float joint) {\n"
     "    int index = clamp(int(joint + 0.5), 0, u_joint_count - 1);\n"
     "    return mat4(texelFetch(u_joint_palette, ivec2(0,index), 0), texelFetch(u_joint_palette, ivec2(1,index), 0),\n"
@@ -177,6 +179,8 @@ static const char *VERTEX_SRC =
     "    v_world = world.xyz;\n"
     "    v_uv = a_uv;\n"
     "    v_normal = u_instanced ? transpose(inverse(mat3(model))) * normal : u_normal_matrix * normal;\n"
+    "    float model_sign = determinant(mat3(model)) < 0.0 ? -1.0 : 1.0;\n"
+    "    v_tangent = (u_skin_enabled || u_morph_enabled) ? vec4(0.0) : vec4(mat3(model) * a_tangent.xyz, a_tangent.w * model_sign);\n"
     "    gl_Position = mvp * position;\n"
     "}\n";
 
@@ -187,6 +191,7 @@ static const char *FRAGMENT_SRC =
     "in vec3 v_normal;\n"
     "in vec3 v_world;\n"
     "in vec2 v_uv;\n"
+    "in vec4 v_tangent;\n"
     "uniform sampler2D u_tex;\n"
     "uniform bool u_textured;\n"
     "uniform vec4 u_color;\n"
@@ -254,15 +259,24 @@ static const char *FRAGMENT_SRC =
     "    float normal_length = length(v_normal);\n"
     "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
     "    if (u_normal_textured && normal_length > 1e-12) {\n"
-    "        vec3 dpdx = dFdx(v_world), dpdy = dFdy(v_world);\n"
-    "        vec2 duvdx = dFdx(v_uv), duvdy = dFdy(v_uv);\n"
-    "        float det = duvdx.x*duvdy.y - duvdx.y*duvdy.x;\n"
-    "        if (abs(det) > 1e-12) {\n"
-    "            vec3 t = (dpdx*duvdy.y - dpdy*duvdx.y) / det;\n"
-    "            vec3 b = (-dpdx*duvdy.x + dpdy*duvdx.x) / det;\n"
+    "        vec3 t, b; float tangent_length = length(v_tangent.xyz);\n"
+    "        bool authored_tangent = tangent_length > 1e-12 && abs(v_tangent.w) > 0.5;\n"
+    "        if (authored_tangent) {\n"
+    "            t = v_tangent.xyz; b = vec3(0.0);\n"
+    "        } else {\n"
+    "            vec3 dpdx = dFdx(v_world), dpdy = dFdy(v_world);\n"
+    "            vec2 duvdx = dFdx(v_uv), duvdy = dFdy(v_uv);\n"
+    "            float det = duvdx.x*duvdy.y - duvdx.y*duvdy.x;\n"
+    "            if (abs(det) > 1e-12) { t = (dpdx*duvdy.y - dpdy*duvdx.y) / det; b = (-dpdx*duvdy.x + dpdy*duvdx.x) / det; }\n"
+    "            else { t = vec3(0.0); b = vec3(0.0); }\n"
+    "        }\n"
+    "        if (length(t) > 1e-12) {\n"
     "            t -= n*dot(n,t); float tl = length(t);\n"
     "            if (tl > 1e-12) {\n"
-    "                t /= tl; b -= n*dot(n,b) + t*dot(t,b); float bl = length(b);\n"
+    "                t /= tl;\n"
+    "                if (authored_tangent) b = normalize(cross(n,t)) * (v_tangent.w < 0.0 ? -1.0 : 1.0);\n"
+    "                else b -= n*dot(n,b) + t*dot(t,b);\n"
+    "                float bl = length(b);\n"
     "                if (bl > 1e-12) {\n"
     "                    b /= bl; vec3 map_n = texture(u_normal_tex, v_uv).xyz*2.0-1.0;\n"
     "                    map_n.xy *= u_normal_scale; float ml = length(map_n);\n"
@@ -668,7 +682,7 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(sizeof(uint32_t) * (size_t)indices.len),
                  indices.data, GL_STATIC_DRAW);
 
-    /* Two vec3 attributes out of one packed g3_vertex: position, then normal. */
+    /* Interleaved position, normal, UV, and tangent attributes. */
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(g3_vertex),
                           (const void *)0);
@@ -678,6 +692,9 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(g3_vertex),
                           (const void *)(sizeof(float) * 6));
+    glEnableVertexAttribArray(15);
+    glVertexAttribPointer(15, 4, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(g3_vertex),
+                          (const void *)(sizeof(float) * 8));
     glBindVertexArray(0);
 
     m->count = (GLsizei)indices.len;

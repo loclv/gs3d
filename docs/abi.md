@@ -24,13 +24,14 @@ The procedural checklist lives in
 
 ## Types
 
-### `g3_vertex` — 32 bytes
+### `g3_vertex` — 48 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
 | 0 | `float[3]` | `pos` | local-space position |
 | 12 | `float[3]` | `normal` | local-space normal, transformed by the inverse-transpose model matrix and re-normalized |
 | 24 | `float[2]` | `uv` | texture coordinates, first image row at v = 0 |
+| 32 | `float[4]` | `tangent` | local tangent direction and handedness; a zero direction selects the derived frame |
 
 ### `g3_mat4` — 64 bytes
 

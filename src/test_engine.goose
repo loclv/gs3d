@@ -535,9 +535,9 @@ fn case_asset_reuse() {
     g3::scene_clear();
     flat_camera();
     let vertices: g3::Vertex[3] = [
-        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 } },
-        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 } },
-        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 } }];
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0 },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0 },
+        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0 }];
     let indices: u32[3] = [0, 1, 2];
     let mesh = g3::mesh_asset_create(vertices[..], indices[..]);
     let mesh_handle = g3::mesh_handle(mesh);
@@ -729,7 +729,7 @@ fn case_node_removal() {
 }
 
 fn case_asset_fragmentation() {
-    let v = g3::Vertex { pos: float3 { 1.0, 2.0, 3.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 } };
+    let v = g3::Vertex { pos: float3 { 1.0, 2.0, 3.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0 };
     let small: g3::Vertex[6] = [v; 6];
     let large: g3::Vertex[12] = [v; 12];
     let small_i: u32[6] = [0, 1, 2, 3, 4, 5];
@@ -1019,6 +1019,31 @@ fn case_normal_map() {
     g3::material(mat).normal_texture = g3::texture_create(1, 1, normal_pixels[..]);
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "normal map rotates the surface normal into tangent-space +X light");
+
+    // An authored tangent overrides the derivative-derived +X frame: with a
+    // +Y tangent-space direction and +Y light, the center pixel is fully lit.
+    g3::scene_clear();
+    flat_camera();
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_environment(float3_0, float3_0, 0.0);
+    g3::set_environment_map(-1, 0.0);
+    g3::clear_lights();
+    g3::set_light(float3 { 0.0, -1.0, 0.0 }, float3_1);
+    let fv2 = g3::g_verts.len;
+    let fi2 = g3::g_indices.len;
+    let authored_tangent = float4 { 0.0, 1.0, 0.0, -1.0 };
+    g3::push_vertex_uv_tangent(float3 { -1.0, -1.0, 0.0 }, normal, float2 { 0.0, 0.0 }, authored_tangent);
+    g3::push_vertex_uv_tangent(float3 { 1.0, -1.0, 0.0 }, normal, float2 { 1.0, 0.0 }, authored_tangent);
+    g3::push_vertex_uv_tangent(float3 { 0.0, 1.0, 0.0 }, normal, float2 { 0.5, 1.0 }, authored_tangent);
+    g3::push_triangle(0, 1, 2);
+    let authored_node = g3::node_add(g3::mesh_close(fv2, fi2));
+    let authored_material = g3::material_add();
+    g3::node(authored_node).material = authored_material;
+    g3::material(authored_material).color = float4_1;
+    g3::material(authored_material).spec = 0.0;
+    g3::material(authored_material).normal_texture = g3::texture_create(1, 1, normal_pixels[..]);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "authored tangent controls the normal-map frame");
 }
 
 // The environment map's +Z texel is white: a smooth metal reflects it at
@@ -1133,9 +1158,9 @@ fn case_asset_mesh_update() {
     g3::scene_clear();
     flat_camera();
     let verts: g3::Vertex[3] = [
-        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0 },
-        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0 },
-        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0 },
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0 },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0 },
+        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0 },
     ];
     let indices: u32[3] = [0, 1, 2];
     let mesh = g3::mesh_asset_create(verts[..], indices[..]);

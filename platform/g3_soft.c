@@ -77,7 +77,8 @@ typedef struct {
     float world[3][3];
     float nrm[3][3];
     float uv[3][2];
-    float tangent[3], bitangent[3];
+    float tangent[3][4];
+    float derived_tangent[3], derived_bitangent[3];
     float det;              /* twice the signed area in pixels */
     float edge_sense;       /* +1 or -1: the sign l0 has when an edge is 0 */
     float normal_sign;      /* -1 for back faces, for double-sided shading */
@@ -945,6 +946,7 @@ static g3_vertex clip_lerp(g3_vertex a, g3_vertex b, float t) {
     LERP(pos.x); LERP(pos.y); LERP(pos.z);
     LERP(normal.x); LERP(normal.y); LERP(normal.z);
     LERP(uv.x); LERP(uv.y);
+    LERP(tangent.x); LERP(tangent.y); LERP(tangent.z); LERP(tangent.w);
 #undef LERP
     return a;
 }
@@ -1010,14 +1012,27 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
 
     /* Derive the tangent frame from this triangle's world positions and UVs,
        matching the derivative-based frame in the WebGL fragment shader. */
+    const float *model = it->model.m;
+    float determinant = model[0] * (model[5] * model[10] - model[9] * model[6]) -
+                        model[4] * (model[1] * model[10] - model[9] * model[2]) +
+                        model[8] * (model[1] * model[6] - model[5] * model[2]);
+    float orientation = determinant < 0.0f ? -1.0f : 1.0f;
+    for (int k = 0; k < 3; k++) {
+        const float *v = &tri[k]->tangent.x;
+        t->tangent[k][0] = model[0] * v[0] + model[4] * v[1] + model[8] * v[2];
+        t->tangent[k][1] = model[1] * v[0] + model[5] * v[1] + model[9] * v[2];
+        t->tangent[k][2] = model[2] * v[0] + model[6] * v[1] + model[10] * v[2];
+        t->tangent[k][3] = v[3] * orientation;
+    }
+
     float e1[3], e2[3], du1=t->uv[1][0]-t->uv[0][0], dv1=t->uv[1][1]-t->uv[0][1];
     float du2=t->uv[2][0]-t->uv[0][0], dv2=t->uv[2][1]-t->uv[0][1];
     for (int c=0;c<3;c++) { e1[c]=t->world[1][c]-t->world[0][c]; e2[c]=t->world[2][c]-t->world[0][c]; }
     float uv_det=du1*dv2-dv1*du2;
     if (fabsf(uv_det)>1e-12f) for (int c=0;c<3;c++) {
-        t->tangent[c]=(e1[c]*dv2-e2[c]*dv1)/uv_det;
-        t->bitangent[c]=(-e1[c]*du2+e2[c]*du1)/uv_det;
-    } else { memset(t->tangent,0,sizeof(t->tangent)); memset(t->bitangent,0,sizeof(t->bitangent)); }
+        t->derived_tangent[c]=(e1[c]*dv2-e2[c]*dv1)/uv_det;
+        t->derived_bitangent[c]=(-e1[c]*du2+e2[c]*du1)/uv_det;
+    } else { memset(t->derived_tangent,0,sizeof(t->derived_tangent)); memset(t->derived_bitangent,0,sizeof(t->derived_bitangent)); }
 
     /* Front faces are counterclockwise in NDC, which is what GL means by
        GL_CCW with the y-up window it uses. */
@@ -1254,11 +1269,21 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             float nl=sqrtf(n.x*n.x+n.y*n.y+n.z*n.z);
             if (nl>1e-12f) { n.x/=nl; n.y/=nl; n.z/=nl; }
             if (it->normal_texture >= 0 && nl>1e-12f) {
-                float tx=t->tangent[0], ty=t->tangent[1], tz=t->tangent[2];
+                float tx=t->tangent[0][0]*b0+t->tangent[1][0]*b1+t->tangent[2][0]*b2;
+                float ty=t->tangent[0][1]*b0+t->tangent[1][1]*b1+t->tangent[2][1]*b2;
+                float tz=t->tangent[0][2]*b0+t->tangent[1][2]*b1+t->tangent[2][2]*b2;
+                float handedness=t->tangent[0][3]*b0+t->tangent[1][3]*b1+t->tangent[2][3]*b2;
+                int authored = tx*tx+ty*ty+tz*tz > 1e-12f && fabsf(handedness) > 0.5f;
+                if (!authored) { tx=t->derived_tangent[0]; ty=t->derived_tangent[1]; tz=t->derived_tangent[2]; }
                 float ndott=n.x*tx+n.y*ty+n.z*tz;
                 tx-=n.x*ndott; ty-=n.y*ndott; tz-=n.z*ndott;
                 float tl=sqrtf(tx*tx+ty*ty+tz*tz);
-                float bx=t->bitangent[0], by=t->bitangent[1], bz=t->bitangent[2];
+                float bx, by, bz;
+                if (authored) {
+                    bx=(n.y*tz-n.z*ty)*(handedness<0.0f?-1.0f:1.0f);
+                    by=(n.z*tx-n.x*tz)*(handedness<0.0f?-1.0f:1.0f);
+                    bz=(n.x*ty-n.y*tx)*(handedness<0.0f?-1.0f:1.0f);
+                } else { bx=t->derived_bitangent[0]; by=t->derived_bitangent[1]; bz=t->derived_bitangent[2]; }
                 float ndotb=n.x*bx+n.y*by+n.z*bz;
                 bx-=n.x*ndotb; by-=n.y*ndotb; bz-=n.z*ndotb;
                 if (tl>1e-12f) {

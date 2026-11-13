@@ -520,7 +520,10 @@ async function prepare(url) {
     const pos = accessor(doc, buffers, p.attributes?.POSITION, 'VEC3');
     const normal = accessor(doc, buffers, p.attributes?.NORMAL, 'VEC3');
     const uv = p.attributes?.TEXCOORD_0 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_0, 'VEC2');
-    if (pos.componentType !== 5126 || normal.componentType !== 5126 || pos.count !== normal.count || (uv && uv.count !== pos.count)) invalid('Invalid vertex attributes');
+    const tangent = p.attributes?.TANGENT === undefined ? null : accessor(doc, buffers, p.attributes.TANGENT, 'VEC4');
+    if (pos.componentType !== 5126 || normal.componentType !== 5126 || pos.count !== normal.count ||
+        (uv && uv.count !== pos.count) || (tangent && (tangent.componentType !== 5126 || tangent.normalized || tangent.count !== pos.count ||
+          tangent.values.some((value, index) => index % 4 === 3 && Math.abs(Math.abs(value) - 1) > 1e-4)))) invalid('Invalid vertex attributes');
     const joints = [], weights = [];
     for (let set = 0; set < 2; set++) {
       const jointIndex = p.attributes?.[`JOINTS_${set}`], weightIndex = p.attributes?.[`WEIGHTS_${set}`];
@@ -600,7 +603,7 @@ async function prepare(url) {
       textureIndex = pbr.baseColorTexture.index;
     }
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
-    return { pos: pos.values, normal: normal.values, uv: uv?.values, joints, weights, targets, indices,
+    return { pos: pos.values, normal: normal.values, uv: uv?.values, tangent: tangent?.values, joints, weights, targets, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
@@ -867,7 +870,7 @@ export async function loadGLTF(engine, url) {
       node.matrix.length = 0;
       node.weights.length = 0;
       for (const primitive of node.primitives) {
-        primitive.pos.length = 0; primitive.normal.length = 0; if (primitive.uv) primitive.uv.length = 0; primitive.indices.length = 0;
+        primitive.pos.length = 0; primitive.normal.length = 0; if (primitive.uv) primitive.uv.length = 0; if (primitive.tangent) primitive.tangent.length = 0; primitive.indices.length = 0;
         for (const set of [...primitive.joints, ...primitive.weights]) set.length = 0;
         for (const target of primitive.targets) { target.position && (target.position.length = 0); target.normal && (target.normal.length = 0); }
       }
@@ -966,7 +969,10 @@ export async function loadGLTF(engine, url) {
       });
       for (const p of node.primitives) {
         engine._g3_asset_mesh_begin();
-        for (let i = 0; i < p.pos.length / 3; i++) engine._g3_asset_vertex(...p.pos.slice(i*3, i*3+3), ...p.normal.slice(i*3, i*3+3), ...(p.uv ? p.uv.slice(i*2, i*2+2) : [0, 0]));
+        const useAuthoredTangents = !!p.tangent && node.skinIndex < 0 && !p.targets.length;
+        for (let i = 0; i < p.pos.length / 3; i++) engine._g3_asset_vertex(
+          ...p.pos.slice(i*3, i*3+3), ...p.normal.slice(i*3, i*3+3), ...(p.uv ? p.uv.slice(i*2, i*2+2) : [0, 0]),
+          ...(useAuthoredTangents ? p.tangent.slice(i*4, i*4+4) : [0, 0, 0, 0]));
         for (let i = 0; i < p.indices.length; i += 3) engine._g3_asset_triangle(...p.indices.slice(i, i+3));
         const mesh = engine._g3_asset_mesh_end();
         const meshHandle = makeResourceHandle(engine, mesh, 'mesh');
