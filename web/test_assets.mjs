@@ -1128,6 +1128,7 @@ for (const [name, mutate] of [
   ['bad-stride-limit', document => { document.bufferViews[0].byteStride = 256; }],
   ['strided-index-buffer', document => { document.bufferViews[2].byteOffset = 68; document.bufferViews[2].byteLength = 10; document.bufferViews[2].byteStride = 4; }],
   ['bad-normalized-flag', document => { document.accessors[0].normalized = 'false'; }],
+  ['normalized-indices', document => { document.accessors[2].normalized = true; }],
 ]) {
   const malformed = structuredClone(doc);
   mutate(malformed);

@@ -949,7 +949,9 @@ async function prepare(url, requestedScene) {
       return { position: position?.values, normal: normalDelta?.values, tangent: tangentDelta?.values };
     });
     const indexAccessor = p.indices === undefined ? null : accessor(doc, buffers, p.indices, 'SCALAR');
-    if (indexAccessor && ![5121, 5123, 5125].includes(indexAccessor.componentType)) invalid('Indices must be unsigned integers');
+    if (indexAccessor && (![5121, 5123, 5125].includes(indexAccessor.componentType) || indexAccessor.normalized)) {
+      invalid('Indices must use unnormalized unsigned integer components');
+    }
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
     const normalValues = normal ? normal.values : generateVertexNormals(pos.values, indices);

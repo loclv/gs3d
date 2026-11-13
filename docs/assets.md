@@ -172,6 +172,7 @@ fetches and decodes assets in JavaScript.
 * The selected scene's hierarchy (the glTF default scene, or the optional
   `loadGLTF` `{ scene: index }` choice), matrix or TRS transforms, indexed or
   non-indexed triangle primitives, float or `KHR_mesh_quantization` positions,
+  and unnormalized unsigned integer triangle indices,
   optional float or quantized normals and tangents,
   optional `TEXCOORD_0` through `TEXCOORD_7`, and optional `COLOR_0` as float
   `VEC3`/`VEC4` or normalized unsigned-byte/unsigned-short `VEC3`/`VEC4`.
