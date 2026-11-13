@@ -973,7 +973,7 @@ async function prepare(url, requestedScene) {
           (p.zfar !== undefined && (!Number.isFinite(p.zfar) || !(p.zfar > p.znear) || p.zfar > 3.4e38)) ||
           (p.aspectRatio !== undefined && (!Number.isFinite(p.aspectRatio) || !(p.aspectRatio > 0 && p.aspectRatio <= 3.4e38)))) invalid(`Invalid perspective camera ${cameraIndex}`);
       return { index: cameraIndex, name: camera.name ?? null, type: 'perspective', fov: p.yfov,
-        orthoHeight: 10, near: p.znear, far: p.zfar ?? Math.max(400, p.znear + 1), aspectRatio: p.aspectRatio ?? null, node: null };
+        orthoHeight: 10, near: p.znear, far: p.zfar ?? Math.max(400, p.znear + 1), aspectRatio: p.aspectRatio ?? null, nodes: [] };
     }
     if (camera.type === 'orthographic') {
       const o = camera.orthographic;
@@ -981,7 +981,7 @@ async function prepare(url, requestedScene) {
           !Number.isFinite(o.znear) || !Number.isFinite(o.zfar) || !(o.znear >= 0 && o.zfar > o.znear && o.zfar <= 3.4e38) ||
           !Number.isFinite(o.xmag / o.ymag) || o.xmag / o.ymag > 3.4e38) invalid(`Invalid orthographic camera ${cameraIndex}`);
       return { index: cameraIndex, name: camera.name ?? null, type: 'orthographic', fov: 0.9,
-        orthoHeight: 2 * o.ymag, near: o.znear, far: o.zfar, aspectRatio: o.xmag / o.ymag, node: null };
+        orthoHeight: 2 * o.ymag, near: o.znear, far: o.zfar, aspectRatio: o.xmag / o.ymag, nodes: [] };
     }
     invalid(`Invalid camera type in camera ${cameraIndex}`);
   });
@@ -991,7 +991,7 @@ async function prepare(url, requestedScene) {
   const scene = item(doc.scenes, sceneIndex, 'scene');
   if (scene.nodes !== undefined && !Array.isArray(scene.nodes)) invalid('Invalid scene roots');
   const roots = scene.nodes || [];
-  const seen = new Set(), usedSkinIndices = new Set(), lightInstances = [];
+  const seen = new Set(), usedSkinIndices = new Set(), lightInstances = [], cameraInstances = [];
   function visit(index, depth) {
     if (depth > 63 || seen.has(index)) invalid('Invalid or overly deep node hierarchy');
     seen.add(index);
@@ -1039,8 +1039,8 @@ async function prepare(url, requestedScene) {
     const cameraIndex = n.camera === undefined ? -1 : n.camera;
     if (cameraIndex >= 0) {
       const camera = item(cameras, cameraIndex, 'camera');
-      if (camera.node !== null) invalid('A glTF camera may be attached to only one node');
-      camera.node = index;
+      camera.nodes.push(index);
+      cameraInstances.push({ cameraIndex, node: index });
     } else if (n.camera !== undefined) invalid('Invalid node camera index');
     const meshData = n.mesh === undefined ? null : item(meshes, n.mesh, 'mesh');
     const primitives = meshData?.primitives ?? [];
@@ -1127,7 +1127,7 @@ async function prepare(url, requestedScene) {
     });
     return { name: typeof animation.name === 'string' ? animation.name : `Animation ${animationIndex}`, duration, channels };
   });
-  return { images, textureSpecs, roots: sceneRoots, skins, animations, cameras, lights: lightInstances, sceneIndex, variantNames };
+  return { images, textureSpecs, roots: sceneRoots, skins, animations, cameras, cameraInstances, lights: lightInstances, sceneIndex, variantNames };
 }
 
 // Model disposal is idempotent. GPU objects are released; arena records remain.
@@ -1278,7 +1278,6 @@ export async function loadGLTF(engine, url, options = {}) {
     return true;
   };
   const cameraPose = camera => {
-    if (camera.node === null) return null;
     let result = null;
     const visit = (node, parent) => {
       const state = transformNodes.get(node.index);
@@ -1296,7 +1295,8 @@ export async function loadGLTF(engine, url, options = {}) {
   };
   const syncSelectedCamera = () => {
     if (selectedCamera < 0) return true;
-    const camera = data.cameras[selectedCamera], pose = cameraPose(camera), id = modelCameraIds[selectedCamera];
+    const instance = data.cameraInstances[selectedCamera], camera = data.cameras[instance.cameraIndex];
+    const pose = cameraPose(instance), id = modelCameraIds[selectedCamera];
     if (!pose) return false;
     return !!engine._g3_asset_camera_update(id, ...pose.pos, ...pose.target, ...pose.up,
       camera.fov, camera.aspectRatio ?? 0, camera.type === 'orthographic' ? 1 : 0, camera.orthoHeight, camera.near, camera.far);
@@ -1384,6 +1384,7 @@ export async function loadGLTF(engine, url, options = {}) {
       if (fallbackCamera >= 0) engine._g3_asset_camera_select(fallbackCamera);
     }
     for (const id of modelCameraIds) engine._g3_asset_camera_remove(id);
+    selectedCamera = -1;
     if (fallbackCamera >= 0) engine._g3_asset_camera_remove(fallbackCamera);
     for (const animation of data.animations) for (const channel of animation.channels) {
       channel.times.length = 0;
@@ -1408,6 +1409,9 @@ export async function loadGLTF(engine, url, options = {}) {
     for (const root of data.roots) discardNodeData(root);
     for (const skin of data.skins) { skin.joints.length = 0; skin.inverseBindMatrices.length = 0; }
     data.lights.length = 0;
+    for (const camera of data.cameras) camera.nodes.length = 0;
+    data.cameras.length = 0;
+    data.cameraInstances.length = 0;
     for (const image of data.images) image.pixels = new Uint8ClampedArray(0);
     data.images.length = 0;
     data.textureSpecs.length = 0;
@@ -1633,9 +1637,10 @@ export async function loadGLTF(engine, url, options = {}) {
       return groupHandle;
     }
     const roots = data.roots.map(root => createNode(root, -1));
-    for (const camera of data.cameras) {
-      const pose = cameraPose(camera);
-      if (!pose) { modelCameraIds.push(-1); continue; }
+    for (const instance of data.cameraInstances) {
+      const camera = data.cameras[instance.cameraIndex];
+      const pose = cameraPose(instance);
+      if (!pose) throw new AssetError('UPLOAD', 'Could not resolve glTF camera node');
       const id = engine._g3_asset_camera_add(...pose.pos, ...pose.target, ...pose.up,
         camera.fov, camera.aspectRatio ?? 0, camera.type === 'orthographic' ? 1 : 0, camera.orthoHeight, camera.near, camera.far);
       if (id < 0) throw new AssetError('UPLOAD', 'Could not create glTF camera');
@@ -1647,7 +1652,7 @@ export async function loadGLTF(engine, url, options = {}) {
       roots: Object.freeze(roots),
       nodes: Object.freeze(modelNodes),
       cameras: Object.freeze(data.cameras.map(camera => Object.freeze({ index: camera.index, name: camera.name,
-        type: camera.type, node: camera.node, aspectRatio: camera.aspectRatio }))),
+        type: camera.type, nodes: Object.freeze([...camera.nodes]), aspectRatio: camera.aspectRatio }))),
       lights: Object.freeze(data.lights.map(light => Object.freeze({ index: light.index, name: light.name,
         type: light.type, node: light.node, color: Object.freeze([...light.color]), intensity: light.intensity,
         range: light.range, effectiveRange: light.effectiveRange, innerConeAngle: light.type === 'spot' ? light.inner : null,
@@ -1669,7 +1674,7 @@ export async function loadGLTF(engine, url, options = {}) {
         return true;
       },
       get activeVariant() { return activeVariant; },
-      selectCamera(index) {
+      selectCamera(index, nodeIndex = null) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
         if (index === null) {
           if (selectedCamera < 0) return true;
@@ -1677,13 +1682,18 @@ export async function loadGLTF(engine, url, options = {}) {
           selectedCamera = -1;
           return true;
         }
-        if (!Number.isInteger(index) || index < 0 || index >= modelCameraIds.length || modelCameraIds[index] < 0) return false;
+        if (!Number.isInteger(index) || index < 0 || index >= data.cameras.length ||
+            (nodeIndex !== null && (!Number.isInteger(nodeIndex) || nodeIndex < 0))) return false;
+        const instanceIndex = data.cameraInstances.findIndex(instance => instance.cameraIndex === index &&
+          (nodeIndex === null || instance.node === nodeIndex));
+        if (instanceIndex < 0 || modelCameraIds[instanceIndex] < 0) return false;
         if (fallbackCamera < 0) fallbackCamera = engine._g3_asset_camera_add_current();
-        selectedCamera = index;
-        if (!syncSelectedCamera() || !engine._g3_asset_camera_select(modelCameraIds[index])) { selectedCamera = -1; return false; }
+        selectedCamera = instanceIndex;
+        if (!syncSelectedCamera() || !engine._g3_asset_camera_select(modelCameraIds[instanceIndex])) { selectedCamera = -1; return false; }
         return true;
       },
-      get activeCamera() { return selectedCamera; },
+      get activeCamera() { return selectedCamera < 0 ? -1 : data.cameraInstances[selectedCamera].cameraIndex; },
+      get activeCameraNode() { return selectedCamera < 0 ? null : data.cameraInstances[selectedCamera].node; },
       /** Replace the engine's four extra lights with this scene's glTF lights. */
       applyLights() {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return false;

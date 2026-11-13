@@ -186,9 +186,10 @@ fetches and decodes assets in JavaScript.
   WebGL backend to batch compatible opaque copies. Custom instance attributes
   and instanced skins are not supported.
 * Perspective and orthographic glTF cameras attached to nodes in the selected
-  scene. `model.cameras` exposes camera definitions and `selectCamera(index)`
-  switches the active engine camera; `selectCamera(null)` restores the view
-  that was active before selection. Camera node transforms include their
+  scene. `model.cameras` exposes definitions and their node instances;
+  `selectCamera(index, nodeIndex?)` switches the active engine camera (choosing
+  the first instance when `nodeIndex` is omitted). `selectCamera(null)` restores
+  the view that was active before selection. Camera node transforms include their
   parent transforms and update when an animated transform changes. Projection
   honors perspective `aspectRatio` when provided; otherwise it follows the
   canvas. Orthographic `xmag` and `ymag` both set the authored view extent.

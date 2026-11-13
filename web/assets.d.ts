@@ -129,12 +129,14 @@ export interface LoadedModel {
   readonly roots: readonly NodeHandle[];
   /** glTF node hierarchy and references for the selected scene, in depth-first order. */
   readonly nodes: readonly ModelNodeInfo[];
-  /** Camera definitions in the glTF document; node is null when not instantiated in the selected scene. */
-  readonly cameras: readonly { readonly index: number; readonly name: string | null; readonly type: 'perspective' | 'orthographic'; readonly node: number | null; readonly aspectRatio: number | null }[];
-  /** Select a glTF camera by document index; pass null to restore the view active before selection. */
-  selectCamera(index: number | null): boolean;
+  /** Camera definitions and all node instances in the selected scene. */
+  readonly cameras: readonly { readonly index: number; readonly name: string | null; readonly type: 'perspective' | 'orthographic'; readonly nodes: readonly number[]; readonly aspectRatio: number | null }[];
+  /** Select a glTF camera by document index, optionally choosing one of its node instances; pass null to restore the prior view. */
+  selectCamera(index: number | null, nodeIndex?: number | null): boolean;
   /** Selected glTF camera index, or -1 when the pre-load view is active. */
   readonly activeCamera: number;
+  /** Node instance for the selected camera, or null when the pre-load view is active. */
+  readonly activeCameraNode: number | null;
   /** Punctual light instances attached to nodes in the selected scene. */
   readonly lights: readonly PunctualLightInfo[];
   /** Replace the engine's extra lights with this model's punctual lights. */

@@ -60,7 +60,8 @@ cameraDoc.cameras = [
   { name: 'Perspective', type: 'perspective', perspective: { yfov: 0.75, znear: 0.2, zfar: 90, aspectRatio: 1.5 } },
   { name: 'Ortho', type: 'orthographic', orthographic: { xmag: 8, ymag: 4, znear: 0.1, zfar: 80 } },
 ];
-cameraDoc.nodes = [{ translation: [2, 3, 4], camera: 0, children: [1] }, { translation: [0, 0, 2], camera: 1 }];
+cameraDoc.nodes = [{ translation: [2, 3, 4], camera: 0, children: [1, 2] },
+  { translation: [0, 0, 2], camera: 1 }, { translation: [0, 2, 0], camera: 0 }];
 cameraDoc.scenes = [{ nodes: [0] }];
 resources.set('http://localhost/cameras.gltf', bytes(cameraDoc));
 const badCameraDoc = structuredClone(cameraDoc);
@@ -455,15 +456,18 @@ function fakeEngine() {
 
 const cameraEngine = fakeEngine(), cameraModel = await loadGLTF(cameraEngine, 'http://localhost/cameras.gltf');
 assert.deepEqual(cameraModel.cameras, [
-  { index: 0, name: 'Perspective', type: 'perspective', node: 0, aspectRatio: 1.5 },
-  { index: 1, name: 'Ortho', type: 'orthographic', node: 1, aspectRatio: 2 },
+  { index: 0, name: 'Perspective', type: 'perspective', nodes: [0, 2], aspectRatio: 1.5 },
+  { index: 1, name: 'Ortho', type: 'orthographic', nodes: [1], aspectRatio: 2 },
 ]);
 assert.equal(cameraModel.selectCamera(0), true);
 assert.deepEqual(cameraEngine.calls.find(call => call[0] === 'camera_update').slice(0, 11),
   ['camera_update', 10, 2, 3, 4, 2, 3, 3, 0, 1, 0]);
 assert.equal(cameraModel.activeCamera, 0);
+assert.equal(cameraModel.selectCamera(0, 2), true, 'a camera definition can be selected through a specific node instance');
+assert.equal(cameraModel.activeCameraNode, 2);
 assert.equal(cameraModel.selectCamera(null), true);
 assert.equal(cameraModel.activeCamera, -1);
+assert.equal(cameraModel.activeCameraNode, null);
 cameraModel.dispose();
 assert.equal(cameraEngine.calls.some(call => call[0] === 'camera_remove' && call[1] === 10), true);
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/bad-camera.gltf'), error => error.code === 'INVALID_GLTF');
