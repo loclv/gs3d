@@ -262,6 +262,8 @@ What the API gives you:
   cleared. Render targets bypass screen tone mapping, sRGB output encoding, and
   FXAA; apply display effects after sampling the target. Sampling the active
   target in the same frame skips that item to avoid framebuffer feedback.
+  `stats().feedback_items_suppressed` reports the skipped draw-item count for
+  the current frame; the browser sample HUD shows it when nonzero.
   Texture coordinate v=0 addresses the bottom row of a render target.
   Targets are limited to 4,194,304 pixels each.
   `render_target_handle(id)` returns a generation-checked handle with matching
