@@ -630,6 +630,14 @@ for (const [label, mutate] of [
   ['perspective camera range', value => {
     value.cameras = [{ type: 'perspective', perspective: { yfov: 0.75, znear: 3.3e38 } }];
   }],
+  ['mesh morph weight', value => {
+    value.meshes[0].primitives[0].targets = [{ POSITION: 0 }];
+    value.meshes[0].weights = [3.5e38];
+  }],
+  ['node morph weight', value => {
+    value.meshes[0].primitives[0].targets = [{ POSITION: 0 }];
+    value.nodes[0].weights = [3.5e38];
+  }],
 ]) {
   const invalidFloatDoc = structuredClone(doc);
   mutate(invalidFloatDoc);

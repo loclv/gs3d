@@ -480,7 +480,10 @@ function sampleChannel(channel, time) {
     return channel.values.slice(valueIndex * channel.components, (valueIndex + 1) * channel.components);
   };
   const from = valueAt(a);
-  if (a === b || channel.interpolation === 'STEP') return channel.path === 'rotation' ? normalizedQuaternion(from) : from;
+  if (a === b || channel.interpolation === 'STEP') {
+    if (!from.every(isFiniteF32)) invalid('Invalid animation value');
+    return channel.path === 'rotation' ? normalizedQuaternion(from) : from;
+  }
   const duration = times[b] - times[a];
   const t = Math.max(0, Math.min(1, (time - times[a]) / duration));
   const to = valueAt(b);
@@ -495,10 +498,14 @@ function sampleChannel(channel, time) {
     const h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
     const result = from.map((value, i) => h00 * value + h10 * duration * outTangent[i] +
       h01 * to[i] + h11 * duration * inTangent[i]);
-    if (!result.every(Number.isFinite)) invalid('Invalid cubic animation value');
+    if (!result.every(isFiniteF32)) invalid('Invalid cubic animation value');
     return channel.path === 'rotation' ? normalizedQuaternion(result) : result;
   }
-  if (channel.path !== 'rotation') return from.map((value, i) => value + (to[i] - value) * t);
+  if (channel.path !== 'rotation') {
+    const result = from.map((value, i) => value + (to[i] - value) * t);
+    if (!result.every(isFiniteF32)) invalid('Invalid animation value');
+    return result;
+  }
   const q1 = normalizedQuaternion(from), q2 = normalizedQuaternion(to);
   let cosine = q1.reduce((sum, value, i) => sum + value * q2[i], 0);
   if (cosine < 0) { cosine = -cosine; for (let i = 0; i < 4; i++) q2[i] = -q2[i]; }
@@ -1011,7 +1018,7 @@ async function prepare(url, requestedScene) {
     const targetCount = primitives[0].targets.length;
     if (primitives.some(primitive => primitive.targets.length !== targetCount)) invalid(`Morph target counts differ in mesh ${meshIndex}`);
     const weights = mesh.weights ?? Array(targetCount).fill(0);
-    if (!Array.isArray(weights) || weights.length !== targetCount || !weights.every(Number.isFinite)) invalid(`Invalid default morph weights in mesh ${meshIndex}`);
+    if (!Array.isArray(weights) || weights.length !== targetCount || !weights.every(isFiniteF32)) invalid(`Invalid default morph weights in mesh ${meshIndex}`);
     return { primitives, targetCount, weights: [...weights] };
   });
   const cameras = (doc.cameras || []).map((camera, cameraIndex) => {
@@ -1117,7 +1124,7 @@ async function prepare(url, requestedScene) {
     const primitives = meshData?.primitives ?? [];
     const targetCount = meshData?.targetCount ?? 0;
     const morphWeights = n.weights ?? meshData?.weights ?? [];
-    if (!Array.isArray(morphWeights) || morphWeights.length !== targetCount || !morphWeights.every(Number.isFinite)) invalid('Invalid node morph weights');
+    if (!Array.isArray(morphWeights) || morphWeights.length !== targetCount || !morphWeights.every(isFiniteF32)) invalid('Invalid node morph weights');
     if (n.skin !== undefined && (!Number.isInteger(n.skin) || n.skin < 0)) invalid('Invalid node skin index');
     const skinIndex = n.skin === undefined ? -1 : n.skin;
     if (skinIndex >= 0) {
