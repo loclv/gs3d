@@ -44,9 +44,23 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_update(int32_t id, uint32_t positions_
     return g3_asset_mesh_update(id, positions, normals);
 }
 
+EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_update_cpu(int32_t id, uint32_t positions_ptr,
+                                                     uint32_t normals_ptr, int32_t float_count) {
+    if (id < 0 || !positions_ptr || !normals_ptr || positions_ptr % 4 || normals_ptr % 4 ||
+        float_count <= 0 || float_count > INT32_MAX / (int32_t)sizeof(float)) return 0;
+    const uint64_t bytes = (uint64_t)float_count * sizeof(float);
+    const uint64_t heap_size = emscripten_get_heap_size();
+    if ((uint64_t)positions_ptr + bytes > heap_size || (uint64_t)normals_ptr + bytes > heap_size) return 0;
+    sl_f32 positions = { (float *)(uintptr_t)positions_ptr, float_count };
+    sl_f32 normals = { (float *)(uintptr_t)normals_ptr, float_count };
+    return g3_asset_mesh_update_cpu(id, positions, normals);
+}
+
 typedef struct {
     GLuint vao, vbo, ebo;
-    GLsizei count;
+    GLuint skin_vbo, joint_texture;
+    GLsizei count, vertex_count;
+    GLsizei joint_count;
 } web_mesh;
 
 /* The one program every item draws with, and where its uniforms live. */
@@ -63,12 +77,14 @@ typedef struct {
     GLint spot_shadow_map, spot_shadow_matrix, spot_shadow_index, spot_shadow_params;
     GLint tone_map_inline, exposure_inline;
     GLint alpha_mode, alpha_cutoff;
+    GLint skin_enabled, joint_palette, joint_count;
 } web_shader;
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
 static web_shader shader;
 
 static int32_t surf_w = 1280, surf_h = 720;
+static int32_t max_joint_texture_height = 0;
 static web_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
 static GLuint *textures;
@@ -86,6 +102,7 @@ static GLuint point_shadow_texture;
 static GLuint spot_shadow_texture;
 static GLint shadow_light_matrix, shadow_model_matrix;
 static GLint shadow_mask, shadow_cutoff, shadow_alpha, shadow_tex, shadow_textured;
+static GLint shadow_skin_enabled, shadow_joint_palette, shadow_joint_count;
 static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
 static GLint output_sampler, output_tone_map, output_exposure, output_encode_srgb;
 static int output_width, output_height;
@@ -98,18 +115,37 @@ static const char *VERTEX_SRC =
     "layout(location = 0) in vec3 a_pos;\n"
     "layout(location = 1) in vec3 a_normal;\n"
     "layout(location = 2) in vec2 a_uv;\n"
+    "layout(location = 3) in vec4 a_joints0;\n"
+    "layout(location = 4) in vec4 a_weights0;\n"
+    "layout(location = 5) in vec4 a_joints1;\n"
+    "layout(location = 6) in vec4 a_weights1;\n"
     "uniform mat4 u_mvp;\n"
     "uniform mat4 u_model;\n"
     "uniform mat3 u_normal_matrix;\n"
+    "uniform bool u_skin_enabled;\n"
+    "uniform sampler2D u_joint_palette;\n"
+    "uniform int u_joint_count;\n"
     "out vec3 v_normal;\n"
     "out vec3 v_world;\n"
     "out vec2 v_uv;\n"
+    "mat4 joint_matrix(float joint) {\n"
+    "    int index = clamp(int(joint + 0.5), 0, u_joint_count - 1);\n"
+    "    return mat4(texelFetch(u_joint_palette, ivec2(0,index), 0), texelFetch(u_joint_palette, ivec2(1,index), 0),\n"
+    "                texelFetch(u_joint_palette, ivec2(2,index), 0), texelFetch(u_joint_palette, ivec2(3,index), 0));\n"
+    "}\n"
     "void main() {\n"
-    "    vec4 world = u_model * vec4(a_pos, 1.0);\n"
+    "    vec4 position = vec4(a_pos, 1.0); vec3 normal = a_normal;\n"
+    "    if (u_skin_enabled && u_joint_count > 0) {\n"
+    "        mat4 skin = mat4(0.0); float total = 0.0;\n"
+    "        for (int i=0;i<4;i++) { float w=a_weights0[i]; if(w>0.0){skin+=joint_matrix(a_joints0[i])*w;total+=w;} }\n"
+    "        for (int i=0;i<4;i++) { float w=a_weights1[i]; if(w>0.0){skin+=joint_matrix(a_joints1[i])*w;total+=w;} }\n"
+    "        if(total>0.0){position=(skin*position)/total;normal=normalize(mat3(skin)*normal);}\n"
+    "    }\n"
+    "    vec4 world = u_model * position;\n"
     "    v_world = world.xyz;\n"
     "    v_uv = a_uv;\n"
-    "    v_normal = u_normal_matrix * a_normal;\n"
-    "    gl_Position = u_mvp * vec4(a_pos, 1.0);\n"
+    "    v_normal = u_normal_matrix * normal;\n"
+    "    gl_Position = u_mvp * position;\n"
     "}\n";
 
 /* Keep this in step with shade() in g3_soft.c. */
@@ -396,6 +432,9 @@ static void find_uniforms(void) {
     shader.spot_shadow_params = glGetUniformLocation(shader.program, "u_spot_shadow_params");
     shader.alpha_mode = glGetUniformLocation(shader.program, "u_alpha_mode");
     shader.alpha_cutoff = glGetUniformLocation(shader.program, "u_alpha_cutoff");
+    shader.skin_enabled = glGetUniformLocation(shader.program, "u_skin_enabled");
+    shader.joint_palette = glGetUniformLocation(shader.program, "u_joint_palette");
+    shader.joint_count = glGetUniformLocation(shader.program, "u_joint_count");
     for (int i = 0; i < 4; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_lights[%d].position", i); shader.light_position[i] = glGetUniformLocation(shader.program, name);
@@ -470,6 +509,9 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
         return 0;
     }
     emscripten_webgl_make_context_current(ctx);
+    GLint max_texture_size = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_texture_size);
+    max_joint_texture_height = max_texture_size;
     float_color_buffer_supported=emscripten_webgl_enable_extension(ctx,"EXT_color_buffer_float");
     /* RGBA16F targets are blendable without EXT_float_blend, which is needed
        for 32-bit floating-point draw buffers. */
@@ -527,6 +569,8 @@ void g3p_shutdown(void) {
         glDeleteVertexArrays(1, &meshes[i].vao);
         glDeleteBuffers(1, &meshes[i].vbo);
         glDeleteBuffers(1, &meshes[i].ebo);
+        glDeleteBuffers(1, &meshes[i].skin_vbo);
+        glDeleteTextures(1, &meshes[i].joint_texture);
     }
     free(meshes);
     meshes = NULL;
@@ -569,8 +613,10 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     glBindVertexArray(m->vao);
 
     glBindBuffer(GL_ARRAY_BUFFER, m->vbo);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(sizeof(g3_vertex) * (size_t)verts.len),
-                 verts.data, GL_STATIC_DRAW);
+    if (m->joint_count == 0) {
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(sizeof(g3_vertex) * (size_t)verts.len),
+                     verts.data, GL_STATIC_DRAW);
+    }
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m->ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(sizeof(uint32_t) * (size_t)indices.len),
                  indices.data, GL_STATIC_DRAW);
@@ -588,7 +634,68 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     glBindVertexArray(0);
 
     m->count = (GLsizei)indices.len;
+    m->vertex_count = (GLsizei)verts.len;
     if (id >= mesh_count) mesh_count = id + 1;
+}
+
+/* Install static JOINTS/WEIGHTS attributes for an optional GPU skin path.
+   The regular mesh upload and CPU deformation remain the fallback/reference. */
+EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_skin(int32_t id, uint32_t data_ptr,
+                                                int32_t float_count, int32_t joint_count) {
+    if (id < 0 || id >= mesh_count || !data_ptr || data_ptr % 4 || float_count <= 0 ||
+        float_count % 16 || joint_count <= 0 || joint_count > max_joint_texture_height) return 0;
+    web_mesh *m = &meshes[id];
+    int32_t vertex_count = float_count / 16;
+    if (!m->vao || vertex_count <= 0 || vertex_count != m->vertex_count) return 0;
+    uint64_t bytes = (uint64_t)float_count * sizeof(float);
+    if ((uint64_t)data_ptr + bytes > emscripten_get_heap_size()) return 0;
+    const float *attributes = (const float *)(uintptr_t)data_ptr;
+    for (int32_t vertex = 0; vertex < vertex_count; vertex++) {
+        for (int32_t set = 0; set < 2; set++) {
+            int32_t base = vertex * 16 + set * 8;
+            for (int32_t c = 0; c < 4; c++) {
+                float joint = attributes[base + c], weight = attributes[base + 4 + c];
+                if (!isfinite(joint) || joint < 0.0f || joint >= (float)joint_count ||
+                    floorf(joint) != joint || !isfinite(weight) || weight < 0.0f) return 0;
+            }
+        }
+    }
+    if (!m->skin_vbo) glGenBuffers(1, &m->skin_vbo);
+    glBindVertexArray(m->vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m->skin_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)bytes, attributes, GL_STATIC_DRAW);
+    for (GLuint attribute = 3; attribute <= 6; attribute++) {
+        glEnableVertexAttribArray(attribute);
+        glVertexAttribPointer(attribute, 4, GL_FLOAT, GL_FALSE, 16 * (GLsizei)sizeof(float),
+                              (const void *)(uintptr_t)((attribute - 3) * 4 * sizeof(float)));
+    }
+    glBindVertexArray(0);
+    if (!m->joint_texture) glGenTextures(1, &m->joint_texture);
+    glBindTexture(GL_TEXTURE_2D, m->joint_texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    float *empty = calloc((size_t)joint_count * 16, sizeof(float));
+    if (!empty) return 0;
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 4, joint_count, 0, GL_RGBA, GL_FLOAT, empty);
+    free(empty);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(1, &m->joint_texture); m->joint_texture = 0; return 0; }
+    m->joint_count = joint_count;
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE uint8_t g3_host_joint_palette(int32_t id, uint32_t data_ptr, int32_t joint_count) {
+    if (id < 0 || id >= mesh_count || !data_ptr || data_ptr % 4 || joint_count <= 0) return 0;
+    web_mesh *m = &meshes[id];
+    if (!m->joint_texture || m->joint_count != joint_count) return 0;
+    uint64_t bytes = (uint64_t)joint_count * 16 * sizeof(float);
+    if ((uint64_t)data_ptr + bytes > emscripten_get_heap_size()) return 0;
+    const float *matrices = (const float *)(uintptr_t)data_ptr;
+    for (int64_t i = 0; i < (int64_t)joint_count * 16; i++) if (!isfinite(matrices[i])) return 0;
+    glBindTexture(GL_TEXTURE_2D, m->joint_texture);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 4, joint_count, GL_RGBA, GL_FLOAT, matrices);
+    return glGetError() == GL_NO_ERROR;
 }
 
 void g3p_release_mesh(int32_t id) {
@@ -597,6 +704,8 @@ void g3p_release_mesh(int32_t id) {
     glDeleteVertexArrays(1, &m->vao);
     glDeleteBuffers(1, &m->vbo);
     glDeleteBuffers(1, &m->ebo);
+    glDeleteBuffers(1, &m->skin_vbo);
+    glDeleteTextures(1, &m->joint_texture);
     memset(m, 0, sizeof(*m));
 }
 
@@ -888,7 +997,21 @@ static void bind_view(const g3_view_state *view) {
 
 static int ensure_shadow_map(void) {
     if (shadow_program && shadow_fbo && shadow_texture && allocated_shadow_size == shadow_map_size) return 1;
-    const char *vs_src = "#version 300 es\nlayout(location=0) in vec3 a_pos;\nlayout(location=2) in vec2 a_uv;\nuniform mat4 u_light;\nuniform mat4 u_model;\nout vec2 v_uv;\nvoid main(){v_uv=a_uv;gl_Position=u_light*u_model*vec4(a_pos,1.0);}\n";
+    const char *vs_src =
+        "#version 300 es\n"
+        "layout(location=0) in vec3 a_pos; layout(location=2) in vec2 a_uv;\n"
+        "layout(location=3) in vec4 a_joints0; layout(location=4) in vec4 a_weights0;\n"
+        "layout(location=5) in vec4 a_joints1; layout(location=6) in vec4 a_weights1;\n"
+        "uniform mat4 u_light; uniform mat4 u_model; uniform bool u_skin_enabled;\n"
+        "uniform sampler2D u_joint_palette; uniform int u_joint_count; out vec2 v_uv;\n"
+        "mat4 joint_matrix(float j) { int i=clamp(int(j+0.5),0,u_joint_count-1);\n"
+        "return mat4(texelFetch(u_joint_palette,ivec2(0,i),0),texelFetch(u_joint_palette,ivec2(1,i),0),\n"
+        "texelFetch(u_joint_palette,ivec2(2,i),0),texelFetch(u_joint_palette,ivec2(3,i),0)); }\n"
+        "void main() { vec4 p=vec4(a_pos,1.0); if(u_skin_enabled&&u_joint_count>0) {\n"
+        "mat4 s=mat4(0.0); float t=0.0;\n"
+        "for(int i=0;i<4;i++){float w=a_weights0[i];if(w>0.0){s+=joint_matrix(a_joints0[i])*w;t+=w;}}\n"
+        "for(int i=0;i<4;i++){float w=a_weights1[i];if(w>0.0){s+=joint_matrix(a_joints1[i])*w;t+=w;}}\n"
+        "if(t>0.0)p=s*p/t;} v_uv=a_uv; gl_Position=u_light*u_model*p; }\n";
     const char *fs_src = "#version 300 es\nprecision highp float;\nin vec2 v_uv;\nuniform bool u_mask;\nuniform bool u_textured;\nuniform sampler2D u_tex;\nuniform float u_alpha;\nuniform float u_cutoff;\nvoid main(){if(u_mask && u_alpha*(u_textured ? texture(u_tex,v_uv).a : 1.0)<u_cutoff) discard;}\n";
     GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "shadow vertex");
     GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "shadow fragment");
@@ -925,8 +1048,19 @@ static int ensure_shadow_map(void) {
     shadow_alpha = glGetUniformLocation(program, "u_alpha");
     shadow_tex = glGetUniformLocation(program, "u_tex");
     shadow_textured = glGetUniformLocation(program, "u_textured");
+    shadow_skin_enabled = glGetUniformLocation(program, "u_skin_enabled");
+    shadow_joint_palette = glGetUniformLocation(program, "u_joint_palette");
+    shadow_joint_count = glGetUniformLocation(program, "u_joint_count");
     allocated_shadow_size = shadow_map_size;
     return 1;
+}
+
+static void bind_shadow_skin(const web_mesh *m) {
+    glUniform1i(shadow_skin_enabled, m->joint_count > 0 && m->joint_texture != 0);
+    glUniform1i(shadow_joint_count, m->joint_count);
+    glUniform1i(shadow_joint_palette, 10);
+    glActiveTexture(GL_TEXTURE10);
+    glBindTexture(GL_TEXTURE_2D, m->joint_texture);
 }
 
 static int ensure_point_shadow_map(void) {
@@ -984,6 +1118,7 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vie
         glUniform1i(shadow_mask, it->alpha_mode == 1);
         glUniform1f(shadow_alpha, it->color.w);
         glUniform1f(shadow_cutoff, it->alpha_cutoff);
+        bind_shadow_skin(m);
         glBindVertexArray(m->vao);
         glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, 0);
     }
@@ -1007,6 +1142,7 @@ static void render_point_shadow_maps(g3_draw_item_slice items, const g3_view_sta
             glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,textured?textures[it->texture]:0);
             glUniform1i(shadow_tex,0); glUniform1i(shadow_textured,textured);
             glUniform1i(shadow_mask,it->alpha_mode==1); glUniform1f(shadow_alpha,it->color.w); glUniform1f(shadow_cutoff,it->alpha_cutoff);
+            bind_shadow_skin(m);
             glBindVertexArray(m->vao); glDrawElements(GL_TRIANGLES,m->count,GL_UNSIGNED_INT,0);
         }
     }
@@ -1048,8 +1184,9 @@ static void draw_item(const g3_draw_item *it) {
     glUniform1i(shader.mr_tex, 3);
     glUniform1i(shader.mr_textured, mr_textured);
 
-    /* Keep all shader samplers on separate units: base 0, environment 1,
-       shadow 2, metallic-roughness 3, normal 4, occlusion 5, emissive 6. */
+    /* Keep shader samplers on separate units: base 0, environment 1,
+       shadow 2, metallic-roughness 3, normal 4, occlusion 5, emissive 6,
+       point shadow 7, spot shadow 8, BRDF 9, joint matrices 10. */
     int normal_textured = it->normal_texture >= 0 && it->normal_texture < texture_count && textures[it->normal_texture];
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, normal_textured ? textures[it->normal_texture] : 0);
@@ -1070,6 +1207,12 @@ static void draw_item(const g3_draw_item *it) {
     glUniform1i(shader.emissive_tex, 6);
     glUniform1i(shader.emissive_textured, emissive_textured);
     glUniform4f(shader.emissive, it->emissive.x, it->emissive.y, it->emissive.z, it->emissive.w);
+
+    glUniform1i(shader.skin_enabled, m->joint_count > 0 && m->joint_texture != 0);
+    glUniform1i(shader.joint_count, m->joint_count);
+    glUniform1i(shader.joint_palette, 10);
+    glActiveTexture(GL_TEXTURE10);
+    glBindTexture(GL_TEXTURE_2D, m->joint_texture);
 
     glBindVertexArray(m->vao);
     glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0);

@@ -116,6 +116,19 @@ function fakeEngine() {
       [...engine.HEAPF32.slice(normals >>> 2, (normals >>> 2) + count)]]);
     return 1;
   };
+  engine._g3_host_mesh_update_cpu = (id, positions, normals, count) => {
+    calls.push(['mesh_update_cpu', id, [...engine.HEAPF32.slice(positions >>> 2, (positions >>> 2) + count)],
+      [...engine.HEAPF32.slice(normals >>> 2, (normals >>> 2) + count)]]);
+    return 1;
+  };
+  engine._g3_host_mesh_skin = (id, ptr, count, joints) => {
+    calls.push(['mesh_skin', id, [...engine.HEAPF32.slice(ptr >>> 2, (ptr >>> 2) + count)], joints]);
+    return 1;
+  };
+  engine._g3_host_joint_palette = (id, ptr, joints) => {
+    calls.push(['joint_palette', id, [...engine.HEAPF32.slice(ptr >>> 2, (ptr >>> 2) + joints * 16)], joints]);
+    return 1;
+  };
   engine._g3_asset_node = (...args) => { calls.push(['node', ...args]); const id = next++; generations.set(id, 1); return id; };
   engine._g3_asset_texture = () => { const id = nextTexture++; textureGenerations.set(id, 1); return id; };
   engine._g3_host_texture = (...args) => calls.push(['texture', ...args]);
@@ -376,9 +389,24 @@ const skinEngine = fakeEngine(), skinnedModel = await loadGLTF(skinEngine, 'http
 assert.equal(skinnedModel.animations.length, 1);
 assert.equal(skinnedModel.playAnimation(0, { loop: false }), true);
 assert.equal(skinnedModel.seekAnimation(1), true);
-const skinnedVertices = skinEngine.calls.filter(x => x[0] === 'mesh_update').at(-1)[2];
+const skinnedVertices = skinEngine.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[2];
 assert.deepEqual(skinnedVertices, [0,-1,0, 2,-1,0, 1,1,0]);
+assert.equal(skinEngine.calls.filter(x => x[0] === 'mesh_update').length, 0);
+const skinAttributes = skinEngine.calls.find(x => x[0] === 'mesh_skin');
+assert.equal(skinAttributes[3], 1);
+assert.deepEqual(skinAttributes[2].slice(0, 16), [0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,0,0]);
+const jointPalette = skinEngine.calls.filter(x => x[0] === 'joint_palette').at(-1);
+assert.equal(jointPalette[3], 1);
+assert.equal(jointPalette[2][12], 1);
 skinnedModel.dispose();
+const fallbackSkinEngine = fakeEngine();
+fallbackSkinEngine._g3_host_mesh_skin = () => 0;
+const fallbackSkinModel = await loadGLTF(fallbackSkinEngine, 'http://localhost/skinned.gltf');
+assert.equal(fallbackSkinModel.playAnimation(0, { loop: false }), true);
+assert.equal(fallbackSkinModel.seekAnimation(1), true);
+assert.ok(fallbackSkinEngine.calls.some(x => x[0] === 'mesh_update'));
+assert.equal(fallbackSkinEngine.calls.some(x => x[0] === 'mesh_update_cpu'), false);
+fallbackSkinModel.dispose();
 const morphEngine = fakeEngine(), morphModel = await loadGLTF(morphEngine, 'http://localhost/morph.gltf');
 assert.equal(morphModel.playAnimation(0, { loop: false }), true);
 assert.equal(morphModel.seekAnimation(1), true);

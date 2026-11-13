@@ -431,9 +431,11 @@ Deliberately out of scope for now, in rough order of how much they would add:
   not available.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
-* **CPU skinning.** Browser glTF skins deform and upload full mesh geometry on
-  pose changes. POSITION/NORMAL morph targets also deform on the CPU. GPU joint
-  palettes and native asset loading remain future work.
+* **Partial GPU skinning.** WebGL skin-only glTF meshes use joint palettes and
+  avoid per-pose geometry uploads, while CPU geometry remains synchronized for
+  picking. Morph targets and combined skin+morph meshes still deform on the CPU;
+  benchmark pose updates and validate the GPU result in a browser. Native glTF
+  loading remains future work.
 * **Limited removal.** Ordinary nodes can be removed and reused. Unreferenced
   ordinary meshes and textures can be removed; mesh backend allocations are
   freed and their arena spans can be reused by ordinary meshes and asset loads.

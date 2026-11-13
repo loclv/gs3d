@@ -23,6 +23,9 @@ export fn g3_asset_mesh_end() -> i32 { return g3::mesh_asset_create(asset_vertic
 export fn g3_asset_mesh_update(id: i32, positions: const f32[:], normals: const f32[:]) -> bool {
     return g3::mesh_asset_update(id, positions, normals);
 }
+export fn g3_asset_mesh_update_cpu(id: i32, positions: const f32[:], normals: const f32[:]) -> bool {
+    return g3::mesh_asset_update_cpu(id, positions, normals);
+}
 export fn g3_asset_mesh_generation(id: i32) -> i32 { return g3::mesh_handle(id).generation; }
 export fn g3_asset_mesh_valid(id: i32, generation: i32) -> bool { return g3::mesh_handle_valid(g3::MeshHandle { id: id, generation: generation }); }
 export fn g3_asset_release_mesh(id: i32, generation: i32) -> bool { return g3::mesh_asset_release_handle(g3::MeshHandle { id: id, generation: generation }); }

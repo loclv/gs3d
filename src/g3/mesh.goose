@@ -312,7 +312,7 @@ fn mesh_compact() {
 // Replace an asset mesh's deformed positions and normals without moving its
 // arena spans or changing its handle. CPU geometry stays current for bounds,
 // picking, and the next upload to either backend.
-fn mesh_asset_update(id: i32, positions: const f32[:], normals: const f32[:]) -> bool {
+fn mesh_asset_update_internal(id: i32, positions: const f32[:], normals: const f32[:], upload: bool) -> bool {
     guard id >= 0 && id < g_meshes.len else { return false; }
     let m .= g_meshes[id];
     guard m.asset_owned && !m.asset_free && positions.len == m.vertex_count * 3 &&
@@ -330,9 +330,21 @@ fn mesh_asset_update(id: i32, positions: const f32[:], normals: const f32[:]) ->
         g_verts[m.first_vertex + i].normal = float3 { normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2] };
     }
     m.bounds = bounds;
-    g3p_upload_mesh(id, g_verts[m.first_vertex..m.first_vertex + m.vertex_count],
-                    g_indices[m.first_index..m.first_index + m.index_count]);
+    if upload {
+        g3p_upload_mesh(id, g_verts[m.first_vertex..m.first_vertex + m.vertex_count],
+                        g_indices[m.first_index..m.first_index + m.index_count]);
+    }
     return true;
+}
+
+fn mesh_asset_update(id: i32, positions: const f32[:], normals: const f32[:]) -> bool {
+    return mesh_asset_update_internal(id, positions, normals, true);
+}
+
+// Update retained CPU geometry for picking without uploading a duplicate mesh
+// when the WebGL backend is deforming it from a joint palette.
+fn mesh_asset_update_cpu(id: i32, positions: const f32[:], normals: const f32[:]) -> bool {
+    return mesh_asset_update_internal(id, positions, normals, false);
 }
 
 fn mesh_asset_release_handle(handle: MeshHandle) -> bool {

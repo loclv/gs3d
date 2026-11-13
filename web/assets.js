@@ -705,6 +705,13 @@ export async function loadGLTF(engine, url) {
         });
       }
       const { primitive } = deformed;
+      if (deformed.gpuSkin) {
+        const matrices = new Float32Array(jointMatrices.flat());
+        engine.HEAPF32.set(matrices, deformed.palettePtr >>> 2);
+        if (!engine._g3_host_joint_palette(deformed.handle.id, deformed.palettePtr, jointMatrices.length)) {
+          throw new AssetError('UPLOAD', 'Could not update GPU skin palette');
+        }
+      }
       const morphWeights = transformNodes.get(deformed.node)?.weights ?? deformed.weights;
       const vertexCount = primitive.pos.length / 3;
       const positions = new Float32Array(primitive.pos.length), normals = new Float32Array(primitive.normal.length);
@@ -751,7 +758,8 @@ export async function loadGLTF(engine, url) {
       const floatOffset = deformed.ptr >>> 2;
       engine.HEAPF32.set(positions, floatOffset);
       engine.HEAPF32.set(normals, floatOffset + positions.length);
-      if (!engine._g3_host_mesh_update(deformed.handle.id, deformed.ptr, deformed.ptr + positions.byteLength, positions.length)) {
+      const updateMesh = deformed.gpuSkin ? engine._g3_host_mesh_update_cpu : engine._g3_host_mesh_update;
+      if (!updateMesh || !updateMesh(deformed.handle.id, deformed.ptr, deformed.ptr + positions.byteLength, positions.length)) {
         throw new AssetError('UPLOAD', 'Could not update deformed mesh');
       }
     }
@@ -786,7 +794,10 @@ export async function loadGLTF(engine, url) {
     for (const handle of meshes) {
       engine._g3_asset_release_mesh(handle.id, handle.generation);
     }
-    for (const deformed of deformedMeshes) if (deformed.ptr) engine._free(deformed.ptr);
+    for (const deformed of deformedMeshes) {
+      if (deformed.ptr) engine._free(deformed.ptr);
+      if (deformed.palettePtr) engine._free(deformed.palettePtr);
+    }
     deformedMeshes.length = 0;
     for (const handle of textures.values()) releaseTexture(engine, handle);
     for (const animation of data.animations) for (const channel of animation.channels) {
@@ -844,8 +855,31 @@ export async function loadGLTF(engine, url) {
           const byteLength = p.pos.length * Float32Array.BYTES_PER_ELEMENT;
           const ptr = engine._malloc(byteLength * 2);
           if (!ptr) throw new AssetError('MEMORY', 'Could not allocate morph deformation buffer');
-          deformedMeshes.push({ handle: meshHandle, node: node.index, skinIndex: node.skinIndex,
-            weights: [...node.weights], primitive: p, ptr });
+          const deformation = { handle: meshHandle, node: node.index, skinIndex: node.skinIndex,
+            weights: [...node.weights], primitive: p, ptr, gpuSkin: false, palettePtr: 0 };
+          deformedMeshes.push(deformation);
+          if (node.skinIndex >= 0 && p.targets.length === 0 && p.joints.length > 0 &&
+              typeof engine._g3_host_mesh_skin === 'function' &&
+              typeof engine._g3_host_joint_palette === 'function' &&
+              typeof engine._g3_host_mesh_update_cpu === 'function') {
+            const vertexCount = p.pos.length / 3, attributes = new Float32Array(vertexCount * 16);
+            for (let vertex = 0; vertex < vertexCount; vertex++) for (let set = 0; set < 2; set++) {
+              for (let component = 0; component < 4; component++) {
+                const offset = vertex * 4 + component, base = vertex * 16 + set * 8;
+                if (p.joints[set]) attributes[base + component] = p.joints[set][offset];
+                if (p.weights[set]) attributes[base + 4 + component] = p.weights[set][offset];
+              }
+            }
+            const skinPtr = engine._malloc(attributes.byteLength);
+            if (!skinPtr) throw new AssetError('MEMORY', 'Could not allocate GPU skin attributes');
+            engine.HEAPF32.set(attributes, skinPtr >>> 2);
+            deformation.gpuSkin = !!engine._g3_host_mesh_skin(mesh, skinPtr, attributes.length, data.skins[node.skinIndex].joints.length);
+            engine._free(skinPtr);
+            if (deformation.gpuSkin) {
+              deformation.palettePtr = engine._malloc(data.skins[node.skinIndex].joints.length * 16 * Float32Array.BYTES_PER_ELEMENT);
+              if (!deformation.palettePtr) throw new AssetError('MEMORY', 'Could not allocate GPU skin palette');
+            }
+          }
         }
         const id = engine._g3_asset_node(mesh, group);
         const nodeHandle = makeNodeHandle(engine, id);

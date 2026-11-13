@@ -131,10 +131,13 @@ fetches and decodes assets in JavaScript.
 * Skeletal glTF skins with `JOINTS_0`/`WEIGHTS_0` and optional second influence
   sets, unsigned-byte or unsigned-short joint indices, float or normalized
   unsigned weights, and optional float inverse-bind matrices. Skin joints must
-  belong to the selected scene. The loader normalizes skin weights and deforms
-  retained CPU vertices for morph weights and joint poses when animation time
-  changes; those vertices are then uploaded to the active backend, so picking
-  and shadows use the deformed pose.
+  belong to the selected scene. The loader normalizes skin weights and keeps
+  retained CPU vertices current for picking. WebGL skin-only meshes also upload
+  static joint/weight attributes and a per-mesh joint palette texture, avoiding
+  a full mesh-buffer upload for each pose; the same palette deforms shadow
+  casters. Morph targets and meshes combining skinning with morph targets keep
+  the CPU deformation and upload path. If a skin exceeds the device's maximum
+  texture height, it falls back to CPU deformation.
 * Opaque, masked and blended base-colour factors and base-colour textures.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
   Emission adds the linear `emissiveFactor`, multiplied by an sRGB-decoded
