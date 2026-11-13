@@ -14,6 +14,10 @@
   select { width: 100%; padding: 7px; border-radius: 4px; }
   #status { color: #ffe6a5; }
   #inspection { white-space: pre-wrap; font: 12px/1.55 ui-monospace, monospace; color: #c6d5d5; }
+  #texture-previews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; max-height: 210px; overflow: auto; }
+  #texture-previews figure { margin: 0; min-width: 0; text-align: center; }
+  #texture-previews canvas { display: block; width: 100%; height: auto; max-height: 72px; object-fit: contain; image-rendering: auto; background: #080d11; }
+  #texture-previews figcaption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10px/1.4 ui-monospace, monospace; color: #c6d5d5; }
 </style>
 </head>
 <body>
@@ -25,6 +29,7 @@
   <p><label for="variant">Material variant</label><br><select id="variant" disabled><option value="-1">Default materials</option></select></p>
   <p id="status" role="status">Loading…</p>
   <p id="inspection" aria-live="polite">Click a mesh to inspect its material.</p>
+  <div id="texture-previews" aria-label="Selected material texture previews"></div>
 </section>
 <script type="module" src="./viewer.js"></script>
 </body>

@@ -685,14 +685,13 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
 
 function inspectMaterial(spec) {
   const alphaModes = ['OPAQUE', 'MASK', 'BLEND'];
-  const textureSlots = [
+  const textureBindings = [
     ['baseColor', spec.textureIndex], ['metallicRoughness', spec.metallicRoughnessTextureIndex],
     ['normal', spec.normalTextureIndex], ['occlusion', spec.occlusionTextureIndex],
     ['emissive', spec.emissiveTextureIndex], ['specular', spec.specularTextureIndex],
-    ['specularColor', spec.specularColorTextureIndex],
-    ['clearcoat', spec.clearcoatTextureIndex], ['clearcoatRoughness', spec.clearcoatRoughnessTextureIndex],
-    ['clearcoatNormal', spec.clearcoatNormalTextureIndex],
-  ].filter(([, index]) => index >= 0).map(([name]) => name);
+    ['specularColor', spec.specularColorTextureIndex], ['clearcoat', spec.clearcoatTextureIndex],
+    ['clearcoatRoughness', spec.clearcoatRoughnessTextureIndex], ['clearcoatNormal', spec.clearcoatNormalTextureIndex],
+  ].filter(([, index]) => index >= 0).map(([slot, index]) => Object.freeze({ slot, index }));
   return Object.freeze({
     index: spec.materialIndex, name: spec.name,
     baseColorFactor: Object.freeze([...spec.baseColorFactor]),
@@ -703,7 +702,8 @@ function inspectMaterial(spec) {
     specularColorFactor: Object.freeze([...spec.specularColorFactor]),
     clearcoatFactor: spec.clearcoatFactor, clearcoatRoughnessFactor: spec.clearcoatRoughness,
     clearcoatNormalScale: spec.clearcoatNormalScale,
-    textureSlots: Object.freeze(textureSlots),
+    textureSlots: Object.freeze(textureBindings.map(binding => binding.slot)),
+    textureBindings: Object.freeze(textureBindings),
   });
 }
 
@@ -1228,6 +1228,9 @@ export async function loadGLTF(engine, url, options = {}) {
     };
     for (const root of data.roots) discardNodeData(root);
     for (const skin of data.skins) { skin.joints.length = 0; skin.inverseBindMatrices.length = 0; }
+    for (const image of data.images) image.pixels = new Uint8ClampedArray(0);
+    data.images.length = 0;
+    data.textureSpecs.length = 0;
     transformNodes.clear();
     touchedTransforms.clear();
   };
@@ -1444,6 +1447,23 @@ export async function loadGLTF(engine, url, options = {}) {
         return true;
       },
       get activeVariant() { return activeVariant; },
+      getTexturePreview(textureIndex, maxDimension = 256) {
+        if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch() || !Number.isInteger(textureIndex) || textureIndex < 0 || textureIndex >= data.textureSpecs.length ||
+            !Number.isInteger(maxDimension) || maxDimension < 1 || maxDimension > 1024) return null;
+        const imageIndex = data.textureSpecs[textureIndex].image;
+        const image = data.images[imageIndex];
+        if (!image) return null;
+        const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+        const width = Math.max(1, Math.round(image.width * scale)), height = Math.max(1, Math.round(image.height * scale));
+        const pixels = new Uint8ClampedArray(width * height * 4);
+        for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+          const source = (Math.min(image.height - 1, Math.floor((y + 0.5) * image.height / height)) * image.width +
+            Math.min(image.width - 1, Math.floor((x + 0.5) * image.width / width))) * 4;
+          const target = (y * width + x) * 4;
+          pixels.set(image.pixels.subarray(source, source + 4), target);
+        }
+        return Object.freeze({ width, height, sourceWidth: image.width, sourceHeight: image.height, pixels });
+      },
       playAnimation(index = 0, { loop = true } = {}) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch() || !Number.isInteger(index) || index < 0 || index >= data.animations.length) return false;
         activeAnimation = index; animationTime = 0; animationLoop = !!loop; animationPlaying = data.animations[index].duration > 0;

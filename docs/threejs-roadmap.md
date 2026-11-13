@@ -100,9 +100,10 @@ and a browser integration check for behavior exposed through WebGL.
 * **Partly implemented:** triangle picking and an example viewer with reusable
   orbit, pan and pinch controls, selection, and reload. The browser model API
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
-  primitive handles plus default and variant material summaries; the viewer
-  reports the selected node, primitive, and material factors and can switch
-  variants. Add texture previews and validate those paths in a real browser.
+  primitive handles plus default and variant material summaries; material
+  summaries expose texture bindings and a bounded preview API, and the viewer
+  displays maps for the selected material and variant. Validate those paths in
+  a real browser.
 
 **Done when:** a documented example loads a static textured GLB, orbits it,
 selects a mesh with a click, and repeatedly loads and disposes models without

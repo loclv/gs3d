@@ -59,7 +59,21 @@ export interface MaterialInspection {
   readonly ior: number;
   readonly specularFactor: number;
   readonly specularColorFactor: readonly [number, number, number];
+  readonly clearcoatFactor: number;
+  readonly clearcoatRoughnessFactor: number;
+  readonly clearcoatNormalScale: number;
   readonly textureSlots: readonly string[];
+  readonly textureBindings: readonly { readonly slot: string; readonly index: number }[];
+}
+
+export interface TexturePreview {
+  /** Preview dimensions, limited by the requested maximum dimension. */
+  readonly width: number;
+  readonly height: number;
+  readonly sourceWidth: number;
+  readonly sourceHeight: number;
+  /** Copy of the decoded RGBA pixels; mutating it cannot change the loaded model. */
+  readonly pixels: Uint8ClampedArray;
 }
 
 export interface PrimitiveMaterialInspection {
@@ -100,6 +114,8 @@ export interface LoadedModel {
   readonly meshes: readonly ResourceHandle[];
   readonly materials: readonly ResourceHandle[];
   readonly textures: readonly ResourceHandle[];
+  /** Copy a glTF texture into a bounded RGBA preview (default 256, range 1..1024); null for invalid, stale, or disposed models. */
+  getTexturePreview(textureIndex: number, maxDimension?: number): TexturePreview | null;
   readonly activeAnimation: number;
   readonly animationTime: number;
   /** Start an animation by index. Returns false for an invalid or disposed model. */

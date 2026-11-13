@@ -94,8 +94,11 @@ hierarchy. Each entry keeps the original glTF node index, optional name, parent
 and child indices, optional mesh and skin indices, the checked engine handle for
 that node's transform group, checked handles for its primitive nodes, and
 `primitiveMaterials` summaries in matching order. Material summaries include
-names, factors, alpha mode, sidedness, shading model, IOR, specular factors and
-the texture slots in use. Each primitive summary includes its default material
+names, factors, alpha mode, sidedness, shading model, IOR, specular and
+clearcoat factors, and the texture slots in use. Texture bindings map each slot
+to its glTF texture index. `getTexturePreview(index, maxDimension)` returns a
+bounded RGBA copy for UI previews (default 256, maximum 1024), or `null` for an invalid or disposed model;
+disposal releases the loader's decoded pixel buffers. Each primitive summary includes its default material
 and the materials assigned by `KHR_materials_variants`; choosing a variant with
 `model.setVariant()` does not mutate the inspection data. Nodes in unselected
 scenes are not included.

@@ -7,11 +7,13 @@ const canvas = document.getElementById('canvas');
 const status = document.getElementById('status');
 const reload = document.getElementById('reload');
 const inspection = document.getElementById('inspection');
+const previews = document.getElementById('texture-previews');
 const variantSelect = document.getElementById('variant');
 let engine, model, last = 0;
 let selectedPrimitive = null;
 
 function updateInspection() {
+  previews.replaceChildren();
   if (!model || !selectedPrimitive) {
     inspection.textContent = 'Click a mesh to inspect its material.';
     return;
@@ -33,6 +35,22 @@ function updateInspection() {
     `Maps: ${material.textureSlots.length ? material.textureSlots.join(', ') : 'none'}`,
     `${material.unlit ? 'Unlit' : 'Lit'}${material.doubleSided ? ', double-sided' : ''}`,
   ].join('\n');
+  for (const binding of material.textureBindings) {
+    const preview = model.getTexturePreview(binding.index, 112);
+    if (!preview) continue;
+    const figure = document.createElement('figure');
+    const canvas = document.createElement('canvas');
+    canvas.width = preview.width;
+    canvas.height = preview.height;
+    canvas.setAttribute('aria-label', `${binding.slot} texture preview`);
+    const context = canvas.getContext('2d');
+    if (!context) continue;
+    context.putImageData(new ImageData(preview.pixels, preview.width, preview.height), 0, 0);
+    const caption = document.createElement('figcaption');
+    caption.textContent = binding.slot;
+    figure.append(canvas, caption);
+    previews.append(figure);
+  }
 }
 
 window.gooseError = message => { status.textContent = message; };

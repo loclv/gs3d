@@ -444,7 +444,8 @@ assert.deepEqual(inspectedPrimitive.variants, [{
     index: 1, name: 'Blue paint', baseColorFactor: [0, 0, 1, 1], metallicFactor: 0.4,
     roughnessFactor: 0.2, alphaMode: 'OPAQUE', alphaCutoff: 0.5, emissiveFactor: [0, 0, 0],
     doubleSided: false, unlit: false, ior: 1.5, specularFactor: 1, specularColorFactor: [1, 1, 1],
-    clearcoatFactor: 0, clearcoatRoughnessFactor: 0, clearcoatNormalScale: 1, textureSlots: [],
+    clearcoatFactor: 0, clearcoatRoughnessFactor: 0, clearcoatNormalScale: 1,
+    textureSlots: [], textureBindings: [],
   },
 }], 'primitive inspection includes default factors and mapped variant material metadata');
 assert.equal(variantModel.activeVariant, -1);
@@ -568,10 +569,21 @@ assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.clearcoatFact
 assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.clearcoatRoughnessFactor, 0.25);
 assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.clearcoatNormalScale, 0.5);
 assert.deepEqual(clearcoatModel.nodes[0].primitiveMaterials[0].default.textureSlots.slice(-3), ['clearcoat', 'clearcoatRoughness', 'clearcoatNormal']);
+assert.deepEqual(clearcoatModel.nodes[0].primitiveMaterials[0].default.textureBindings.slice(-3), [
+  { slot: 'clearcoat', index: 0 }, { slot: 'clearcoatRoughness', index: 0 }, { slot: 'clearcoatNormal', index: 0 },
+]);
+const preview = clearcoatModel.getTexturePreview(0, 1);
+assert.deepEqual([preview.width, preview.height, preview.sourceWidth, preview.sourceHeight], [1, 1, 2, 1]);
+assert.deepEqual([...preview.pixels], [1, 1, 1, 1]);
+preview.pixels[0] = 99;
+assert.deepEqual([...clearcoatModel.getTexturePreview(0).pixels.slice(0, 4)], [1, 1, 1, 1], 'texture previews return independent pixel copies');
+assert.equal(clearcoatModel.getTexturePreview(1), null);
+assert.equal(clearcoatModel.getTexturePreview(0, 1025), null);
 assert.equal(clearcoatEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 7)[3], 0.25);
 assert.equal(clearcoatEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 8)[5], 2);
 assert.equal(clearcoatEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 9)[7], 0.25);
 clearcoatModel.dispose();
+assert.equal(clearcoatModel.getTexturePreview(0), null, 'disposed models release and hide preview pixels');
 clearcoatDoc.materials[0].extensions.KHR_materials_clearcoat.clearcoatNormalTexture.scale = 'bad';
 resources.set('http://localhost/clearcoat-invalid-normal-scale.gltf', bytes(clearcoatDoc));
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/clearcoat-invalid-normal-scale.gltf'), e => e.code === 'INVALID_GLTF');
