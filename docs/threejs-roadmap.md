@@ -16,7 +16,7 @@ reference for rendering changes.
 
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
-| Assets | Built-in primitives, custom geometry, a browser glTF/GLB loader, a native static GLB/JSON glTF primitive loader with up to 16 external or base64 data-URI buffers, native PPM P6 and Radiance HDR image loaders; the browser path supports shared static primitive uploads, `EXT_mesh_gpu_instancing`, selectable scenes and cameras, opt-in `KHR_lights_punctual`, WebP fallback, quantized geometry, vertex colours, materials, animations, dense and sparse accessors, and reusable asset-owned slots | Native full-scene and glTF material texture loading; native PNG/JPEG decoding; broader glTF extension coverage, general resource ownership and fragmentation control; see [assets.md](assets.md) |
+| Assets | Built-in primitives, custom geometry, a browser glTF/GLB loader, a native static GLB/JSON glTF loader with selected-scene mesh instances and up to 16 external or base64 data-URI buffers, native PPM P6 and Radiance HDR image loaders; the browser path supports shared static primitive uploads, `EXT_mesh_gpu_instancing`, selectable scenes and cameras, opt-in `KHR_lights_punctual`, WebP fallback, quantized geometry, vertex colours, materials, animations, dense and sparse accessors, and reusable asset-owned slots | Native source hierarchy, cameras, lights, animation, glTF material texture loading, and PNG/JPEG decoding; broader glTF extension coverage, general resource ownership and fragmentation control; see [assets.md](assets.md) |
 | Materials | Shared glTF materials with `COLOR_0`, metallic-roughness, tangent-space normal, occlusion, emissive, specular, clearcoat, sheen and anisotropy maps, authored and morphed tangents, eight texture-coordinate sets, double-sided rendering, selectable `KHR_materials_variants`, per-material environment intensity, rotatable equirectangular environment maps, `KHR_materials_unlit`, `KHR_materials_ior`, `KHR_materials_clearcoat`, `KHR_materials_specular`, `KHR_materials_sheen`, `KHR_materials_anisotropy`, `KHR_materials_emissive_strength`, per-texture `KHR_texture_transform` on `TEXCOORD_0` through `_7`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and Reinhard/ACES tone mapping with exposure | Browser shader validation and reference images |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, browser-controllable hemispherical fill, and rotatable RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL/TANGENT morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and representative deformation measurements; GPU morph targets fall back to CPU above 64 targets or device texture limits |
@@ -75,8 +75,9 @@ and a browser integration check for behavior exposed through WebGL.
   cyclic implicit hierarchies fail before engine resource creation.
 * **Implemented:** `EXT_texture_webp` loads its WebP source when decodable and
   falls back to the core source when fetching or decoding WebP fails.
-* **Partly implemented:** native Goose programs can load and dispose every
-  static primitive on one selected GLB node beneath a checked group root,
+* **Partly implemented:** native Goose programs can load selected scene static
+  mesh instances beneath a checked scene group, or load and dispose every
+  primitive on one selected GLB/glTF node beneath its checked group root,
   including float and required `KHR_mesh_quantization` positions, normals,
   tangents and `TEXCOORD_0`, plus normalized `COLOR_0` and triangle
   indices, the node instance's world transform composed through its ancestors,

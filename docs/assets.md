@@ -123,6 +123,29 @@ textures, images, skins, animations,
 sparse accessors, or the full node hierarchy as engine parent/child nodes.
 Browser applications should use the broader `web/assets.js` loader.
 
+For static multi-node content, `native_glb_load_scene(path, scene_index)` loads
+every mesh instance in the selected scene beneath one checked group node. Pass
+`-1` to choose the document's default scene (or scene 0 when no default is
+declared). `native_glb_scene_mesh_count` and `native_glb_scene_mesh` expose the
+per-node mesh owners; each owner can be inspected with the mesh-batch API above.
+Move the entire import through `native_glb_scene_root`, then dispose the scene
+handle to release its group and all owned meshes. This native scene path keeps
+the selected nodes' composed transforms but does not create their full source
+parent hierarchy or import cameras, lights, skins, or animations.
+
+```goose
+let loaded_scene, scene_ok = g3::native_glb_load_scene("model.glb", -1);
+guard scene_ok else { print("could not load the default scene"); return; }
+var scene = loaded_scene;
+let root = g3::native_glb_scene_root(scene);
+g3::node(root.index).pos = float3 { 0.0, 1.0, 0.0 };
+for i in 0..g3::native_glb_scene_mesh_count(scene) {
+  let mesh = g3::native_glb_scene_mesh(scene, i);
+  // Inspect the checked per-node owner or its primitive nodes.
+}
+g3::native_glb_scene_dispose(scene);
+```
+
 Native image loading currently supports binary PPM P6 files with 8-bit RGB and
 `MAXVAL 255`, through `native_texture_load_ppm(path)`. It returns a checked
 `TextureHandle`; call `texture_remove(handle)` when the texture has no live

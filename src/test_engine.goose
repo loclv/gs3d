@@ -413,6 +413,41 @@ fn case_native_glb_load() {
                       g3::native_glb_mesh_primitive_count(reused_mesh) == 2;
     testing::check(reused_slot && g3::native_glb_mesh_dispose(reused_mesh),
                    "native GLB mesh owner slots are reused with a fresh generation");
+    let scene_model, scene_loaded = g3::native_glb_load_scene("testdata/native-two-scenes.glb", -1);
+    let scene_root = g3::native_glb_scene_root(scene_model);
+    let scene_mesh_count = g3::native_glb_scene_mesh_count(scene_model);
+    let scene_mesh_a = g3::native_glb_scene_mesh(scene_model, 0);
+    let scene_mesh_b = g3::native_glb_scene_mesh(scene_model, 1);
+    let scene_mesh_root_a = g3::native_glb_mesh_root(scene_mesh_a);
+    let scene_mesh_root_b = g3::native_glb_mesh_root(scene_mesh_b);
+    let scene_groups = g3::native_glb_mesh_valid(scene_mesh_a) && g3::native_glb_mesh_valid(scene_mesh_b) &&
+                       g3::node_handle_valid(scene_root) && g3::node_handle_valid(scene_mesh_root_a) && g3::node_handle_valid(scene_mesh_root_b) &&
+                       g3::node(scene_mesh_root_a.index).parent == scene_root.index && g3::node(scene_mesh_root_b.index).parent == scene_root.index;
+    g3::frame(1.0 / 60.0);
+    let scene_stats = g3::stats();
+    testing::check(scene_loaded && scene_mesh_count == 2 && scene_groups && scene_stats.drawn == 4 && scene_stats.triangles == 48,
+                   "native glTF scene loads all selected mesh instances beneath one checked group");
+    testing::check(g3::native_glb_scene_dispose(scene_model) && !g3::native_glb_scene_valid(scene_model) &&
+                   !g3::node_handle_valid(scene_root) && !g3::native_glb_mesh_valid(scene_mesh_a) && !g3::native_glb_mesh_valid(scene_mesh_b),
+                   "native glTF scene disposal releases its group and every owned mesh");
+    let selected_scene, selected_scene_loaded = g3::native_glb_load_scene("testdata/native-two-scenes.glb", 1);
+    let selected_mesh = g3::native_glb_scene_mesh(selected_scene, 0);
+    let selected_root = g3::native_glb_mesh_root(selected_mesh);
+    g3::frame(1.0 / 60.0);
+    let selected_stats = g3::stats();
+    testing::check(selected_scene_loaded && g3::native_glb_scene_mesh_count(selected_scene) == 1 &&
+                   g3::node_handle_valid(selected_root) && abs(g3::node(selected_root.index).local_matrix.m[12] - 0.8) < 0.001 &&
+                   selected_stats.drawn == 2 && selected_stats.triangles == 24,
+                   "native glTF scene selection preserves the selected node transform");
+    testing::check(g3::native_glb_scene_dispose(selected_scene), "selected native glTF scene disposes cleanly");
+    let invalid_scene, invalid_scene_loaded = g3::native_glb_load_scene("testdata/native-two-scenes.glb", 99);
+    testing::check(!invalid_scene_loaded && !g3::native_glb_scene_valid(invalid_scene),
+                   "native glTF scene loader rejects invalid scene indices before allocating scene resources");
+    let broken_scene, broken_scene_loaded = g3::native_glb_load_scene("testdata/native-bad-second-scene-node.glb", -1);
+    g3::frame(1.0 / 60.0);
+    let broken_scene_stats = g3::stats();
+    testing::check(!broken_scene_loaded && !g3::native_glb_scene_valid(broken_scene) && broken_scene_stats.drawn == 0,
+                   "native glTF scene load rolls back earlier mesh nodes when a later node is invalid");
     let failed_mesh, failed_mesh_loaded = g3::native_glb_load_node_mesh("testdata/native-bad-second-primitive.glb", 0);
     g3::frame(1.0 / 60.0);
     let rollback_stats = g3::stats();
