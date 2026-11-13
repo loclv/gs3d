@@ -1,9 +1,8 @@
-# Browser assets
+# Asset loading
 
 `web/assets.js` loads a limited glTF 2.0 subset, including node transform
 animation, into either browser build after `g3_host_start` has succeeded. It
-uses browser fetch and image decoding; it is not a native Goose or CPU-backend
-loader.
+uses browser fetch and image decoding.
 
 The ES module API has TypeScript declarations in `web/assets.d.ts`. The
 `web/package.json` manifest exports this helper module as
@@ -61,6 +60,28 @@ try {
 
 URLs are resolved relative to the document or, for external glTF resources,
 relative to the model URL. Resources require normal browser fetch/CORS access.
+
+## Native GLB primitive subset
+
+Native Goose programs can import `g3.gltf_native` and load one static primitive
+from an embedded-binary glTF 2.0 GLB:
+
+```goose
+import g3.gltf_native;
+
+let loaded, ok = g3::native_glb_load_primitive("model.glb", 0, 0);
+guard ok else { print("could not load GLB mesh 0, primitive 0"); return; }
+var model = loaded;
+g3::frame(1.0 / 60.0);
+g3::native_glb_dispose(model);
+```
+
+The loader supports float32 `POSITION`, `NORMAL`, and optional `TEXCOORD_0`
+attributes, triangle primitives, and unsigned 8-, 16-, or 32-bit indices. It
+applies the first node instance's local matrix or TRS transform. It does not
+yet load external `.gltf` buffers, materials, images, skins, animations,
+sparse accessors, or parent transforms. Browser applications should use the
+broader `web/assets.js` loader.
 
 The viewer's input controls can also be used independently of the viewer host:
 

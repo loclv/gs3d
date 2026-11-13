@@ -20,6 +20,7 @@ import g3.scene;
 import g3.render;
 import g3.engine;
 import g3.texture;
+import g3.gltf_native;
 import g3.picking;
 import testing;
 
@@ -299,6 +300,22 @@ fn case_native_hdr_load() {
     g3::set_environment_map(-1, 0.0);
     testing::check(g3::texture_remove(handle) && !g3::texture_handle_valid(handle), "native HDR texture follows ordinary texture removal lifecycle");
     testing::check(g3::texture_load_hdr("testdata/missing.hdr") == -1, "native Radiance HDR loader reports missing files");
+}
+
+fn case_native_glb_load() {
+    g3::scene_clear();
+    flat_camera();
+    let model, loaded = g3::native_glb_load_primitive("web/viewer/sample.glb", 0, 0);
+    let live = loaded && g3::mesh_handle_valid(model.mesh) && g3::node_handle_valid(model.node);
+    g3::frame(1.0 / 60.0);
+    let stats = g3::stats();
+    testing::check(live && stats.drawn == 1 && stats.triangles == 12 &&
+                   is_color(g3::read_pixel(200, 200), 255, 255, 255, 2),
+                   "native GLB loader reads an embedded static mesh into the CPU scene");
+    testing::check(g3::native_glb_dispose(model) && !g3::mesh_handle_valid(model.mesh) && !g3::node_handle_valid(model.node),
+                   "native GLB model disposal releases checked node and mesh handles");
+    let absent, missing_file = g3::native_glb_load_primitive("testdata/missing.glb", 0, 0);
+    testing::check(!missing_file && absent.mesh.id < 0, "native GLB loader reports a missing asset without creating resources");
 }
 
 fn case_vertex_colors() {
@@ -1774,6 +1791,7 @@ fn main() {
     case_texture();
     case_vertex_colors();
     case_native_hdr_load();
+    case_native_glb_load();
     case_texture_alpha();
     case_texture_wrap();
     case_texture_filter();
