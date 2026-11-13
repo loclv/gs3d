@@ -430,6 +430,14 @@ fn case_native_glb_load() {
     testing::check(g3::native_glb_scene_dispose(scene_model) && !g3::native_glb_scene_valid(scene_model) &&
                    !g3::node_handle_valid(scene_root) && !g3::native_glb_mesh_valid(scene_mesh_a) && !g3::native_glb_mesh_valid(scene_mesh_b),
                    "native glTF scene disposal releases its group and every owned mesh");
+    let json_scene, json_scene_loaded = g3::native_glb_load_scene("testdata/native-external/model.gltf", -1);
+    g3::frame(1.0 / 60.0);
+    let json_scene_stats = g3::stats();
+    testing::check(json_scene_loaded && g3::native_glb_scene_mesh_count(json_scene) == 1 &&
+                   json_scene_stats.drawn == 1 && json_scene_stats.triangles == 12 &&
+                   is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
+                   "native JSON glTF scene loading composes external buffers and renders its selected scene");
+    testing::check(g3::native_glb_scene_dispose(json_scene), "native JSON glTF scene disposes cleanly");
     let selected_scene, selected_scene_loaded = g3::native_glb_load_scene("testdata/native-two-scenes.glb", 1);
     let selected_mesh = g3::native_glb_scene_mesh(selected_scene, 0);
     let selected_root = g3::native_glb_mesh_root(selected_mesh);
