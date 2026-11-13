@@ -473,7 +473,11 @@ async function prepare(url) {
   try { doc = JSON.parse(new TextDecoder().decode(json)); }
   catch (error) { throw new AssetError('INVALID_GLTF', 'Invalid glTF JSON', error); }
   if (doc.asset?.version !== '2.0') unsupported('Only glTF 2.0 is supported');
-  if (doc.extensionsRequired?.length) unsupported('Required glTF extensions are not supported');
+  const extensionsUsed = doc.extensionsUsed ?? [], extensionsRequired = doc.extensionsRequired ?? [];
+  if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
+      !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
+  if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
+  if (extensionsRequired.some(extension => extension !== 'KHR_materials_unlit')) unsupported('Required glTF extensions are not supported');
   const buffers = await Promise.all((doc.buffers || []).map(async (buffer, i) => {
     const data = buffer.uri !== undefined ? await fetchBytes(new URL(buffer.uri, absolute)) : i === 0 ? bin : undefined;
     if (!data || !Number.isInteger(buffer.byteLength) || buffer.byteLength < 0 || data.byteLength < buffer.byteLength) invalid('Missing or truncated buffer');
@@ -554,7 +558,18 @@ async function prepare(url) {
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
     const material = p.material === undefined ? {} : item(doc.materials, p.material, 'material');
-    if (material.extensions) unsupported('Unsupported material feature');
+    let unlit = false;
+    if (material.extensions !== undefined) {
+      if (!material.extensions || typeof material.extensions !== 'object' || Array.isArray(material.extensions)) invalid('Invalid material extensions');
+      const materialExtensions = Object.keys(material.extensions);
+      if (materialExtensions.some(extension => extension !== 'KHR_materials_unlit')) unsupported('Unsupported material feature');
+      if (materialExtensions.includes('KHR_materials_unlit')) {
+        if (!extensionsUsed.includes('KHR_materials_unlit')) invalid('KHR_materials_unlit must be listed in extensionsUsed');
+        const unlitExtension = material.extensions.KHR_materials_unlit;
+        if (!unlitExtension || typeof unlitExtension !== 'object' || Array.isArray(unlitExtension)) invalid('Invalid KHR_materials_unlit extension');
+        unlit = true;
+      }
+    }
     if (material.doubleSided !== undefined && typeof material.doubleSided !== 'boolean') invalid('Invalid doubleSided material flag');
     const alphaModes = { OPAQUE: 0, MASK: 1, BLEND: 2 };
     const mode = material.alphaMode ?? 'OPAQUE';
@@ -607,7 +622,7 @@ async function prepare(url) {
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
-      emissive, emissiveTextureIndex, doubleSided: material.doubleSided ?? false, materialIndex: p.material ?? -1 };
+      emissive, emissiveTextureIndex, doubleSided: material.doubleSided ?? false, unlit, materialIndex: p.material ?? -1 };
     });
     if (!primitives.length) invalid(`Mesh ${meshIndex} has no primitives`);
     const targetCount = primitives[0].targets.length;
@@ -1012,7 +1027,7 @@ export async function loadGLTF(engine, url) {
           const materialId = engine._g3_asset_material(...p.color, getTexture(p.textureIndex, true), p.alphaMode, p.alphaCutoff,
             p.metallic, p.roughness, getTexture(p.metallicRoughnessTextureIndex, false), getTexture(p.normalTextureIndex, false), p.normalScale,
             getTexture(p.occlusionTextureIndex, false), p.occlusionStrength, ...p.emissive,
-            getTexture(p.emissiveTextureIndex, true), p.doubleSided ? 1 : 0);
+            getTexture(p.emissiveTextureIndex, true), p.doubleSided ? 1 : 0, p.unlit ? 1 : 0);
           material = makeResourceHandle(engine, materialId, 'material');
           materials.set(p.materialIndex, material);
         }

@@ -113,6 +113,11 @@ if an upload fails it releases the resources already created. Browser graphics
 driver failures may still be reported separately through the backend's error
 mechanism.
 
+The glTF loader supports `KHR_materials_unlit` and maps it to the engine's
+unlit material path. Required glTF extensions other than this one are reported
+as `UNSUPPORTED`; optional material extensions that the loader does not
+recognize are also rejected when present on a material.
+
 Native Goose programs can call `texture_load_hdr(path)` from `g3.texture` to
 load a Radiance `.hdr` file into the CPU backend. It accepts the same canonical
 `-Y +X` orientation and `32-bit_rle_rgbe` scanline RLE subset, up to
@@ -154,6 +159,7 @@ fetches and decodes assets in JavaScript.
   replacements are applied. Decoded accessor data is capped at 8,388,608 scalar
   components per accessor.
 * Opaque, masked and blended base-colour factors and base-colour textures.
+  `KHR_materials_unlit` selects unlit shading for a material.
   Double-sided materials disable back-face culling in colour and shadow passes;
   back-face normals are flipped before colour-pass lighting.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
