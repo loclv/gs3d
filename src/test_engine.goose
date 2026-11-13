@@ -422,7 +422,7 @@ fn case_native_glb_load() {
     let external_stats = g3::stats();
     testing::check(external_loaded && external_stats.drawn == 1 && external_stats.triangles == 12 &&
                    is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
-                   "native JSON glTF resolves nested external buffers relative to its document");
+                   "native JSON glTF reads accessors across multiple nested external buffers");
     testing::check(g3::native_glb_dispose(external_model), "native external-buffer glTF resources dispose cleanly");
     let external_mesh, external_mesh_loaded = g3::native_glb_load_node_mesh("testdata/native-external/model.gltf", 0);
     let external_mesh_ok = external_mesh_loaded && g3::native_glb_mesh_primitive_count(external_mesh) == 1;
@@ -430,8 +430,10 @@ fn case_native_glb_load() {
                    "native node mesh loading accepts JSON glTF documents");
     let traversal_model, traversal_loaded = g3::native_glb_load_primitive("testdata/native-external/traversal.gltf", 0, 0);
     let missing_buffer_model, missing_buffer_loaded = g3::native_glb_load_primitive("testdata/native-external/missing.gltf", 0, 0);
-    testing::check(!traversal_loaded && traversal_model.mesh.id < 0 && !missing_buffer_loaded && missing_buffer_model.mesh.id < 0,
-                   "native JSON glTF rejects traversal and missing external buffer paths without allocating resources");
+    let bad_buffer_model, bad_buffer_loaded = g3::native_glb_load_primitive("testdata/native-external/bad-buffer-range.gltf", 0, 0);
+    testing::check(!traversal_loaded && traversal_model.mesh.id < 0 && !missing_buffer_loaded && missing_buffer_model.mesh.id < 0 &&
+                   !bad_buffer_loaded && bad_buffer_model.mesh.id < 0,
+                   "native JSON glTF rejects unsafe, missing, and out-of-range buffer references without allocating resources");
     let ushort_bytes: u8[8] = [0, 0, 255, 255, 0, 128, 0, 64];
     let ushort_color, ushort_color_ok = g3::glb_vertex_color(ushort_bytes[..], 0, g3::GlbAccessor { stride: 8, components: 4, .. }, 5123, 0);
     testing::check(ushort_color_ok && abs(ushort_color.x) < 0.001 && abs(ushort_color.y - 1.0) < 0.001 &&
@@ -451,7 +453,9 @@ fn case_native_glb_load() {
     var quantized_doc: json::Node[>..] = [];
     var quantized_decoded: u8[>..] = [];
     let quantized_root, quantized_error = json::parse("{\"extensionsUsed\":[\"KHR_mesh_quantization\"],\"accessors\":[{\"bufferView\":0,\"componentType\":5122,\"normalized\":true,\"count\":2,\"type\":\"VEC3\"}],\"bufferViews\":[{\"byteLength\":16,\"byteStride\":8}]}", quantized_doc, quantized_decoded);
-    let undeclared_quantized, undeclared_quantized_ok = g3::glb_attribute_accessor(quantized_root, 16, 0, "POSITION", "VEC3", 3);
+    let quantized_bases: i64[1] = [0];
+    let quantized_sizes: i64[1] = [16];
+    let undeclared_quantized, undeclared_quantized_ok = g3::glb_attribute_accessor(quantized_root, quantized_bases[..], quantized_sizes[..], 0, "POSITION", "VEC3", 3);
     testing::check(quantized_root && quantized_error.len == 0 && !undeclared_quantized_ok,
                    "native GLB requires KHR_mesh_quantization in extensionsRequired");
     let signed_quantized_bytes: u8[6] = [0, 128, 255, 127, 0, 0];

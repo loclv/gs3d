@@ -189,7 +189,7 @@ fn glb_array_count(node: json::Node?) -> i64 {
     match node.val { Arr a => { return a.count; }, _ => { return 0; } }
 }
 
-fn glb_attribute_accessor(doc: json::Node?, binary_size: i64, index: i64, semantic: const u8[:], type_name: const u8[:], components: i64) -> GlbAttribute, bool {
+fn glb_attribute_accessor(doc: json::Node?, buffer_bases: const i64[:], buffer_sizes: const i64[:], index: i64, semantic: const u8[:], type_name: const u8[:], components: i64) -> GlbAttribute, bool {
     let accessor = glb_json_element(json::member(doc, "accessors"), index);
     let views = json::member(doc, "bufferViews");
     guard accessor && views else { return GlbAttribute { .. }, false; }
@@ -228,7 +228,7 @@ fn glb_attribute_accessor(doc: json::Node?, binary_size: i64, index: i64, semant
     let accessor_offset, accessor_offset_ok = glb_optional_index(json::member(accessor, "byteOffset"), 0);
     let packed_size = components * component_bytes;
     let stride, stride_ok = glb_optional_index(json::member(view, "byteStride"), packed_size);
-    guard buffer_ok && buffer_index == 0 && view_offset_ok && view_offset >= 0 && length_ok && view_length > 0 &&
+    guard buffer_ok && buffer_index >= 0 && buffer_index < buffer_bases.len && buffer_index < buffer_sizes.len && view_offset_ok && view_offset >= 0 && length_ok && view_length > 0 &&
           accessor_offset_ok && accessor_offset >= 0 && stride_ok && stride >= packed_size && stride <= 252 &&
           (!json::member(view, "byteStride") || (stride >= 4 && stride % 4 == 0)) &&
           view_offset % component_bytes == 0 && accessor_offset % component_bytes == 0
@@ -236,8 +236,8 @@ fn glb_attribute_accessor(doc: json::Node?, binary_size: i64, index: i64, semant
     let start = view_offset + accessor_offset;
     if quantized { guard start % 4 == 0 && (count <= 1 || stride % 4 == 0) else { return GlbAttribute { .. }, false; } }
     let last = accessor_offset + (count - 1) * stride + packed_size;
-    guard last <= view_length && view_offset + view_length <= binary_size else { return GlbAttribute { .. }, false; }
-    return GlbAttribute { offset: start, stride: stride, count: count, components: components,
+    guard last <= view_length && view_offset + view_length <= buffer_sizes[buffer_index] else { return GlbAttribute { .. }, false; }
+    return GlbAttribute { offset: buffer_bases[buffer_index] + start, stride: stride, count: count, components: components,
                           component_type: component_type, normalized: normalized }, true;
 }
 
@@ -269,7 +269,7 @@ fn glb_attribute_value(bytes: const u8[:], binary_start: i64, accessor: GlbAttri
     return glb_attribute_component(bytes, at, accessor.component_type, accessor.normalized);
 }
 
-fn glb_color_accessor(doc: json::Node?, binary_size: i64, index: i64) -> GlbAccessor, i64, bool {
+fn glb_color_accessor(doc: json::Node?, buffer_bases: const i64[:], buffer_sizes: const i64[:], index: i64) -> GlbAccessor, i64, bool {
     let accessor = glb_json_element(json::member(doc, "accessors"), index);
     let views = json::member(doc, "bufferViews");
     guard accessor && views else { return GlbAccessor { .. }, 0, false; }
@@ -293,13 +293,13 @@ fn glb_color_accessor(doc: json::Node?, binary_size: i64, index: i64) -> GlbAcce
     let accessor_offset, accessor_offset_ok = glb_optional_index(json::member(accessor, "byteOffset"), 0);
     let packed_size = components * bytes_per_component;
     let stride, stride_ok = glb_optional_index(json::member(view, "byteStride"), packed_size);
-    guard buffer_ok && buffer_index == 0 && view_offset_ok && view_offset >= 0 && length_ok && view_length > 0 &&
+    guard buffer_ok && buffer_index >= 0 && buffer_index < buffer_bases.len && buffer_index < buffer_sizes.len && view_offset_ok && view_offset >= 0 && length_ok && view_length > 0 &&
           accessor_offset_ok && accessor_offset >= 0 && stride_ok && stride >= packed_size && stride <= 252 &&
           (!json::member(view, "byteStride") || (stride % 4 == 0)) else { return GlbAccessor { .. }, 0, false; }
     let start = view_offset + accessor_offset;
     let last = accessor_offset + (count - 1) * stride + packed_size;
-    guard last <= view_length && view_offset + view_length <= binary_size && start % bytes_per_component == 0 else { return GlbAccessor { .. }, 0, false; }
-    return GlbAccessor { offset: start, stride: stride, count: count, components: components }, component_type, true;
+    guard last <= view_length && view_offset + view_length <= buffer_sizes[buffer_index] && start % bytes_per_component == 0 else { return GlbAccessor { .. }, 0, false; }
+    return GlbAccessor { offset: buffer_bases[buffer_index] + start, stride: stride, count: count, components: components }, component_type, true;
 }
 
 fn glb_color_channel(bytes: const u8[:], at: i64, component_type: i64) -> f32, bool {
@@ -330,7 +330,7 @@ fn glb_vertex_tangent(bytes: const u8[:], binary_start: i64, accessor: GlbAccess
     return float4 { x, y, z, w }, true;
 }
 
-fn glb_index_accessor(doc: json::Node?, binary_size: i64, index: i64) -> GlbAccessor, i64, bool {
+fn glb_index_accessor(doc: json::Node?, buffer_bases: const i64[:], buffer_sizes: const i64[:], index: i64) -> GlbAccessor, i64, bool {
     let accessors = json::member(doc, "accessors");
     let views = json::member(doc, "bufferViews");
     let accessor = glb_json_element(accessors, index);
@@ -349,11 +349,11 @@ fn glb_index_accessor(doc: json::Node?, binary_size: i64, index: i64) -> GlbAcce
     let view_length, length_ok = glb_json_index(json::member(view, "byteLength"));
     let accessor_offset, accessor_offset_ok = glb_optional_index(json::member(accessor, "byteOffset"), 0);
     let bytes_per_index = if component_type == 5121 { 1 } else if component_type == 5123 { 2 } else { 4 };
-    guard buffer_ok && buffer_index == 0 && view_ok && view_offset >= 0 &&
+    guard buffer_ok && buffer_index >= 0 && buffer_index < buffer_bases.len && buffer_index < buffer_sizes.len && view_ok && view_offset >= 0 &&
           length_ok && view_length > 0 && accessor_offset_ok && accessor_offset >= 0 &&
-          view_offset + view_length <= binary_size && accessor_offset + count * bytes_per_index <= view_length &&
+          view_offset + view_length <= buffer_sizes[buffer_index] && accessor_offset + count * bytes_per_index <= view_length &&
           (view_offset + accessor_offset) % bytes_per_index == 0 && !json::member(view, "byteStride") else { return GlbAccessor { .. }, 0, false; }
-    return GlbAccessor { offset: view_offset + accessor_offset, stride: bytes_per_index,
+    return GlbAccessor { offset: buffer_bases[buffer_index] + view_offset + accessor_offset, stride: bytes_per_index,
                          count: count, components: 1 }, component_type, true;
 }
 
@@ -432,7 +432,7 @@ fn glb_node_world_matrix(root: json::Node?, node_index: i64) -> Mat4, bool {
 // Supports float32 or required KHR_mesh_quantization vertex attributes,
 // COLOR_0, TRIANGLES, u8/u16/u32 indices, and factor-only materials. Skins,
 // animation, sparse accessors, and textures remain outside this native subset.
-// JSON glTF supports one safe relative external buffer URI. It applies the
+// JSON glTF supports up to 16 safe relative external buffers. It applies the
 // selected node instance transform.
 fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primitive_index: i64, node_index: i64) -> NativeGlbModel, bool {
     var bytes: u8[>..] = [];
@@ -463,38 +463,46 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     let asset = json::member(root, "asset");
     let version, version_ok = json::as_string(json::member(asset, "version"));
     let buffers = json::member(root, "buffers");
-    let buffer = glb_json_element(buffers, 0);
-    let declared_bytes, declared_ok = glb_json_index(json::member(buffer, "byteLength"));
-    guard version_ok && version == "2.0" && declared_ok && declared_bytes > 0 && glb_array_count(buffers) == 1 else { return NativeGlbModel { .. }, false; }
-    if is_glb {
-        guard bin_start >= 0 && !json::member(buffer, "uri") && declared_bytes <= bin_size && bin_size - declared_bytes <= 3 else { return NativeGlbModel { .. }, false; }
-    } else {
-        let uri_node = json::member(buffer, "uri");
-        let uri, uri_ok = json::as_string(uri_node);
-        guard uri_ok && uri.len > 0 && uri.len < 4096 else { return NativeGlbModel { .. }, false; }
-        // Only plain relative paths are accepted; reject URI schemes, encoded
-        // separators, query strings, fragments, and dot or empty path segments.
-        var segment_start: i64 = 0;
-        for i in 0..uri.len {
-            let c = uri[i];
-            guard c != 92 && c != 58 && c != 63 && c != 35 && c != 37 else { return NativeGlbModel { .. }, false; }
-            if c == 47 {
-                guard i > segment_start && !(i - segment_start == 1 && uri[segment_start] == 46) && !(i - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) else { return NativeGlbModel { .. }, false; }
-                segment_start = i + 1;
+    let buffer_count = glb_array_count(buffers);
+    guard version_ok && version == "2.0" && buffer_count > 0 && buffer_count <= 16 else { return NativeGlbModel { .. }, false; }
+    if is_glb { guard buffer_count == 1 && bin_start >= 0 else { return NativeGlbModel { .. }, false; } }
+    var buffer_bases: i64[>..] = [];
+    var buffer_sizes: i64[>..] = [];
+    for buffer_index in 0..buffer_count {
+        let buffer = glb_json_element(buffers, buffer_index);
+        let declared_bytes, declared_ok = glb_json_index(json::member(buffer, "byteLength"));
+        guard buffer && declared_ok && declared_bytes > 0 && declared_bytes <= 268435456 else { return NativeGlbModel { .. }, false; }
+        if is_glb {
+            guard buffer_index == 0 && !json::member(buffer, "uri") && declared_bytes <= bin_size && bin_size - declared_bytes <= 3 else { return NativeGlbModel { .. }, false; }
+            buffer_bases.push(bin_start);
+            buffer_sizes.push(declared_bytes);
+        } else {
+            let uri, uri_ok = json::as_string(json::member(buffer, "uri"));
+            guard uri_ok && uri.len > 0 && uri.len < 4096 else { return NativeGlbModel { .. }, false; }
+            // Only plain relative paths are accepted; reject URI schemes,
+            // encoded separators, queries, fragments, and dot path segments.
+            var segment_start: i64 = 0;
+            for i in 0..uri.len {
+                let c = uri[i];
+                guard c != 92 && c != 58 && c != 63 && c != 35 && c != 37 else { return NativeGlbModel { .. }, false; }
+                if c == 47 {
+                    guard i > segment_start && !(i - segment_start == 1 && uri[segment_start] == 46) && !(i - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) else { return NativeGlbModel { .. }, false; }
+                    segment_start = i + 1;
+                }
             }
+            guard segment_start < uri.len && !(uri.len - segment_start == 1 && uri[segment_start] == 46) && !(uri.len - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) && uri[0] != 47 else { return NativeGlbModel { .. }, false; }
+            var external_path: u8[>..] = [];
+            var directory_end: i64 = 0;
+            for i in 0..path.len { if path[i] == 47 { directory_end = i + 1; } }
+            guard directory_end + uri.len < 4096 else { return NativeGlbModel { .. }, false; }
+            for i in 0..directory_end { external_path.push(path[i]); }
+            for i in 0..uri.len { external_path.push(uri[i]); }
+            var external: u8[>..] = [];
+            guard read_file(external_path[..], external) && external.len <= 268435456 && declared_bytes <= external.len && bytes.len + declared_bytes <= 268435456 else { return NativeGlbModel { .. }, false; }
+            buffer_bases.push(bytes.len);
+            buffer_sizes.push(declared_bytes);
+            for i in 0..declared_bytes { bytes.push(external[i]); }
         }
-        guard segment_start < uri.len && !(uri.len - segment_start == 1 && uri[segment_start] == 46) && !(uri.len - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) && uri[0] != 47 else { return NativeGlbModel { .. }, false; }
-        var external_path: u8[>..] = [];
-        var directory_end: i64 = 0;
-        for i in 0..path.len { if path[i] == 47 { directory_end = i + 1; } }
-        guard directory_end + uri.len < 4096 else { return NativeGlbModel { .. }, false; }
-        for i in 0..directory_end { external_path.push(path[i]); }
-        for i in 0..uri.len { external_path.push(uri[i]); }
-        var external: u8[>..] = [];
-        guard read_file(external_path[..], external) && external.len <= 268435456 && declared_bytes <= external.len && bytes.len + external.len <= 268435456 else { return NativeGlbModel { .. }, false; }
-        bin_start = bytes.len;
-        bin_size = external.len;
-        for i in 0..external.len { bytes.push(external[i]); }
     }
     guard node_index >= -1 else { return NativeGlbModel { .. }, false; }
     var mesh_index = requested_mesh_index;
@@ -516,43 +524,43 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     let position_index, position_ok = glb_json_index(json::member(attributes, "POSITION"));
     let normal_index, normal_ok = glb_json_index(json::member(attributes, "NORMAL"));
     guard position_ok && normal_ok else { return NativeGlbModel { .. }, false; }
-    let positions, positions_ok = glb_attribute_accessor(root, declared_bytes, position_index, "POSITION", "VEC3", 3);
-    let normals, normals_ok = glb_attribute_accessor(root, declared_bytes, normal_index, "NORMAL", "VEC3", 3);
+    let positions, positions_ok = glb_attribute_accessor(root, buffer_bases[..], buffer_sizes[..], position_index, "POSITION", "VEC3", 3);
+    let normals, normals_ok = glb_attribute_accessor(root, buffer_bases[..], buffer_sizes[..], normal_index, "NORMAL", "VEC3", 3);
     guard positions_ok && normals_ok && positions.count == normals.count else { return NativeGlbModel { .. }, false; }
     let uv_node = json::member(attributes, "TEXCOORD_0");
     var uvs = GlbAttribute { .. };
-    if uv_node { let uv_index, uv_ok = glb_json_index(uv_node); guard uv_ok else { return NativeGlbModel { .. }, false; } let uv_result, uv_valid = glb_attribute_accessor(root, declared_bytes, uv_index, "TEXCOORD_0", "VEC2", 2); guard uv_valid && uv_result.count == positions.count else { return NativeGlbModel { .. }, false; } uvs = uv_result; }
+    if uv_node { let uv_index, uv_ok = glb_json_index(uv_node); guard uv_ok else { return NativeGlbModel { .. }, false; } let uv_result, uv_valid = glb_attribute_accessor(root, buffer_bases[..], buffer_sizes[..], uv_index, "TEXCOORD_0", "VEC2", 2); guard uv_valid && uv_result.count == positions.count else { return NativeGlbModel { .. }, false; } uvs = uv_result; }
     let tangent_node = json::member(attributes, "TANGENT");
     var tangents = GlbAttribute { .. };
-    if tangent_node { let tangent_index, tangent_index_ok = glb_json_index(tangent_node); guard tangent_index_ok else { return NativeGlbModel { .. }, false; } let tangent_info, tangent_ok = glb_attribute_accessor(root, declared_bytes, tangent_index, "TANGENT", "VEC4", 4); guard tangent_ok && tangent_info.count == positions.count else { return NativeGlbModel { .. }, false; } tangents = tangent_info; }
+    if tangent_node { let tangent_index, tangent_index_ok = glb_json_index(tangent_node); guard tangent_index_ok else { return NativeGlbModel { .. }, false; } let tangent_info, tangent_ok = glb_attribute_accessor(root, buffer_bases[..], buffer_sizes[..], tangent_index, "TANGENT", "VEC4", 4); guard tangent_ok && tangent_info.count == positions.count else { return NativeGlbModel { .. }, false; } tangents = tangent_info; }
     let color_node = json::member(attributes, "COLOR_0");
     var colors = GlbAccessor { .. }; var color_type: i64 = 0;
-    if color_node { let color_index, color_index_ok = glb_json_index(color_node); guard color_index_ok else { return NativeGlbModel { .. }, false; } let color_info, color_component_type, color_ok = glb_color_accessor(root, declared_bytes, color_index); guard color_ok && color_info.count == positions.count else { return NativeGlbModel { .. }, false; } colors = color_info; color_type = color_component_type; }
+    if color_node { let color_index, color_index_ok = glb_json_index(color_node); guard color_index_ok else { return NativeGlbModel { .. }, false; } let color_info, color_component_type, color_ok = glb_color_accessor(root, buffer_bases[..], buffer_sizes[..], color_index); guard color_ok && color_info.count == positions.count else { return NativeGlbModel { .. }, false; } colors = color_info; color_type = color_component_type; }
     let indices_node = json::member(primitive, "indices");
     var index_info = GlbAccessor { .. }; var index_type: i64 = 0;
-    if indices_node { let index_id, index_ok = glb_json_index(indices_node); guard index_ok else { return NativeGlbModel { .. }, false; } let info, kind, ok = glb_index_accessor(root, declared_bytes, index_id); guard ok && info.count % 3 == 0 else { return NativeGlbModel { .. }, false; } index_info = info; index_type = kind; }
+    if indices_node { let index_id, index_ok = glb_json_index(indices_node); guard index_ok else { return NativeGlbModel { .. }, false; } let info, kind, ok = glb_index_accessor(root, buffer_bases[..], buffer_sizes[..], index_id); guard ok && info.count % 3 == 0 else { return NativeGlbModel { .. }, false; } index_info = info; index_type = kind; }
     else { guard positions.count % 3 == 0 else { return NativeGlbModel { .. }, false; } index_info.count = positions.count; }
     var vertices: Vertex[>..] = [];
     var out_indices: u32[>..] = [];
     for i in 0..positions.count {
-        let px, a = glb_attribute_value(bytes[..], bin_start, positions, i, 0); let py, b = glb_attribute_value(bytes[..], bin_start, positions, i, 1); let pz, c = glb_attribute_value(bytes[..], bin_start, positions, i, 2);
-        let nx, d = glb_attribute_value(bytes[..], bin_start, normals, i, 0); let ny, e = glb_attribute_value(bytes[..], bin_start, normals, i, 1); let nz, f = glb_attribute_value(bytes[..], bin_start, normals, i, 2);
+        let px, a = glb_attribute_value(bytes[..], 0, positions, i, 0); let py, b = glb_attribute_value(bytes[..], 0, positions, i, 1); let pz, c = glb_attribute_value(bytes[..], 0, positions, i, 2);
+        let nx, d = glb_attribute_value(bytes[..], 0, normals, i, 0); let ny, e = glb_attribute_value(bytes[..], 0, normals, i, 1); let nz, f = glb_attribute_value(bytes[..], 0, normals, i, 2);
         guard a && b && c && d && e && f else { return NativeGlbModel { .. }, false; }
         var uv = float2_0;
-        if uv_node { let u, g = glb_attribute_value(bytes[..], bin_start, uvs, i, 0); let v, h = glb_attribute_value(bytes[..], bin_start, uvs, i, 1); guard g && h else { return NativeGlbModel { .. }, false; } uv = float2 { u, v }; }
+        if uv_node { let u, g = glb_attribute_value(bytes[..], 0, uvs, i, 0); let v, h = glb_attribute_value(bytes[..], 0, uvs, i, 1); guard g && h else { return NativeGlbModel { .. }, false; } uv = float2 { u, v }; }
         var color = float4_1;
-        if color_node { let color_value, color_valid = glb_vertex_color(bytes[..], bin_start, colors, color_type, i); guard color_valid else { return NativeGlbModel { .. }, false; } color = color_value; }
+        if color_node { let color_value, color_valid = glb_vertex_color(bytes[..], 0, colors, color_type, i); guard color_valid else { return NativeGlbModel { .. }, false; } color = color_value; }
         var tangent = float4_0;
         if tangent_node {
-            let tx, g = glb_attribute_value(bytes[..], bin_start, tangents, i, 0); let ty, h = glb_attribute_value(bytes[..], bin_start, tangents, i, 1);
-            let tz, j = glb_attribute_value(bytes[..], bin_start, tangents, i, 2); let tw, k = glb_attribute_value(bytes[..], bin_start, tangents, i, 3);
+            let tx, g = glb_attribute_value(bytes[..], 0, tangents, i, 0); let ty, h = glb_attribute_value(bytes[..], 0, tangents, i, 1);
+            let tz, j = glb_attribute_value(bytes[..], 0, tangents, i, 2); let tw, k = glb_attribute_value(bytes[..], 0, tangents, i, 3);
             guard g && h && j && k && abs(abs(tw) - 1.0) <= 0.0001 else { return NativeGlbModel { .. }, false; }
             tangent = float4 { tx, ty, tz, tw };
         }
         vertices.push(Vertex { pos: float3 { px, py, pz }, normal: float3 { nx, ny, nz }, uv: uv, tangent: tangent, color: color, .. });
     }
     for i in 0..index_info.count {
-        let at = bin_start + index_info.offset + i * index_info.stride;
+        let at = index_info.offset + i * index_info.stride;
         var value: i64 = i;
         if indices_node {
             value = if index_type == 5121 { bytes[at] }

@@ -64,9 +64,10 @@ relative to the model URL. Resources require normal browser fetch/CORS access.
 ## Native glTF primitive subset
 
 Native Goose programs can import `g3.gltf_native` and load static geometry from
-a glTF 2.0 GLB or a JSON `.gltf` document. JSON glTF accepts one external
-buffer whose URI is a plain relative path beneath the document directory. Load
-one primitive by mesh index:
+a glTF 2.0 GLB or a JSON `.gltf` document. JSON glTF accepts up to 16 external
+buffers whose URIs are plain relative paths beneath the document directory.
+Each buffer view is range-checked against its referenced buffer. Load one
+primitive by mesh index:
 
 ```goose
 import g3.gltf_native;
