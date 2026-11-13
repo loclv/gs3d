@@ -44,6 +44,7 @@ struct DrawItem {
     occlusion_strength: f32,
     emissive: float4,   // RGB emission factor in linear space
     emissive_texture: i32, // sRGB emissive image, -1 disables
+    double_sided: bool, // draw and light both winding directions
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

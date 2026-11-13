@@ -193,7 +193,19 @@ fn case_backface() {
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 255, 0, 255, 2), "a plane seen from below is culled");
 
+    // glTF double-sided materials draw the same face from the reverse winding
+    // and flip its normal before lighting.
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_light(float3 { 0.0, 1.0, 0.0 }, float3_1);
+    let material_id = g3::material_add();
+    let material .= g3::material(material_id);
+    material.double_sided = true;
+    n.material = material_id;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "a double-sided plane is drawn from below");
+
     // The same frame from above shows it, so the mesh is not simply missing.
+    g3::set_light(float3 { 0.0, -1.0, 0.0 }, float3_1);
     let c2 .= g3::camera();
     c2.pos = float3 { 0.0, 5.0, 0.0 };
     c2.target = float3_0;

@@ -369,8 +369,9 @@ Blended items get keys above 1000000 and are ordered far to
 near, so they are drawn after everything opaque and read the depth they should.
 
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
-`Mat4`s, colour, shading parameters, the sort key, texture IDs and alpha settings, 236 bytes. `g3p_draw_frame` hands the
-backend a slice of them plus the frame's `ViewState`, and `platform/g3_abi.h`
+`Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings
+and a double-sided flag, 237 bytes. `g3p_draw_frame` hands the backend a slice
+of them plus the frame's `ViewState`, and `platform/g3_abi.h`
 static-asserts every offset, so the Goose and C sides cannot drift apart
 silently.
 

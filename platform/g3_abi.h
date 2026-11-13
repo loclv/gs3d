@@ -29,6 +29,7 @@ typedef struct { g3_vec3 pos, normal; g3_vec2 uv; } g3_vertex;
 /* One primitive: mesh, matrices, colour, and the shading parameters.
    params.x is 1 for unlit, .y specular strength, .z shininess, .w 1 when
    the item is blended. alpha_mode selects opaque, mask, or blend.
+   double_sided draws both winding directions and flips back-face normals.
  
    `key` is the engine's sort key, kept so a backend can see why the list is
    in the order it is; drawing in list order is the contract, so a backend
@@ -51,6 +52,7 @@ typedef struct {
     float occlusion_strength;
     g3_vec4 emissive;
     int32_t emissive_texture;
+    uint8_t double_sided;
 } g3_draw_item;
 
 typedef struct { g3_vec4 position, direction, color; float inner; } g3_light;
@@ -93,7 +95,7 @@ typedef struct { const float *data; int64_t len; } g3_f32_slice;
 _Static_assert(sizeof(g3_vertex) == 32, "g3_vertex must be 32 bytes");
 _Static_assert(offsetof(g3_vertex, uv) == 24, "Vertex.uv offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
-_Static_assert(sizeof(g3_draw_item) == 236, "g3_draw_item must be 236 bytes");
+_Static_assert(sizeof(g3_draw_item) == 237, "g3_draw_item must be 237 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
 _Static_assert(offsetof(g3_draw_item, alpha_mode) == 172, "DrawItem.alpha_mode offset");
 _Static_assert(offsetof(g3_draw_item, alpha_cutoff) == 176, "DrawItem.alpha_cutoff offset");
@@ -105,6 +107,7 @@ _Static_assert(offsetof(g3_draw_item, occlusion_texture) == 208, "DrawItem.occlu
 _Static_assert(offsetof(g3_draw_item, occlusion_strength) == 212, "DrawItem.occlusion_strength offset");
 _Static_assert(offsetof(g3_draw_item, emissive) == 216, "DrawItem.emissive offset");
 _Static_assert(offsetof(g3_draw_item, emissive_texture) == 232, "DrawItem.emissive_texture offset");
+_Static_assert(offsetof(g3_draw_item, double_sided) == 236, "DrawItem.double_sided offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
 _Static_assert(sizeof(g3_view_state) == 940, "g3_view_state must be 940 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");

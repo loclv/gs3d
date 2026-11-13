@@ -79,6 +79,7 @@ typedef struct {
     GLint spot_shadow_map, spot_shadow_matrix, spot_shadow_index, spot_shadow_params;
     GLint tone_map_inline, exposure_inline;
     GLint alpha_mode, alpha_cutoff;
+    GLint double_sided;
     GLint skin_enabled, joint_palette, joint_count;
     GLint morph_enabled, morph_positions, morph_normals, morph_weights, morph_target_count;
     GLint instanced;
@@ -204,6 +205,7 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_emissive_textured;\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
+    "uniform bool u_double_sided;\n"
     "uniform vec3 u_eye;\n"
     "uniform vec4 u_view_direction;\n"
     "uniform vec3 u_light_dir;\n"
@@ -269,6 +271,7 @@ static const char *FRAGMENT_SRC =
     "            }\n"
     "        }\n"
     "    }\n"
+    "    if (u_double_sided && !gl_FrontFacing) n = -n;\n"
     "    vec3 l = -u_light_dir;\n"
     "    float diff = max(dot(n, l), 0.0);\n"
     "    vec3 v = normalize(u_view_direction.w > 0.5 ? u_view_direction.xyz : u_eye - v_world);\n"
@@ -463,6 +466,7 @@ static void find_uniforms(void) {
     shader.spot_shadow_params = glGetUniformLocation(shader.program, "u_spot_shadow_params");
     shader.alpha_mode = glGetUniformLocation(shader.program, "u_alpha_mode");
     shader.alpha_cutoff = glGetUniformLocation(shader.program, "u_alpha_cutoff");
+    shader.double_sided = glGetUniformLocation(shader.program, "u_double_sided");
     shader.skin_enabled = glGetUniformLocation(shader.program, "u_skin_enabled");
     shader.joint_palette = glGetUniformLocation(shader.program, "u_joint_palette");
     shader.joint_count = glGetUniformLocation(shader.program, "u_joint_count");
@@ -888,7 +892,8 @@ static int same_vec4(g3_vec4 a, g3_vec4 b) {
 static int shadow_compatible(const g3_draw_item *a, const g3_draw_item *b) {
     return a->mesh == b->mesh && a->params.w <= 0.5f && b->params.w <= 0.5f &&
            a->texture == b->texture && a->alpha_mode == b->alpha_mode &&
-           a->color.w == b->color.w && a->alpha_cutoff == b->alpha_cutoff;
+           a->color.w == b->color.w && a->alpha_cutoff == b->alpha_cutoff &&
+           a->double_sided == b->double_sided;
 }
 
 static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
@@ -901,7 +906,8 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            a->occlusion_texture == b->occlusion_texture &&
            a->occlusion_strength == b->occlusion_strength &&
            same_vec4(a->emissive, b->emissive) &&
-           a->emissive_texture == b->emissive_texture;
+           a->emissive_texture == b->emissive_texture &&
+           a->double_sided == b->double_sided;
 }
 
 EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_calls; }
@@ -1290,6 +1296,7 @@ static int shadow_run_length(g3_draw_item_slice items, int64_t first) {
 static void draw_shadow_run(g3_draw_item_slice items, int64_t first, int32_t count) {
     const g3_draw_item *it = &items.data[first];
     const web_mesh *m = &meshes[it->mesh];
+    if (it->double_sided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
     glUniform1i(shadow_instanced, count > 1);
     if (count == 1) glUniformMatrix4fv(shadow_model_matrix, 1, GL_FALSE, it->model.m);
     int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];
@@ -1394,6 +1401,8 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     const web_mesh *m = &meshes[it->mesh];
     if (!m->vao || m->count == 0) return;
 
+    if (it->double_sided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
+
     if (it->params.w > 0.5f) {
         glEnable(GL_BLEND);
         glDepthMask(GL_FALSE);       /* blended: test depth, do not write it */
@@ -1411,6 +1420,7 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform4f(shader.pbr, it->pbr.x, it->pbr.y, it->pbr.z, it->pbr.w);
     glUniform1i(shader.alpha_mode, it->alpha_mode);
     glUniform1f(shader.alpha_cutoff, it->alpha_cutoff);
+    glUniform1i(shader.double_sided, it->double_sided);
     int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];
     glUniform1i(shader.textured, textured);
     glActiveTexture(GL_TEXTURE0);

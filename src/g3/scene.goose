@@ -63,6 +63,7 @@ struct Material {
     occlusion_strength: f32 = 1.0,
     emissive: float3,
     emissive_texture: i32 = -1,
+    double_sided: bool,   // render back faces and flip their normals
     removed: bool,
     asset_owned: bool,
     generation: i32 = 1,

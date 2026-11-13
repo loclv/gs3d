@@ -551,7 +551,8 @@ async function prepare(url) {
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
     const material = p.material === undefined ? {} : item(doc.materials, p.material, 'material');
-    if (material.doubleSided || material.extensions) unsupported('Unsupported material feature');
+    if (material.extensions) unsupported('Unsupported material feature');
+    if (material.doubleSided !== undefined && typeof material.doubleSided !== 'boolean') invalid('Invalid doubleSided material flag');
     const alphaModes = { OPAQUE: 0, MASK: 1, BLEND: 2 };
     const mode = material.alphaMode ?? 'OPAQUE';
     if (!Object.hasOwn(alphaModes, mode)) invalid('Invalid alpha mode');
@@ -603,7 +604,7 @@ async function prepare(url) {
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
-      emissive, emissiveTextureIndex, materialIndex: p.material ?? -1 };
+      emissive, emissiveTextureIndex, doubleSided: material.doubleSided ?? false, materialIndex: p.material ?? -1 };
     });
     if (!primitives.length) invalid(`Mesh ${meshIndex} has no primitives`);
     const targetCount = primitives[0].targets.length;
@@ -1005,7 +1006,7 @@ export async function loadGLTF(engine, url) {
           const materialId = engine._g3_asset_material(...p.color, getTexture(p.textureIndex, true), p.alphaMode, p.alphaCutoff,
             p.metallic, p.roughness, getTexture(p.metallicRoughnessTextureIndex, false), getTexture(p.normalTextureIndex, false), p.normalScale,
             getTexture(p.occlusionTextureIndex, false), p.occlusionStrength, ...p.emissive,
-            getTexture(p.emissiveTextureIndex, true));
+            getTexture(p.emissiveTextureIndex, true), p.doubleSided ? 1 : 0);
           material = makeResourceHandle(engine, materialId, 'material');
           materials.set(p.materialIndex, material);
         }

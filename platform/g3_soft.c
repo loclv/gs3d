@@ -80,6 +80,7 @@ typedef struct {
     float tangent[3], bitangent[3];
     float det;              /* twice the signed area in pixels */
     float edge_sense;       /* +1 or -1: the sign l0 has when an edge is 0 */
+    float normal_sign;      /* -1 for back faces, for double-sided shading */
     int x0, y0, x1, y1;
 } soft_tri;
 
@@ -1022,7 +1023,8 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
        GL_CCW with the y-up window it uses. */
     float area = (ndc[1][0] - ndc[0][0]) * (ndc[2][1] - ndc[0][1]) -
                  (ndc[2][0] - ndc[0][0]) * (ndc[1][1] - ndc[0][1]);
-    if (area <= 0.0f) return 0;
+    if (!it->double_sided && area <= 0.0f) return 0;
+    t->normal_sign = area > 0.0f ? 1.0f : -1.0f;
 
     for (int k = 0; k < 3; k++) {
         t->sx[k] = (ndc[k][0] * 0.5f + 0.5f) * (float)fb_w;
@@ -1296,6 +1298,9 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             emission[2] = it->emissive.z * emissive_tex[2];
             float alpha = it->color.w * tex[3];
             if (it->alpha_mode == 1 && alpha < it->alpha_cutoff) continue;
+            if (it->double_sided && t->normal_sign < 0.0f) {
+                n.x = -n.x; n.y = -n.y; n.z = -n.z;
+            }
             shade(it, vs, wp, n, tex, mr, ao, emission, rgb);
             if (counting) shaded += 1;
             if (vs->params.z > 0.5f) blend_pixel_hdr(hdr_fb + at * 3, rgb, alpha, blended);

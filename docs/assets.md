@@ -151,6 +151,8 @@ fetches and decodes assets in JavaScript.
   replacements are applied. Decoded accessor data is capped at 8,388,608 scalar
   components per accessor.
 * Opaque, masked and blended base-colour factors and base-colour textures.
+  Double-sided materials disable back-face culling in colour and shadow passes;
+  back-face normals are flipped before colour-pass lighting.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
   Emission adds the linear `emissiveFactor`, multiplied by an sRGB-decoded
   `emissiveTexture` when present.
@@ -174,10 +176,9 @@ fetches and decodes assets in JavaScript.
   images are decoded from sRGB before filtering; factors and alpha are linear.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
-more than eight skin influences, tangent morph targets, non-triangle modes,
-double-sided materials and advanced
-texture/sampler extensions. Tangent frames for normal maps are derived per
-triangle from positions and `TEXCOORD_0`; explicit glTF tangent attributes are
+more than eight skin influences, tangent morph targets, non-triangle modes and
+advanced texture/sampler extensions. Tangent frames for normal maps are derived
+per triangle from positions and `TEXCOORD_0`; explicit glTF tangent attributes are
 not used, so mirrored UV seams can differ from MikkTSpace results. Direct PBR
 lighting uses GGX; environment reflections use the documented prefiltered
 mip/Fresnel approximation. Roughness is clamped to at least 0.045.

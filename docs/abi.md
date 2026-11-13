@@ -36,7 +36,7 @@ The procedural checklist lives in
 
 `float m[16]`, column-major: element `(row r, column c)` is `m[c*4 + r]`.
 
-### `g3_draw_item` — 236 bytes
+### `g3_draw_item` — 237 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -57,6 +57,7 @@ The procedural checklist lives in
 | 212 | `float` | `occlusion_strength` | glTF strength blended between full and sampled occlusion |
 | 216 | `g3_vec4` | `emissive` | linear RGB emission factor |
 | 232 | `int32_t` | `emissive_texture` | sRGB emission texture id, or -1 for no texture |
+| 236 | `uint8_t` | `double_sided` | draw both winding directions and flip back-face normals |
 
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
@@ -152,7 +153,9 @@ int g3_backend_resize(int width, int height);   /* 0 if it cannot resize */
 ## Drawing rules (both backends)
 
 1. Clear colour and depth from `ViewState.clear`.
-2. Depth test `LESS`, depth write on, back faces culled, front faces CCW.
+2. Depth test `LESS`, depth write on, front faces CCW. Back faces are culled
+   unless the draw item is double-sided; double-sided back-face normals are
+   flipped before lighting.
 3. For `params.w > 0.5`: enable blending
    `src_alpha, 1 - src_alpha`, **disable depth writes**. Otherwise blending off
    and depth writes on.
