@@ -696,6 +696,7 @@ function inspectMaterial(spec) {
     index: spec.materialIndex, name: spec.name,
     baseColorFactor: Object.freeze([...spec.baseColorFactor]),
     metallicFactor: spec.metallic, roughnessFactor: spec.roughness,
+    normalScale: spec.normalScale, occlusionStrength: spec.occlusionStrength,
     alphaMode: alphaModes[spec.alphaMode], alphaCutoff: spec.alphaCutoff,
     emissiveFactor: Object.freeze([...spec.emissive]), doubleSided: spec.doubleSided,
     unlit: spec.unlit, ior: spec.ior, specularFactor: spec.specularFactor,

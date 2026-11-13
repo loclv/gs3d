@@ -51,6 +51,8 @@ export interface MaterialInspection {
   readonly baseColorFactor: readonly [number, number, number, number];
   readonly metallicFactor: number;
   readonly roughnessFactor: number;
+  readonly normalScale: number;
+  readonly occlusionStrength: number;
   readonly alphaMode: 'OPAQUE' | 'MASK' | 'BLEND';
   readonly alphaCutoff: number;
   readonly emissiveFactor: readonly [number, number, number];

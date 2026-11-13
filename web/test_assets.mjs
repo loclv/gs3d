@@ -442,7 +442,8 @@ assert.equal(inspectedPrimitive.default.alphaMode, 'OPAQUE');
 assert.deepEqual(inspectedPrimitive.variants, [{
   index: 0, name: 'Blue', material: {
     index: 1, name: 'Blue paint', baseColorFactor: [0, 0, 1, 1], metallicFactor: 0.4,
-    roughnessFactor: 0.2, alphaMode: 'OPAQUE', alphaCutoff: 0.5, emissiveFactor: [0, 0, 0],
+    roughnessFactor: 0.2, normalScale: 1, occlusionStrength: 1,
+    alphaMode: 'OPAQUE', alphaCutoff: 0.5, emissiveFactor: [0, 0, 0],
     doubleSided: false, unlit: false, ior: 1.5, specularFactor: 1, specularColorFactor: [1, 1, 1],
     clearcoatFactor: 0, clearcoatRoughnessFactor: 0, clearcoatNormalScale: 1,
     textureSlots: [], textureBindings: [],
@@ -568,6 +569,8 @@ assert.deepEqual(clearcoatEngine.calls.find(call => call[0] === 'material_clearc
 assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.clearcoatFactor, 0.7);
 assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.clearcoatRoughnessFactor, 0.25);
 assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.clearcoatNormalScale, 0.5);
+assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.normalScale, 1);
+assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.occlusionStrength, 1);
 assert.deepEqual(clearcoatModel.nodes[0].primitiveMaterials[0].default.textureSlots.slice(-3), ['clearcoat', 'clearcoatRoughness', 'clearcoatNormal']);
 assert.deepEqual(clearcoatModel.nodes[0].primitiveMaterials[0].default.textureBindings.slice(-3), [
   { slot: 'clearcoat', index: 0 }, { slot: 'clearcoatRoughness', index: 0 }, { slot: 'clearcoatNormal', index: 0 },
