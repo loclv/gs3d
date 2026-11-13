@@ -83,6 +83,9 @@ typedef struct {
     float uv[3][2];
     float uv1[3][2];
     float uv2[3][2];
+    float uv3[3][2];
+    float uv4[3][2];
+    float uv5[3][2];
     float tangent[3][4];
     float color[3][4];
     float derived_tangent[3], derived_bitangent[3];
@@ -96,6 +99,16 @@ static void transform_uv(const g3_uv_transform *transform, float u, float v, flo
 static int uv_transform_identity(const g3_uv_transform *transform);
 static void apply_fxaa(void);
 static void interpolate_uv(const soft_tri *triangle, int set, float b0, float b1, float b2, float *u, float *v);
+static const float (*triangle_uv(const soft_tri *triangle, int set))[2] {
+    switch (set) {
+        case 1: return triangle->uv1;
+        case 2: return triangle->uv2;
+        case 3: return triangle->uv3;
+        case 4: return triangle->uv4;
+        case 5: return triangle->uv5;
+        default: return triangle->uv;
+    }
+}
 
 typedef struct {
     soft_tri tri;
@@ -1088,6 +1101,9 @@ static g3_vertex clip_lerp(g3_vertex a, g3_vertex b, float t) {
     LERP(uv.x); LERP(uv.y);
     LERP(uv1.x); LERP(uv1.y);
     LERP(uv2.x); LERP(uv2.y);
+    LERP(uv3.x); LERP(uv3.y);
+    LERP(uv4.x); LERP(uv4.y);
+    LERP(uv5.x); LERP(uv5.y);
     LERP(tangent.x); LERP(tangent.y); LERP(tangent.z); LERP(tangent.w);
     LERP(color.x); LERP(color.y); LERP(color.z); LERP(color.w);
 #undef LERP
@@ -1143,6 +1159,12 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
         t->uv1[k][1] = tri[k]->uv1.y;
         t->uv2[k][0] = tri[k]->uv2.x;
         t->uv2[k][1] = tri[k]->uv2.y;
+        t->uv3[k][0] = tri[k]->uv3.x;
+        t->uv3[k][1] = tri[k]->uv3.y;
+        t->uv4[k][0] = tri[k]->uv4.x;
+        t->uv4[k][1] = tri[k]->uv4.y;
+        t->uv5[k][0] = tri[k]->uv5.x;
+        t->uv5[k][1] = tri[k]->uv5.y;
         t->color[k][0] = tri[k]->color.x;
         t->color[k][1] = tri[k]->color.y;
         t->color[k][2] = tri[k]->color.z;
@@ -1177,7 +1199,7 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
     }
 
     float normal_uv[3][2];
-    float (*normal_coords)[2] = it->normal_uv.texcoord == 1 ? t->uv1 : it->normal_uv.texcoord == 2 ? t->uv2 : t->uv;
+    const float (*normal_coords)[2] = triangle_uv(t, it->normal_uv.texcoord);
     for (int k=0;k<3;k++) transform_uv(&it->normal_uv,normal_coords[k][0],normal_coords[k][1],&normal_uv[k][0],&normal_uv[k][1]);
     float e1[3], e2[3], du1=normal_uv[1][0]-normal_uv[0][0], dv1=normal_uv[1][1]-normal_uv[0][1];
     float du2=normal_uv[2][0]-normal_uv[0][0], dv2=normal_uv[2][1]-normal_uv[0][1];
@@ -1293,7 +1315,7 @@ static int uv_transform_identity(const g3_uv_transform *transform) {
 }
 
 static void interpolate_uv(const soft_tri *triangle, int set, float b0, float b1, float b2, float *u, float *v) {
-    float (*uv)[2] = set == 1 ? triangle->uv1 : set == 2 ? triangle->uv2 : triangle->uv;
+    const float (*uv)[2] = triangle_uv(triangle, set);
     *u = uv[0][0]*b0+uv[1][0]*b1+uv[2][0]*b2;
     *v = uv[0][1]*b0+uv[1][1]*b1+uv[2][1]*b2;
 }
@@ -1302,7 +1324,7 @@ static float texture_footprint(const soft_tri *t, int32_t id, const g3_uv_transf
     if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels)) return 0.0f;
     const soft_texture *tex = &textures[id];
     if (tex->min_filter == tex->mag_filter) return 0.0f;
-    float (*uv)[2] = transform->texcoord == 1 ? t->uv1 : transform->texcoord == 2 ? t->uv2 : t->uv;
+    const float (*uv)[2] = triangle_uv(t, transform->texcoord);
     float dl0x = (t->sy[1] - t->sy[2]) / t->det;
     float dl1x = (t->sy[2] - t->sy[0]) / t->det;
     float dl0y = (t->sx[2] - t->sx[1]) / t->det;

@@ -22,8 +22,8 @@ If you find yourself wanting a GL call in Goose, the value belongs in a
 
 ## Recipe: a texture on a material
 
-1. **Vertex.** `Vertex` currently stores position, normal, three UV sets,
-   tangent and colour (80 bytes). Add per-vertex data to both
+1. **Vertex.** `Vertex` currently stores position, normal, six UV sets,
+   tangent and colour (104 bytes). Add per-vertex data to both
    `src/g3/platform.goose` and `platform/g3_abi.h`, update the size/offset
    asserts, every constructor in `src/g3/mesh.goose`, and both backends' vertex
    layouts. Built-in geometry uses white vertex colour and zero for unused UV

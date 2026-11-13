@@ -291,7 +291,8 @@ What the API gives you:
   Built-in meshes have UVs and white vertex colours; custom `Vertex` values can
   set linear RGBA vertex colours. glTF `COLOR_0` multiplies the material base
   colour, and custom meshes can use `push_vertex_uv`,
-  `push_vertex_uv_sets` for two UV sets, `push_vertex_uv_3sets` for three, or
+  `push_vertex_uv_sets` for two UV sets, `push_vertex_uv_3sets` for three,
+  `push_vertex_uv_6sets` for six, or
   `push_vertex_uv_tangent` to provide a tangent and handedness for normal maps.
   Both backends support nearest, linear, and mipmapped filtering via
   `texture_set_filter`, and clamp, repeat, and mirrored repeat per axis via
@@ -411,7 +412,7 @@ near, so they are drawn after everything opaque and read the depth they should.
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
 `Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings,
 a double-sided flag and seven texture-coordinate transforms, 429 bytes. A
-`Vertex` is 80 bytes, including three UV sets, tangent and colour. Its
+`Vertex` is 104 bytes, including six UV sets, tangent and colour. Its
 `ViewState` is 1020 bytes and includes render-target selection, dimensions and
 the shared camera view-projection matrix.
 `g3p_draw_frame` hands the backend a slice

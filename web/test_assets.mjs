@@ -465,7 +465,7 @@ transformedTexture.materials[0].pbrMetallicRoughness.baseColorTexture.extensions
 };
 resources.set('http://localhost/transformed-texture.gltf', bytes(transformedTexture));
 const transformedEngine = fakeEngine(), transformedModel = await loadGLTF(transformedEngine, 'http://localhost/transformed-texture.gltf');
-assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'vertex').slice(-14, -12), [-1, -1], 'mesh UVs remain shared and unmodified');
+assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'vertex').slice(-20, -18), [-1, -1], 'mesh UVs remain shared and unmodified');
 assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0), ['material_uv_transform', 1, 0, 0.25, 0.5, 2, 3, Math.PI / 2, 0], 'base-colour texture transform reaches its material slot');
 transformedModel.dispose();
 const perTextureTransforms = structuredClone(transformedTexture);
@@ -488,8 +488,8 @@ uvSet1.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture
 resources.set('http://localhost/uv-set-1.gltf', bytes(uvSet1));
 const uvSet1Engine = fakeEngine(), uvSet1Model = await loadGLTF(uvSet1Engine, 'http://localhost/uv-set-1.gltf');
 const uvSet1Vertex = uvSet1Engine.calls.find(call => call[0] === 'vertex');
-assert.deepEqual(uvSet1Vertex.slice(-14, -12), [-1, -1], 'TEXCOORD_0 remains available independently');
-assert.deepEqual(uvSet1Vertex.slice(-12, -10), [0, 0], 'TEXCOORD_1 reaches the mesh vertex');
+assert.deepEqual(uvSet1Vertex.slice(-20, -18), [-1, -1], 'TEXCOORD_0 remains available independently');
+assert.deepEqual(uvSet1Vertex.slice(-18, -16), [0, 0], 'TEXCOORD_1 reaches the mesh vertex');
 assert.equal(uvSet1Engine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0).at(-1), 1, 'texture transform selects TEXCOORD_1');
 uvSet1Model.dispose();
 const uvSet2 = structuredClone(transformedTexture);
@@ -499,11 +499,36 @@ uvSet2.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture
 resources.set('http://localhost/uv-set-2.gltf', bytes(uvSet2));
 const uvSet2Engine = fakeEngine(), uvSet2Model = await loadGLTF(uvSet2Engine, 'http://localhost/uv-set-2.gltf');
 const uvSet2Vertex = uvSet2Engine.calls.find(call => call[0] === 'vertex');
-assert.deepEqual(uvSet2Vertex.slice(-14, -12), [-1, -1], 'TEXCOORD_0 remains independent with TEXCOORD_2');
-assert.deepEqual(uvSet2Vertex.slice(-12, -10), [0, 0], 'missing TEXCOORD_1 is zero-filled');
-assert.deepEqual(uvSet2Vertex.slice(-10, -8), [-1, -1], 'TEXCOORD_2 reaches the mesh vertex');
+assert.deepEqual(uvSet2Vertex.slice(-20, -18), [-1, -1], 'TEXCOORD_0 remains independent with TEXCOORD_2');
+assert.deepEqual(uvSet2Vertex.slice(-18, -16), [0, 0], 'missing TEXCOORD_1 is zero-filled');
+assert.deepEqual(uvSet2Vertex.slice(-16, -14), [-1, -1], 'TEXCOORD_2 reaches the mesh vertex');
 assert.equal(uvSet2Engine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0).at(-1), 2, 'texture transform selects TEXCOORD_2');
 uvSet2Model.dispose();
+const uvSet5 = structuredClone(transformedTexture), uvSet5Binary = new ArrayBuffer(72), uvSet5Data = new DataView(uvSet5Binary);
+const uvValues = [[0,1],[1,1],[1,0]];
+for (let set = 3; set <= 5; set++) {
+  const viewIndex = uvSet5.bufferViews.push({ buffer: 1, byteOffset: (set - 3) * 24, byteLength: 24 }) - 1;
+  const accessorIndex = uvSet5.accessors.push({ bufferView: viewIndex, componentType: 5126, count: 3, type: 'VEC2' }) - 1;
+  uvSet5.meshes[0].primitives[0].attributes[`TEXCOORD_${set}`] = accessorIndex;
+  for (let vertex = 0; vertex < 3; vertex++) for (let component = 0; component < 2; component++)
+    uvSet5Data.setFloat32((set - 3) * 24 + vertex * 8 + component * 4, uvValues[set - 3][component], true);
+}
+uvSet5.buffers.push({ byteLength: uvSet5Binary.byteLength, uri: 'uv-set-3-5.bin' });
+uvSet5.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.texCoord = 5;
+resources.set('http://localhost/uv-set-5.gltf', bytes(uvSet5));
+resources.set('http://localhost/uv-set-3-5.bin', uvSet5Binary);
+const uvSet5Engine = fakeEngine(), uvSet5Model = await loadGLTF(uvSet5Engine, 'http://localhost/uv-set-5.gltf');
+const uvSet5Vertex = uvSet5Engine.calls.find(call => call[0] === 'vertex');
+assert.deepEqual(uvSet5Vertex.slice(-14, -12), [0,1], 'TEXCOORD_3 reaches the mesh vertex');
+assert.deepEqual(uvSet5Vertex.slice(-12, -10), [1,1], 'TEXCOORD_4 reaches the mesh vertex');
+assert.deepEqual(uvSet5Vertex.slice(-10, -8), [1,0], 'TEXCOORD_5 reaches the mesh vertex');
+assert.equal(uvSet5Engine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0).at(-1), 5,
+  'KHR_texture_transform can select TEXCOORD_5');
+uvSet5Model.dispose();
+const unsupportedUvSet6 = structuredClone(transformedTexture);
+unsupportedUvSet6.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.texCoord = 6;
+resources.set('http://localhost/unsupported-transform-uv-6.gltf', bytes(unsupportedUvSet6));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/unsupported-transform-uv-6.gltf'), error => error.code === 'UNSUPPORTED');
 const invalidTextureTransform = structuredClone(transformedTexture);
 invalidTextureTransform.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.offset = null;
 resources.set('http://localhost/invalid-texture-transform.gltf', bytes(invalidTextureTransform));

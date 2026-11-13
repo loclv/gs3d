@@ -17,7 +17,7 @@ compile time in `platform/g3_abi.h`.
 
 | type | size | layout |
 |---|---|---|
-| `Vertex` | 80 | position @0, normal @12, UV0/1/2 @24/32/40, tangent @48, colour @64 |
+| `Vertex` | 104 | position @0, normal @12, UV0–5 @24–64, tangent @72, colour @88 |
 | `Mat4` | 64 | column-major `m[col*4 + row]`, i.e. GL's layout with transpose off |
 | `DrawItem` | 168 | `mesh: i32` @0, `mvp: Mat4` @4, `model: Mat4` @68, `color: float4` @132, `params: float4` @148, `key: f32` @164 |
 | `ViewState` | 1020 | eye @0, primary light and ambient/fog/clear/params @12–99, additional lights @100, shadows/environment/render-target state, camera `view_proj` @956 |

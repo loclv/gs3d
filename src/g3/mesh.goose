@@ -133,11 +133,15 @@ fn push_vertex_uv(p: float3, n: float3, uv: float2) {
 }
 
 fn push_vertex_uv_sets(p: float3, n: float3, uv: float2, uv1: float2) {
-    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv, uv1: uv1, uv2: float2_0, tangent: float4_0, color: float4_1 });
+    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv, uv1: uv1, uv2: float2_0, tangent: float4_0, color: float4_1, .. });
 }
 
 fn push_vertex_uv_3sets(p: float3, n: float3, uv: float2, uv1: float2, uv2: float2) {
-    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv, uv1: uv1, uv2: uv2, tangent: float4_0, color: float4_1 });
+    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv, uv1: uv1, uv2: uv2, tangent: float4_0, color: float4_1, .. });
+}
+
+fn push_vertex_uv_6sets(p: float3, n: float3, uv: float2, uv1: float2, uv2: float2, uv3: float2, uv4: float2, uv5: float2) {
+    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv, uv1: uv1, uv2: uv2, uv3: uv3, uv4: uv4, uv5: uv5, tangent: float4_0, color: float4_1 });
 }
 
 fn push_vertex_uv_tangent(p: float3, n: float3, uv: float2, tangent: float4) {

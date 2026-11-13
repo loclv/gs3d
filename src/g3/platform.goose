@@ -22,7 +22,7 @@ namespace g3;
 // UV (0,0) addresses the first row of the supplied RGBA image. A zero tangent
 // selects the backend's UV-derived frame; otherwise tangent.w is handedness.
 // Vertex colour is linear RGBA; white leaves the material base colour intact.
-struct Vertex { pos: float3, normal: float3, uv: float2, uv1: float2, uv2: float2, tangent: float4, color: float4 }
+struct Vertex { pos: float3, normal: float3, uv: float2, uv1: float2, uv2: float2, uv3: float2, uv4: float2, uv5: float2, tangent: float4, color: float4 }
 struct UvTransform { offset: float2, scale: float2, rotation: f32, texcoord: i32 }
 
 // One triangle soup to draw with one state: mesh, its matrices, its colour.

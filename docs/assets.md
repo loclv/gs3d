@@ -123,7 +123,8 @@ mechanism.
 
 The glTF loader supports `KHR_materials_unlit`, `KHR_materials_ior`,
 `KHR_materials_specular`, `KHR_materials_emissive_strength`, and per-texture
-`KHR_texture_transform` on `TEXCOORD_0`, `TEXCOORD_1`, or `TEXCOORD_2`. Unlit selects the engine's unlit material path;
+`KHR_texture_transform` on `TEXCOORD_0` through `TEXCOORD_5`. Unlit selects
+the engine's unlit material path;
 emissive strength multiplies the material's `emissiveFactor` before the
 emissive texture is applied. `KHR_materials_specular` scales and tints
 dielectric reflections with factors and optional textures. Required extensions outside this supported set are
@@ -145,7 +146,7 @@ fetches and decodes assets in JavaScript.
   buffers; images may be external, data-URI, or stored in buffer views.
 * The selected scene's hierarchy, matrix or TRS transforms, indexed or
   non-indexed triangle primitives, float positions, optional float normals,
-  optional `TEXCOORD_0`, `TEXCOORD_1`, and `TEXCOORD_2`, and optional `COLOR_0` as float
+  optional `TEXCOORD_0` through `TEXCOORD_5`, and optional `COLOR_0` as float
   `VEC3`/`VEC4` or normalized unsigned-byte/unsigned-short `VEC3`/`VEC4`.
   Vertex colours are linear and multiply the base-colour factor and texture;
   `VEC3` supplies alpha 1. Missing normals are generated as area-weighted
@@ -191,7 +192,7 @@ fetches and decodes assets in JavaScript.
   `KHR_materials_emissive_strength` scales `emissiveFactor`, including values
   above 1 for HDR emission.
   `KHR_texture_transform` applies an independent offset, rotation and scale to
-  each texture slot. `TEXCOORD_0`, `TEXCOORD_1`, and `TEXCOORD_2` are supported.
+  each texture slot. `TEXCOORD_0` through `TEXCOORD_5` are supported.
   Double-sided materials disable back-face culling in colour and shadow passes;
   back-face normals are flipped before colour-pass lighting.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
