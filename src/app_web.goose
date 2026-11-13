@@ -40,5 +40,6 @@ export fn g3_app_shutdown() { g3::shutdown(); }
 export fn g3_app_drawn() -> i32 { return g3::stats().drawn as i32 }
 export fn g3_app_culled() -> i32 { return g3::stats().culled as i32 }
 export fn g3_app_triangles() -> i32 { return g3::stats().triangles as i32 }
+export fn g3_app_feedback_items_suppressed() -> i32 { return g3::stats().feedback_items_suppressed as i32 }
 export fn g3_app_meshes() -> i32 { return g3::mesh_count() as i32 }
 export fn g3_app_nodes() -> i32 { return g3::node_count() as i32 }

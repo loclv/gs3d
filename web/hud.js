@@ -46,9 +46,13 @@ export function createStatsLine(element, engine) {
     const sceneCalls = typeof engine._g3_host_scene_draw_calls === 'function'
       ? ` · ${engine._g3_host_scene_draw_calls()} GPU calls`
       : '';
+    const feedbackSkips = typeof engine._g3_app_feedback_items_suppressed === 'function'
+      ? engine._g3_app_feedback_items_suppressed()
+      : 0;
+    const feedback = feedbackSkips > 0 ? ` · ${feedbackSkips} feedback skips` : '';
     element.textContent =
       `${rate} · ${engine._g3_app_nodes()} nodes · ` +
-      `${engine._g3_app_drawn()} drawn${sceneCalls} · ${engine._g3_app_culled()} culled · ` +
+      `${engine._g3_app_drawn()} drawn${sceneCalls} · ${engine._g3_app_culled()} culled${feedback} · ` +
       `${engine._g3_app_triangles()} tris · ${engine._g3_app_meshes()} meshes`;
   }
 

@@ -491,13 +491,14 @@ fn draw_target_texture(texture: i32) -> u32 {
     return g3::read_pixel(200, 200);
 }
 
-fn render_target_feedback(target: i32) -> u32 {
+fn render_target_feedback(target: i32) -> u32, i64 {
     g3::render_target_set(target);
     g3::set_background(float4 { 0.0, 0.0, 0.0, 1.0 });
     g3::frame(1.0 / 60.0);
+    let suppressed = g3::stats().feedback_items_suppressed;
     g3::render_target_set(-1);
     g3::frame(1.0 / 60.0);
-    return g3::read_pixel(200, 200);
+    return g3::read_pixel(200, 200), suppressed;
 }
 
 fn set_first_node_texture(texture: i32) {
@@ -574,7 +575,9 @@ fn case_render_target() {
                    is_color(draw_target_texture(fxaa_target), 128, 128, 128, 2), "FXAA pass averages a high-contrast centre pixel with its across-edge neighbours");
 
     set_first_node_texture(target);
-    testing::check(is_color(render_target_feedback(target), 0, 0, 0, 1), "sampling the active target is suppressed instead of creating feedback");
+    let feedback_pixel, feedback_skips = render_target_feedback(target);
+    testing::check(is_color(feedback_pixel, 0, 0, 0, 1) && feedback_skips == 1,
+                   "sampling the active target is suppressed and reported without creating feedback");
     testing::check(!g3::render_target_remove_handle(target_handle), "a render target referenced by a live node cannot be removed");
     g3::scene_clear();
     testing::check(g3::render_target_remove_handle(target_handle) && !g3::render_target_handle_valid(target_handle) &&

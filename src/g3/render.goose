@@ -27,6 +27,7 @@ struct Stats {
     culled: i64,        // left out by the frustum
     triangles: i64,
     draws: i64,         // draw items submitted to the backend, before backend batching
+    feedback_items_suppressed: i64, // submitted items skipped because a material samples the active target
 }
 
 var g_draws: DrawItem[>..];
@@ -422,6 +423,13 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
     };
 }
 
+fn item_samples_texture(item: DrawItem, texture: i32) -> bool {
+    return item.texture == texture || item.metallic_roughness_texture == texture ||
+           item.normal_texture == texture || item.occlusion_texture == texture ||
+           item.emissive_texture == texture || item.specular_texture == texture ||
+           item.specular_color_texture == texture;
+}
+
 fn render_scene() {
     for &n in g_nodes {
         if !n.visible || n.mesh < 0 || n.mesh >= g_meshes.len || !mesh_handle_valid(mesh_handle(n.mesh)) { continue; }
@@ -439,6 +447,11 @@ fn render_scene() {
         g_stats.triangles += m.index_count / 3;
     }
     sort(g_draws) { a, b => a.key < b.key };
+    if g_render_target >= 0 {
+        for item in g_draws {
+            if item_samples_texture(item, g_render_target) { g_stats.feedback_items_suppressed += 1; }
+        }
+    }
     g3p_draw_frame(g_draws, g_view_state);
     g_stats.draws = g_draws.len;
 }
