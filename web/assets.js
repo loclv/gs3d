@@ -286,6 +286,7 @@ function accessor(doc, buffers, index, expected) {
   const valueCount = a.count * components;
   if (!Number.isSafeInteger(valueCount) || valueCount > MAX_ACCESSOR_VALUES) invalid('Accessor is too large');
   const size = format[0] * components, values = new Array(valueCount).fill(0);
+  let effectiveStride = size, effectiveOffset = 0;
   const readView = (viewIndex, label) => {
     const bv = item(doc.bufferViews, viewIndex, `${label} bufferView`);
     const buffer = item(buffers, bv.buffer, `${label} buffer`);
@@ -309,6 +310,7 @@ function accessor(doc, buffers, index, expected) {
         (base.byteStride !== undefined && (stride < 4 || stride > 252 || stride % 4 !== 0))) invalid('Invalid accessor alignment or stride');
     const start = base.start + offset, end = start + (a.count - 1) * stride + size;
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end > base.end) invalid('Accessor exceeds its buffer view');
+    effectiveStride = stride; effectiveOffset = start;
     for (let i = 0; i < a.count; i++) for (let c = 0; c < components; c++) {
       values[i * components + c] = readValue(base.view, start + i * stride + c * format[0]);
     }
@@ -348,7 +350,8 @@ function accessor(doc, buffers, index, expected) {
   } else if (a.bufferView === undefined) {
     invalid('An accessor without a bufferView must be sparse');
   }
-  return { values, count: a.count, componentType: a.componentType, normalized: !!a.normalized };
+  return { values, count: a.count, componentType: a.componentType, normalized: !!a.normalized,
+    byteStride: effectiveStride, byteOffset: effectiveOffset };
 }
 
 function localMatrix(node) {
@@ -643,6 +646,29 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
       emissiveUvTransform, specularUvTransform, specularColorUvTransform], materialIndex: materialIndex ?? -1 };
 }
 
+function validateMeshAttributeEncoding(attribute, semantic, morph, extensionsUsed, extensionsRequired) {
+  if (!attribute) return;
+  const type = attribute.componentType, normalized = attribute.normalized;
+  const core = morph
+    ? semantic === 'POSITION' || semantic === 'NORMAL' || semantic === 'TANGENT'
+    : semantic === 'POSITION' || semantic === 'NORMAL' || semantic === 'TANGENT' || semantic.startsWith('TEXCOORD_');
+  if (core && type === 5126 && !normalized) return;
+  if (!morph && semantic.startsWith('TEXCOORD_') && [5121, 5123].includes(type) && normalized) return;
+  const quantized = morph
+    ? semantic === 'POSITION' ? [5120, 5122].includes(type)
+      : ['NORMAL', 'TANGENT'].includes(semantic) && [5120, 5122].includes(type) && normalized
+    : semantic === 'POSITION' ? [5120, 5121, 5122, 5123].includes(type)
+      : ['NORMAL', 'TANGENT'].includes(semantic) && [5120, 5122].includes(type) && normalized
+        || semantic.startsWith('TEXCOORD_') && [5120, 5121, 5122, 5123].includes(type);
+  if (!quantized) invalid(`Invalid ${semantic} accessor encoding`);
+  if (!extensionsUsed.includes('KHR_mesh_quantization') || !extensionsRequired.includes('KHR_mesh_quantization')) {
+    invalid('Quantized mesh attributes require KHR_mesh_quantization in extensionsUsed and extensionsRequired');
+  }
+  if (attribute.byteOffset % 4 !== 0 || (attribute.count > 1 && attribute.byteStride % 4 !== 0)) {
+    invalid(`Quantized ${semantic} elements must align to four-byte boundaries`);
+  }
+}
+
 async function prepare(url, requestedScene) {
   const absolute = new URL(url, globalThis.location?.href || 'http://localhost/');
   const { json, bin, glb } = unpack(await fetchBytes(absolute));
@@ -654,7 +680,7 @@ async function prepare(url, requestedScene) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   if (doc.extensions !== undefined && (!doc.extensions || typeof doc.extensions !== 'object' || Array.isArray(doc.extensions))) invalid('Invalid glTF extensions');
   const variantExtension = doc.extensions?.KHR_materials_variants;
@@ -761,14 +787,19 @@ async function prepare(url, requestedScene) {
     const colorType = colorIndex === undefined ? null : item(doc.accessors, colorIndex, 'COLOR_0 accessor').type;
     if (colorType !== null && colorType !== 'VEC3' && colorType !== 'VEC4') invalid('Invalid COLOR_0 accessor type');
     const vertexColor = colorType === null ? null : accessor(doc, buffers, colorIndex, colorType);
-    if (pos.componentType !== 5126 || (normal && (normal.componentType !== 5126 || normal.count !== pos.count)) ||
-        [uv, uv1, uv2, uv3, uv4, uv5].some(coord => coord && (coord.count !== pos.count ||
-          !((coord.componentType === 5126 && !coord.normalized) || ([5121, 5123].includes(coord.componentType) && coord.normalized)))) ||
+    validateMeshAttributeEncoding(pos, 'POSITION', false, extensionsUsed, extensionsRequired);
+    validateMeshAttributeEncoding(normal, 'NORMAL', false, extensionsUsed, extensionsRequired);
+    validateMeshAttributeEncoding(tangent, 'TANGENT', false, extensionsUsed, extensionsRequired);
+    for (const [set, coord] of [uv, uv1, uv2, uv3, uv4, uv5].entries()) {
+      validateMeshAttributeEncoding(coord, `TEXCOORD_${set}`, false, extensionsUsed, extensionsRequired);
+    }
+    if ((normal && normal.count !== pos.count) ||
+        [uv, uv1, uv2, uv3, uv4, uv5].some(coord => coord && coord.count !== pos.count) ||
         (vertexColor && (vertexColor.count !== pos.count ||
           !((vertexColor.componentType === 5126 && !vertexColor.normalized) ||
             ([5121, 5123].includes(vertexColor.componentType) && vertexColor.normalized)) ||
           vertexColor.values.some(value => value < 0 || value > 1))) ||
-        (tangent && (tangent.componentType !== 5126 || tangent.normalized || tangent.count !== pos.count ||
+        (tangent && (tangent.count !== pos.count ||
           tangent.values.some((value, index) => index % 4 === 3 && Math.abs(Math.abs(value) - 1) > 1e-4)))) invalid('Invalid vertex attributes');
     const joints = [], weights = [];
     for (let set = 0; set < 2; set++) {
@@ -792,7 +823,10 @@ async function prepare(url, requestedScene) {
       const normalDelta = target.NORMAL === undefined ? null : accessor(doc, buffers, target.NORMAL, 'VEC3');
       const tangentDelta = target.TANGENT === undefined ? null : accessor(doc, buffers, target.TANGENT, 'VEC3');
       if (!position && !normalDelta && !tangentDelta) invalid('Morph targets need a POSITION, NORMAL or TANGENT delta');
-      for (const delta of [position, normalDelta, tangentDelta]) if (delta && (delta.componentType !== 5126 || delta.count !== pos.count)) invalid('Invalid morph target accessor');
+      for (const [semantic, delta] of [['POSITION', position], ['NORMAL', normalDelta], ['TANGENT', tangentDelta]]) {
+        validateMeshAttributeEncoding(delta, semantic, true, extensionsUsed, extensionsRequired);
+        if (delta && delta.count !== pos.count) invalid('Invalid morph target accessor');
+      }
       if (tangentDelta && !tangent) invalid('Tangent morph targets require a base TANGENT attribute');
       return { position: position?.values, normal: normalDelta?.values, tangent: tangentDelta?.values };
     });

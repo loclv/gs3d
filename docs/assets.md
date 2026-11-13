@@ -152,12 +152,18 @@ fetches and decodes assets in JavaScript.
   the extension as required.
 * The selected scene's hierarchy (the glTF default scene, or the optional
   `loadGLTF` `{ scene: index }` choice), matrix or TRS transforms, indexed or
-  non-indexed triangle primitives, float positions, optional float normals,
+  non-indexed triangle primitives, float or `KHR_mesh_quantization` positions,
+  optional float or quantized normals and tangents,
   optional `TEXCOORD_0` through `TEXCOORD_5`, and optional `COLOR_0` as float
   `VEC3`/`VEC4` or normalized unsigned-byte/unsigned-short `VEC3`/`VEC4`.
   Vertex colours are linear and multiply the base-colour factor and texture;
   `VEC3` supplies alpha 1. Missing normals are generated as area-weighted
   vertex normals from triangle faces.
+* `KHR_mesh_quantization` supports signed and unsigned 8-bit or 16-bit positions
+  and texture coordinates, plus normalized signed 8-bit or 16-bit normals and
+  tangents. Morph position deltas also accept signed quantized values; morph
+  normal and tangent deltas use normalized signed values. Quantized attributes
+  require this extension in both `extensionsUsed` and `extensionsRequired`.
 * Optional float `VEC4` `TANGENT` attributes with handedness `w` of `-1` or `1`.
   Authored tangents are used on static, skinned and morphed meshes. Skinning
   transforms tangent directions alongside positions and normals; tangent morph

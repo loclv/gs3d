@@ -175,6 +175,46 @@ globalThis.document = { createElement: () => {
     getImageData: (_x, _y, width, height) => ({ data: new Uint8Array(width * height * 4).fill(pixel) }) }) };
 } };
 
+const quantizedBinary = new ArrayBuffer(114), quantizedData = new DataView(quantizedBinary);
+[-1,-1,0, 1,-1,0, 0,1,0].forEach((value, index) => quantizedData.setInt16(Math.floor(index / 3) * 8 + (index % 3) * 2, value, true));
+for (let vertex = 0; vertex < 3; vertex++) {
+  quantizedData.setInt8(24 + vertex * 4 + 2, 127);
+  [-32768,0, 32767,0, 0,32767].slice(vertex * 2, vertex * 2 + 2).forEach((value, axis) => quantizedData.setInt16(36 + vertex * 4 + axis * 2, value, true));
+  quantizedData.setInt8(48 + vertex * 4, 127);
+  quantizedData.setInt8(48 + vertex * 4 + 3, 127);
+  quantizedData.setInt16(60 + vertex * 8 + 2, 1, true);
+  [0,1,2,3].forEach(component => {
+    quantizedData.setInt8(84 + vertex * 4 + component, 0);
+    quantizedData.setInt8(96 + vertex * 4 + component, 0);
+  });
+}
+[0,1,2].forEach((value, index) => quantizedData.setUint16(108 + index * 2, value, true));
+const quantizedDoc = {
+  asset: { version: '2.0' }, extensionsUsed: ['KHR_mesh_quantization'], extensionsRequired: ['KHR_mesh_quantization'],
+  buffers: [{ byteLength: quantizedBinary.byteLength, uri: 'quantized.bin' }],
+  bufferViews: [
+    { buffer: 0, byteLength: 24, byteStride: 8 }, { buffer: 0, byteOffset: 24, byteLength: 12, byteStride: 4 },
+    { buffer: 0, byteOffset: 36, byteLength: 12, byteStride: 4 }, { buffer: 0, byteOffset: 48, byteLength: 12, byteStride: 4 },
+    { buffer: 0, byteOffset: 60, byteLength: 24, byteStride: 8 }, { buffer: 0, byteOffset: 84, byteLength: 12, byteStride: 4 },
+    { buffer: 0, byteOffset: 96, byteLength: 12, byteStride: 4 }, { buffer: 0, byteOffset: 108, byteLength: 6 },
+  ],
+  accessors: [
+    { bufferView: 0, componentType: 5122, count: 3, type: 'VEC3', min: [-1,-1,0], max: [1,1,0] },
+    { bufferView: 1, componentType: 5120, normalized: true, count: 3, type: 'VEC3' },
+    { bufferView: 2, componentType: 5122, count: 3, type: 'VEC2' },
+    { bufferView: 3, componentType: 5120, normalized: true, count: 3, type: 'VEC4' },
+    { bufferView: 4, componentType: 5122, count: 3, type: 'VEC3' },
+    { bufferView: 5, componentType: 5120, normalized: true, count: 3, type: 'VEC3' },
+    { bufferView: 6, componentType: 5120, normalized: true, count: 3, type: 'VEC3' },
+    { bufferView: 7, componentType: 5123, count: 3, type: 'SCALAR' },
+  ],
+  meshes: [{ weights: [1], primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2, TANGENT: 3 }, indices: 7,
+    targets: [{ POSITION: 4, NORMAL: 5, TANGENT: 6 }] }] }],
+  nodes: [{ mesh: 0 }], scenes: [{ nodes: [0] }], scene: 0,
+};
+resources.set('http://localhost/quantized.gltf', bytes(quantizedDoc));
+resources.set('http://localhost/quantized.bin', quantizedBinary);
+
 for (const [name, expected] of [
   ['sparse-zero-base', [0, 0, 0, 2, -1, 0, 0, 0, 0]],
   ['sparse-base-override', [-1, -1, 0, 2, -1, 0, 0, 1, 0]],
@@ -183,6 +223,30 @@ for (const [name, expected] of [
   assert.deepEqual(sparseEngine.calls.filter(call => call[0] === 'vertex').flatMap(call => call.slice(1, 4)), expected);
   sparseModel.dispose();
 }
+const quantizedEngine = fakeEngine(), quantizedModel = await loadGLTF(quantizedEngine, 'http://localhost/quantized.gltf');
+const quantizedVertex = quantizedEngine.calls.find(call => call[0] === 'vertex');
+assert.deepEqual(quantizedVertex.slice(1, 4), [-1, -1, 0], 'quantized integer positions retain their specified values');
+assert.deepEqual(quantizedVertex.slice(4, 7), [0, 0, 1], 'normalized quantized normals decode to floats');
+assert.deepEqual(quantizedVertex.slice(7, 9), [-32768, 0], 'unnormalized quantized texture coordinates preserve their values');
+assert.deepEqual(quantizedVertex.slice(19, 23), [1, 0, 0, 1], 'normalized quantized tangents retain handedness');
+const quantizedUpdate = quantizedEngine.calls.find(call => call[0] === 'mesh_update');
+assert.deepEqual(quantizedUpdate[2], [-1,0,0, 1,0,0, 0,2,0],
+  'quantized morph position deltas apply through the CPU deformation path');
+assert.deepEqual(quantizedUpdate[3], [0,0,1, 0,0,1, 0,0,1], 'quantized morph normals decode and normalize');
+assert.deepEqual(quantizedUpdate[4], [1,0,0,1, 1,0,0,1, 1,0,0,1], 'quantized morph tangents preserve their base handedness');
+quantizedModel.dispose();
+const undeclaredQuantizedDoc = structuredClone(quantizedDoc);
+undeclaredQuantizedDoc.extensionsRequired = [];
+resources.set('http://localhost/undeclared-quantized.gltf', bytes(undeclaredQuantizedDoc));
+const undeclaredQuantizedEngine = fakeEngine();
+await assert.rejects(loadGLTF(undeclaredQuantizedEngine, 'http://localhost/undeclared-quantized.gltf'), error => error.code === 'INVALID_GLTF');
+assert.equal(undeclaredQuantizedEngine.calls.length, 0, 'quantized attributes require the extension before allocating resources');
+const invalidQuantizedDoc = structuredClone(quantizedDoc);
+invalidQuantizedDoc.accessors[1].componentType = 5121;
+resources.set('http://localhost/invalid-quantized.gltf', bytes(invalidQuantizedDoc));
+const invalidQuantizedEngine = fakeEngine();
+await assert.rejects(loadGLTF(invalidQuantizedEngine, 'http://localhost/invalid-quantized.gltf'), error => error.code === 'INVALID_GLTF');
+assert.equal(invalidQuantizedEngine.calls.length, 0, 'unsupported quantized normal encodings are rejected before allocation');
 const tangentEngine = fakeEngine(), tangentModel = await loadGLTF(tangentEngine, 'http://localhost/tangent.gltf');
 assert.deepEqual(tangentEngine.calls.find(call => call[0] === 'vertex').slice(-8, -4), [0, 1, 0, -1], 'authored tangent and handedness reach the vertex upload');
 const colorBinary = new ArrayBuffer(36), colorView = new DataView(colorBinary);
