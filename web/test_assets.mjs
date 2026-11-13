@@ -173,6 +173,11 @@ const skinDoc = {
 };
 resources.set('http://localhost/skinned.gltf', bytes(skinDoc));
 resources.set('http://localhost/skin.bin', skinBinary);
+const animatedLightDoc = structuredClone(skinDoc);
+animatedLightDoc.extensionsUsed = ['KHR_lights_punctual'];
+animatedLightDoc.extensions = { KHR_lights_punctual: { lights: [{ type: 'point' }] } };
+animatedLightDoc.nodes[1].extensions = { KHR_lights_punctual: { light: 0 } };
+resources.set('http://localhost/animated-light.gltf', bytes(animatedLightDoc));
 for (const [name, accessorIndex, stride] of [
   ['strided-inverse-bind', inverseBind, 64], ['strided-animation-input', skinTimes, 4],
 ]) {
@@ -518,6 +523,16 @@ earlierLightModel.dispose();
 laterLightModel.dispose();
 assert.equal(laterLightEngine.activeLightSet, -1, 'disposing nested models restores the original light set without reviving a disposed model');
 assert.equal(laterLightEngine.activeLights.length, 0);
+const animatedLightEngine = fakeEngine(), animatedLightModel = await loadGLTF(animatedLightEngine, 'http://localhost/animated-light.gltf');
+assert.equal(animatedLightModel.applyLights({ pointShadow: 0 }), true);
+assert.equal(animatedLightEngine.calls.filter(call => call[0] === 'light_point_shadow').length, 1);
+assert.equal(animatedLightModel.playAnimation(0, { loop: false }), true);
+assert.equal(animatedLightModel.seekAnimation(1), true);
+assert.equal(animatedLightEngine.calls.filter(call => call[0] === 'light_point').at(-1)[1], 1,
+  'animated light transforms are re-applied to the active scene lights');
+assert.equal(animatedLightEngine.calls.filter(call => call[0] === 'light_point_shadow').length, 3,
+  'selected shadow casters are rebuilt after animated light transforms change');
+animatedLightModel.dispose();
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/too-many-lights.gltf'), error => error.code === 'UNSUPPORTED');
 
 function enableFakeGpuMorph(engine, { upload = true, skin = true } = {}) {
