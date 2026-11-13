@@ -878,9 +878,11 @@ export async function loadGLTF(engine, url) {
       }
       const vertexCount = primitive.pos.length / 3;
       const positions = new Float32Array(primitive.pos.length), normals = new Float32Array(primitive.normal.length);
+      const tangents = new Float32Array(vertexCount * 4);
       for (let vertex = 0; vertex < vertexCount; vertex++) {
         const sourcePosition = primitive.pos.slice(vertex * 3, vertex * 3 + 3);
         const sourceNormal = primitive.normal.slice(vertex * 3, vertex * 3 + 3);
+        const sourceTangent = primitive.tangent?.slice(vertex * 4, vertex * 4 + 4) ?? [0, 0, 0, 0];
         for (let targetIndex = 0; targetIndex < primitive.targets.length; targetIndex++) {
           const weight = morphWeights[targetIndex];
           if (weight === 0) continue;
@@ -891,7 +893,7 @@ export async function loadGLTF(engine, url) {
             if (target.normal) sourceNormal[axis] += target.normal[offset] * weight;
           }
         }
-        let outPosition, outNormal;
+        let outPosition, outNormal, outTangent = [0, 0, 0];
         if (deformed.skinIndex >= 0) {
           outPosition = [0, 0, 0]; outNormal = [0, 0, 0];
           let totalWeight = 0;
@@ -900,29 +902,42 @@ export async function loadGLTF(engine, url) {
             if (weight === 0) continue;
             const matrix = jointMatrices[primitive.joints[set][offset]];
             const position = transformPoint4(matrix, sourcePosition), normal = transformDirection4(matrix, sourceNormal);
+            const tangent = primitive.tangent && !primitive.targets.length ? transformDirection4(matrix, sourceTangent) : null;
             for (let axis = 0; axis < 3; axis++) {
               outPosition[axis] += position[axis] * weight;
               outNormal[axis] += normal[axis] * weight;
+              if (tangent) outTangent[axis] += tangent[axis] * weight;
             }
             totalWeight += weight;
           }
           if (!(totalWeight > 0) || !Number.isFinite(totalWeight)) invalid('Invalid skin weights');
-          for (let axis = 0; axis < 3; axis++) outPosition[axis] /= totalWeight;
+          for (let axis = 0; axis < 3; axis++) {
+            outPosition[axis] /= totalWeight;
+            outTangent[axis] /= totalWeight;
+          }
+          const tangentLength = Math.hypot(...outTangent);
+          if (tangentLength > 0 && Number.isFinite(tangentLength)) outTangent = outTangent.map(value => value / tangentLength);
+          else outTangent = [0, 0, 0];
         } else {
           outPosition = sourcePosition;
           outNormal = sourceNormal;
+          if (primitive.tangent && !primitive.targets.length) outTangent = sourceTangent.slice(0, 3);
         }
         outNormal = normalize3(outNormal);
         for (let axis = 0; axis < 3; axis++) {
           positions[vertex * 3 + axis] = outPosition[axis];
           normals[vertex * 3 + axis] = outNormal[axis];
+          tangents[vertex * 4 + axis] = outTangent[axis];
         }
+        tangents[vertex * 4 + 3] = primitive.tangent && !primitive.targets.length ? sourceTangent[3] : 0;
       }
       const floatOffset = deformed.ptr >>> 2;
       engine.HEAPF32.set(positions, floatOffset);
       engine.HEAPF32.set(normals, floatOffset + positions.length);
+      const tangentPtr = deformed.ptr + positions.byteLength + normals.byteLength;
+      engine.HEAPF32.set(tangents, tangentPtr >>> 2);
       const updateMesh = deformed.gpuDeform ? engine._g3_host_mesh_update_cpu : engine._g3_host_mesh_update;
-      if (!updateMesh || !updateMesh(deformed.handle.id, deformed.ptr, deformed.ptr + positions.byteLength, positions.length)) {
+      if (!updateMesh || !updateMesh(deformed.handle.id, deformed.ptr, deformed.ptr + positions.byteLength, tangentPtr, positions.length)) {
         throw new AssetError('UPLOAD', 'Could not update deformed mesh');
       }
     }
@@ -1071,7 +1086,7 @@ export async function loadGLTF(engine, url) {
       });
       for (const p of node.primitives) {
         engine._g3_asset_mesh_begin();
-        const useAuthoredTangents = !!p.tangent && node.skinIndex < 0 && !p.targets.length;
+        const useAuthoredTangents = !!p.tangent && !p.targets.length;
         for (let i = 0; i < p.pos.length / 3; i++) engine._g3_asset_vertex(
           ...p.pos.slice(i*3, i*3+3), ...p.normal.slice(i*3, i*3+3), ...(p.uv ? p.uv.slice(i*2, i*2+2) : [0, 0]),
           ...(p.uv1 ? p.uv1.slice(i*2, i*2+2) : [0, 0]),
@@ -1082,8 +1097,9 @@ export async function loadGLTF(engine, url) {
         meshes.push(meshHandle);
         if (node.skinIndex >= 0 || p.targets.length) {
           const byteLength = p.pos.length * Float32Array.BYTES_PER_ELEMENT;
-          const ptr = engine._malloc(byteLength * 2);
-          if (!ptr) throw new AssetError('MEMORY', 'Could not allocate morph deformation buffer');
+          const tangentByteLength = (p.pos.length / 3) * 4 * Float32Array.BYTES_PER_ELEMENT;
+          const ptr = engine._malloc(byteLength * 2 + tangentByteLength);
+          if (!ptr) throw new AssetError('MEMORY', 'Could not allocate animated mesh deformation buffers');
           const deformation = { handle: meshHandle, node: node.index, skinIndex: node.skinIndex,
             weights: [...node.weights], primitive: p, ptr, gpuSkin: false, gpuMorph: false,
             gpuDeform: false, palettePtr: 0, morphWeightsPtr: 0 };

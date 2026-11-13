@@ -146,8 +146,10 @@ fetches and decodes assets in JavaScript.
   non-indexed triangle primitives, float positions and normals, and optional
   `TEXCOORD_0` and optional `TEXCOORD_1`. Positions and normals are required.
 * Optional float `VEC4` `TANGENT` attributes with handedness `w` of `-1` or `1`.
-  Authored tangents are used on static, unskinned and unmorphed meshes; other
-  normal-mapped meshes derive a frame from positions and UVs.
+  Authored tangents are used on static and skinned, non-morphed meshes. Skinning
+  transforms the tangent directions alongside positions and normals. Morphed
+  meshes derive a frame from the deformed positions and UVs because tangent
+  morph targets are unsupported.
 * Morph targets with `POSITION` and `NORMAL` deltas, default mesh/node weights,
   and animated `weights` channels. Deltas apply before skinning; tangent morph
   targets are unsupported.
@@ -210,10 +212,9 @@ fetches and decodes assets in JavaScript.
 This is **not a complete glTF implementation**. It rejects required extensions,
 more than eight skin influences, tangent morph targets, non-triangle modes and
 advanced texture/sampler extensions. Authored glTF `TANGENT` attributes are
-used for static, non-skinned and non-morphed meshes. Otherwise tangent frames
-for normal maps are derived per triangle from positions and the selected
-texture-coordinate set, so
-mirrored UV seams can differ from MikkTSpace results. Direct PBR
+used for static and skinned, non-morphed meshes. Morphed meshes derive tangent
+frames for normal maps from positions and the selected texture-coordinate set,
+so mirrored UV seams can differ from MikkTSpace results. Direct PBR
 lighting uses GGX; environment reflections use the documented prefiltered
 mip/Fresnel approximation. Roughness is clamped to at least 0.045.
 Unsupported optional data may be

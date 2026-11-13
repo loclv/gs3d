@@ -464,11 +464,12 @@ Deliberately out of scope for now, in rough order of how much they would add:
 
 * **Partial PBR.** Shared materials support metallic-roughness factors and
   maps, tangent-space normal maps for surface shading, and occlusion maps for
-  indirect fill, plus emissive factors and textures. Static, non-deformed
-  glTF meshes use authored tangent attributes for normal maps; skinned or
-  morphed meshes still use the UV-derived frame. GGX-prefiltered
-  environment lighting, Reinhard and ACES tone mapping, FXAA-style edge smoothing, exposure controls, and
-  Radiance RGBE environment image loading are available. Full colour
+  indirect fill, plus emissive factors and textures. Static and skinned,
+  non-morphed glTF meshes use authored tangent attributes for normal maps;
+  morphed meshes use the UV-derived frame because tangent morph targets are
+  unsupported. GGX-prefiltered environment lighting, Reinhard and ACES tone
+  mapping, FXAA-style edge smoothing, exposure controls, and Radiance RGBE
+  environment image loading are available. Full colour
   management remains incomplete.
 * **Limited shadows, environment lighting, and normals.** The primary
   directional light, one selected extra point light, and one selected spot

@@ -30,30 +30,42 @@
 #include "g3.h"   /* the exported Goose functions: g3_app_init, g3_app_frame, ... */
 
 /* JS needs a scalar-argument bridge for the Goose slice ABI. The generated
-   g3_asset_mesh_update takes two {data,len} structs, so construct them here
+   g3_asset_mesh_update takes three {data,len} structs, so construct them here
    from pointers into WebAssembly memory. */
 EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_update(int32_t id, uint32_t positions_ptr,
-                                                 uint32_t normals_ptr, int32_t float_count) {
-    if (id < 0 || !positions_ptr || !normals_ptr || positions_ptr % 4 || normals_ptr % 4 ||
-        float_count <= 0 || float_count > INT32_MAX / (int32_t)sizeof(float)) return 0;
+                                                 uint32_t normals_ptr, uint32_t tangents_ptr,
+                                                 int32_t float_count) {
+    if (id < 0 || !positions_ptr || !normals_ptr || !tangents_ptr || positions_ptr % 4 ||
+        normals_ptr % 4 || tangents_ptr % 4 || float_count <= 0 || float_count % 3 ||
+        float_count > INT32_MAX / (int32_t)sizeof(float)) return 0;
     const uint64_t bytes = (uint64_t)float_count * sizeof(float);
+    const int32_t tangent_count = (float_count / 3) * 4;
+    const uint64_t tangent_bytes = (uint64_t)tangent_count * sizeof(float);
     const uint64_t heap_size = emscripten_get_heap_size();
-    if ((uint64_t)positions_ptr + bytes > heap_size || (uint64_t)normals_ptr + bytes > heap_size) return 0;
+    if ((uint64_t)positions_ptr + bytes > heap_size || (uint64_t)normals_ptr + bytes > heap_size ||
+        (uint64_t)tangents_ptr + tangent_bytes > heap_size) return 0;
     sl_f32 positions = { (float *)(uintptr_t)positions_ptr, float_count };
     sl_f32 normals = { (float *)(uintptr_t)normals_ptr, float_count };
-    return g3_asset_mesh_update(id, positions, normals);
+    sl_f32 tangents = { (float *)(uintptr_t)tangents_ptr, tangent_count };
+    return g3_asset_mesh_update(id, positions, normals, tangents);
 }
 
 EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_update_cpu(int32_t id, uint32_t positions_ptr,
-                                                     uint32_t normals_ptr, int32_t float_count) {
-    if (id < 0 || !positions_ptr || !normals_ptr || positions_ptr % 4 || normals_ptr % 4 ||
-        float_count <= 0 || float_count > INT32_MAX / (int32_t)sizeof(float)) return 0;
+                                                     uint32_t normals_ptr, uint32_t tangents_ptr,
+                                                     int32_t float_count) {
+    if (id < 0 || !positions_ptr || !normals_ptr || !tangents_ptr || positions_ptr % 4 ||
+        normals_ptr % 4 || tangents_ptr % 4 || float_count <= 0 || float_count % 3 ||
+        float_count > INT32_MAX / (int32_t)sizeof(float)) return 0;
     const uint64_t bytes = (uint64_t)float_count * sizeof(float);
+    const int32_t tangent_count = (float_count / 3) * 4;
+    const uint64_t tangent_bytes = (uint64_t)tangent_count * sizeof(float);
     const uint64_t heap_size = emscripten_get_heap_size();
-    if ((uint64_t)positions_ptr + bytes > heap_size || (uint64_t)normals_ptr + bytes > heap_size) return 0;
+    if ((uint64_t)positions_ptr + bytes > heap_size || (uint64_t)normals_ptr + bytes > heap_size ||
+        (uint64_t)tangents_ptr + tangent_bytes > heap_size) return 0;
     sl_f32 positions = { (float *)(uintptr_t)positions_ptr, float_count };
     sl_f32 normals = { (float *)(uintptr_t)normals_ptr, float_count };
-    return g3_asset_mesh_update_cpu(id, positions, normals);
+    sl_f32 tangents = { (float *)(uintptr_t)tangents_ptr, tangent_count };
+    return g3_asset_mesh_update_cpu(id, positions, normals, tangents);
 }
 
 typedef struct {
@@ -186,11 +198,12 @@ static const char *VERTEX_SRC =
     "            }\n"
     "        }\n"
     "    }\n"
+    "    mat4 skin_matrix = mat4(1.0); float skin_total = 0.0;\n"
     "    if (u_skin_enabled && u_joint_count > 0) {\n"
-    "        mat4 skin = mat4(0.0); float total = 0.0;\n"
-    "        for (int i=0;i<4;i++) { float w=a_weights0[i]; if(w>0.0){skin+=joint_matrix(a_joints0[i])*w;total+=w;} }\n"
-    "        for (int i=0;i<4;i++) { float w=a_weights1[i]; if(w>0.0){skin+=joint_matrix(a_joints1[i])*w;total+=w;} }\n"
-    "        if(total>0.0){position=(skin*position)/total;normal=normalize(mat3(skin)*normal);}\n"
+    "        skin_matrix = mat4(0.0);\n"
+    "        for (int i=0;i<4;i++) { float w=a_weights0[i]; if(w>0.0){skin_matrix+=joint_matrix(a_joints0[i])*w;skin_total+=w;} }\n"
+    "        for (int i=0;i<4;i++) { float w=a_weights1[i]; if(w>0.0){skin_matrix+=joint_matrix(a_joints1[i])*w;skin_total+=w;} }\n"
+    "        if(skin_total>0.0){position=(skin_matrix*position)/skin_total;normal=normalize(mat3(skin_matrix)*normal);}\n"
     "    }\n"
     "    vec4 world = model * position;\n"
     "    v_world = world.xyz;\n"
@@ -198,7 +211,11 @@ static const char *VERTEX_SRC =
     "    v_uv1 = a_uv1;\n"
     "    v_normal = u_instanced ? transpose(inverse(mat3(model))) * normal : u_normal_matrix * normal;\n"
     "    float model_sign = determinant(mat3(model)) < 0.0 ? -1.0 : 1.0;\n"
-    "    v_tangent = (u_skin_enabled || u_morph_enabled) ? vec4(0.0) : vec4(mat3(model) * a_tangent.xyz, a_tangent.w * model_sign);\n"
+    "    if (u_morph_enabled) v_tangent = vec4(0.0);\n"
+    "    else if (u_skin_enabled && skin_total > 0.0) {\n"
+    "        vec3 tangent = mat3(skin_matrix) * a_tangent.xyz; float tangent_length = length(tangent);\n"
+    "        v_tangent = tangent_length > 1e-12 ? vec4(mat3(model) * (tangent / tangent_length), a_tangent.w * model_sign) : vec4(0.0);\n"
+    "    } else v_tangent = vec4(mat3(model) * a_tangent.xyz, a_tangent.w * model_sign);\n"
     "    gl_Position = mvp * position;\n"
     "}\n";
 

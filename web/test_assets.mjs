@@ -80,15 +80,20 @@ const skinIndices = addSkinAccessor([0,1,2], 5123, 'SCALAR', (d, o, x) => d.setU
 const inverseBind = addSkinAccessor([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1], 5126, 'MAT4', (d, o, x) => d.setFloat32(o, x, true), 4);
 const skinTimes = addSkinAccessor([0,1], 5126, 'SCALAR', (d, o, x) => d.setFloat32(o, x, true), 4);
 const skinTranslation = addSkinAccessor([0,0,0, 1,0,0], 5126, 'VEC3', (d, o, x) => d.setFloat32(o, x, true), 4);
+const skinTangent = addSkinAccessor([0,1,0,-1, 0,1,0,-1, 0,1,0,-1], 5126, 'VEC4', (d, o, x) => d.setFloat32(o, x, true), 4);
+const skinRotation = addSkinAccessor([0,0,0,1, 0,0,Math.SQRT1_2,Math.SQRT1_2], 5126, 'VEC4', (d, o, x) => d.setFloat32(o, x, true), 4);
 const skinBinary = new ArrayBuffer(skinByteLength), skinBytes = new Uint8Array(skinBinary);
 for (const chunk of skinChunks) skinBytes.set(chunk.bytes, chunk.offset);
 const skinDoc = {
   asset: { version: '2.0' }, buffers: [{ byteLength: skinByteLength, uri: 'skin.bin' }],
   bufferViews: skinViews, accessors: skinAccessors,
-  meshes: [{ primitives: [{ attributes: { POSITION: skinPosition, NORMAL: skinNormal, JOINTS_0: skinJoints, WEIGHTS_0: skinWeights }, indices: skinIndices }] }],
+  meshes: [{ primitives: [{ attributes: { POSITION: skinPosition, NORMAL: skinNormal, TANGENT: skinTangent, JOINTS_0: skinJoints, WEIGHTS_0: skinWeights }, indices: skinIndices }] }],
   skins: [{ joints: [1], inverseBindMatrices: inverseBind }],
   nodes: [{ mesh: 0, skin: 0 }, {}], scenes: [{ nodes: [0,1] }], scene: 0,
-  animations: [{ samplers: [{ input: skinTimes, output: skinTranslation }], channels: [{ sampler: 0, target: { node: 1, path: 'translation' } }] }],
+  animations: [{ samplers: [{ input: skinTimes, output: skinTranslation }, { input: skinTimes, output: skinRotation }], channels: [
+    { sampler: 0, target: { node: 1, path: 'translation' } },
+    { sampler: 1, target: { node: 1, path: 'rotation' } },
+  ] }],
 };
 resources.set('http://localhost/skinned.gltf', bytes(skinDoc));
 resources.set('http://localhost/skin.bin', skinBinary);
@@ -98,6 +103,7 @@ morphDoc.meshes[0].primitives[0].targets = [{ POSITION: skinPosition, NORMAL: sk
 delete morphDoc.skins;
 morphDoc.nodes = [{ mesh: 0 }];
 morphDoc.scenes = [{ nodes: [0] }];
+morphDoc.animations[0].channels = [morphDoc.animations[0].channels[0]];
 morphDoc.animations[0].channels[0].target = { node: 0, path: 'weights' };
 morphDoc.animations[0].samplers[0].output = skinTimes;
 resources.set('http://localhost/morph.gltf', bytes(morphDoc));
@@ -107,7 +113,7 @@ combinedMorphSkinDoc.meshes[0].primitives[0].targets = [{ POSITION: skinPosition
 combinedMorphSkinDoc.meshes[0].weights = [0];
 combinedMorphSkinDoc.nodes[0].weights = [0];
 combinedMorphSkinDoc.animations[0].samplers.push({ input: skinTimes, output: skinTimes });
-combinedMorphSkinDoc.animations[0].channels.push({ sampler: 1, target: { node: 0, path: 'weights' } });
+combinedMorphSkinDoc.animations[0].channels.push({ sampler: 2, target: { node: 0, path: 'weights' } });
 resources.set('http://localhost/combined-morph-skin.gltf', bytes(combinedMorphSkinDoc));
 resources.set('http://localhost/combined-morph-skin.bin', skinBinary);
 const cubicMorphDoc = structuredClone(morphDoc), cubicWeights = new ArrayBuffer(24), cubicWeightView = new DataView(cubicWeights);
@@ -181,14 +187,16 @@ function fakeEngine() {
   engine._g3_asset_material_specular = (...args) => { calls.push(['material_specular', ...args]); return true; };
   engine._g3_asset_material_uv_transform = (...args) => { calls.push(['material_uv_transform', ...args]); return true; };
   engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); const id = nextMesh++; meshGenerations.set(id, 1); return id; };
-  engine._g3_host_mesh_update = (id, positions, normals, count) => {
+  engine._g3_host_mesh_update = (id, positions, normals, tangents, count) => {
     calls.push(['mesh_update', id, [...engine.HEAPF32.slice(positions >>> 2, (positions >>> 2) + count)],
-      [...engine.HEAPF32.slice(normals >>> 2, (normals >>> 2) + count)]]);
+      [...engine.HEAPF32.slice(normals >>> 2, (normals >>> 2) + count)],
+      [...engine.HEAPF32.slice(tangents >>> 2, (tangents >>> 2) + count / 3 * 4)]]);
     return 1;
   };
-  engine._g3_host_mesh_update_cpu = (id, positions, normals, count) => {
+  engine._g3_host_mesh_update_cpu = (id, positions, normals, tangents, count) => {
     calls.push(['mesh_update_cpu', id, [...engine.HEAPF32.slice(positions >>> 2, (positions >>> 2) + count)],
-      [...engine.HEAPF32.slice(normals >>> 2, (normals >>> 2) + count)]]);
+      [...engine.HEAPF32.slice(normals >>> 2, (normals >>> 2) + count)],
+      [...engine.HEAPF32.slice(tangents >>> 2, (tangents >>> 2) + count / 3 * 4)]]);
     return 1;
   };
   engine._g3_host_mesh_skin = (id, ptr, count, joints) => {
@@ -610,7 +618,11 @@ assert.equal(skinnedModel.animations.length, 1);
 assert.equal(skinnedModel.playAnimation(0, { loop: false }), true);
 assert.equal(skinnedModel.seekAnimation(1), true);
 const skinnedVertices = skinEngine.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[2];
-assert.deepEqual(skinnedVertices, [0,-1,0, 2,-1,0, 1,1,0]);
+assert.ok(skinnedVertices.every((value, index) => Math.abs(value - [2,-1,0, 2,1,0, 0,0,0][index]) < 1e-6),
+  'joint translation and rotation deform positions');
+const skinnedTangents = skinEngine.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[4];
+assert.ok(skinnedTangents.every((value, index) => Math.abs(value - [-1,0,0,-1, -1,0,0,-1, -1,0,0,-1][index]) < 1e-6),
+  'authored tangent directions rotate with the skin while handedness is retained');
 assert.equal(skinEngine.calls.filter(x => x[0] === 'mesh_update').length, 0);
 const skinAttributes = skinEngine.calls.find(x => x[0] === 'mesh_skin');
 assert.equal(skinAttributes[3], 1);
@@ -660,7 +672,8 @@ assert.equal(combinedMorphSkinModel.playAnimation(0, { loop: false }), true);
 assert.equal(combinedMorphSkinModel.seekAnimation(1), true);
 assert.equal(combinedMorphSkin.calls.some(x => x[0] === 'mesh_skin'), true);
 assert.deepEqual(combinedMorphSkin.calls.filter(x => x[0] === 'morph_weights').at(-1)[2], [1]);
-assert.deepEqual(combinedMorphSkin.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[2], [-1,-2,0, 3,-2,0, 1,2,0]);
+const combinedVertices = combinedMorphSkin.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[2];
+assert.ok(combinedVertices.every((value, index) => Math.abs(value - [3,-2,0, 3,2,0, -1,0,0][index]) < 1e-6));
 assert.equal(combinedMorphSkin.calls.filter(x => x[0] === 'mesh_update').length, 0);
 combinedMorphSkinModel.dispose();
 const fallbackCombined = enableFakeGpuMorph(fakeEngine(), { skin: false });

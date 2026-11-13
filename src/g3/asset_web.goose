@@ -20,11 +20,11 @@ export fn g3_asset_vertex(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, u: 
 }
 export fn g3_asset_triangle(a: u32, b: u32, c: u32) { asset_indices.push(a); asset_indices.push(b); asset_indices.push(c); }
 export fn g3_asset_mesh_end() -> i32 { return g3::mesh_asset_create(asset_vertices[..], asset_indices[..]); }
-export fn g3_asset_mesh_update(id: i32, positions: const f32[:], normals: const f32[:]) -> bool {
-    return g3::mesh_asset_update(id, positions, normals);
+export fn g3_asset_mesh_update(id: i32, positions: const f32[:], normals: const f32[:], tangents: const f32[:]) -> bool {
+    return g3::mesh_asset_update(id, positions, normals, tangents);
 }
-export fn g3_asset_mesh_update_cpu(id: i32, positions: const f32[:], normals: const f32[:]) -> bool {
-    return g3::mesh_asset_update_cpu(id, positions, normals);
+export fn g3_asset_mesh_update_cpu(id: i32, positions: const f32[:], normals: const f32[:], tangents: const f32[:]) -> bool {
+    return g3::mesh_asset_update_cpu(id, positions, normals, tangents);
 }
 export fn g3_asset_mesh_generation(id: i32) -> i32 { return g3::mesh_handle(id).generation; }
 export fn g3_asset_mesh_valid(id: i32, generation: i32) -> bool { return g3::mesh_handle_valid(g3::MeshHandle { id: id, generation: generation }); }

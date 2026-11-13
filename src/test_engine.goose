@@ -1376,7 +1376,12 @@ fn case_asset_mesh_update() {
     let mesh = g3::mesh_asset_create(verts[..], indices[..]);
     let positions: f32[9] = [-0.5, -1.0, 0.0, 1.5, -1.0, 0.0, 0.5, 1.0, 0.0];
     let normals: f32[9] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
-    testing::check(g3::mesh_asset_update(mesh, positions[..], normals[..]), "asset mesh deformation accepts matching finite vertex buffers");
+    let tangents: f32[12] = [1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0];
+    testing::check(g3::mesh_asset_update(mesh, positions[..], normals[..], tangents[..]),
+        "asset mesh deformation accepts matching finite position, normal, and tangent buffers");
+    testing::check(g3::g_verts[g3::mesh(mesh).first_vertex].tangent.x == 1.0 &&
+        g3::g_verts[g3::mesh(mesh).first_vertex].tangent.w == 1.0,
+        "asset mesh deformation updates retained tangent directions and handedness");
     testing::check(g3::mesh(mesh).bounds.lo.x == -0.5 && g3::mesh(mesh).bounds.hi.x == 1.5,
                     "asset mesh deformation refreshes local bounds");
     let node = g3::node_add(mesh);

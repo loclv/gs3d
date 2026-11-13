@@ -317,25 +317,28 @@ fn mesh_compact() {
     }
 }
 
-// Replace an asset mesh's deformed positions and normals without moving its
-// arena spans or changing its handle. CPU geometry stays current for bounds,
-// picking, and the next upload to either backend.
-fn mesh_asset_update_internal(id: i32, positions: const f32[:], normals: const f32[:], upload: bool) -> bool {
+// Replace an asset mesh's deformed positions, normals, and tangents without
+// moving its arena spans or changing its handle. CPU geometry stays current for
+// bounds, picking, and the next upload to either backend.
+fn mesh_asset_update_internal(id: i32, positions: const f32[:], normals: const f32[:], tangents: const f32[:], upload: bool) -> bool {
     guard id >= 0 && id < g_meshes.len else { return false; }
     let m .= g_meshes[id];
     guard m.asset_owned && !m.asset_free && positions.len == m.vertex_count * 3 &&
-          normals.len == m.vertex_count * 3 else { return false; }
+          normals.len == m.vertex_count * 3 && tangents.len == m.vertex_count * 4 else { return false; }
     var bounds = aabb_empty();
     for i in 0..m.vertex_count {
         let p = float3 { positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2] };
         let n = float3 { normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2] };
+        let t = float4 { tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3] };
         if !(abs(p.x) <= 3.4e38) || !(abs(p.y) <= 3.4e38) || !(abs(p.z) <= 3.4e38) ||
-           !(abs(n.x) <= 3.4e38) || !(abs(n.y) <= 3.4e38) || !(abs(n.z) <= 3.4e38) { return false; }
+           !(abs(n.x) <= 3.4e38) || !(abs(n.y) <= 3.4e38) || !(abs(n.z) <= 3.4e38) ||
+           !(abs(t.x) <= 3.4e38) || !(abs(t.y) <= 3.4e38) || !(abs(t.z) <= 3.4e38) || !(abs(t.w) <= 3.4e38) { return false; }
         aabb_add(bounds, p);
     }
     for i in 0..m.vertex_count {
         g_verts[m.first_vertex + i].pos = float3 { positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2] };
         g_verts[m.first_vertex + i].normal = float3 { normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2] };
+        g_verts[m.first_vertex + i].tangent = float4 { tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3] };
     }
     m.bounds = bounds;
     if upload {
@@ -345,14 +348,14 @@ fn mesh_asset_update_internal(id: i32, positions: const f32[:], normals: const f
     return true;
 }
 
-fn mesh_asset_update(id: i32, positions: const f32[:], normals: const f32[:]) -> bool {
-    return mesh_asset_update_internal(id, positions, normals, true);
+fn mesh_asset_update(id: i32, positions: const f32[:], normals: const f32[:], tangents: const f32[:]) -> bool {
+    return mesh_asset_update_internal(id, positions, normals, tangents, true);
 }
 
-// Update retained CPU geometry for picking without uploading a duplicate mesh
-// when the WebGL backend is deforming it from a joint palette.
-fn mesh_asset_update_cpu(id: i32, positions: const f32[:], normals: const f32[:]) -> bool {
-    return mesh_asset_update_internal(id, positions, normals, false);
+// Update retained CPU geometry without uploading a duplicate mesh when WebGL
+// deforms the GPU mesh from joint palettes and morph textures.
+fn mesh_asset_update_cpu(id: i32, positions: const f32[:], normals: const f32[:], tangents: const f32[:]) -> bool {
+    return mesh_asset_update_internal(id, positions, normals, tangents, false);
 }
 
 fn mesh_asset_release_handle(handle: MeshHandle) -> bool {
