@@ -158,9 +158,14 @@ Native image loading currently supports binary PPM P6 files with 8-bit RGB and
 `MAXVAL 255`, through `native_texture_load_ppm(path)`. It returns a checked
 `TextureHandle`; call `texture_remove(handle)` when the texture has no live
 users. The loader flips PPM's top-down rows into the renderer's `v=0` first-row
-layout and uploads sRGB colour. PNG, JPEG, and glTF image/texture references
-are not decoded by the native loader yet. Native Radiance HDR environments use
-`texture_load_hdr`.
+layout and uploads sRGB colour. After each load, `native_texture_last_error()`
+returns `NATIVE_TEXTURE_ERROR_NONE`, `NATIVE_TEXTURE_ERROR_IO`,
+`NATIVE_TEXTURE_ERROR_UNSUPPORTED_FORMAT`,
+`NATIVE_TEXTURE_ERROR_INVALID_IMAGE`, or `NATIVE_TEXTURE_ERROR_UPLOAD`.
+The result describes only the most recent call and is process-global, so callers
+should read it immediately after a failed load. PNG, JPEG, and glTF
+image/texture references are not decoded by the native loader yet. Native
+Radiance HDR environments use `texture_load_hdr`.
 
 The viewer's input controls can also be used independently of the viewer host:
 
