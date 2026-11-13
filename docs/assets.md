@@ -130,8 +130,12 @@ declared). `native_glb_scene_mesh_count` and `native_glb_scene_mesh` expose the
 per-node mesh owners; each owner can be inspected with the mesh-batch API above.
 Move the entire import through `native_glb_scene_root`, then dispose the scene
 handle to release its group and all owned meshes. The selected node hierarchy
-and local transforms are preserved. Cameras, lights, skins, and animations are
-not imported.
+and local transforms are preserved. Perspective and orthographic cameras in
+the selected scene are imported as detached engine cameras. Use
+`native_glb_scene_camera_count`, `native_glb_scene_camera_id`, and
+`native_glb_scene_select_camera` to inspect and select them. Disposing the scene
+removes its cameras and restores the view that was active before loading. Lights,
+skins, and animations are not imported.
 
 ```goose
 let loaded_scene, scene_ok = g3::native_glb_load_scene("model.glb", -1);

@@ -413,6 +413,7 @@ fn case_native_glb_load() {
                       g3::native_glb_mesh_primitive_count(reused_mesh) == 2;
     testing::check(reused_slot && g3::native_glb_mesh_dispose(reused_mesh),
                    "native GLB mesh owner slots are reused with a fresh generation");
+    let cameras_before_scene = g3::camera_count();
     let scene_model, scene_loaded = g3::native_glb_load_scene("testdata/native-two-scenes.glb", -1);
     let scene_root = g3::native_glb_scene_root(scene_model);
     let scene_mesh_count = g3::native_glb_scene_mesh_count(scene_model);
@@ -428,13 +429,29 @@ fn case_native_glb_load() {
                        g3::node(scene_mesh_root_a.index).parent == scene_node_a.index && g3::node(scene_mesh_root_b.index).parent == scene_node_b.index;
     g3::frame(1.0 / 60.0);
     let scene_stats = g3::stats();
-    testing::check(scene_loaded && scene_mesh_count == 2 && g3::native_glb_scene_node_count(scene_model) == 3 &&
+    testing::check(scene_loaded && scene_mesh_count == 2 && g3::native_glb_scene_node_count(scene_model) == 5 &&
                    scene_groups && scene_stats.drawn == 4 && scene_stats.triangles == 48,
                    "native glTF scene preserves selected node hierarchy while loading every mesh instance");
+    let perspective_camera_id = g3::native_glb_scene_camera_id(scene_model, 0);
+    let orthographic_camera_id = g3::native_glb_scene_camera_id(scene_model, 1);
+    let perspective_selected = g3::native_glb_scene_select_camera(scene_model, 0);
+    let perspective_camera .= g3::camera();
+    let perspective_ok = perspective_selected && perspective_camera_id >= 0 && perspective_camera.pos.z == 5.0 &&
+                         abs(perspective_camera.fov - 0.7) < 0.001 && abs(perspective_camera.aspect - 1.5) < 0.001 &&
+                         abs(perspective_camera.far - 100.0) < 0.001;
+    let orthographic_selected = g3::native_glb_scene_select_camera(scene_model, 1);
+    let orthographic_camera .= g3::camera();
+    let orthographic_ok = orthographic_selected && orthographic_camera_id >= 0 && orthographic_camera.orthographic &&
+                          abs(orthographic_camera.ortho_height - 4.0) < 0.001 && abs(orthographic_camera.aspect - 2.0) < 0.001 &&
+                          abs(orthographic_camera.far - 50.0) < 0.001;
+    testing::check(g3::native_glb_scene_camera_count(scene_model) == 2 && perspective_ok && orthographic_ok,
+                   "native glTF scene imports and switches perspective and orthographic cameras");
     testing::check(g3::native_glb_scene_dispose(scene_model) && !g3::native_glb_scene_valid(scene_model) &&
                    !g3::node_handle_valid(scene_root) && !g3::node_handle_valid(scene_node_a) && !g3::node_handle_valid(scene_node_b) &&
-                   !g3::native_glb_mesh_valid(scene_mesh_a) && !g3::native_glb_mesh_valid(scene_mesh_b),
-                   "native glTF scene disposal releases its hierarchy and every owned mesh");
+                   !g3::native_glb_mesh_valid(scene_mesh_a) && !g3::native_glb_mesh_valid(scene_mesh_b) &&
+                   !g3::camera_select(perspective_camera_id) && !g3::camera_select(orthographic_camera_id) &&
+                   g3::camera_count() == cameras_before_scene,
+                   "native glTF scene disposal releases its hierarchy, cameras, and every owned mesh");
     let json_scene, json_scene_loaded = g3::native_glb_load_scene("testdata/native-external/model.gltf", -1);
     g3::frame(1.0 / 60.0);
     let json_scene_stats = g3::stats();

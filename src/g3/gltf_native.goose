@@ -17,9 +17,10 @@ struct NativeGlbMeshHandle { id: i32 = -1, generation: i32 }
 struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
 struct NativeGlbPartSlot { owner_id: i32, owner_generation: i32, primitive_index: i32, model: NativeGlbModel, active: bool }
 struct NativeGlbSceneHandle { id: i32 = -1, generation: i32 }
-struct NativeGlbSceneSlot { generation: i32 = 1, mesh_count: i32, node_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
+struct NativeGlbSceneSlot { generation: i32 = 1, mesh_count: i32, node_count: i32, camera_count: i32, root: NodeHandle = NodeHandle { .. }, previous_camera_id: i64 = -1, previous_camera: Camera, active: bool }
 struct NativeGlbScenePartSlot { scene_id: i32, scene_generation: i32, mesh_index: i32, mesh: NativeGlbMeshHandle, active: bool }
 struct NativeGlbSceneNodeSlot { scene_id: i32, scene_generation: i32, gltf_index: i32, node: NodeHandle, active: bool }
+struct NativeGlbSceneCameraSlot { scene_id: i32, scene_generation: i32, camera_index: i32, camera_id: i64, active: bool }
 struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64 }
 struct GlbAttribute { offset: i64, stride: i64, count: i64, components: i64, component_type: i64, normalized: bool }
 
@@ -28,6 +29,7 @@ var g_native_glb_parts: NativeGlbPartSlot[>..];
 var g_native_glb_scenes: NativeGlbSceneSlot[>..];
 var g_native_glb_scene_parts: NativeGlbScenePartSlot[>..];
 var g_native_glb_scene_nodes: NativeGlbSceneNodeSlot[>..];
+var g_native_glb_scene_cameras: NativeGlbSceneCameraSlot[>..];
 
 fn glb_u32(bytes: const u8[:], at: i64) -> i64 {
     let b0: i64 = bytes[at]; let b1: i64 = bytes[at + 1];
@@ -482,6 +484,59 @@ fn glb_node_world_matrix(root: json::Node?, node_index: i64) -> Mat4, bool {
     return world, true;
 }
 
+fn glb_node_camera(root: json::Node?, node_index: i64) -> Camera, bool {
+    let nodes = json::member(root, "nodes");
+    let node_source = glb_json_element(nodes, node_index);
+    let camera_index, camera_index_ok = glb_json_index(json::member(node_source, "camera"));
+    let source = glb_json_element(json::member(root, "cameras"), camera_index);
+    guard node_source && camera_index_ok && source else { return Camera { .. }, false; }
+    let kind, kind_ok = json::as_string(json::member(source, "type"));
+    guard kind_ok else { return Camera { .. }, false; }
+    var imported = Camera { .. };
+    if kind == "perspective" {
+        let perspective = json::member(source, "perspective");
+        let yfov, yfov_ok = glb_number(json::member(perspective, "yfov"), 0.0);
+        let aspect, aspect_ok = glb_number(json::member(perspective, "aspectRatio"), 0.0);
+        let near, near_ok = glb_number(json::member(perspective, "znear"), 0.0);
+        let far, far_ok = glb_number(json::member(perspective, "zfar"), 400.0);
+        guard perspective && yfov_ok && aspect_ok && near_ok && far_ok && yfov > 0.0 && yfov < 3.141592653589793 &&
+              aspect >= 0.0 && aspect <= 3.4e38 && near > 0.0 && far > near && far <= 3.4e38 else { return Camera { .. }, false; }
+        imported.fov = yfov as f32;
+        imported.aspect = aspect as f32;
+        imported.near = near as f32;
+        imported.far = far as f32;
+    } else if kind == "orthographic" {
+        let orthographic = json::member(source, "orthographic");
+        let xmag, xmag_ok = glb_number(json::member(orthographic, "xmag"), 0.0);
+        let ymag, ymag_ok = glb_number(json::member(orthographic, "ymag"), 0.0);
+        let near, near_ok = glb_number(json::member(orthographic, "znear"), 0.0);
+        let far, far_ok = glb_number(json::member(orthographic, "zfar"), 0.0);
+        guard orthographic && xmag_ok && ymag_ok && near_ok && far_ok && xmag > 0.0 && ymag > 0.0 &&
+              xmag <= 3.4e38 && ymag <= 3.4e38 && near >= 0.0 && far > near && far <= 3.4e38 else { return Camera { .. }, false; }
+        imported.orthographic = true;
+        imported.ortho_height = (ymag * 2.0) as f32;
+        imported.aspect = (xmag / ymag) as f32;
+        imported.near = near as f32;
+        imported.far = far as f32;
+    } else { return Camera { .. }, false; }
+    let world, world_ok = glb_node_world_matrix(root, node_index);
+    guard world_ok else { return Camera { .. }, false; }
+    let origin = mat4_transform_point(world, float3_0);
+    let forward_point = mat4_transform_point(world, float3 { 0.0, 0.0, -1.0 });
+    let up_point = mat4_transform_point(world, float3 { 0.0, 1.0, 0.0 });
+    let position = float3 { origin.x, origin.y, origin.z };
+    let forward_raw = float3 { forward_point.x - origin.x, forward_point.y - origin.y, forward_point.z - origin.z };
+    let up_raw = float3 { up_point.x - origin.x, up_point.y - origin.y, up_point.z - origin.z };
+    guard origin.w != 0.0 && length(forward_raw) > 1e-6 && length(up_raw) > 1e-6 else { return Camera { .. }, false; }
+    let forward = normalize(forward_raw);
+    let right_raw = cross(forward, up_raw);
+    guard length(right_raw) > 1e-6 else { return Camera { .. }, false; }
+    imported.pos = position;
+    imported.target = position + forward;
+    imported.up = normalize(cross(normalize(right_raw), forward));
+    return imported, true;
+}
+
 // Load one selected static primitive from a glTF 2.0 GLB or JSON glTF document.
 // Supports float32 or required KHR_mesh_quantization vertex attributes,
 // COLOR_0, TRIANGLES, u8/u16/u32 indices, and factor-only materials. Skins,
@@ -901,6 +956,8 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
         return NativeGlbSceneHandle { .. }, false;
     }
     g_native_glb_scenes[handle.id].root = node_handle(root_id);
+    g_native_glb_scenes[handle.id].previous_camera_id = camera_active();
+    g_native_glb_scenes[handle.id].previous_camera = camera();
     var node_ids: i64[>..] = [];
     for _ in 0..node_count { node_ids.push(-1); }
     for i in 0..node_count {
@@ -948,6 +1005,21 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
             g_native_glb_scenes[handle.id].mesh_count += 1;
         }
     }
+    for i in 0..node_count {
+        if selected[i] && json::member(glb_json_element(nodes, i), "camera") {
+            let camera, camera_ok = glb_node_camera(root, i);
+            if !camera_ok { native_glb_scene_dispose(handle); return NativeGlbSceneHandle { .. }, false; }
+            let camera_id = camera_add_detached(camera);
+            let camera_index = g_native_glb_scenes[handle.id].camera_count;
+            var slot: i64 = -1;
+            for camera_slot in 0..g_native_glb_scene_cameras.len {
+                if !g_native_glb_scene_cameras[camera_slot].active { slot = camera_slot; break; }
+            }
+            let camera_part = NativeGlbSceneCameraSlot { scene_id: handle.id, scene_generation: handle.generation, camera_index: camera_index, camera_id: camera_id, active: true };
+            if slot < 0 { g_native_glb_scene_cameras.push(camera_part); } else { g_native_glb_scene_cameras[slot] = camera_part; }
+            g_native_glb_scenes[handle.id].camera_count += 1;
+        }
+    }
     return handle, true;
 }
 
@@ -978,6 +1050,28 @@ fn native_glb_scene_node(handle: NativeGlbSceneHandle, gltf_node_index: i32) -> 
     return NodeHandle { .. };
 }
 
+fn native_glb_scene_camera_count(handle: NativeGlbSceneHandle) -> i32 {
+    guard native_glb_scene_valid(handle) else { return 0; }
+    return g_native_glb_scenes[handle.id].camera_count;
+}
+
+fn native_glb_scene_camera_id(handle: NativeGlbSceneHandle, index: i32) -> i64 {
+    guard native_glb_scene_valid(handle) && index >= 0 && index < g_native_glb_scenes[handle.id].camera_count else { return -1; }
+    for i in 0..g_native_glb_scene_cameras.len {
+        let part = g_native_glb_scene_cameras[i];
+        if part.active && part.scene_id == handle.id && part.scene_generation == handle.generation && part.camera_index == index {
+            return part.camera_id;
+        }
+    }
+    return -1;
+}
+
+fn native_glb_scene_select_camera(handle: NativeGlbSceneHandle, index: i32) -> bool {
+    let camera_id = native_glb_scene_camera_id(handle, index);
+    guard camera_id >= 0 else { return false; }
+    return camera_select(camera_id);
+}
+
 fn native_glb_scene_mesh(handle: NativeGlbSceneHandle, index: i32) -> NativeGlbMeshHandle {
     guard native_glb_scene_valid(handle) && index >= 0 && index < g_native_glb_scenes[handle.id].mesh_count else { return NativeGlbMeshHandle { .. }; }
     for i in 0..g_native_glb_scene_parts.len {
@@ -1006,10 +1100,24 @@ fn native_glb_scene_dispose(handle: NativeGlbSceneHandle) -> bool {
             g_native_glb_scene_nodes[i].active = false;
         }
     }
+    for i in 0..g_native_glb_scene_cameras.len {
+        if g_native_glb_scene_cameras[i].active && g_native_glb_scene_cameras[i].scene_id == handle.id &&
+           g_native_glb_scene_cameras[i].scene_generation == handle.generation {
+            camera_remove(g_native_glb_scene_cameras[i].camera_id);
+            g_native_glb_scene_cameras[i].active = false;
+        }
+    }
+    let previous_camera_id = g_native_glb_scenes[handle.id].previous_camera_id;
+    let previous_camera = g_native_glb_scenes[handle.id].previous_camera;
+    if previous_camera_id >= 0 {
+        if !camera_select(previous_camera_id) { let restored .= camera(); restored = previous_camera; }
+    } else { let restored .= camera(); restored = previous_camera; }
     if node_handle_valid(g_native_glb_scenes[handle.id].root) { node_asset_release_handle(g_native_glb_scenes[handle.id].root); }
     g_native_glb_scenes[handle.id].active = false;
     g_native_glb_scenes[handle.id].mesh_count = 0;
     g_native_glb_scenes[handle.id].node_count = 0;
+    g_native_glb_scenes[handle.id].camera_count = 0;
+    g_native_glb_scenes[handle.id].previous_camera_id = -1;
     g_native_glb_scenes[handle.id].root = NodeHandle { .. };
     return true;
 }
