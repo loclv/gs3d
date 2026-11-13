@@ -17,8 +17,9 @@ struct NativeGlbMeshHandle { id: i32 = -1, generation: i32 }
 struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
 struct NativeGlbPartSlot { owner_id: i32, owner_generation: i32, primitive_index: i32, model: NativeGlbModel, active: bool }
 struct NativeGlbSceneHandle { id: i32 = -1, generation: i32 }
-struct NativeGlbSceneSlot { generation: i32 = 1, mesh_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
+struct NativeGlbSceneSlot { generation: i32 = 1, mesh_count: i32, node_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
 struct NativeGlbScenePartSlot { scene_id: i32, scene_generation: i32, mesh_index: i32, mesh: NativeGlbMeshHandle, active: bool }
+struct NativeGlbSceneNodeSlot { scene_id: i32, scene_generation: i32, gltf_index: i32, node: NodeHandle, active: bool }
 struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64 }
 struct GlbAttribute { offset: i64, stride: i64, count: i64, components: i64, component_type: i64, normalized: bool }
 
@@ -26,6 +27,7 @@ var g_native_glb_meshes: NativeGlbMeshSlot[>..];
 var g_native_glb_parts: NativeGlbPartSlot[>..];
 var g_native_glb_scenes: NativeGlbSceneSlot[>..];
 var g_native_glb_scene_parts: NativeGlbScenePartSlot[>..];
+var g_native_glb_scene_nodes: NativeGlbSceneNodeSlot[>..];
 
 fn glb_u32(bytes: const u8[:], at: i64) -> i64 {
     let b0: i64 = bytes[at]; let b1: i64 = bytes[at + 1];
@@ -816,8 +818,8 @@ fn native_glb_scene_valid(handle: NativeGlbSceneHandle) -> bool {
            g_native_glb_scenes[handle.id].generation == handle.generation;
 }
 
-// Load all static mesh nodes reachable from a selected glTF scene. Each mesh
-// retains its fully composed node transform beneath one checked scene root.
+// Load all static mesh nodes reachable from a selected glTF scene. The native
+// nodes retain the selected source hierarchy and local transforms.
 // Skins, animations, cameras, and punctual lights are not imported here.
 fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> NativeGlbSceneHandle, bool {
     var bytes: u8[>..] = [];
@@ -846,8 +848,9 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
     let node_count = glb_array_count(nodes);
     guard version_ok && version == "2.0" && node_count <= 4096 else { return NativeGlbSceneHandle { .. }, false; }
     var parent_counts: i64[>..] = [];
+    var parent_indices: i64[>..] = [];
     var selected: bool[>..] = [];
-    for _ in 0..node_count { parent_counts.push(0); selected.push(false); }
+    for _ in 0..node_count { parent_counts.push(0); parent_indices.push(-1); selected.push(false); }
     for i in 0..node_count {
         let children = json::member(glb_json_element(nodes, i), "children");
         for j in 0..glb_array_count(children) {
@@ -855,6 +858,7 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
             guard child_ok && child >= 0 && child < node_count else { return NativeGlbSceneHandle { .. }, false; }
             parent_counts[child] += 1;
             guard parent_counts[child] == 1 else { return NativeGlbSceneHandle { .. }, false; }
+            parent_indices[child] = i;
         }
     }
     let scenes = json::member(root, "scenes");
@@ -897,13 +901,43 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
         return NativeGlbSceneHandle { .. }, false;
     }
     g_native_glb_scenes[handle.id].root = node_handle(root_id);
+    var node_ids: i64[>..] = [];
+    for _ in 0..node_count { node_ids.push(-1); }
+    for i in 0..node_count {
+        if selected[i] {
+            let source_node = glb_json_element(nodes, i);
+            let local, local_ok = glb_matrix(source_node);
+            if !local_ok { native_glb_scene_dispose(handle); return NativeGlbSceneHandle { .. }, false; }
+            let output_id = node_asset_add(-1);
+            if output_id < 0 { native_glb_scene_dispose(handle); return NativeGlbSceneHandle { .. }, false; }
+            node_ids[i] = output_id;
+            node(output_id).local_matrix = local;
+            node(output_id).use_local_matrix = true;
+            let node_handle_value = node_handle(output_id);
+            var node_slot: i64 = -1;
+            for part_index in 0..g_native_glb_scene_nodes.len {
+                if !g_native_glb_scene_nodes[part_index].active { node_slot = part_index; break; }
+            }
+            let node_part = NativeGlbSceneNodeSlot { scene_id: handle.id, scene_generation: handle.generation, gltf_index: i as i32, node: node_handle_value, active: true };
+            if node_slot < 0 { g_native_glb_scene_nodes.push(node_part); } else { g_native_glb_scene_nodes[node_slot] = node_part; }
+            g_native_glb_scenes[handle.id].node_count += 1;
+        }
+    }
+    for i in 0..node_count {
+        if selected[i] {
+            let parent_index = parent_indices[i];
+            node(node_ids[i]).parent = if parent_index < 0 { root_id as i32 } else { node_ids[parent_index] as i32 };
+        }
+    }
     for i in 0..node_count {
         if selected[i] && json::member(glb_json_element(nodes, i), "mesh") {
             let mesh, loaded = native_glb_load_node_mesh(path, i);
             if !loaded { native_glb_scene_dispose(handle); return NativeGlbSceneHandle { .. }, false; }
             let mesh_root = native_glb_mesh_root(mesh);
             if !node_handle_valid(mesh_root) { native_glb_mesh_dispose(mesh); native_glb_scene_dispose(handle); return NativeGlbSceneHandle { .. }, false; }
-            node(mesh_root.index).parent = root_id as i32;
+            node(mesh_root.index).parent = node_ids[i] as i32;
+            node(mesh_root.index).local_matrix = mat4_identity();
+            node(mesh_root.index).use_local_matrix = true;
             let mesh_index = g_native_glb_scenes[handle.id].mesh_count;
             var slot: i64 = -1;
             for part_index in 0..g_native_glb_scene_parts.len {
@@ -927,6 +961,23 @@ fn native_glb_scene_mesh_count(handle: NativeGlbSceneHandle) -> i32 {
     return g_native_glb_scenes[handle.id].mesh_count;
 }
 
+fn native_glb_scene_node_count(handle: NativeGlbSceneHandle) -> i32 {
+    guard native_glb_scene_valid(handle) else { return 0; }
+    return g_native_glb_scenes[handle.id].node_count;
+}
+
+fn native_glb_scene_node(handle: NativeGlbSceneHandle, gltf_node_index: i32) -> NodeHandle {
+    guard native_glb_scene_valid(handle) && gltf_node_index >= 0 else { return NodeHandle { .. }; }
+    for i in 0..g_native_glb_scene_nodes.len {
+        let part = g_native_glb_scene_nodes[i];
+        if part.active && part.scene_id == handle.id && part.scene_generation == handle.generation && part.gltf_index == gltf_node_index {
+            if node_handle_valid(part.node) { return part.node; }
+            return NodeHandle { .. };
+        }
+    }
+    return NodeHandle { .. };
+}
+
 fn native_glb_scene_mesh(handle: NativeGlbSceneHandle, index: i32) -> NativeGlbMeshHandle {
     guard native_glb_scene_valid(handle) && index >= 0 && index < g_native_glb_scenes[handle.id].mesh_count else { return NativeGlbMeshHandle { .. }; }
     for i in 0..g_native_glb_scene_parts.len {
@@ -948,9 +999,17 @@ fn native_glb_scene_dispose(handle: NativeGlbSceneHandle) -> bool {
             g_native_glb_scene_parts[i].active = false;
         }
     }
+    for i in 0..g_native_glb_scene_nodes.len {
+        if g_native_glb_scene_nodes[i].active && g_native_glb_scene_nodes[i].scene_id == handle.id &&
+           g_native_glb_scene_nodes[i].scene_generation == handle.generation {
+            if node_handle_valid(g_native_glb_scene_nodes[i].node) { node_asset_release_handle(g_native_glb_scene_nodes[i].node); }
+            g_native_glb_scene_nodes[i].active = false;
+        }
+    }
     if node_handle_valid(g_native_glb_scenes[handle.id].root) { node_asset_release_handle(g_native_glb_scenes[handle.id].root); }
     g_native_glb_scenes[handle.id].active = false;
     g_native_glb_scenes[handle.id].mesh_count = 0;
+    g_native_glb_scenes[handle.id].node_count = 0;
     g_native_glb_scenes[handle.id].root = NodeHandle { .. };
     return true;
 }

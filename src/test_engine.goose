@@ -420,16 +420,21 @@ fn case_native_glb_load() {
     let scene_mesh_b = g3::native_glb_scene_mesh(scene_model, 1);
     let scene_mesh_root_a = g3::native_glb_mesh_root(scene_mesh_a);
     let scene_mesh_root_b = g3::native_glb_mesh_root(scene_mesh_b);
+    let scene_node_a = g3::native_glb_scene_node(scene_model, 1);
+    let scene_node_b = g3::native_glb_scene_node(scene_model, 2);
     let scene_groups = g3::native_glb_mesh_valid(scene_mesh_a) && g3::native_glb_mesh_valid(scene_mesh_b) &&
                        g3::node_handle_valid(scene_root) && g3::node_handle_valid(scene_mesh_root_a) && g3::node_handle_valid(scene_mesh_root_b) &&
-                       g3::node(scene_mesh_root_a.index).parent == scene_root.index && g3::node(scene_mesh_root_b.index).parent == scene_root.index;
+                       g3::node_handle_valid(scene_node_a) && g3::node_handle_valid(scene_node_b) &&
+                       g3::node(scene_mesh_root_a.index).parent == scene_node_a.index && g3::node(scene_mesh_root_b.index).parent == scene_node_b.index;
     g3::frame(1.0 / 60.0);
     let scene_stats = g3::stats();
-    testing::check(scene_loaded && scene_mesh_count == 2 && scene_groups && scene_stats.drawn == 4 && scene_stats.triangles == 48,
-                   "native glTF scene loads all selected mesh instances beneath one checked group");
+    testing::check(scene_loaded && scene_mesh_count == 2 && g3::native_glb_scene_node_count(scene_model) == 3 &&
+                   scene_groups && scene_stats.drawn == 4 && scene_stats.triangles == 48,
+                   "native glTF scene preserves selected node hierarchy while loading every mesh instance");
     testing::check(g3::native_glb_scene_dispose(scene_model) && !g3::native_glb_scene_valid(scene_model) &&
-                   !g3::node_handle_valid(scene_root) && !g3::native_glb_mesh_valid(scene_mesh_a) && !g3::native_glb_mesh_valid(scene_mesh_b),
-                   "native glTF scene disposal releases its group and every owned mesh");
+                   !g3::node_handle_valid(scene_root) && !g3::node_handle_valid(scene_node_a) && !g3::node_handle_valid(scene_node_b) &&
+                   !g3::native_glb_mesh_valid(scene_mesh_a) && !g3::native_glb_mesh_valid(scene_mesh_b),
+                   "native glTF scene disposal releases its hierarchy and every owned mesh");
     let json_scene, json_scene_loaded = g3::native_glb_load_scene("testdata/native-external/model.gltf", -1);
     g3::frame(1.0 / 60.0);
     let json_scene_stats = g3::stats();
@@ -441,12 +446,19 @@ fn case_native_glb_load() {
     let selected_scene, selected_scene_loaded = g3::native_glb_load_scene("testdata/native-two-scenes.glb", 1);
     let selected_mesh = g3::native_glb_scene_mesh(selected_scene, 0);
     let selected_root = g3::native_glb_mesh_root(selected_mesh);
+    let selected_parent = g3::native_glb_scene_node(selected_scene, 0);
+    let selected_child = g3::native_glb_scene_node(selected_scene, 2);
     g3::frame(1.0 / 60.0);
     let selected_stats = g3::stats();
     testing::check(selected_scene_loaded && g3::native_glb_scene_mesh_count(selected_scene) == 1 &&
-                   g3::node_handle_valid(selected_root) && abs(g3::node(selected_root.index).local_matrix.m[12] - 0.8) < 0.001 &&
+                   g3::node_handle_valid(selected_root) && g3::node_handle_valid(selected_parent) && g3::node_handle_valid(selected_child) &&
+                   g3::node(selected_child.index).parent == selected_parent.index &&
+                   abs(g3::node(selected_parent.index).local_matrix.m[12] - 0.5) < 0.001 &&
+                   abs(g3::node(selected_child.index).local_matrix.m[12] - 0.3) < 0.001 &&
+                   abs(g3::node(selected_child.index).world.m[12] - 0.8) < 0.001 &&
+                   g3::node(selected_root.index).parent == selected_child.index &&
                    selected_stats.drawn == 2 && selected_stats.triangles == 24,
-                   "native glTF scene selection preserves the selected node transform");
+                   "native glTF scene selection preserves parent hierarchy and composed world transforms");
     testing::check(g3::native_glb_scene_dispose(selected_scene), "selected native glTF scene disposes cleanly");
     let invalid_scene, invalid_scene_loaded = g3::native_glb_load_scene("testdata/native-two-scenes.glb", 99);
     testing::check(!invalid_scene_loaded && !g3::native_glb_scene_valid(invalid_scene),

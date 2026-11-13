@@ -118,9 +118,9 @@ to emissive output and dielectric response. The factor portions of
 `NativeGlbModel` owns checked mesh, node, and material handles; dispose the model
 to release them. External buffer paths containing schemes, absolute paths,
 encoded URI components, query strings, fragments, or dot path segments are
-rejected. Data URIs must use base64 encoding. It does not yet load material
-textures, images, skins, animations,
-sparse accessors, or the full node hierarchy as engine parent/child nodes.
+rejected. Data URIs must use base64 encoding. The primitive APIs do not load
+material textures, images, skins, animations, or sparse accessors; use the
+scene API below when the source node hierarchy must be retained.
 Browser applications should use the broader `web/assets.js` loader.
 
 For static multi-node content, `native_glb_load_scene(path, scene_index)` loads
@@ -129,9 +129,9 @@ every mesh instance in the selected scene beneath one checked group node. Pass
 declared). `native_glb_scene_mesh_count` and `native_glb_scene_mesh` expose the
 per-node mesh owners; each owner can be inspected with the mesh-batch API above.
 Move the entire import through `native_glb_scene_root`, then dispose the scene
-handle to release its group and all owned meshes. This native scene path keeps
-the selected nodes' composed transforms but does not create their full source
-parent hierarchy or import cameras, lights, skins, or animations.
+handle to release its group and all owned meshes. The selected node hierarchy
+and local transforms are preserved. Cameras, lights, skins, and animations are
+not imported.
 
 ```goose
 let loaded_scene, scene_ok = g3::native_glb_load_scene("model.glb", -1);
