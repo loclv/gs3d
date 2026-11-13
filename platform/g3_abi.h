@@ -94,6 +94,8 @@ typedef struct {
     g3_vec4 spot_shadow_params; /* x enabled, y depth bias, z PCF radius */
     int32_t shadow_resolution; /* 256, 512, or 1024 */
     int32_t post_process; /* bit 0 enables FXAA */
+    int32_t render_target; /* texture id, -1 renders to surface */
+    int32_t target_width, target_height;
 } g3_view_state;
 
 typedef struct { const g3_vertex *data; int64_t len; } g3_vertex_slice;
@@ -135,7 +137,7 @@ _Static_assert(offsetof(g3_draw_item, specular_color_texture) == 377, "DrawItem.
 _Static_assert(offsetof(g3_draw_item, specular_uv) == 381, "DrawItem.specular_uv offset");
 _Static_assert(offsetof(g3_draw_item, specular_color_uv) == 405, "DrawItem.specular_color_uv offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
-_Static_assert(sizeof(g3_view_state) == 944, "g3_view_state must be 944 bytes");
+_Static_assert(sizeof(g3_view_state) == 956, "g3_view_state must be 956 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");
 _Static_assert(offsetof(g3_view_state, light_count) == 308, "ViewState.light_count offset");
 _Static_assert(offsetof(g3_view_state, env_sky) == 312, "ViewState.env_sky offset");
@@ -151,6 +153,9 @@ _Static_assert(offsetof(g3_view_state, spot_shadow_light_index) == 916, "ViewSta
 _Static_assert(offsetof(g3_view_state, spot_shadow_params) == 920, "ViewState.spot_shadow_params offset");
 _Static_assert(offsetof(g3_view_state, shadow_resolution) == 936, "ViewState.shadow_resolution offset");
 _Static_assert(offsetof(g3_view_state, post_process) == 940, "ViewState.post_process offset");
+_Static_assert(offsetof(g3_view_state, render_target) == 944, "ViewState.render_target offset");
+_Static_assert(offsetof(g3_view_state, target_width) == 948, "ViewState.target_width offset");
+_Static_assert(offsetof(g3_view_state, target_height) == 952, "ViewState.target_height offset");
 _Static_assert(offsetof(g3_draw_item, mvp) == 4, "DrawItem.mvp offset");
 _Static_assert(offsetof(g3_draw_item, color) == 132, "DrawItem.color offset");
 _Static_assert(offsetof(g3_draw_item, params) == 148, "DrawItem.params offset");
@@ -227,6 +232,10 @@ void g3p_release_mesh(int32_t id);
 void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
 void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
 void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height);
+uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height);
+uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height);
+int32_t g3p_texture_width(int32_t id);
+int32_t g3p_texture_height(int32_t id);
 uint8_t g3p_load_radiance_hdr(int32_t id, g3_u8_slice path);
 void g3p_release_texture(int32_t id);
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v);

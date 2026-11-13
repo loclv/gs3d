@@ -23,6 +23,7 @@ import g3.platform;
 import g3.mesh;
 import g3.scene;
 import g3.render;
+import g3.texture;
 
 namespace g3;
 
@@ -105,7 +106,10 @@ fn frame(dt: f64) {
 
 fn width() -> i32 { return g_width }
 fn height() -> i32 { return g_height }
-fn aspect() -> f32 { if g_height < 1 { 1.0 } else { g_width as f32 / g_height } }
+fn aspect() -> f32 {
+    if g_render_target >= 0 && g_render_target_height > 0 { return g_render_target_width as f32 / g_render_target_height; }
+    return if g_height < 1 { 1.0 } else { g_width as f32 / g_height };
+}
 fn time() -> f64 { return g_time }
 fn frame_count() -> i64 { return g_frames }
 

@@ -52,6 +52,8 @@ static int32_t mesh_count, mesh_cap;
 typedef struct {
     uint8_t *pixels, *mips[31], *env_mips[31];
     float *hdr_pixels, *hdr_mips[31], *hdr_env_mips[31];
+    uint8_t *target_fb;
+    float *target_hdr_fb, *target_depth;
     int32_t w, h, wrap_u, wrap_v, min_filter, mag_filter, levels, env_levels, srgb;
 } soft_texture;
 static soft_texture *textures;
@@ -199,6 +201,7 @@ void g3p_shutdown(void) {
     for (int32_t i = 0; i < texture_count; i++) {
         free(textures[i].pixels);
         free(textures[i].hdr_pixels);
+        free(textures[i].target_fb); free(textures[i].target_hdr_fb); free(textures[i].target_depth);
         for (int j = 0; j < 31; j++) {
             free(textures[i].mips[j]); free(textures[i].env_mips[j]);
             free(textures[i].hdr_mips[j]); free(textures[i].hdr_env_mips[j]);
@@ -424,11 +427,67 @@ void g3p_release_texture(int32_t id) {
     soft_texture *t = &textures[id];
     free(t->pixels);
     free(t->hdr_pixels);
+    free(t->target_fb); free(t->target_hdr_fb); free(t->target_depth);
     for (int j = 0; j < 31; j++) {
         free(t->mips[j]); free(t->env_mips[j]);
         free(t->hdr_mips[j]); free(t->hdr_env_mips[j]);
     }
     memset(t, 0, sizeof(*t));
+}
+
+uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height) {
+    if (id < 0 || width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
+        (uint64_t)width * (uint64_t)height > 4194304ull) return 0;
+    if (id >= texture_count) {
+        soft_texture *grown = realloc(textures, ((size_t)id + 1) * sizeof(*textures));
+        if (!grown) return 0;
+        textures = grown;
+        memset(textures + texture_count, 0, ((size_t)id + 1 - (size_t)texture_count) * sizeof(*textures));
+        texture_count = id + 1;
+    }
+    size_t pixels = (size_t)width * (size_t)height;
+    if (pixels > SIZE_MAX / (sizeof(float) * 4)) return 0;
+    soft_texture *t = &textures[id];
+    float *sample = calloc(pixels * 4, sizeof(float));
+    uint8_t *rgb = calloc(pixels * 3, 1);
+    float *hdr = calloc(pixels * 3, sizeof(float));
+    float *z = malloc(pixels * sizeof(float));
+    if (!sample || !rgb || !hdr || !z) { free(sample); free(rgb); free(hdr); free(z); return 0; }
+    for (size_t i = 0; i < pixels; i++) { sample[i*4+3] = 1.0f; z[i] = 1.0f; }
+    free(t->pixels); free(t->hdr_pixels);
+    for (int j = 0; j < 31; j++) { free(t->mips[j]); free(t->env_mips[j]); free(t->hdr_mips[j]); free(t->hdr_env_mips[j]); }
+    memset(t, 0, sizeof(*t));
+    t->hdr_pixels = sample; t->w = width; t->h = height; t->levels = 1; t->min_filter = t->mag_filter = 9729;
+    t->target_fb = rgb; t->target_hdr_fb = hdr; t->target_depth = z;
+    return 1;
+}
+
+int32_t g3p_texture_width(int32_t id) { return id >= 0 && id < texture_count ? textures[id].w : 0; }
+int32_t g3p_texture_height(int32_t id) { return id >= 0 && id < texture_count ? textures[id].h : 0; }
+
+uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height) {
+    if (id < 0 || id >= texture_count || !textures[id].target_fb || width <= 0 || height <= 0 ||
+        width > 4096 || height > 4096 || (uint64_t)width * (uint64_t)height > 4194304ull) return 0;
+    size_t pixels = (size_t)width * (size_t)height;
+    float *sample = calloc(pixels * 4, sizeof(float));
+    uint8_t *rgb = calloc(pixels * 3, 1);
+    float *hdr = calloc(pixels * 3, sizeof(float));
+    float *z = malloc(pixels * sizeof(float));
+    if (!sample || !rgb || !hdr || !z) { free(sample); free(rgb); free(hdr); free(z); return 0; }
+    for (size_t i = 0; i < pixels; i++) { sample[i*4+3] = 1.0f; z[i] = 1.0f; }
+    soft_texture *t = &textures[id];
+    free(t->hdr_pixels); free(t->target_fb); free(t->target_hdr_fb); free(t->target_depth);
+    for (int j = 0; j < 31; j++) { free(t->mips[j]); free(t->env_mips[j]); free(t->hdr_mips[j]); free(t->hdr_env_mips[j]);
+        t->mips[j] = t->env_mips[j] = NULL; t->hdr_mips[j] = t->hdr_env_mips[j] = NULL; }
+    t->hdr_pixels = sample; t->target_fb = rgb; t->target_hdr_fb = hdr; t->target_depth = z;
+    t->w = width; t->h = height; t->levels = 1; t->env_levels = 0;
+    return 1;
+}
+
+static int samples_texture(const g3_draw_item *it, int32_t id) {
+    return it->texture == id || it->metallic_roughness_texture == id || it->normal_texture == id ||
+           it->occlusion_texture == id || it->emissive_texture == id || it->specular_texture == id ||
+           it->specular_color_texture == id;
 }
 
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
@@ -1527,7 +1586,7 @@ static void clear_frame(const g3_view_state *view) {
         fb[i * 3 + 0] = r8;
         fb[i * 3 + 1] = g8;
         fb[i * 3 + 2] = b8;
-        if (view->params.z > 0.5f) {
+        if (view->params.z > 0.5f || view->render_target >= 0) {
             hdr_fb[i*3+0]=view->clear.x;
             hdr_fb[i*3+1]=view->clear.y;
             hdr_fb[i*3+2]=view->clear.z;
@@ -1538,6 +1597,21 @@ static void clear_frame(const g3_view_state *view) {
 
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (!fb) return;
+    uint8_t *surface_fb = fb;
+    float *surface_hdr = hdr_fb, *surface_depth = depth;
+    int32_t surface_w = fb_w, surface_h = fb_h;
+    soft_texture *target = NULL;
+    int rendering_target = view->render_target >= 0 && view->render_target < texture_count &&
+                           textures[view->render_target].target_fb && view->target_width > 0 && view->target_height > 0;
+    g3_view_state safe_view;
+    if (rendering_target) {
+        safe_view = *view;
+        if (safe_view.environment_texture == view->render_target) safe_view.environment_texture = -1;
+        view = &safe_view;
+        target = &textures[view->render_target];
+        fb_w = target->w; fb_h = target->h; fb = target->target_fb;
+        hdr_fb = target->target_hdr_fb; depth = target->target_depth;
+    }
     int shadow_size=shadow_map_size(view);
     if (view->shadow_params.x > 0.5f) render_shadow_map(items, view, &view->shadow_view_proj, shadow_depth, shadow_size);
     if (view->point_shadow_params.x > 0.5f && view->point_shadow_light_index >= 0 && view->point_shadow_light_index < view->light_count)
@@ -1553,6 +1627,7 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     queue_len = 0;
     for (int64_t i = 0; i < items.len; i++) {
         const g3_draw_item *it = &items.data[i];
+        if (rendering_target && samples_texture(it, view->render_target)) continue;
         if (it->mesh < 0 || it->mesh >= mesh_count) continue;
         const soft_mesh *m = &meshes[it->mesh];
         if (!m->verts || !m->idx) continue;
@@ -1610,7 +1685,7 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         rasterize_blocks(view, &one);
         merge_counts(&prof, &one);
     }
-    int tone_mode=(int)(view->params.z+0.5f);
+    int tone_mode=rendering_target ? 0 : (int)(view->params.z+0.5f);
     if (tone_mode > 0) {
         size_t components=(size_t)fb_w*(size_t)fb_h*3;
         for(size_t i=0;i<components;i++){
@@ -1620,12 +1695,24 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
             if(view->params.y>0.5f)mapped=srgb_encode(mapped);
             fb[i]=(uint8_t)(mapped*255.0f+0.5f);
         }
-    } else if (view->params.y > 0.5f) {
+    } else if (!rendering_target && view->params.y > 0.5f) {
         size_t components = (size_t)fb_w * (size_t)fb_h * 3;
         for (size_t i = 0; i < components; i++)
             fb[i] = (uint8_t)(srgb_encode(fb[i] / 255.0f) * 255.0f + 0.5f);
     }
-    if (view->post_process & 1) apply_fxaa();
+    if (!rendering_target && (view->post_process & 1)) apply_fxaa();
+    if (rendering_target) {
+        size_t pixels = (size_t)fb_w * (size_t)fb_h;
+        for (int32_t y = 0; y < fb_h; y++) for (int32_t x = 0; x < fb_w; x++) {
+            size_t src = (size_t)y * fb_w + x;
+            size_t dst = (size_t)(fb_h - 1 - y) * fb_w + x;
+            target->hdr_pixels[dst*4] = floorf(fminf(fmaxf(hdr_fb[src*3], 0.0f), 1.0f) * 255.0f + 0.5f) / 255.0f;
+            target->hdr_pixels[dst*4+1] = floorf(fminf(fmaxf(hdr_fb[src*3+1], 0.0f), 1.0f) * 255.0f + 0.5f) / 255.0f;
+            target->hdr_pixels[dst*4+2] = floorf(fminf(fmaxf(hdr_fb[src*3+2], 0.0f), 1.0f) * 255.0f + 0.5f) / 255.0f;
+            target->hdr_pixels[dst*4+3] = 1.0f;
+        }
+        fb = surface_fb; hdr_fb = surface_hdr; depth = surface_depth; fb_w = surface_w; fb_h = surface_h;
+    }
     const double t3 = prof.on ? now_seconds() : 0.0;
     if (prof.on) {
         prof.clear += t1 - t0;

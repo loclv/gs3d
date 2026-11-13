@@ -481,6 +481,46 @@ fn case_fxaa() {
     g3::set_fxaa(false);
 }
 
+fn case_render_target() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_fxaa(true);
+    g3::set_output_srgb(true);
+    g3::set_tone_mapping_mode(g3::TONE_MAPPING_ACES);
+    g3::set_background(float4 { 0.5, 0.5, 0.5, 1.0 });
+    let target = g3::render_target_create(80, 40);
+    testing::check(target >= 0 && g3::render_target_set(target), "render target allocates and can be selected");
+    testing::check(!g3::render_target_set(99999), "unknown render targets are rejected");
+    g3::frame(1.0 / 60.0);
+    testing::check(!g3::render_target_resize(target, 0, 80) &&
+                   g3::render_target_resize(target, 40, 80) && abs(g3::aspect() - 0.5) < 0.001,
+                   "resize validates dimensions and updates the active camera aspect");
+    g3::frame(1.0 / 60.0);
+
+    // The target stores linear RGBA8 values: screen ACES and sRGB encoding
+    // must not turn 0.5 into the display-referred value before it is sampled.
+    g3::render_target_set(-1);
+    g3::set_output_srgb(false);
+    g3::set_tone_mapping_mode(g3::TONE_MAPPING_NONE);
+    g3::set_fxaa(false);
+    g3::scene_clear();
+    flat_camera();
+    let cube .= g3::node(g3::node_add(g3::mesh_cube(1.0)));
+    cube.texture = target;
+    cube.unlit = true;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 2), "render target texture can be sampled with linear values");
+    g3::render_target_set(target);
+    g3::set_background(float4 { 0.0, 0.0, 0.0, 1.0 });
+    g3::frame(1.0 / 60.0);
+    g3::render_target_set(-1);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 0, 0, 0, 1), "sampling the active target is suppressed instead of creating feedback");
+    testing::check(!g3::render_target_remove(target), "a render target referenced by a live node cannot be removed");
+    g3::scene_clear();
+    testing::check(g3::render_target_remove(target), "render target storage is released after references are removed");
+}
+
 fn case_lights() {
     g3::scene_clear();
     flat_camera();
@@ -1302,6 +1342,7 @@ fn main() {
     case_color_space();
     case_tone_mapping();
     case_fxaa();
+    case_render_target();
     case_lights();
     case_shadow();
     case_clipping();

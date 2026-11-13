@@ -84,7 +84,7 @@ discarded, including in the shadow pass. Blended items read depth but do not
 write it; opaque and surviving mask fragments write depth. Texture alpha is
 ignored for opaque items.
 
-### `g3_view_state` — 944 bytes
+### `g3_view_state` — 956 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -112,6 +112,16 @@ ignored for opaque items.
 | 920 | `g3_vec4` | `spot_shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
 | 936 | `int32_t` | `shadow_resolution` | square map size: 256, 512, or 1024 |
 | 940 | `int32_t` | `post_process` | bit 0 enables the FXAA full-screen output pass |
+| 944 | `int32_t` | `render_target` | texture id to draw into, or -1 for the window surface |
+| 948 | `int32_t` | `target_width` | selected render-target width, in pixels |
+| 952 | `int32_t` | `target_height` | selected render-target height, in pixels |
+
+A selected target is a linear RGBA8 texture with RGB clamped to 0..1 and alpha
+fixed to 1. Its texture-coordinate origin is the lower-left, matching WebGL.
+Target dimensions drive projection and viewport size. Tone mapping, sRGB output
+encoding, and FXAA are applied only to the window surface. A draw item that
+samples the active target in any material slot is skipped to avoid a framebuffer
+feedback loop.
 
 One extra point light and one extra spot light can cast shadows per frame. The
 WebGL backend stores point depth in a cube texture and spot depth in a 2D
@@ -151,6 +161,9 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 | `void g3p_upload_texture(int32_t id, g3_u8_slice, int32_t w, int32_t h)` | copy row-major RGBA8 pixels; reset to bilinear filtering and clamp-to-edge |
 | `void g3p_upload_texture_srgb(int32_t id, g3_u8_slice, int32_t w, int32_t h)` | same upload, decoding sRGB RGB channels to linear for filtering; alpha remains linear |
 | `void g3p_upload_texture_hdr(int32_t id, g3_f32_slice, int32_t w, int32_t h)` | copy row-major linear RGBA32F radiance; intended for environment maps |
+| `uint8_t g3p_create_render_target(int32_t id, int32_t w, int32_t h)` | create a sampleable linear RGBA8 target with depth storage |
+| `uint8_t g3p_resize_render_target(int32_t id, int32_t w, int32_t h)` | resize a target; its contents are cleared |
+| `int32_t g3p_texture_width(int32_t id)` / `g3p_texture_height(int32_t id)` | dimensions of a backend texture |
 | `void g3p_release_texture(int32_t id)` | release backend texture and derived mip storage; the numeric slot remains reserved |
 | `void g3p_texture_wrap(int32_t id, int32_t u, int32_t v)` | set U and V wrapping: 0 clamp, 1 repeat, 2 mirrored repeat |
 | `void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter)` | set glTF/WebGL filter enum values; generate mipmaps when a mipmapped minification filter is requested |

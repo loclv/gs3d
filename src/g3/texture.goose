@@ -14,8 +14,11 @@ let FILTER_NEAREST_MIPMAP_LINEAR = 9986;
 let FILTER_LINEAR_MIPMAP_LINEAR = 9987;
 
 var g_texture_count: i32;
+var g_render_target: i32 = -1;
+var g_render_target_width: i32;
+var g_render_target_height: i32;
 var g_asset_textures: i32[>..];
-struct TextureSlot { generation: i32 = 1, asset_owned: bool, asset_free: bool, removed: bool }
+struct TextureSlot { generation: i32 = 1, asset_owned: bool, asset_free: bool, removed: bool, render_target: bool }
 struct TextureHandle { id: i32 = -1, generation: i32 }
 var g_texture_slots: TextureSlot[>..];
 
@@ -60,6 +63,45 @@ fn texture_create_hdr(width: i32, height: i32, pixels: const f32[:]) -> i32 {
     g_texture_slots.push(TextureSlot { .. });
     g3p_upload_texture_hdr(id, pixels, width, height);
     return id;
+}
+
+// Create a sampleable linear RGBA render target. The target keeps its own
+// dimensions when the window is resized. Tone mapping and FXAA are screen-only.
+fn render_target_create(width: i32, height: i32) -> i32 {
+    guard width > 0 && height > 0 && width <= 4096 && height <= 4096 &&
+          width as i64 * height <= 4194304 else { return -1; }
+    let id = g_texture_count;
+    g_texture_count += 1;
+    g_texture_slots.push(TextureSlot { render_target: true, .. });
+    guard g3p_create_render_target(id, width, height) else {
+        g_texture_slots[id].removed = true;
+        return -1;
+    }
+    return id;
+}
+
+// Select the target for the next frame. Pass -1 to render to the window.
+fn render_target_set(id: i32) -> bool {
+    if id == -1 {
+        g_render_target = -1;
+        g_render_target_width = 0;
+        g_render_target_height = 0;
+        return true;
+    }
+    guard id >= 0 && id < g_texture_count && g_texture_slots[id].render_target && texture_slot_live(id) else { return false; }
+    g_render_target = id;
+    g_render_target_width = g3p_texture_width(id);
+    g_render_target_height = g3p_texture_height(id);
+    return true;
+}
+
+fn render_target_resize(id: i32, width: i32, height: i32) -> bool {
+    guard id >= 0 && id < g_texture_count && g_texture_slots[id].render_target && texture_slot_live(id) &&
+          width > 0 && height > 0 && width <= 4096 && height <= 4096 &&
+          width as i64 * height <= 4194304 else { return false; }
+    guard g3p_resize_render_target(id, width, height) else { return false; }
+    if id == g_render_target { g_render_target_width = width; g_render_target_height = height; }
+    return true;
 }
 
 // Native-only Radiance RGBE loader. Browser applications should use loadHDRImage.
@@ -122,6 +164,7 @@ fn texture_asset_release(id: i32) {
 
 fn texture_remove_storage(handle: TextureHandle) -> bool {
     guard texture_handle_valid(handle) && !g_texture_slots[handle.id].asset_owned else { return false; }
+    if handle.id == g_render_target { g_render_target = -1; g_render_target_width = 0; g_render_target_height = 0; }
     g3p_release_texture(handle.id);
     g_texture_slots[handle.id].removed = true;
     return true;

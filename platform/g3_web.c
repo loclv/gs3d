@@ -103,6 +103,9 @@ static int32_t scene_draw_calls;
 static GLuint *textures;
 static int32_t *texture_widths, *texture_heights, *texture_is_hdr;
 static int32_t texture_count;
+typedef struct { int32_t id; GLuint fbo, depth; } web_render_target;
+static web_render_target *render_targets;
+static int32_t render_target_count, render_target_cap;
 static GLuint env_sampler;
 static GLuint env_source_sampler;
 static GLuint brdf_lut_texture;
@@ -663,6 +666,11 @@ void g3p_shutdown(void) {
     if (env_prefilter_vao) glDeleteVertexArrays(1,&env_prefilter_vao);
     env_prefilter_texture=env_prefilter_program=env_prefilter_fbo=env_prefilter_vao=0;
     env_prefilter_source_id=-1;env_prefilter_max_lod=0;
+    for (int32_t i = 0; i < render_target_count; i++) {
+        glDeleteRenderbuffers(1, &render_targets[i].depth);
+        glDeleteFramebuffers(1, &render_targets[i].fbo);
+    }
+    free(render_targets); render_targets = NULL; render_target_count = render_target_cap = 0;
     for (int32_t i = 0; i < texture_count; i++) glDeleteTextures(1, &textures[i]);
     free(textures); textures = NULL; texture_count = 0;
     free(texture_widths); texture_widths=NULL;
@@ -834,7 +842,7 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_morph(int32_t id, uint32_t positions_p
     for (uint64_t i = 0; i < float_count; i++)
         if (!isfinite(positions[i]) || !isfinite(normals[i])) return 0;
 
-    while (glGetError() != GL_NO_ERROR) { }
+    for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; i++) { }
     glGenTextures(1, &m->morph_position_texture);
     glGenTextures(1, &m->morph_normal_texture);
     glGenTextures(1, &m->morph_weight_texture);
@@ -1081,6 +1089,71 @@ void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int3
     upload_texture_hdr(id,pixels,width,height);
 }
 
+uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height) {
+    if (id < 0 || width <= 0 || height <= 0 || width > gpu_max_texture_size || height > gpu_max_texture_size ||
+        (uint64_t)width * (uint64_t)height > 4194304ull) return 0;
+    size_t bytes = (size_t)width * (size_t)height * 4;
+    if (bytes / 4 != (size_t)width * (size_t)height) return 0;
+    uint8_t *blank = calloc(bytes, 1);
+    if (!blank) return 0;
+    g3_u8_slice pixels = { blank, (int64_t)bytes };
+    g3p_upload_texture(id, pixels, width, height);
+    free(blank);
+    if (id >= texture_count || !textures[id]) return 0;
+    GLuint fbo = 0, depth = 0;
+    glGenFramebuffers(1, &fbo);
+    glGenRenderbuffers(1, &depth);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[id], 0);
+    glBindRenderbuffer(GL_RENDERBUFFER, depth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, width, height);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth);
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "g3_web: render target %d framebuffer incomplete (0x%x)\n", id, status);
+        glDeleteRenderbuffers(1, &depth); glDeleteFramebuffers(1, &fbo); g3p_release_texture(id);
+        return 0;
+    }
+    if (render_target_count == render_target_cap) {
+        int32_t cap = render_target_cap ? render_target_cap * 2 : 8;
+        web_render_target *grown = realloc(render_targets, (size_t)cap * sizeof(*grown));
+        if (!grown) { glDeleteRenderbuffers(1, &depth); glDeleteFramebuffers(1, &fbo); g3p_release_texture(id); return 0; }
+        render_targets = grown; render_target_cap = cap;
+    }
+    render_targets[render_target_count++] = (web_render_target){ id, fbo, depth };
+    return 1;
+}
+
+int32_t g3p_texture_width(int32_t id) { return id >= 0 && id < texture_count ? texture_widths[id] : 0; }
+int32_t g3p_texture_height(int32_t id) { return id >= 0 && id < texture_count ? texture_heights[id] : 0; }
+
+uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height) {
+    web_render_target *target = NULL;
+    for (int32_t i = 0; i < render_target_count; i++) if (render_targets[i].id == id) { target = &render_targets[i]; break; }
+    if (!target || width <= 0 || height <= 0 || width > gpu_max_texture_size || height > gpu_max_texture_size ||
+        (uint64_t)width * (uint64_t)height > 4194304ull) return 0;
+    while (glGetError() != GL_NO_ERROR) { }
+    glBindTexture(GL_TEXTURE_2D, textures[id]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glBindRenderbuffer(GL_RENDERBUFFER, target->depth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, width, height);
+    glBindFramebuffer(GL_FRAMEBUFFER, target->fbo);
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    GLenum error = glGetError();
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (error != GL_NO_ERROR || status != GL_FRAMEBUFFER_COMPLETE) {
+        glBindTexture(GL_TEXTURE_2D, textures[id]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture_widths[id], texture_heights[id], 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glBindRenderbuffer(GL_RENDERBUFFER, target->depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, texture_widths[id], texture_heights[id]);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return 0;
+    }
+    texture_widths[id] = width; texture_heights[id] = height;
+    return 1;
+}
+
 /* Browser assets are fetched and decoded by web/assets.js. */
 uint8_t g3p_load_radiance_hdr(int32_t id, g3_u8_slice path) {
     (void)id; (void)path;
@@ -1227,9 +1300,21 @@ void g3p_release_texture(int32_t id) {
         env_prefilter_texture=0;env_prefilter_source_id=-1;env_prefilter_max_lod=0;
     }
     glDeleteTextures(1, &textures[id]);
+    for (int32_t i = 0; i < render_target_count; i++) if (render_targets[i].id == id) {
+        glDeleteRenderbuffers(1, &render_targets[i].depth);
+        glDeleteFramebuffers(1, &render_targets[i].fbo);
+        render_targets[i] = render_targets[--render_target_count];
+        break;
+    }
     textures[id] = 0;
     texture_widths[id]=texture_heights[id]=0;
     texture_is_hdr[id]=0;
+}
+
+static int item_samples_texture(const g3_draw_item *it, int32_t id) {
+    return it->texture == id || it->metallic_roughness_texture == id || it->normal_texture == id ||
+           it->occlusion_texture == id || it->emissive_texture == id || it->specular_texture == id ||
+           it->specular_color_texture == id;
 }
 
 /* --- a frame --- */
@@ -1699,22 +1784,31 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         allocated_shadow_size=0;
     }
     shadow_map_size=requested;
+    web_render_target *target = NULL;
+    if (view->render_target >= 0) for (int32_t i = 0; i < render_target_count; i++)
+        if (render_targets[i].id == view->render_target) { target = &render_targets[i]; break; }
+    g3_view_state safe_view;
+    if (target) {
+        safe_view = *view;
+        if (safe_view.environment_texture == view->render_target) safe_view.environment_texture = -1;
+        view = &safe_view;
+    }
     if (view->shadow_params.x > 0.5f && ensure_shadow_map()) render_shadow_map(items, view, &view->shadow_view_proj, shadow_texture);
     if (view->point_shadow_params.x > 0.5f && view->point_shadow_light_index >= 0 && view->point_shadow_light_index < view->light_count)
         render_point_shadow_maps(items, view);
     if (view->spot_shadow_params.x > 0.5f && view->spot_shadow_light_index >= 0 && view->spot_shadow_light_index < view->light_count && view->lights[view->spot_shadow_light_index].position.w > 1.5f && ensure_spot_shadow_map())
         render_shadow_map(items, view, &view->spot_shadow_view_proj, spot_shadow_texture);
-    int tone_mode=(int)(view->params.z+0.5f);
+    int tone_mode=target ? 0 : (int)(view->params.z+0.5f);
     int tone=tone_mode!=0;
     int encode=0;
-    tone_map_inline_frame=tone && !hdr_color_buffer_supported ? tone_mode : 0;
+    tone_map_inline_frame=!target && tone && !hdr_color_buffer_supported ? tone_mode : 0;
     if (tone && hdr_color_buffer_supported) {
         encode=ensure_output_target(1);
         if(!encode) tone_map_inline_frame=tone_mode;
     }
-    if (!encode && (view->params.y>0.5f || (view->post_process&1))) encode=ensure_output_target(0);
-    glBindFramebuffer(GL_FRAMEBUFFER, encode ? output_fbo : 0);
-    glViewport(0, 0, surf_w, surf_h);
+    if (!target && !encode && (view->params.y>0.5f || (view->post_process&1))) encode=ensure_output_target(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, target ? target->fbo : (encode ? output_fbo : 0));
+    glViewport(0, 0, target ? view->target_width : surf_w, target ? view->target_height : surf_h);
     float cr=view->clear.x,cg=view->clear.y,cb=view->clear.z;
     if(tone_map_inline_frame){
         cr*=view->params.w;cg*=view->params.w;cb*=view->params.w;
@@ -1726,7 +1820,9 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
 
     glUseProgram(shader.program);
     bind_view(view);
+    if (target) glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
     for (int64_t i = 0; i < items.len;) {
+        if (target && item_samples_texture(&items.data[i], view->render_target)) { i++; continue; }
         int32_t count = 1;
         if (items.data[i].params.w <= 0.5f && items.data[i].mesh >= 0 && items.data[i].mesh < mesh_count) {
             while (i + count < items.len && scene_compatible(&items.data[i], &items.data[i + count])) count++;
@@ -1737,8 +1833,9 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     glBindVertexArray(0);
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
+    if (target) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    if (encode) present_output(view);
+    if (encode && !target) present_output(view);
 
     report_first_gl_error();
 }

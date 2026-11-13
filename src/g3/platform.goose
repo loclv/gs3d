@@ -89,6 +89,9 @@ struct ViewState {
     spot_shadow_params: float4, // x enabled, y depth bias, z PCF radius in texels
     shadow_resolution: i32, // 256, 512, or 1024 square shadow maps
     post_process: i32, // bit 0 enables the FXAA output pass
+    render_target: i32, // texture id to render into, -1 for the surface
+    target_width: i32, // render-target size, ignored when render_target is -1
+    target_height: i32,
 }
 
 // --- the backend interface
@@ -110,6 +113,10 @@ extern fn g3p_release_mesh(id: i32);
 extern fn g3p_upload_texture(id: i32, pixels: const u8[:], width: i32, height: i32);
 extern fn g3p_upload_texture_srgb(id: i32, pixels: const u8[:], width: i32, height: i32);
 extern fn g3p_upload_texture_hdr(id: i32, pixels: const f32[:], width: i32, height: i32);
+extern fn g3p_create_render_target(id: i32, width: i32, height: i32) -> bool;
+extern fn g3p_resize_render_target(id: i32, width: i32, height: i32) -> bool;
+extern fn g3p_texture_width(id: i32) -> i32;
+extern fn g3p_texture_height(id: i32) -> i32;
 extern fn g3p_load_radiance_hdr(id: i32, path: const u8[:]) -> bool;
 extern fn g3p_release_texture(id: i32);
 // 0 clamp, 1 repeat, 2 mirrored repeat, independently for U and V.

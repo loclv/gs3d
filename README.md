@@ -253,6 +253,17 @@ What the API gives you:
   with row-major RGBA8 pixels or `texture_create_hdr(width, height, rgba)` with
   linear RGBA32F pixels for HDR radiance, then select an environment with
   `set_environment_map`.
+  `render_target_create(width, height)` creates a sampleable linear RGBA8
+  texture with RGB clamped to 0..1 and opaque alpha. Select it with
+  `render_target_set(id)` before `frame(dt)` and resize it with
+  `render_target_resize(id, width, height)`; resizing clears its contents. Pass
+  `-1` to return to the window. Targets keep their own size and can be removed
+  with `render_target_remove(id)` after scene and material references are
+  cleared. Render targets bypass screen tone mapping, sRGB output encoding, and
+  FXAA; apply display effects after sampling the target. Sampling the active
+  target in the same frame skips that item to avoid framebuffer feedback.
+  Texture coordinate v=0 addresses the bottom row of a render target.
+  Targets are limited to 4,194,304 pixels each.
   `texture_handle` and `texture_handle_valid` check ordinary and asset textures;
   `texture_remove(handle)` releases an ordinary texture only when no live node,
   material or environment uses it. Asset textures are released by their owner.
@@ -375,7 +386,8 @@ near, so they are drawn after everything opaque and read the depth they should.
 
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
 `Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings,
-a double-sided flag and seven texture-coordinate transforms, 429 bytes.
+a double-sided flag and seven texture-coordinate transforms, 429 bytes. Its
+`ViewState` is 956 bytes and includes render-target selection and dimensions.
 `g3p_draw_frame` hands the backend a slice
 of them plus the frame's `ViewState`, and `platform/g3_abi.h`
 static-asserts every offset, so the Goose and C sides cannot drift apart

@@ -187,9 +187,17 @@ fn texture_remove(handle: TextureHandle) -> bool {
         let m .= g_materials[i];
         if m.removed { continue; }
         if m.texture == id || m.metallic_roughness_texture == id || m.normal_texture == id ||
-           m.occlusion_texture == id || m.emissive_texture == id { return false; }
+           m.occlusion_texture == id || m.emissive_texture == id || m.specular_texture == id ||
+           m.specular_color_texture == id { return false; }
     }
     return texture_remove_storage(handle);
+}
+
+fn render_target_remove(id: i32) -> bool {
+    guard id >= 0 && id < g_texture_count && g_texture_slots[id].render_target && texture_slot_live(id) else { return false; }
+    if !texture_remove(texture_handle(id)) { return false; }
+    if id == g_render_target { g_render_target = -1; g_render_target_width = 0; g_render_target_height = 0; }
+    return true;
 }
 
 // The primary directional light casts into an explicitly bounded box. Objects
@@ -264,8 +272,10 @@ fn begin_frame(time: f64, width: i32, height: i32) {
     g_draws.clear();
     g_stats = Stats { .. };
     node_update_worlds();
-    let w = if width < 1 { 1 } else { width };
-    let h = if height < 1 { 1 } else { height };
+    let rw = if g_render_target >= 0 { g_render_target_width } else { width };
+    let rh = if g_render_target >= 0 { g_render_target_height } else { height };
+    let w = if rw < 1 { 1 } else { rw };
+    let h = if rh < 1 { 1 } else { rh };
     g_view = mat4_look_at(g_camera.pos, g_camera.target, g_camera.up);
     g_view_proj = mat4_mul(camera_projection(g_camera, w as f32 / h), g_view);
     g_frustum = frustum_from_view_proj(g_view_proj);
@@ -274,6 +284,9 @@ fn begin_frame(time: f64, width: i32, height: i32) {
     g_view_state.view_direction = float4 { g_view.m[2], g_view.m[6], g_view.m[10], if g_camera.orthographic { 1.0 } else { 0.0 } };
     g_view_state.params = float4 { time as f32, if g_output_srgb { 1.0 } else { 0.0 }, g_tone_mapping, g_exposure };
     g_view_state.post_process = if g_fxaa { 1 } else { 0 };
+    g_view_state.render_target = g_render_target;
+    g_view_state.target_width = g_render_target_width;
+    g_view_state.target_height = g_render_target_height;
 }
 
 // Where an item sorts. Opaque items sort by mesh id, so the backend sees runs
