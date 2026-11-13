@@ -66,6 +66,11 @@ struct DrawItem {
     clearcoat_uv: UvTransform,
     clearcoat_roughness_uv: UvTransform,
     clearcoat_normal_uv: UvTransform,
+    sheen: float4, // RGB sheen colour factor, w sheen roughness
+    sheen_color_texture: i32, // sRGB RGB controls sheen tint
+    sheen_roughness_texture: i32, // linear alpha controls sheen roughness
+    sheen_color_uv: UvTransform,
+    sheen_roughness_uv: UvTransform,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

@@ -270,7 +270,8 @@ fn texture_remove(handle: TextureHandle) -> bool {
         if m.texture == id || m.metallic_roughness_texture == id || m.normal_texture == id ||
            m.occlusion_texture == id || m.emissive_texture == id || m.specular_texture == id ||
            m.specular_color_texture == id || m.clearcoat_texture == id ||
-           m.clearcoat_roughness_texture == id || m.clearcoat_normal_texture == id { return false; }
+           m.clearcoat_roughness_texture == id || m.clearcoat_normal_texture == id ||
+           m.sheen_color_texture == id || m.sheen_roughness_texture == id { return false; }
     }
     return texture_remove_storage(handle);
 }
@@ -499,6 +500,11 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         clearcoat_uv: surface.clearcoat_uv,
         clearcoat_roughness_uv: surface.clearcoat_roughness_uv,
         clearcoat_normal_uv: surface.clearcoat_normal_uv,
+        sheen: float4 { surface.sheen_color.x, surface.sheen_color.y, surface.sheen_color.z, surface.sheen_roughness },
+        sheen_color_texture: surface.sheen_color_texture,
+        sheen_roughness_texture: surface.sheen_roughness_texture,
+        sheen_color_uv: surface.sheen_color_uv,
+        sheen_roughness_uv: surface.sheen_roughness_uv,
     };
 }
 
@@ -507,7 +513,8 @@ fn item_samples_texture(item: DrawItem, texture: i32) -> bool {
            item.normal_texture == texture || item.occlusion_texture == texture ||
            item.emissive_texture == texture || item.specular_texture == texture ||
            item.specular_color_texture == texture || item.clearcoat_texture == texture ||
-           item.clearcoat_roughness_texture == texture || item.clearcoat_normal_texture == texture;
+           item.clearcoat_roughness_texture == texture || item.clearcoat_normal_texture == texture ||
+           item.sheen_color_texture == texture || item.sheen_roughness_texture == texture;
 }
 
 fn render_scene() {

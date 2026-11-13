@@ -369,6 +369,7 @@ function fakeEngine() {
   engine._g3_asset_material = (...args) => { const id = nextMaterial++; materialGenerations.set(id, 1); calls.push(['material', id, ...args]); return id; };
   engine._g3_asset_material_specular = (...args) => { calls.push(['material_specular', ...args]); return true; };
   engine._g3_asset_material_clearcoat = (...args) => { calls.push(['material_clearcoat', ...args]); return true; };
+  engine._g3_asset_material_sheen = (...args) => { calls.push(['material_sheen', ...args]); return true; };
   engine._g3_asset_material_uv_transform = (...args) => { calls.push(['material_uv_transform', ...args]); return true; };
   engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); const id = nextMesh++; meshGenerations.set(id, 1); return id; };
   engine._g3_host_mesh_update = (id, positions, normals, tangents, count) => {
@@ -595,6 +596,7 @@ assert.deepEqual(inspectedPrimitive.variants, [{
     alphaMode: 'OPAQUE', alphaCutoff: 0.5, emissiveFactor: [0, 0, 0],
     doubleSided: false, unlit: false, ior: 1.5, specularFactor: 1, specularColorFactor: [1, 1, 1],
     clearcoatFactor: 0, clearcoatRoughnessFactor: 0, clearcoatNormalScale: 1,
+    sheenColorFactor: [0, 0, 0], sheenRoughnessFactor: 0,
     textureSlots: [], textureBindings: [],
   },
 }], 'primitive inspection includes default factors and mapped variant material metadata');
@@ -739,6 +741,35 @@ assert.equal(clearcoatModel.getTexturePreview(0), null, 'disposed models release
 clearcoatDoc.materials[0].extensions.KHR_materials_clearcoat.clearcoatNormalTexture.scale = 'bad';
 resources.set('http://localhost/clearcoat-invalid-normal-scale.gltf', bytes(clearcoatDoc));
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/clearcoat-invalid-normal-scale.gltf'), e => e.code === 'INVALID_GLTF');
+const sheenDoc = structuredClone(doc);
+sheenDoc.buffers.push({ byteLength: 24, uri: 'sheen-uv.bin' });
+sheenDoc.bufferViews.push({ buffer: 1, byteLength: 24 });
+sheenDoc.accessors.push({ bufferView: 3, componentType: 5126, count: 3, type: 'VEC2' });
+sheenDoc.meshes[0].primitives[0].attributes.TEXCOORD_0 = 3;
+sheenDoc.images = [{ uri: 'image.png' }]; sheenDoc.textures = [{ source: 0 }];
+sheenDoc.extensionsUsed = ['KHR_materials_sheen', 'KHR_texture_transform'];
+sheenDoc.extensionsRequired = ['KHR_materials_sheen'];
+sheenDoc.materials[0].extensions = { KHR_materials_sheen: {
+  sheenColorFactor: [0.8, 0.4, 0.2], sheenRoughnessFactor: 0.35,
+  sheenColorTexture: { index: 0, extensions: { KHR_texture_transform: { offset: [0.25, 0.5] } } },
+  sheenRoughnessTexture: { index: 0, extensions: { KHR_texture_transform: { scale: [2, 3] } } },
+} };
+resources.set('http://localhost/sheen.gltf', bytes(sheenDoc));
+resources.set('http://localhost/sheen-uv.bin', new ArrayBuffer(24));
+const sheenEngine = fakeEngine(), sheenModel = await loadGLTF(sheenEngine, 'http://localhost/sheen.gltf');
+assert.deepEqual(sheenEngine.calls.find(call => call[0] === 'material_sheen'), ['material_sheen', 1, 0.8, 0.4, 0.2, 0.35, 5, 6]);
+assert.deepEqual(sheenModel.nodes[0].primitiveMaterials[0].default.sheenColorFactor, [0.8, 0.4, 0.2]);
+assert.equal(sheenModel.nodes[0].primitiveMaterials[0].default.sheenRoughnessFactor, 0.35);
+assert.deepEqual(sheenModel.nodes[0].primitiveMaterials[0].default.textureSlots.slice(-2), ['sheenColor', 'sheenRoughness']);
+assert.equal(sheenEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 10)[3], 0.25);
+assert.equal(sheenEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 11)[5], 2);
+assert.equal(sheenEngine.calls.filter(call => call[0] === 'texture_srgb').length, 1);
+assert.equal(sheenEngine.calls.filter(call => call[0] === 'texture').length, 1);
+sheenModel.dispose();
+const invalidSheenFactor = structuredClone(sheenDoc);
+invalidSheenFactor.materials[0].extensions.KHR_materials_sheen.sheenColorFactor[1] = 1.1;
+resources.set('http://localhost/invalid-sheen-factor.gltf', bytes(invalidSheenFactor));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/invalid-sheen-factor.gltf'), e => e.code === 'INVALID_GLTF');
 specularDoc.materials[0].extensions.KHR_materials_specular.specularFactor = 1.1;
 resources.set('http://localhost/invalid-specular-factor.gltf', bytes(specularDoc));
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/invalid-specular-factor.gltf'), e => e.code === 'INVALID_GLTF');

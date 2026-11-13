@@ -71,6 +71,9 @@ typedef struct {
     int32_t clearcoat_normal_texture;
     float clearcoat_normal_scale;
     g3_uv_transform clearcoat_uv, clearcoat_roughness_uv, clearcoat_normal_uv;
+    g3_vec4 sheen; /* rgb colour factor, w roughness */
+    int32_t sheen_color_texture, sheen_roughness_texture;
+    g3_uv_transform sheen_color_uv, sheen_roughness_uv;
 } g3_draw_item;
 
 typedef struct { g3_vec4 position, direction, color; float inner; } g3_light;
@@ -126,7 +129,7 @@ _Static_assert(offsetof(g3_vertex, uv7) == 80, "Vertex.uv7 offset");
 _Static_assert(offsetof(g3_vertex, tangent) == 88, "Vertex.tangent offset");
 _Static_assert(offsetof(g3_vertex, color) == 104, "Vertex.color offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
-_Static_assert(sizeof(g3_draw_item) == 533, "g3_draw_item must be 533 bytes");
+_Static_assert(sizeof(g3_draw_item) == 605, "g3_draw_item must be 605 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
 _Static_assert(offsetof(g3_draw_item, alpha_mode) == 172, "DrawItem.alpha_mode offset");
 _Static_assert(offsetof(g3_draw_item, alpha_cutoff) == 176, "DrawItem.alpha_cutoff offset");
@@ -157,6 +160,11 @@ _Static_assert(offsetof(g3_draw_item, clearcoat_normal_scale) == 457, "DrawItem.
 _Static_assert(offsetof(g3_draw_item, clearcoat_uv) == 461, "DrawItem.clearcoat_uv offset");
 _Static_assert(offsetof(g3_draw_item, clearcoat_roughness_uv) == 485, "DrawItem.clearcoat_roughness_uv offset");
 _Static_assert(offsetof(g3_draw_item, clearcoat_normal_uv) == 509, "DrawItem.clearcoat_normal_uv offset");
+_Static_assert(offsetof(g3_draw_item, sheen) == 533, "DrawItem.sheen offset");
+_Static_assert(offsetof(g3_draw_item, sheen_color_texture) == 549, "DrawItem.sheen_color_texture offset");
+_Static_assert(offsetof(g3_draw_item, sheen_roughness_texture) == 553, "DrawItem.sheen_roughness_texture offset");
+_Static_assert(offsetof(g3_draw_item, sheen_color_uv) == 557, "DrawItem.sheen_color_uv offset");
+_Static_assert(offsetof(g3_draw_item, sheen_roughness_uv) == 581, "DrawItem.sheen_roughness_uv offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
 _Static_assert(sizeof(g3_view_state) == 1020, "g3_view_state must be 1020 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");

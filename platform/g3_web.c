@@ -89,7 +89,9 @@ typedef struct {
     GLint clearcoat;
     GLint clearcoat_tex, clearcoat_textured, clearcoat_roughness_tex, clearcoat_roughness_textured;
     GLint clearcoat_normal_tex, clearcoat_normal_textured, clearcoat_normal_scale;
-    GLint uv_transform[10], uv_rotation[10], uv_set[10];
+    GLint sheen, sheen_color_tex, sheen_color_textured;
+    GLint sheen_roughness_tex, sheen_roughness_textured;
+    GLint uv_transform[12], uv_rotation[12], uv_set[12];
     GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
@@ -281,13 +283,18 @@ static const char *FRAGMENT_SRC =
     "uniform sampler2D u_clearcoat_normal_tex;\n"
     "uniform bool u_clearcoat_normal_textured;\n"
     "uniform float u_clearcoat_normal_scale;\n"
+    "uniform vec4 u_sheen;\n"
+    "uniform sampler2D u_sheen_color_tex;\n"
+    "uniform bool u_sheen_color_textured;\n"
+    "uniform sampler2D u_sheen_roughness_tex;\n"
+    "uniform bool u_sheen_roughness_textured;\n"
     "uniform sampler2D u_specular_tex;\n"
     "uniform bool u_specular_textured;\n"
     "uniform sampler2D u_specular_color_tex;\n"
     "uniform bool u_specular_color_textured;\n"
-    "uniform vec4 u_uv_transform[10];\n"
-    "uniform float u_uv_rotation[10];\n"
-    "uniform int u_uv_set[10];\n"
+    "uniform vec4 u_uv_transform[12];\n"
+    "uniform float u_uv_rotation[12];\n"
+    "uniform int u_uv_set[12];\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform bool u_double_sided;\n"
@@ -340,6 +347,7 @@ static const char *FRAGMENT_SRC =
     "    vec3 f = (f0 + (1.0-f0)*pow(1.0-min(vh, 1.0), 5.0))*strength;\n"
     "    return ((1.0-f)*(1.0-metal)*base/3.14159265359 + d*vis*f)*nl;\n"
     "}\n"
+    "vec3 sheen_light(vec3 n,vec3 v,vec3 l,vec3 color,float rough){float nl=max(dot(n,l),0.0),nv=max(dot(n,v),0.0);vec3 hs=l+v;float hl=length(hs);if(nl<=0.0||nv<=0.0||hl<=1e-12)return vec3(0.0);vec3 h=hs/hl;float nh=max(dot(n,h),0.0);float alpha=max(rough,0.07);float inv=1.0/alpha;float d=(2.0+inv)*pow(max(1.0-nh*nh,0.0),0.5*inv)/(6.28318530718);float vis=1.0/max(4.0*(nl+nv-nl*nv),1e-6);return color*(d*vis*nl);}\n"
     "void main() {\n"
     "    vec2 base_uv = material_uv(0);\n"
     "    vec2 mr_uv = material_uv(1);\n"
@@ -351,6 +359,8 @@ static const char *FRAGMENT_SRC =
     "    vec2 clearcoat_uv = material_uv(7);\n"
     "    vec2 clearcoat_roughness_uv = material_uv(8);\n"
     "    vec2 clearcoat_normal_uv = material_uv(9);\n"
+    "    vec2 sheen_color_uv = material_uv(10);\n"
+    "    vec2 sheen_roughness_uv = material_uv(11);\n"
     "    float normal_length = length(v_normal);\n"
     "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
     "    vec3 clearcoat_n = n;\n"
@@ -419,6 +429,8 @@ static const char *FRAGMENT_SRC =
     "    float specular_weight = mix(clamp(specular_strength,0.0,1.0),1.0,metal);\n"
     "    float coat_factor = clamp(u_clearcoat.x*(u_clearcoat_textured?texture(u_clearcoat_tex,clearcoat_uv).r:1.0),0.0,1.0);\n"
     "    float coat_roughness = clamp(u_clearcoat.y*(u_clearcoat_roughness_textured?texture(u_clearcoat_roughness_tex,clearcoat_roughness_uv).g:1.0),0.045,1.0);\n"
+    "    vec3 sheen_color = u_sheen.rgb*(u_sheen_color_textured?texture(u_sheen_color_tex,sheen_color_uv).rgb:vec3(1.0));\n"
+    "    float sheen_roughness = clamp(u_sheen.a*(u_sheen_roughness_textured?texture(u_sheen_roughness_tex,sheen_roughness_uv).a:1.0),0.07,1.0);\n"
     "    float coat_fresnel = 0.04 + 0.96*pow(1.0-max(dot(clearcoat_n,v),0.0),5.0);\n"
     "    float visibility = 1.0;\n"
     "    if (u_shadow_params.x > 0.5) {\n"
@@ -437,7 +449,7 @@ static const char *FRAGMENT_SRC =
     "    vec3 col = base * (u_ambient.rgb * u_ambient.a * ao + u_light_color * diff * visibility)\n"
     "             + u_light_color * spec * visibility;\n"
     "    float env_scale = u_pbr.x > 0.5 ? 1.0-metal : 1.0;\n"
-    "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale*ao + pbr_light(n,v,l,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color)*u_light_color*visibility;\n"
+    "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale*ao + (pbr_light(n,v,l,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color)+sheen_light(n,v,l,sheen_color,sheen_roughness))*u_light_color*visibility;\n"
     "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
     "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale * ao;\n"
     "    if (u_env_map_enabled) {\n"
@@ -500,7 +512,7 @@ static const char *FRAGMENT_SRC =
     "        float d = max(dot(n, ld), 0.0);\n"
     "        vec3 halfdir = normalize(ld + v);\n"
     "        float s = pow(max(dot(n, halfdir), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
-    "        col += (u_pbr.x > 0.5 ? pbr_light(n,v,ld,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
+    "        col += (u_pbr.x > 0.5 ? pbr_light(n,v,ld,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color)+sheen_light(n,v,ld,sheen_color,sheen_roughness) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
     "        if (u_pbr.x > 0.5 && coat_factor > 0.0) coat += pbr_light(clearcoat_n,v,ld,vec3(0.0),0.0,coat_roughness,1.5,1.0,vec3(1.0))*light.color.rgb*falloff*coat_factor;\n"
     "    }\n"
     "    if (u_params.x > 0.5) col = base;\n"
@@ -589,7 +601,12 @@ static void find_uniforms(void) {
     shader.clearcoat_normal_tex = glGetUniformLocation(shader.program, "u_clearcoat_normal_tex");
     shader.clearcoat_normal_textured = glGetUniformLocation(shader.program, "u_clearcoat_normal_textured");
     shader.clearcoat_normal_scale = glGetUniformLocation(shader.program, "u_clearcoat_normal_scale");
-    for (int i = 0; i < 10; i++) {
+    shader.sheen = glGetUniformLocation(shader.program, "u_sheen");
+    shader.sheen_color_tex = glGetUniformLocation(shader.program, "u_sheen_color_tex");
+    shader.sheen_color_textured = glGetUniformLocation(shader.program, "u_sheen_color_textured");
+    shader.sheen_roughness_tex = glGetUniformLocation(shader.program, "u_sheen_roughness_tex");
+    shader.sheen_roughness_textured = glGetUniformLocation(shader.program, "u_sheen_roughness_textured");
+    for (int i = 0; i < 12; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_uv_transform[%d]", i); shader.uv_transform[i] = glGetUniformLocation(shader.program, name);
         snprintf(name, sizeof(name), "u_uv_rotation[%d]", i); shader.uv_rotation[i] = glGetUniformLocation(shader.program, name);
@@ -1116,6 +1133,8 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            a->clearcoat_roughness_texture == b->clearcoat_roughness_texture &&
            a->clearcoat_normal_texture == b->clearcoat_normal_texture &&
            a->clearcoat_normal_scale == b->clearcoat_normal_scale &&
+           same_vec4(a->sheen,b->sheen) && a->sheen_color_texture == b->sheen_color_texture &&
+           a->sheen_roughness_texture == b->sheen_roughness_texture &&
            a->double_sided == b->double_sided &&
            same_uv_transform(a->base_color_uv, b->base_color_uv) &&
            same_uv_transform(a->metallic_roughness_uv, b->metallic_roughness_uv) &&
@@ -1126,7 +1145,9 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            same_uv_transform(a->specular_color_uv, b->specular_color_uv) &&
            same_uv_transform(a->clearcoat_uv, b->clearcoat_uv) &&
            same_uv_transform(a->clearcoat_roughness_uv, b->clearcoat_roughness_uv) &&
-           same_uv_transform(a->clearcoat_normal_uv, b->clearcoat_normal_uv);
+           same_uv_transform(a->clearcoat_normal_uv, b->clearcoat_normal_uv) &&
+           same_uv_transform(a->sheen_color_uv,b->sheen_color_uv) &&
+           same_uv_transform(a->sheen_roughness_uv,b->sheen_roughness_uv);
 }
 
 EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_calls; }
@@ -1443,7 +1464,8 @@ static int item_samples_texture(const g3_draw_item *it, int32_t id) {
     return it->texture == id || it->metallic_roughness_texture == id || it->normal_texture == id ||
            it->occlusion_texture == id || it->emissive_texture == id || it->specular_texture == id ||
            it->specular_color_texture == id || it->clearcoat_texture == id ||
-           it->clearcoat_roughness_texture == id || it->clearcoat_normal_texture == id;
+           it->clearcoat_roughness_texture == id || it->clearcoat_normal_texture == id ||
+           it->sheen_color_texture == id || it->sheen_roughness_texture == id;
 }
 
 /* --- a frame --- */
@@ -1732,10 +1754,11 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
     glUniform4f(shader.pbr, it->pbr.x, it->pbr.y, it->pbr.z, it->pbr.w);
-    const g3_uv_transform *uv_transforms[10] = { &it->base_color_uv, &it->metallic_roughness_uv,
+    const g3_uv_transform *uv_transforms[12] = { &it->base_color_uv, &it->metallic_roughness_uv,
         &it->normal_uv, &it->occlusion_uv, &it->emissive_uv, &it->specular_uv, &it->specular_color_uv,
-        &it->clearcoat_uv, &it->clearcoat_roughness_uv, &it->clearcoat_normal_uv };
-    for (int uv = 0; uv < 10; uv++) {
+        &it->clearcoat_uv, &it->clearcoat_roughness_uv, &it->clearcoat_normal_uv,
+        &it->sheen_color_uv, &it->sheen_roughness_uv };
+    for (int uv = 0; uv < 12; uv++) {
         glUniform4f(shader.uv_transform[uv], uv_transforms[uv]->offset.x, uv_transforms[uv]->offset.y,
                     uv_transforms[uv]->scale.x, uv_transforms[uv]->scale.y);
         glUniform1f(shader.uv_rotation[uv], uv_transforms[uv]->rotation);
@@ -1801,6 +1824,17 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform1i(shader.clearcoat_normal_tex, 19);
     glUniform1i(shader.clearcoat_normal_textured, clearcoat_normal_textured);
     glUniform1f(shader.clearcoat_normal_scale, it->clearcoat_normal_scale);
+    glUniform4f(shader.sheen, it->sheen.x, it->sheen.y, it->sheen.z, it->sheen.w);
+    int sheen_color_textured = it->sheen_color_texture >= 0 && it->sheen_color_texture < texture_count && textures[it->sheen_color_texture];
+    glActiveTexture(GL_TEXTURE20);
+    glBindTexture(GL_TEXTURE_2D, sheen_color_textured ? textures[it->sheen_color_texture] : 0);
+    glUniform1i(shader.sheen_color_tex, 20);
+    glUniform1i(shader.sheen_color_textured, sheen_color_textured);
+    int sheen_roughness_textured = it->sheen_roughness_texture >= 0 && it->sheen_roughness_texture < texture_count && textures[it->sheen_roughness_texture];
+    glActiveTexture(GL_TEXTURE21);
+    glBindTexture(GL_TEXTURE_2D, sheen_roughness_textured ? textures[it->sheen_roughness_texture] : 0);
+    glUniform1i(shader.sheen_roughness_tex, 21);
+    glUniform1i(shader.sheen_roughness_textured, sheen_roughness_textured);
     int specular_textured = it->specular_texture >= 0 && it->specular_texture < texture_count && textures[it->specular_texture];
     glActiveTexture(GL_TEXTURE14);
     glBindTexture(GL_TEXTURE_2D, specular_textured ? textures[it->specular_texture] : 0);

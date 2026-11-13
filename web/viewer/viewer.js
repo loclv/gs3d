@@ -33,6 +33,7 @@ function updateInspection() {
     `IOR: ${material.ior.toFixed(2)}   Specular: ${material.specularFactor.toFixed(2)} (${material.specularColorFactor.map(value => value.toFixed(2)).join(', ')})`,
     `Normal scale: ${material.normalScale.toFixed(2)}   Occlusion strength: ${material.occlusionStrength.toFixed(2)}`,
     `Clearcoat: ${material.clearcoatFactor.toFixed(2)}   Roughness: ${material.clearcoatRoughnessFactor.toFixed(2)}   Normal scale: ${material.clearcoatNormalScale.toFixed(2)}`,
+    `Sheen: ${material.sheenColorFactor.map(value => value.toFixed(2)).join(', ')}   Roughness: ${material.sheenRoughnessFactor.toFixed(2)}`,
     `Alpha: ${material.alphaMode}${material.alphaMode === 'MASK' ? ` at ${material.alphaCutoff.toFixed(2)}` : ''}`,
     `Emission: ${emission}`,
     `Maps: ${material.textureSlots.length ? material.textureSlots.join(', ') : 'none'}`,

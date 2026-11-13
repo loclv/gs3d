@@ -537,10 +537,11 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
   let unlit = false, emissiveStrength = 1, ior = 1.5;
   let clearcoatFactor = 0, clearcoatRoughness = 0, clearcoatExtension = null;
   let specularFactor = 1, specularColorFactor = [1, 1, 1], specularExtension = null;
+  let sheenColorFactor = [0, 0, 0], sheenRoughness = 0, sheenExtension = null;
   if (material.extensions !== undefined) {
     if (!material.extensions || typeof material.extensions !== 'object' || Array.isArray(material.extensions)) invalid('Invalid material extensions');
     const materialExtensions = Object.keys(material.extensions);
-    if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat'].includes(extension))) unsupported('Unsupported material feature');
+    if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_materials_sheen'].includes(extension))) unsupported('Unsupported material feature');
     if (materialExtensions.includes('KHR_materials_unlit')) {
       if (!extensionsUsed.includes('KHR_materials_unlit')) invalid('KHR_materials_unlit must be listed in extensionsUsed');
       const extension = material.extensions.KHR_materials_unlit;
@@ -581,6 +582,16 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
       if (![clearcoatFactor, clearcoatRoughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid clearcoat factor');
       if (unlit) invalid('KHR_materials_clearcoat cannot be combined with KHR_materials_unlit');
     }
+    if (materialExtensions.includes('KHR_materials_sheen')) {
+      if (!extensionsUsed.includes('KHR_materials_sheen')) invalid('KHR_materials_sheen must be listed in extensionsUsed');
+      sheenExtension = material.extensions.KHR_materials_sheen;
+      if (!sheenExtension || typeof sheenExtension !== 'object' || Array.isArray(sheenExtension)) invalid('Invalid KHR_materials_sheen extension');
+      sheenColorFactor = sheenExtension.sheenColorFactor ?? [0, 0, 0];
+      sheenRoughness = sheenExtension.sheenRoughnessFactor ?? 0;
+      if (!Array.isArray(sheenColorFactor) || sheenColorFactor.length !== 3 || !sheenColorFactor.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid sheen color factor');
+      if (!Number.isFinite(sheenRoughness) || sheenRoughness < 0 || sheenRoughness > 1) invalid('Invalid sheen roughness factor');
+      if (unlit) invalid('KHR_materials_sheen cannot be combined with KHR_materials_unlit');
+    }
   }
   if (material.doubleSided !== undefined && typeof material.doubleSided !== 'boolean') invalid('Invalid doubleSided material flag');
   const alphaModes = { OPAQUE: 0, MASK: 1, BLEND: 2 };
@@ -599,6 +610,8 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
   const clearcoatUvTransform = clearcoatExtension?.clearcoatTexture ? parseTextureTransform(clearcoatExtension.clearcoatTexture, extensionsUsed) : identityUvTransform();
   const clearcoatRoughnessUvTransform = clearcoatExtension?.clearcoatRoughnessTexture ? parseTextureTransform(clearcoatExtension.clearcoatRoughnessTexture, extensionsUsed) : identityUvTransform();
   const clearcoatNormalUvTransform = clearcoatExtension?.clearcoatNormalTexture ? parseTextureTransform(clearcoatExtension.clearcoatNormalTexture, extensionsUsed) : identityUvTransform();
+  const sheenColorUvTransform = sheenExtension?.sheenColorTexture ? parseTextureTransform(sheenExtension.sheenColorTexture, extensionsUsed) : identityUvTransform();
+  const sheenRoughnessUvTransform = sheenExtension?.sheenRoughnessTexture ? parseTextureTransform(sheenExtension.sheenRoughnessTexture, extensionsUsed) : identityUvTransform();
   const clearcoatNormalScale = clearcoatExtension?.clearcoatNormalTexture?.scale ?? 1;
   if (!Number.isFinite(clearcoatNormalScale)) invalid('Invalid clearcoat normal scale');
   let normalTextureIndex = -1;
@@ -659,6 +672,17 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
     item(textureSpecs, clearcoatExtension.clearcoatNormalTexture.index, 'clearcoat normal texture');
     clearcoatNormalTextureIndex = clearcoatExtension.clearcoatNormalTexture.index;
   }
+  let sheenColorTextureIndex = -1, sheenRoughnessTextureIndex = -1;
+  if (sheenExtension?.sheenColorTexture) {
+    if (!availableUvSets[sheenColorUvTransform.texcoord]) unsupported('Unsupported sheen color texture coordinates');
+    item(textureSpecs, sheenExtension.sheenColorTexture.index, 'sheen color texture');
+    sheenColorTextureIndex = sheenExtension.sheenColorTexture.index;
+  }
+  if (sheenExtension?.sheenRoughnessTexture) {
+    if (!availableUvSets[sheenRoughnessUvTransform.texcoord]) unsupported('Unsupported sheen roughness texture coordinates');
+    item(textureSpecs, sheenExtension.sheenRoughnessTexture.index, 'sheen roughness texture');
+    sheenRoughnessTextureIndex = sheenExtension.sheenRoughnessTexture.index;
+  }
   const metallic = pbr.metallicFactor ?? 1, roughness = pbr.roughnessFactor ?? 1;
   if (![metallic, roughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid metallic or roughness factor');
   const color = pbr.baseColorFactor || [1, 1, 1, 1];
@@ -678,9 +702,10 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
     specularTextureIndex, specularColorTextureIndex, clearcoatFactor, clearcoatRoughness,
     clearcoatTextureIndex, clearcoatRoughnessTextureIndex,
     clearcoatNormalTextureIndex, clearcoatNormalScale,
+    sheenColorFactor: [...sheenColorFactor], sheenRoughness, sheenColorTextureIndex, sheenRoughnessTextureIndex,
     uvTransforms: [baseUvTransform, metallicRoughnessUvTransform, normalUvTransform, occlusionUvTransform,
       emissiveUvTransform, specularUvTransform, specularColorUvTransform, clearcoatUvTransform,
-      clearcoatRoughnessUvTransform, clearcoatNormalUvTransform], materialIndex: materialIndex ?? -1 };
+      clearcoatRoughnessUvTransform, clearcoatNormalUvTransform, sheenColorUvTransform, sheenRoughnessUvTransform], materialIndex: materialIndex ?? -1 };
 }
 
 function inspectMaterial(spec) {
@@ -691,6 +716,7 @@ function inspectMaterial(spec) {
     ['emissive', spec.emissiveTextureIndex], ['specular', spec.specularTextureIndex],
     ['specularColor', spec.specularColorTextureIndex], ['clearcoat', spec.clearcoatTextureIndex],
     ['clearcoatRoughness', spec.clearcoatRoughnessTextureIndex], ['clearcoatNormal', spec.clearcoatNormalTextureIndex],
+    ['sheenColor', spec.sheenColorTextureIndex], ['sheenRoughness', spec.sheenRoughnessTextureIndex],
   ].filter(([, index]) => index >= 0).map(([slot, index]) => Object.freeze({ slot, index }));
   return Object.freeze({
     index: spec.materialIndex, name: spec.name,
@@ -703,6 +729,7 @@ function inspectMaterial(spec) {
     specularColorFactor: Object.freeze([...spec.specularColorFactor]),
     clearcoatFactor: spec.clearcoatFactor, clearcoatRoughnessFactor: spec.clearcoatRoughness,
     clearcoatNormalScale: spec.clearcoatNormalScale,
+    sheenColorFactor: Object.freeze([...spec.sheenColorFactor]), sheenRoughnessFactor: spec.sheenRoughness,
     textureSlots: Object.freeze(textureBindings.map(binding => binding.slot)),
     textureBindings: Object.freeze(textureBindings),
   });
@@ -742,7 +769,7 @@ async function prepare(url, requestedScene) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization', 'KHR_lights_punctual', 'EXT_mesh_gpu_instancing'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_materials_sheen', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization', 'KHR_lights_punctual', 'EXT_mesh_gpu_instancing'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   if (doc.extensions !== undefined && (!doc.extensions || typeof doc.extensions !== 'object' || Array.isArray(doc.extensions))) invalid('Invalid glTF extensions');
   const variantExtension = doc.extensions?.KHR_materials_variants;
@@ -1445,6 +1472,10 @@ export async function loadGLTF(engine, url, options = {}) {
         getTexture(spec.clearcoatTextureIndex, false), getTexture(spec.clearcoatRoughnessTextureIndex, false),
         getTexture(spec.clearcoatNormalTextureIndex, false), spec.clearcoatNormalScale)) {
         throw new AssetError('UPLOAD', 'Could not set material clearcoat properties');
+      }
+      if (!engine._g3_asset_material_sheen(id, ...spec.sheenColorFactor, spec.sheenRoughness,
+        getTexture(spec.sheenColorTextureIndex, true), getTexture(spec.sheenRoughnessTextureIndex, false))) {
+        throw new AssetError('UPLOAD', 'Could not set material sheen properties');
       }
       for (let slot = 0; slot < spec.uvTransforms.length; slot++) {
         const transform = spec.uvTransforms[slot];

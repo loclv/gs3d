@@ -84,6 +84,16 @@ export fn g3_asset_material_clearcoat(id: i32, factor: f32, roughness: f32, text
     m.clearcoat_normal_scale = normal_scale;
     return true;
 }
+export fn g3_asset_material_sheen(id: i32, color_r: f32, color_g: f32, color_b: f32, roughness: f32, color_texture: i32, roughness_texture: i32) -> bool {
+    guard g3::material_valid(id) && color_r >= 0.0 && color_r <= 1.0 && color_g >= 0.0 && color_g <= 1.0 &&
+          color_b >= 0.0 && color_b <= 1.0 && roughness >= 0.0 && roughness <= 1.0 else { return false; }
+    let m .= g3::material(id);
+    m.sheen_color = float3 { color_r, color_g, color_b };
+    m.sheen_roughness = roughness;
+    m.sheen_color_texture = color_texture;
+    m.sheen_roughness_texture = roughness_texture;
+    return true;
+}
 export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offset_y: f32, scale_x: f32, scale_y: f32, rotation: f32, texcoord: i32) -> bool {
     guard g3::material_valid(id) && texcoord >= 0 && texcoord <= 7 else { return false; }
     let transform = g3::UvTransform { offset: float2 { offset_x, offset_y }, scale: float2 { scale_x, scale_y }, rotation: rotation, texcoord: texcoord };
@@ -97,6 +107,8 @@ export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offs
     else if slot == 7 { g3::material(id).clearcoat_uv = transform; }
     else if slot == 8 { g3::material(id).clearcoat_roughness_uv = transform; }
     else if slot == 9 { g3::material(id).clearcoat_normal_uv = transform; }
+    else if slot == 10 { g3::material(id).sheen_color_uv = transform; }
+    else if slot == 11 { g3::material(id).sheen_roughness_uv = transform; }
     else { return false; }
     return true;
 }

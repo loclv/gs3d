@@ -902,6 +902,12 @@ fn case_ordinary_texture_removal() {
     g3::material(material).clearcoat_roughness_texture = -1;
     g3::material(material).clearcoat_normal_texture = texture;
     testing::check(!g3::texture_remove(handle), "a clearcoat normal map keeps its texture alive");
+    g3::material(material).clearcoat_normal_texture = -1;
+    g3::material(material).sheen_color_texture = texture;
+    testing::check(!g3::texture_remove(handle), "a sheen color map keeps its texture alive");
+    g3::material(material).sheen_color_texture = -1;
+    g3::material(material).sheen_roughness_texture = texture;
+    testing::check(!g3::texture_remove(handle), "a sheen roughness map keeps its texture alive");
     g3::material_remove(material);
     g3::set_environment_map(texture, 1.0);
     testing::check(!g3::texture_remove(handle), "the active environment texture cannot be removed");
@@ -1274,6 +1280,38 @@ fn case_pbr() {
     g3::material(mat).clearcoat_factor = 0.0;
     g3::material(mat).clearcoat_texture = -1;
     g3::material(mat).clearcoat_roughness_texture = -1;
+    // Charlie sheen is zero at normal incidence; the angled light produces a
+    // grazing response that only raises the red channel of this red cloth.
+    g3::set_light(float3 { -0.6, 0.0, -0.8 }, float3 { 0.5, 0.5, 0.5 });
+    g3::material(mat).sheen_roughness = 0.5;
+    g3::frame(1.0 / 60.0);
+    let sheen_base = g3::read_pixel(200, 200);
+    g3::material(mat).sheen_color = float3 { 1.0, 0.0, 0.0 };
+    g3::frame(1.0 / 60.0);
+    let sheen_red = g3::read_pixel(200, 200);
+    testing::check(channel(sheen_red, 16) > channel(sheen_base, 16) &&
+        abs(channel(sheen_red, 8) - channel(sheen_base, 8)) <= 1 &&
+        abs(channel(sheen_red, 0) - channel(sheen_base, 0)) <= 1,
+        "sheen adds a coloured grazing-angle reflection");
+    let roughness_zero: u8[4] = [255, 255, 255, 0];
+    g3::material(mat).sheen_roughness_texture = g3::texture_create(1, 1, roughness_zero[..]);
+    g3::frame(1.0 / 60.0);
+    let sheen_smooth = g3::read_pixel(200, 200);
+    let roughness_one: u8[4] = [0, 0, 0, 255];
+    g3::material(mat).sheen_roughness_texture = g3::texture_create(1, 1, roughness_one[..]);
+    g3::frame(1.0 / 60.0);
+    let sheen_rough = g3::read_pixel(200, 200);
+    testing::check(abs(channel(sheen_smooth, 16) - channel(sheen_rough, 16)) > 1,
+        "sheen roughness map alpha changes the lobe width");
+    let sheen_off: u8[4] = [0, 0, 0, 255];
+    g3::material(mat).sheen_color_texture = g3::texture_create(1, 1, sheen_off[..]);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), channel(sheen_base, 16), channel(sheen_base, 8), channel(sheen_base, 0), 1),
+        "sheen color map multiplies its RGB factor");
+    g3::material(mat).sheen_color_texture = -1;
+    g3::material(mat).sheen_color = float3_0;
+    g3::material(mat).sheen_roughness_texture = -1;
+    g3::set_light(float3 { 0.0, 0.0, -1.0 }, float3 { 0.5, 0.5, 0.5 });
     // At IOR 2.333, dielectric F0 is about 0.16. For roughness 1 the
     // normal-incidence response is 0.5 * (0.84*0.5/pi + 0.16/(4*pi))
     // = 0.0732, or 19/255.
