@@ -87,6 +87,7 @@ extern fn g3p_upload_texture_srgb(id: i32, pixels: const u8[:], width: i32, heig
 extern fn g3p_texture_wrap(id: i32, wrap_u: i32, wrap_v: i32);
 // Filters use glTF/WebGL numeric values: 9728/9729, plus 9984..9987 for minification.
 extern fn g3p_texture_filter(id: i32, min_filter: i32, mag_filter: i32);
+extern fn g3p_texture_generate_mips(id: i32);
 
 // Draw one whole frame: clear, then each item in order.
 extern fn g3p_draw_frame(items: const DrawItem[:], view: const ViewState&);

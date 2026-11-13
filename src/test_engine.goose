@@ -879,6 +879,41 @@ fn case_normal_map() {
     testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "normal map rotates the surface normal into tangent-space +X light");
 }
 
+// The environment map's +Z texel is white: a smooth metal reflects it at
+// full strength. Roughness one selects the generated 1x1 average mip (50%).
+fn case_environment_specular() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_environment(float3_0, float3_0, 0.0);
+    g3::set_environment_map(-1, 0.0);
+    g3::clear_lights();
+    g3::set_light(float3 { 0.0, 0.0, -1.0 }, float3_0);
+    let fv = g3::g_verts.len;
+    let fi = g3::g_indices.len;
+    let normal = float3 { 0.0, 0.0, 1.0 };
+    g3::push_vertex_uv(float3 { -1.0, -1.0, 0.0 }, normal, float2 { 0.0, 0.0 });
+    g3::push_vertex_uv(float3 { 1.0, -1.0, 0.0 }, normal, float2 { 1.0, 0.0 });
+    g3::push_vertex_uv(float3 { 0.0, 1.0, 0.0 }, normal, float2 { 0.5, 1.0 });
+    g3::push_triangle(0, 1, 2);
+    let node = g3::node_add(g3::mesh_close(fv, fi));
+    let mat = g3::material_add();
+    g3::node(node).material = mat;
+    g3::material(mat).pbr = true;
+    g3::material(mat).metallic = 1.0;
+    g3::material(mat).roughness = 0.045;
+    g3::material(mat).color = float4_1;
+    let pixels: u8[8] = [0, 0, 0, 255, 255, 255, 255, 255];
+    let env = g3::texture_create(2, 1, pixels[..]);
+    g3::texture_set_wrap(env, g3::WRAP_REPEAT, g3::WRAP_CLAMP);
+    g3::set_environment_map(env, 1.0);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "smooth metallic surface reflects the sharp environment level");
+    g3::material(mat).roughness = 1.0;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 2), "roughness samples the averaged environment mip");
+}
+
 fn main() {
     guard g3::init(W, H, "g3 self-test") else {
         print("g3: no surface to draw on");
@@ -912,6 +947,7 @@ fn main() {
     case_shared_material();
     case_pbr();
     case_normal_map();
+    case_environment_specular();
 
     g3::shutdown();
     if !testing::finish() { exit(1); }

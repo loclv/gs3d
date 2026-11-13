@@ -290,8 +290,10 @@ What the API gives you:
   `add_spot_light`, `clear_lights`), ambient light and a hemispherical sky/ground
   fill (`set_ambient`, `set_environment`) or an equirectangular RGB texture
   (`set_environment_map`), plus fog and background colour. The texture is
-  sampled along the surface normal as a diffuse approximation; it is not a
-  prefiltered image-based lighting solution or a skybox.
+  sampled along the surface normal for diffuse fill. Metallic-roughness
+  materials also reflect it using roughness-selected mip levels and a Fresnel
+  approximation. The generated box-filtered mip chain is not GGX PMREM or a
+  skybox.
   Add functions return false when parameters are invalid or the limit is reached.
   Point and spot lights use squared linear range falloff; spot angles are
   inner and outer half-angles in radians. `set_directional_shadows(center,

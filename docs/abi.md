@@ -77,7 +77,7 @@ ignored for opaque items.
 | 312 | `g3_vec4` | `env_sky` | hemispherical sky RGB and intensity |
 | 328 | `g3_vec4` | `env_ground` | hemispherical ground RGB |
 | 344 | `int32_t` | `environment_texture` | equirectangular RGB texture handle, or -1 |
-| 348 | `float` | `environment_intensity` | multiplier for texture-based diffuse fill |
+| 348 | `float` | `environment_intensity` | multiplier for texture-based environment fill and reflection |
 | 352 | `g3_mat4` | `shadow_view_proj` | primary directional light's world-to-shadow clip transform |
 | 416 | `g3_vec4` | `shadow_params` | x enabled, y normalized depth bias |
 | 432 | `g3_vec4` | `view_direction` | xyz direction toward viewer, w selects orthographic shading |

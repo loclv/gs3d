@@ -16,8 +16,8 @@ and pixel tests provide a useful reference for rendering changes.
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for static glTF/GLB with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
-| Materials | Shared glTF materials with metallic-roughness direct lighting and maps, tangent-space normal maps, base-colour texture, alpha, wrapping, filtering and sRGB | Prefiltered environment lighting, HDR tone mapping, browser reference validation |
-| Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and prefiltered image-based environment lighting |
+| Materials | Shared glTF materials with metallic-roughness direct lighting and maps, tangent-space normal maps, and roughness-selected equirectangular reflections | GGX-prefiltered environment maps, BRDF integration, HDR tone mapping, browser reference validation |
+| Lighting | Directional, point and spot lights; a primary directional shadow map; ambient, hemispherical and equirectangular diffuse fill | More shadow types and higher quality image-based environment lighting |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
 | Scene management | Parent hierarchy, checked node removal, and selectable perspective or orthographic cameras | General mesh and texture removal, reusable resources, camera lifecycle |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit and pinch controls, viewer selection | Additional touch gestures, panning, keyboard camera controls, browser integration tests |
@@ -59,8 +59,10 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
 ### 2. Materials and lighting
 
 * **Implemented:** shared materials, metallic-roughness maps and normal maps
-  with per-triangle tangent frames derived from positions and UVs. Extend the
-  metallic-roughness model with prefiltered environment lighting.
+  with per-triangle tangent frames derived from positions and UVs. Equirectangular
+  maps now add diffuse fill and roughness-selected reflections through a
+  box-filtered mip chain and Fresnel approximation. Replace this approximation
+  with GGX-prefiltered radiance and a BRDF integration LUT.
 * Improve shadow quality and coverage, add point/spot shadows and prefiltered
   image-based environment lighting. The existing primary directional shadow
   map and hemispherical fill remain available; specify light and map limits.

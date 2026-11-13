@@ -53,6 +53,7 @@ static web_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
 static GLuint *textures;
 static int32_t texture_count;
+static GLuint env_sampler;
 static int checked_gl;
 static GLuint shadow_program, shadow_fbo, shadow_texture;
 static GLint shadow_light_matrix, shadow_model_matrix;
@@ -178,7 +179,15 @@ static const char *FRAGMENT_SRC =
     "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale;\n"
     "    if (u_env_map_enabled) {\n"
     "        vec2 env_uv = vec2(atan(n.z, n.x) / 6.28318530718 + 0.5, acos(clamp(n.y, -1.0, 1.0)) / 3.14159265359);\n"
-    "        col += base * texture(u_env_map, env_uv).rgb * u_env_map_intensity * env_scale;\n"
+    "        col += base * textureLod(u_env_map, env_uv, 0.0).rgb * u_env_map_intensity * env_scale;\n"
+    "        if (u_pbr.x > 0.5) {\n"
+    "            vec3 reflected = reflect(-v, n);\n"
+    "            vec2 spec_uv = vec2(atan(reflected.z, reflected.x) / 6.28318530718 + 0.5, acos(clamp(reflected.y, -1.0, 1.0)) / 3.14159265359);\n"
+    "            float rough = clamp(mr.y, 0.045, 1.0);\n"
+    "            vec3 f0 = mix(vec3(0.04), base, clamp(mr.x, 0.0, 1.0));\n"
+    "            vec3 fresnel = f0 + (max(vec3(1.0-rough), f0)-f0)*pow(1.0-max(dot(n,v),0.0),5.0);\n"
+    "            col += textureLod(u_env_map, spec_uv, rough*rough*8.0).rgb * fresnel * u_env_map_intensity;\n"
+    "        }\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
     "        Light light = u_lights[i];\n"
@@ -365,6 +374,8 @@ void g3p_shutdown(void) {
     shadow_program = shadow_fbo = shadow_texture = 0;
     for (int32_t i = 0; i < texture_count; i++) glDeleteTextures(1, &textures[i]);
     free(textures); textures = NULL; texture_count = 0;
+    if (env_sampler) glDeleteSamplers(1, &env_sampler);
+    env_sampler = 0;
     for (int32_t i = 0; i < mesh_count; i++) {
         glDeleteVertexArrays(1, &meshes[i].vao);
         glDeleteBuffers(1, &meshes[i].vbo);
@@ -478,6 +489,12 @@ void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag_filter);
 }
 
+void g3p_texture_generate_mips(int32_t id) {
+    if (id < 0 || id >= texture_count || !textures[id]) return;
+    glBindTexture(GL_TEXTURE_2D, textures[id]);
+    glGenerateMipmap(GL_TEXTURE_2D);
+}
+
 EMSCRIPTEN_KEEPALIVE void g3_host_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter) {
     g3p_texture_filter(id, min_filter, mag_filter);
 }
@@ -533,6 +550,14 @@ static void bind_view(const g3_view_state *view) {
     int has_env = env >= 0 && env < texture_count && textures[env];
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, has_env ? textures[env] : 0);
+    if (!env_sampler) {
+        glGenSamplers(1, &env_sampler);
+        glSamplerParameteri(env_sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glSamplerParameteri(env_sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glSamplerParameteri(env_sampler, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glSamplerParameteri(env_sampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glBindSampler(1, env_sampler);
     glUniform1i(shader.env_map, 1);
     glUniform1i(shader.env_map_enabled, has_env);
     glUniform1f(shader.env_map_intensity, view->environment_intensity);

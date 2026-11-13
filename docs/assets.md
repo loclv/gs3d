@@ -107,8 +107,12 @@ mechanism.
   roughness, uploaded as linear data. If one glTF texture is used for both
   base colour and metallic-roughness, the loader keeps separate sRGB and linear
   uploads.
-  Ambient and environment lighting remain diffuse approximations without
-  prefiltered specular reflections. Nearest, linear and mipmapped filters are supported,
+  Equirectangular environment maps add diffuse fill and a roughness-selected
+  specular reflection with a Fresnel approximation. The map's box-filtered mip
+  chain is an approximation, not GGX convolution with a BRDF integration LUT.
+  Sampling wraps longitude and clamps latitude; selecting the environment map
+  generates a mip chain for roughness filtering.
+  Nearest, linear and mipmapped filters are supported,
   as are clamp, repeat and mirrored repeat separately for each axis. An omitted
   glTF wrapping mode defaults to repeat; omitted filters use linear. The CPU
   rasterizer estimates mip level from neighboring perspective-correct UVs;

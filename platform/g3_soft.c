@@ -315,6 +315,11 @@ void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter) {
     t->mag_filter = mag_filter;
 }
 
+void g3p_texture_generate_mips(int32_t id) {
+    if (id < 0 || id >= texture_count || !textures[id].pixels) return;
+    if (textures[id].levels == 1) generate_mips(&textures[id]);
+}
+
 /* Resizing a headless surface means reallocating the framebuffer and the z
    buffer; the meshes stay where they are. */
 int g3_backend_resize(int w, int h) {
@@ -336,6 +341,7 @@ int g3_backend_resize(int w, int h) {
 /* --- shading: the GLSL in g3_web.c, term for term --- */
 
 static void sample_texture(int32_t id, float u, float v, float rho, float out[4]);
+static void sample_environment_lod(int32_t id, float u, float v, float lod, float out[4]);
 static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 
 /* glTF metallic-roughness direct BRDF: GGX, correlated Smith, Schlick. */
@@ -414,11 +420,31 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     if (vs->environment_texture >= 0 && vs->environment_texture < texture_count && textures[vs->environment_texture].pixels) {
         float env[4];
         float y = n.y < -1.0f ? -1.0f : n.y > 1.0f ? 1.0f : n.y;
-        sample_texture(vs->environment_texture, atan2f(n.z, n.x) / 6.28318530718f + 0.5f,
-                       acosf(y) / 3.14159265359f, 0.0f, env);
+        sample_environment_lod(vs->environment_texture, atan2f(n.z, n.x) / 6.28318530718f + 0.5f,
+                               acosf(y) / 3.14159265359f, 0.0f, env);
         r += base[0] * env[0] * vs->environment_intensity * env_scale;
         g += base[1] * env[1] * vs->environment_intensity * env_scale;
         b += base[2] * env[2] * vs->environment_intensity * env_scale;
+        if (it->pbr.x > 0.5f) {
+            float rx=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.x-vx;
+            float ry=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.y-vy;
+            float rz=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.z-vz;
+            float ryc=ry < -1.0f ? -1.0f : ry > 1.0f ? 1.0f : ry;
+            float rough=fmaxf(0.045f,fminf(roughness,1.0f));
+            float lod=rough*rough*8.0f, reflected[4];
+            sample_environment_lod(vs->environment_texture,atan2f(rz,rx)/6.28318530718f+0.5f,
+                                   acosf(ryc)/3.14159265359f,lod,reflected);
+            float nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f);
+            float fresnel_weight=powf(1.0f-nv,5.0f);
+            for (int c=0;c<3;c++) {
+                float metal=fmaxf(0.0f,fminf(metallic,1.0f));
+                float f0=0.04f*(1.0f-metal)+base[c]*metal;
+                float edge=fmaxf(1.0f-rough,f0);
+                float fresnel=f0+(edge-f0)*fresnel_weight;
+                float specular=reflected[c]*fresnel*vs->environment_intensity;
+                if (c==0) r+=specular; else if (c==1) g+=specular; else b+=specular;
+            }
+        }
     }
     int count = vs->light_count < 0 ? 0 : vs->light_count > 4 ? 4 : vs->light_count;
     for (int i = 0; i < count; i++) {
@@ -552,6 +578,29 @@ static void sample_texture(int32_t id, float u, float v, float rho, float out[4]
         sample_level(t, hi, linear, u, v, other);
         for (int c = 0; c < 4; c++) out[c] += (other[c] - out[c]) * fraction;
     }
+}
+
+/* Explicit trilinear LOD for roughness-filtered environment radiance. */
+static void sample_texture_lod_from(const soft_texture *t, float u, float v, float lod, float out[4]) {
+    out[0] = out[1] = out[2] = out[3] = 1.0f;
+    if (!t || !t->pixels) return;
+    if (lod < 0.0f) lod = 0.0f;
+    if (lod > t->levels - 1) lod = (float)(t->levels - 1);
+    int lo=(int)floorf(lod), hi=lo+1<t->levels?lo+1:lo;
+    float other[4], fraction=lod-lo;
+    sample_level(t,lo,1,u,v,out);
+    if (hi == lo) return;
+    sample_level(t,hi,1,u,v,other);
+    for (int c=0;c<4;c++) out[c]+=(other[c]-out[c])*fraction;
+}
+
+static void sample_environment_lod(int32_t id, float u, float v, float lod, float out[4]) {
+    out[0]=out[1]=out[2]=out[3]=1.0f;
+    if (id < 0 || id >= texture_count || !textures[id].pixels) return;
+    soft_texture environment = textures[id];
+    environment.wrap_u = 1; /* equirectangular longitude wraps */
+    environment.wrap_v = 0; /* latitude clamps at the poles */
+    sample_texture_lod_from(&environment,u,v,lod,out);
 }
 
 /* Clip in homogeneous space before division. Interpolating object-space
