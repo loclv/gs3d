@@ -673,7 +673,10 @@ fn case_lights() {
     g3::clear_lights();
     let unbounded_point = g3::add_point_light_physical(float3 { 0.0, 0.0, 3.0 }, float3 { 1.0, 0.0, 0.0 }, 0.0);
     g3::frame(1.0 / 60.0);
-    testing::check(unbounded_point && is_color(g3::read_pixel(200, 200), 64, 0, 0, 2), "zero physical range disables the lighting cutoff");
+    let unbounded_shadow = g3::set_point_light_shadows(0, 0.001);
+    testing::check(unbounded_point && unbounded_shadow && is_color(g3::read_pixel(200, 200), 64, 0, 0, 2),
+                   "zero physical range disables lighting cutoff and uses a bounded shadow projection");
+    g3::clear_point_light_shadows();
     g3::clear_lights();
     let spot = g3::add_spot_light(float3 { 0.0, 0.0, 3.0 }, float3 { 0.0, 0.0, -1.0 }, float3 { 0.0, 0.0, 1.0 }, 4.0, 0.2, 0.4);
     g3::frame(1.0 / 60.0);

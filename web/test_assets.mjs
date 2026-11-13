@@ -453,6 +453,8 @@ function fakeEngine() {
   for (const [name, args] of [['directional', 6], ['point', 7], ['spot', 12]]) engine[`_g3_asset_light_${name}`] = (...values) => {
     calls.push([`light_${name}`, ...values]); engine.activeLights.push([name, ...values]); return values.length === args;
   };
+  engine._g3_asset_light_point_shadow = (...values) => { calls.push(['light_point_shadow', ...values]); return true; };
+  engine._g3_asset_light_spot_shadow = (...values) => { calls.push(['light_spot_shadow', ...values]); return true; };
   engine._g3_asset_node_generation = id => generations.get(id) || 0;
   engine._g3_asset_node_valid = (id, generation, epoch) => epoch === (engine.epoch || 0) && generations.get(id) === generation;
   engine._g3_asset_node_release = (id, generation, epoch) => {
@@ -499,6 +501,12 @@ assert.deepEqual(punctualEngine.calls.find(call => call[0] === 'light_point'), [
   'glTF point lights without a range keep inverse-square attenuation without a lighting cutoff');
 assert.deepEqual(punctualEngine.calls.find(call => call[0] === 'light_spot'), ['light_spot', 0, 0, 5, 0, 0, -1, 1, 1, 1, 15, 0.1, 0.6]);
 assert.equal(punctualModel.lightsApplied, true);
+assert.equal(punctualModel.applyLights({ pointShadow: 1, spotShadow: 2, bias: 0.003 }), true);
+assert.deepEqual(punctualEngine.calls.filter(call => call[0].endsWith('_shadow')), [
+  ['light_point_shadow', 1, 0.003], ['light_spot_shadow', 2, 0.003],
+], 'selected point and spot shadows use model light indices and the requested bias');
+assert.equal(punctualModel.applyLights({ pointShadow: 2 }), false, 'a spot cannot be selected as a point shadow caster');
+assert.equal(punctualModel.applyLights({ bias: 3.5e38 }), false, 'shadow bias must fit the engine float range');
 punctualModel.dispose();
 assert.equal(punctualEngine.activeLightSet, -1, 'disposing an applied light set restores the previous engine state');
 const laterLightEngine = fakeEngine();

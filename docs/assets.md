@@ -28,6 +28,8 @@ try {
   // model.nodes exposes selected-scene glTF indices, names, parent/child links,
   // mesh/camera/light/skin references, a checked group handle, and primitive handles.
   // If the document contains KHR_lights_punctual, model.applyLights() opts into them;
+  // model.applyLights({ pointShadow: 1, spotShadow: 2 }) also selects shadow
+  // casters by model.lights index.
   // model.dispose() restores the previous engine light set.
   // model.variants lists KHR_materials_variants names; model.setVariant('Damaged') switches materials.
   // model.setVariant(null) restores each primitive's default material.
@@ -216,8 +218,10 @@ fetches and decodes assets in JavaScript.
   range fade to imported point and spot lights. A source light without `range`
   has no lighting cutoff. If a user enables a point or spot shadow for such a
   light, its shadow projection uses a 1000-unit far plane. The primary engine
-  directional light and environment lighting are unchanged, and imported
-  lights do not automatically cast shadows.
+  directional light and environment lighting are unchanged. Imported lights
+  do not automatically cast shadows; pass `pointShadow` or `spotShadow` and an
+  optional `bias` to `model.applyLights()` to select a caster by its index in
+  `model.lights`.
 * `KHR_mesh_quantization` supports signed and unsigned 8-bit or 16-bit positions
   and texture coordinates, plus normalized signed 8-bit or 16-bit normals and
   tangents. Morph position deltas also accept signed quantized values; morph

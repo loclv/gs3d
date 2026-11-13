@@ -167,8 +167,8 @@ shadow behavior and browser reference images for the GPU path.
   can apply four scene lights with nested, out-of-order-safe restoration and
   animated node transforms. Imported point and spot lights use inverse-square
   attenuation and omit the lighting cutoff when `range` is absent. Shadows
-  remain explicit engine configuration; unbounded lights use a 1000-unit shadow
-  projection far plane when a user enables one.
+  remain opt-in through `model.applyLights({ pointShadow, spotShadow, bias })`;
+  unbounded lights use a 1000-unit shadow projection far plane when selected.
 
 **Done when:** an imported animated character plays, pauses, and switches
 clips, and a scene can switch between perspective and orthographic cameras.

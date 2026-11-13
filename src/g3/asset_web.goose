@@ -172,3 +172,5 @@ export fn g3_asset_light_spot(px: f32, py: f32, pz: f32, dx: f32, dy: f32, dz: f
                               r: f32, g: f32, b: f32, range: f32, inner: f32, outer: f32) -> bool {
     return g3::add_spot_light_physical(float3 { px, py, pz }, float3 { dx, dy, dz }, float3 { r, g, b }, range, inner, outer);
 }
+export fn g3_asset_light_point_shadow(index: i32, bias: f32) -> bool { return g3::set_point_light_shadows(index, bias); }
+export fn g3_asset_light_spot_shadow(index: i32, bias: f32) -> bool { return g3::set_spot_light_shadows(index, bias); }

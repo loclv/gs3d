@@ -1229,6 +1229,7 @@ export async function loadGLTF(engine, url, options = {}) {
   let modelCameraIds = [], selectedCamera = -1, fallbackCamera = -1;
   const lightLeases = [];
   let activeLightLease = -1;
+  let activeLightShadows = null;
   let touchedTransforms = new Set();
   const writeTransform = state => {
     if (!state.hasTransform || !isNodeHandleValid(engine, state.handle)) return;
@@ -1396,7 +1397,7 @@ export async function loadGLTF(engine, url, options = {}) {
     const direction = normalize3(transformDirection4(result, [0, 0, -1]));
     return { position, direction };
   };
-  const writeLightItems = () => {
+  const writeLightItems = (shadows = activeLightShadows) => {
     for (const light of data.lights) {
       const pose = lightPose(light);
       if (!pose) return false;
@@ -1407,7 +1408,19 @@ export async function loadGLTF(engine, url, options = {}) {
       else added = engine._g3_asset_light_spot(...pose.position, ...pose.direction, ...color, light.effectiveRange ?? 0, light.engineInner, light.engineOuter);
       if (!added) return false;
     }
+    if (shadows?.pointShadow >= 0 && !engine._g3_asset_light_point_shadow(shadows.pointShadow, shadows.bias)) return false;
+    if (shadows?.spotShadow >= 0 && !engine._g3_asset_light_spot_shadow(shadows.spotShadow, shadows.bias)) return false;
     return true;
+  };
+  const parseLightShadowOptions = options => {
+    if (!options || typeof options !== 'object' || Array.isArray(options) ||
+        Object.keys(options).some(key => !['pointShadow', 'spotShadow', 'bias'].includes(key))) return null;
+    const bias = options.bias ?? 0.002;
+    if (!isFiniteF32(bias) || bias < 0) return null;
+    const pointShadow = options.pointShadow ?? -1, spotShadow = options.spotShadow ?? -1;
+    if (pointShadow !== -1 && (!Number.isInteger(pointShadow) || pointShadow < 0 || data.lights[pointShadow]?.type !== 'point')) return null;
+    if (spotShadow !== -1 && (!Number.isInteger(spotShadow) || spotShadow < 0 || data.lights[spotShadow]?.type !== 'spot')) return null;
+    return Object.freeze({ pointShadow, spotShadow, bias });
   };
   const syncAppliedLights = () => {
     if (activeLightLease < 0 || engine._g3_asset_lights_active() !== activeLightLease) return true;
@@ -1418,6 +1431,7 @@ export async function loadGLTF(engine, url, options = {}) {
     for (let index = lightLeases.length - 1; index >= 0; index--) engine._g3_asset_lights_release(lightLeases[index]);
     lightLeases.length = 0;
     activeLightLease = -1;
+    activeLightShadows = null;
     return true;
   };
   const applyAnimation = (index, time) => {
@@ -1777,14 +1791,17 @@ export async function loadGLTF(engine, url, options = {}) {
       },
       get activeCamera() { return selectedCamera < 0 ? -1 : data.cameraInstances[selectedCamera].cameraIndex; },
       get activeCameraNode() { return selectedCamera < 0 ? null : data.cameraInstances[selectedCamera].node; },
-      /** Replace the engine's four extra lights with this scene's glTF lights. */
-      applyLights() {
+      /** Replace the engine's four extra lights and optionally select one point and spot shadow caster by model.lights index. */
+      applyLights(options = {}) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
+        const shadows = parseLightShadowOptions(options);
+        if (!shadows) return false;
         if (activeLightLease < 0 || engine._g3_asset_lights_active() !== activeLightLease) {
           activeLightLease = engine._g3_asset_lights_begin();
           if (activeLightLease < 0) return false;
           lightLeases.push(activeLightLease);
         } else engine._g3_asset_lights_clear();
+        activeLightShadows = shadows;
         if (writeLightItems()) return true;
         clearModelLights();
         return false;

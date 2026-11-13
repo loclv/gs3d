@@ -141,8 +141,8 @@ export interface LoadedModel {
   readonly activeCameraNode: number | null;
   /** Punctual light instances attached to nodes in the selected scene. */
   readonly lights: readonly PunctualLightInfo[];
-  /** Replace the engine's extra lights with this model's punctual lights. */
-  applyLights(): boolean;
+  /** Replace the extra lights; optional shadow indices refer to this model.lights order. */
+  applyLights(options?: { pointShadow?: number; spotShadow?: number; bias?: number }): boolean;
   /** Restore the extra light set that was active before this model was applied. */
   clearLights(): boolean;
   /** True while this model's light set is the active extra-light set. */
