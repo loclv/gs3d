@@ -8,6 +8,7 @@ import json;
 import g3.math;
 import g3.mesh;
 import g3.scene;
+import g3.render;
 import g3.platform;
 
 namespace g3;
@@ -17,10 +18,11 @@ struct NativeGlbMeshHandle { id: i32 = -1, generation: i32 }
 struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
 struct NativeGlbPartSlot { owner_id: i32, owner_generation: i32, primitive_index: i32, model: NativeGlbModel, active: bool }
 struct NativeGlbSceneHandle { id: i32 = -1, generation: i32 }
-struct NativeGlbSceneSlot { generation: i32 = 1, mesh_count: i32, node_count: i32, camera_count: i32, root: NodeHandle = NodeHandle { .. }, previous_camera_id: i64 = -1, previous_camera: Camera, active: bool }
+struct NativeGlbSceneSlot { generation: i32 = 1, mesh_count: i32, node_count: i32, camera_count: i32, root: NodeHandle = NodeHandle { .. }, light_set_id: i32 = -1, previous_camera_id: i64 = -1, previous_camera: Camera, active: bool }
 struct NativeGlbScenePartSlot { scene_id: i32, scene_generation: i32, mesh_index: i32, mesh: NativeGlbMeshHandle, active: bool }
 struct NativeGlbSceneNodeSlot { scene_id: i32, scene_generation: i32, gltf_index: i32, node: NodeHandle, active: bool }
 struct NativeGlbSceneCameraSlot { scene_id: i32, scene_generation: i32, camera_index: i32, camera_id: i64, active: bool }
+struct NativeGlbSceneLight { kind: i32, position: float3, direction: float3, color: float3, range: f32, inner: f32, outer: f32 }
 struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64 }
 struct GlbAttribute { offset: i64, stride: i64, count: i64, components: i64, component_type: i64, normalized: bool }
 
@@ -512,7 +514,8 @@ fn glb_node_camera(root: json::Node?, node_index: i64) -> Camera, bool {
         let near, near_ok = glb_number(json::member(orthographic, "znear"), 0.0);
         let far, far_ok = glb_number(json::member(orthographic, "zfar"), 0.0);
         guard orthographic && xmag_ok && ymag_ok && near_ok && far_ok && xmag > 0.0 && ymag > 0.0 &&
-              xmag <= 3.4e38 && ymag <= 3.4e38 && near >= 0.0 && far > near && far <= 3.4e38 else { return Camera { .. }, false; }
+              xmag <= 3.4e38 && ymag <= 1.7e38 && near >= 0.0 && far > near && far <= 3.4e38 &&
+              xmag / ymag <= 3.4e38 else { return Camera { .. }, false; }
         imported.orthographic = true;
         imported.ortho_height = (ymag * 2.0) as f32;
         imported.aspect = (xmag / ymag) as f32;
@@ -527,14 +530,60 @@ fn glb_node_camera(root: json::Node?, node_index: i64) -> Camera, bool {
     let position = float3 { origin.x, origin.y, origin.z };
     let forward_raw = float3 { forward_point.x - origin.x, forward_point.y - origin.y, forward_point.z - origin.z };
     let up_raw = float3 { up_point.x - origin.x, up_point.y - origin.y, up_point.z - origin.z };
-    guard origin.w != 0.0 && length(forward_raw) > 1e-6 && length(up_raw) > 1e-6 else { return Camera { .. }, false; }
+    guard origin.w != 0.0 && origin.x >= -3.4e38 && origin.x <= 3.4e38 && origin.y >= -3.4e38 && origin.y <= 3.4e38 && origin.z >= -3.4e38 && origin.z <= 3.4e38 &&
+          forward_raw.x >= -3.4e38 && forward_raw.x <= 3.4e38 && forward_raw.y >= -3.4e38 && forward_raw.y <= 3.4e38 && forward_raw.z >= -3.4e38 && forward_raw.z <= 3.4e38 &&
+          up_raw.x >= -3.4e38 && up_raw.x <= 3.4e38 && up_raw.y >= -3.4e38 && up_raw.y <= 3.4e38 && up_raw.z >= -3.4e38 && up_raw.z <= 3.4e38 &&
+          length(forward_raw) > 1e-6 && length(forward_raw) <= 3.4e38 && length(up_raw) > 1e-6 && length(up_raw) <= 3.4e38 else { return Camera { .. }, false; }
     let forward = normalize(forward_raw);
     let right_raw = cross(forward, up_raw);
-    guard length(right_raw) > 1e-6 else { return Camera { .. }, false; }
+    guard length(right_raw) > 1e-6 && length(right_raw) <= 3.4e38 else { return Camera { .. }, false; }
     imported.pos = position;
     imported.target = position + forward;
     imported.up = normalize(cross(normalize(right_raw), forward));
     return imported, true;
+}
+
+fn glb_node_light(root: json::Node?, node_index: i64) -> NativeGlbSceneLight, bool {
+    let nodes = json::member(root, "nodes");
+    let node_source = glb_json_element(nodes, node_index);
+    let punctual = json::member(json::member(node_source, "extensions"), "KHR_lights_punctual");
+    guard node_source && punctual && glb_array_has_string(json::member(root, "extensionsUsed"), "KHR_lights_punctual") else { return NativeGlbSceneLight { .. }, false; }
+    let light_index, light_index_ok = glb_json_index(json::member(punctual, "light"));
+    let source = glb_json_element(json::member(json::member(json::member(root, "extensions"), "KHR_lights_punctual"), "lights"), light_index);
+    guard light_index_ok && source else { return NativeGlbSceneLight { .. }, false; }
+    let kind_name, kind_ok = json::as_string(json::member(source, "type"));
+    guard kind_ok else { return NativeGlbSceneLight { .. }, false; }
+    let color, color_ok = glb_factor3(json::member(source, "color"), float3_1, 0.0, 1.0);
+    let intensity, intensity_ok = glb_number(json::member(source, "intensity"), 1.0);
+    let range_node = json::member(source, "range");
+    let range, range_ok = glb_number(range_node, 0.0);
+    guard color_ok && intensity_ok && range_ok && intensity >= 0.0 && intensity <= 3.4e38 && range >= 0.0 &&
+          (!range_node || range > 0.0) && color.x * intensity <= 3.4e38 && color.y * intensity <= 3.4e38 && color.z * intensity <= 3.4e38 else { return NativeGlbSceneLight { .. }, false; }
+    var kind: i32 = -1;
+    if kind_name == "directional" { kind = 0; }
+    else if kind_name == "point" { kind = 1; }
+    else if kind_name == "spot" { kind = 2; }
+    else { return NativeGlbSceneLight { .. }, false; }
+    guard kind != 0 || !range_node else { return NativeGlbSceneLight { .. }, false; }
+    var inner: f64 = 0.0;
+    var outer: f64 = 0.7853981633974483;
+    if kind == 2 {
+        let spot = json::member(source, "spot");
+        let inner_value, inner_ok = glb_number(json::member(spot, "innerConeAngle"), 0.0);
+        let outer_value, outer_ok = glb_number(json::member(spot, "outerConeAngle"), 0.7853981633974483);
+        guard spot && inner_ok && outer_ok && inner_value >= 0.0 && inner_value < outer_value && outer_value <= 1.5707963267948966 else { return NativeGlbSceneLight { .. }, false; }
+        inner = inner_value; outer = outer_value;
+    }
+    let world, world_ok = glb_node_world_matrix(root, node_index);
+    guard world_ok else { return NativeGlbSceneLight { .. }, false; }
+    let origin = mat4_transform_point(world, float3_0);
+    let forward_point = mat4_transform_point(world, float3 { 0.0, 0.0, -1.0 });
+    let direction_raw = float3 { forward_point.x - origin.x, forward_point.y - origin.y, forward_point.z - origin.z };
+    guard origin.w != 0.0 && origin.x >= -3.4e38 && origin.x <= 3.4e38 && origin.y >= -3.4e38 && origin.y <= 3.4e38 && origin.z >= -3.4e38 && origin.z <= 3.4e38 &&
+          direction_raw.x >= -3.4e38 && direction_raw.x <= 3.4e38 && direction_raw.y >= -3.4e38 && direction_raw.y <= 3.4e38 && direction_raw.z >= -3.4e38 && direction_raw.z <= 3.4e38 &&
+          length(direction_raw) > 1e-6 && length(direction_raw) <= 3.4e38 else { return NativeGlbSceneLight { .. }, false; }
+    return NativeGlbSceneLight { kind: kind, position: float3 { origin.x, origin.y, origin.z }, direction: normalize(direction_raw),
+        color: color * (intensity as f32), range: range as f32, inner: inner as f32, outer: outer as f32 }, true;
 }
 
 // Load one selected static primitive from a glTF 2.0 GLB or JSON glTF document.
@@ -1020,6 +1069,20 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
             g_native_glb_scenes[handle.id].camera_count += 1;
         }
     }
+    for i in 0..node_count {
+        if selected[i] && json::member(json::member(glb_json_element(nodes, i), "extensions"), "KHR_lights_punctual") {
+            let light, light_ok = glb_node_light(root, i);
+            if !light_ok { native_glb_scene_dispose(handle); return NativeGlbSceneHandle { .. }, false; }
+            if g_native_glb_scenes[handle.id].light_set_id < 0 {
+                g_native_glb_scenes[handle.id].light_set_id = asset_light_set_begin();
+            }
+            var added = false;
+            if light.kind == 0 { added = add_directional_light(light.direction, light.color); }
+            else if light.kind == 1 { added = add_point_light_physical(light.position, light.color, light.range); }
+            else if light.kind == 2 { added = add_spot_light_physical(light.position, light.direction, light.color, light.range, light.inner, light.outer); }
+            if !added { native_glb_scene_dispose(handle); return NativeGlbSceneHandle { .. }, false; }
+        }
+    }
     return handle, true;
 }
 
@@ -1107,6 +1170,9 @@ fn native_glb_scene_dispose(handle: NativeGlbSceneHandle) -> bool {
             g_native_glb_scene_cameras[i].active = false;
         }
     }
+    if g_native_glb_scenes[handle.id].light_set_id >= 0 {
+        asset_light_set_release(g_native_glb_scenes[handle.id].light_set_id);
+    }
     let previous_camera_id = g_native_glb_scenes[handle.id].previous_camera_id;
     let previous_camera = g_native_glb_scenes[handle.id].previous_camera;
     if previous_camera_id >= 0 {
@@ -1117,6 +1183,7 @@ fn native_glb_scene_dispose(handle: NativeGlbSceneHandle) -> bool {
     g_native_glb_scenes[handle.id].mesh_count = 0;
     g_native_glb_scenes[handle.id].node_count = 0;
     g_native_glb_scenes[handle.id].camera_count = 0;
+    g_native_glb_scenes[handle.id].light_set_id = -1;
     g_native_glb_scenes[handle.id].previous_camera_id = -1;
     g_native_glb_scenes[handle.id].root = NodeHandle { .. };
     return true;

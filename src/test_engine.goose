@@ -414,6 +414,7 @@ fn case_native_glb_load() {
     testing::check(reused_slot && g3::native_glb_mesh_dispose(reused_mesh),
                    "native GLB mesh owner slots are reused with a fresh generation");
     let cameras_before_scene = g3::camera_count();
+    let lights_before_scene = g3::g_view_state.light_count;
     let scene_model, scene_loaded = g3::native_glb_load_scene("testdata/native-two-scenes.glb", -1);
     let scene_root = g3::native_glb_scene_root(scene_model);
     let scene_mesh_count = g3::native_glb_scene_mesh_count(scene_model);
@@ -429,9 +430,18 @@ fn case_native_glb_load() {
                        g3::node(scene_mesh_root_a.index).parent == scene_node_a.index && g3::node(scene_mesh_root_b.index).parent == scene_node_b.index;
     g3::frame(1.0 / 60.0);
     let scene_stats = g3::stats();
-    testing::check(scene_loaded && scene_mesh_count == 2 && g3::native_glb_scene_node_count(scene_model) == 5 &&
+    testing::check(scene_loaded && scene_mesh_count == 2 && g3::native_glb_scene_node_count(scene_model) == 8 &&
                    scene_groups && scene_stats.drawn == 4 && scene_stats.triangles == 48,
                    "native glTF scene preserves selected node hierarchy while loading every mesh instance");
+    let lights_imported = g3::g_view_state.light_count == 3 &&
+                          g3::g_view_state.lights[0].position.w == 0.0 && g3::g_view_state.lights[0].direction.z == -1.0 &&
+                          abs(g3::g_view_state.lights[0].color.x - 2.0) < 0.001 && abs(g3::g_view_state.lights[0].color.z - 0.5) < 0.001 &&
+                          g3::g_view_state.lights[1].position.w == 1.0 && g3::g_view_state.lights[1].position.x == 1.0 &&
+                          g3::g_view_state.lights[1].position.y == 2.0 && g3::g_view_state.lights[1].position.z == 3.0 &&
+                          g3::g_view_state.lights[1].direction.w == 8.0 && g3::g_view_state.lights[1].attenuation == 1.0 &&
+                          g3::g_view_state.lights[2].position.x == -1.0 && g3::g_view_state.lights[2].direction.z == -1.0 &&
+                          g3::g_view_state.lights[2].direction.w == 0.0 && abs(g3::g_view_state.lights[2].inner - cos(0.2)) < 0.001;
+    testing::check(lights_imported, "native glTF scene imports directional, point, and spot lights in world space");
     let perspective_camera_id = g3::native_glb_scene_camera_id(scene_model, 0);
     let orthographic_camera_id = g3::native_glb_scene_camera_id(scene_model, 1);
     let perspective_selected = g3::native_glb_scene_select_camera(scene_model, 0);
@@ -446,12 +456,14 @@ fn case_native_glb_load() {
                           abs(orthographic_camera.far - 50.0) < 0.001;
     testing::check(g3::native_glb_scene_camera_count(scene_model) == 2 && perspective_ok && orthographic_ok,
                    "native glTF scene imports and switches perspective and orthographic cameras");
-    testing::check(g3::native_glb_scene_dispose(scene_model) && !g3::native_glb_scene_valid(scene_model) &&
-                   !g3::node_handle_valid(scene_root) && !g3::node_handle_valid(scene_node_a) && !g3::node_handle_valid(scene_node_b) &&
-                   !g3::native_glb_mesh_valid(scene_mesh_a) && !g3::native_glb_mesh_valid(scene_mesh_b) &&
-                   !g3::camera_select(perspective_camera_id) && !g3::camera_select(orthographic_camera_id) &&
-                   g3::camera_count() == cameras_before_scene,
-                   "native glTF scene disposal releases its hierarchy, cameras, and every owned mesh");
+    let scene_disposed = g3::native_glb_scene_dispose(scene_model);
+    testing::check(scene_disposed && !g3::native_glb_scene_valid(scene_model), "native scene owner invalidates after disposal");
+    testing::check(!g3::node_handle_valid(scene_root) && !g3::node_handle_valid(scene_node_a) && !g3::node_handle_valid(scene_node_b) &&
+                   !g3::native_glb_mesh_valid(scene_mesh_a) && !g3::native_glb_mesh_valid(scene_mesh_b),
+                   "native scene disposal releases its hierarchy and every owned mesh");
+    testing::check(!g3::camera_select(perspective_camera_id) && !g3::camera_select(orthographic_camera_id) &&
+                   g3::camera_count() == cameras_before_scene, "native scene disposal releases its imported cameras");
+    testing::check(g3::g_view_state.light_count == lights_before_scene, "native scene disposal restores its previous light set");
     let json_scene, json_scene_loaded = g3::native_glb_load_scene("testdata/native-external/model.gltf", -1);
     g3::frame(1.0 / 60.0);
     let json_scene_stats = g3::stats();
@@ -485,6 +497,12 @@ fn case_native_glb_load() {
     let broken_scene_stats = g3::stats();
     testing::check(!broken_scene_loaded && !g3::native_glb_scene_valid(broken_scene) && broken_scene_stats.drawn == 0,
                    "native glTF scene load rolls back earlier mesh nodes when a later node is invalid");
+    let bad_light_scene, bad_light_loaded = g3::native_glb_load_scene("testdata/native-bad-light.glb", -1);
+    g3::frame(1.0 / 60.0);
+    let bad_light_stats = g3::stats();
+    testing::check(!bad_light_loaded && !g3::native_glb_scene_valid(bad_light_scene) && bad_light_stats.drawn == 0 &&
+                   g3::g_view_state.light_count == lights_before_scene && g3::camera_count() == cameras_before_scene,
+                   "native glTF scene rolls back meshes, cameras, and lights after a bad light");
     let failed_mesh, failed_mesh_loaded = g3::native_glb_load_node_mesh("testdata/native-bad-second-primitive.glb", 0);
     g3::frame(1.0 / 60.0);
     let rollback_stats = g3::stats();

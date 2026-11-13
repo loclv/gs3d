@@ -134,8 +134,12 @@ and local transforms are preserved. Perspective and orthographic cameras in
 the selected scene are imported as detached engine cameras. Use
 `native_glb_scene_camera_count`, `native_glb_scene_camera_id`, and
 `native_glb_scene_select_camera` to inspect and select them. Disposing the scene
-removes its cameras and restores the view that was active before loading. Lights,
-skins, and animations are not imported.
+removes its cameras and restores the view that was active before loading. Nodes
+with declared `KHR_lights_punctual` extensions import directional, point, and
+spot lights using physical inverse-square attenuation; a missing light range
+means no cutoff. Scene disposal restores the previous light set. Shadows remain
+opt-in through the existing light-shadow APIs. Skins and animations are not
+imported.
 
 ```goose
 let loaded_scene, scene_ok = g3::native_glb_load_scene("model.glb", -1);
