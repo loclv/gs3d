@@ -65,8 +65,9 @@ and a browser integration check for behavior exposed through WebGL.
   position, normal, tangent and texture-coordinate accessors into engine floats.
   Quantized assets must declare the extension as required.
 * **Implemented:** the browser loader selects the glTF default scene or an
-  explicit scene index, and rejects an invalid selection before creating engine
-  resources.
+  explicit scene index. When `scenes` is omitted, it builds an implicit scene
+  from unparented nodes and reports scene index `-1`; invalid selections and
+  cyclic implicit hierarchies fail before engine resource creation.
 * **Implemented:** `EXT_texture_webp` loads its WebP source when decodable and
   falls back to the core source when fetching or decoding WebP fails.
 * **Implemented:** glTF `doubleSided` materials disable face culling in colour
