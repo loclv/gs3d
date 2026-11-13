@@ -145,6 +145,11 @@ fetches and decodes assets in JavaScript.
   more than 64 MiB; unsupported sizes or failed GPU uploads fall back to CPU
   deformation. GPU skinning and morphing combine when both paths upload
   successfully. The CPU backend always deforms both features on the CPU.
+* Dense and sparse accessors for the supported scalar and vector data types.
+  Sparse indices may use unsigned byte, unsigned short, or unsigned int values;
+  accessors without a base buffer view start with zero values before sparse
+  replacements are applied. Decoded accessor data is capped at 8,388,608 scalar
+  components per accessor.
 * Opaque, masked and blended base-colour factors and base-colour textures.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
   Emission adds the linear `emissiveFactor`, multiplied by an sRGB-decoded
@@ -169,8 +174,8 @@ fetches and decodes assets in JavaScript.
   images are decoded from sRGB before filtering; factors and alpha are linear.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
-more than eight skin influences, tangent morph targets, sparse accessors,
-non-triangle modes, double-sided materials and advanced
+more than eight skin influences, tangent morph targets, non-triangle modes,
+double-sided materials and advanced
 texture/sampler extensions. Tangent frames for normal maps are derived per
 triangle from positions and `TEXCOORD_0`; explicit glTF tangent attributes are
 not used, so mirrored UV seams can differ from MikkTSpace results. Direct PBR

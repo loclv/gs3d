@@ -1,5 +1,6 @@
 // Browser asset loading for the WebAssembly host. All parsing precedes uploads.
 const MAX_GPU_MORPH_BYTES = 64 * 1024 * 1024;
+const MAX_ACCESSOR_VALUES = 8 * 1024 * 1024;
 
 export class AssetError extends Error {
   constructor(code, message, cause) {
@@ -265,28 +266,76 @@ function unpack(bytes) {
 
 function accessor(doc, buffers, index, expected) {
   const a = item(doc.accessors, index, 'accessor');
-  if (a.sparse || a.bufferView === undefined) unsupported('Sparse or unbacked accessors are not supported');
   if (a.type !== expected) invalid(`Expected ${expected} accessor`);
   const widths = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
   const formats = { 5120: [1, 'getInt8'], 5121: [1, 'getUint8'], 5122: [2, 'getInt16'],
     5123: [2, 'getUint16'], 5125: [4, 'getUint32'], 5126: [4, 'getFloat32'] };
   const format = formats[a.componentType], components = widths[expected];
-  if (!format || !Number.isInteger(a.count) || a.count < 1) unsupported('Unsupported accessor component type or count');
+  if (!format || !components || !Number.isInteger(a.count) || a.count < 1) unsupported('Unsupported accessor component type or count');
   if (a.normalized && ![5120, 5121, 5122, 5123].includes(a.componentType)) unsupported('Unsupported normalized accessor');
-  const bv = item(doc.bufferViews, a.bufferView, 'bufferView');
-  const buffer = item(buffers, bv.buffer, 'buffer');
-  const viewStart = bv.byteOffset ?? 0, offset = a.byteOffset ?? 0;
-  if (!Number.isSafeInteger(viewStart) || viewStart < 0 || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(bv.byteLength) || bv.byteLength < 0) invalid('Invalid buffer view');
-  const start = viewStart + offset, size = format[0] * components;
-  const stride = bv.byteStride || size, end = start + (a.count - 1) * stride + size;
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(stride) || stride < size || end > viewStart + bv.byteLength || end > buffer.byteLength) invalid('Accessor exceeds its buffer view');
-  const data = new DataView(buffer), values = [];
-  for (let i = 0; i < a.count; i++) for (let c = 0; c < components; c++) {
-    let value = data[format[1]](start + i * stride + c * format[0], true);
+  const valueCount = a.count * components;
+  if (!Number.isSafeInteger(valueCount) || valueCount > MAX_ACCESSOR_VALUES) invalid('Accessor is too large');
+  const size = format[0] * components, values = new Array(valueCount).fill(0);
+  const readView = (viewIndex, label) => {
+    const bv = item(doc.bufferViews, viewIndex, `${label} bufferView`);
+    const buffer = item(buffers, bv.buffer, `${label} buffer`);
+    const start = bv.byteOffset ?? 0;
+    if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(bv.byteLength) || bv.byteLength < 0 ||
+        !Number.isSafeInteger(start + bv.byteLength) || start + bv.byteLength > buffer.byteLength) invalid(`Invalid ${label} bufferView`);
+    return { view: new DataView(buffer), start, end: start + bv.byteLength, byteStride: bv.byteStride };
+  };
+  const readValue = (data, offset) => {
+    let value = data[format[1]](offset, true);
     if (a.normalized) value = a.componentType === 5120 ? Math.max(value / 127, -1) :
       a.componentType === 5122 ? Math.max(value / 32767, -1) : value / (a.componentType === 5121 ? 255 : 65535);
     if (!Number.isFinite(value)) invalid('Non-finite accessor value');
-    values.push(value);
+    return value;
+  };
+  if (a.bufferView !== undefined) {
+    const base = readView(a.bufferView, 'accessor'), offset = a.byteOffset ?? 0;
+    const stride = base.byteStride ?? size;
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(stride) || stride < size ||
+        stride % format[0] !== 0 || base.start % format[0] !== 0 || offset % format[0] !== 0) invalid('Invalid accessor alignment or stride');
+    const start = base.start + offset, end = start + (a.count - 1) * stride + size;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end > base.end) invalid('Accessor exceeds its buffer view');
+    for (let i = 0; i < a.count; i++) for (let c = 0; c < components; c++) {
+      values[i * components + c] = readValue(base.view, start + i * stride + c * format[0]);
+    }
+  } else if (a.byteOffset !== undefined && a.byteOffset !== 0) {
+    invalid('An accessor without a bufferView cannot have a byteOffset');
+  }
+  if (a.sparse !== undefined) {
+    const sparse = a.sparse;
+    if (!sparse || typeof sparse !== 'object' || !Number.isSafeInteger(sparse.count) ||
+        sparse.count < 1 || sparse.count > a.count || !sparse.indices || !sparse.values) invalid('Invalid sparse accessor');
+    const indexFormats = { 5121: [1, 'getUint8'], 5123: [2, 'getUint16'], 5125: [4, 'getUint32'] };
+    const indexFormat = indexFormats[sparse.indices.componentType];
+    if (!indexFormat) invalid('Invalid sparse index component type');
+    const indices = readView(sparse.indices.bufferView, 'sparse indices');
+    const indexOffset = sparse.indices.byteOffset ?? 0, indexSize = indexFormat[0];
+    if (indices.byteStride !== undefined || !Number.isSafeInteger(indexOffset) || indexOffset < 0 ||
+        indices.start % indexSize !== 0 || indexOffset % indexSize !== 0 ||
+        indexOffset + sparse.count * indexSize > indices.end - indices.start) {
+      invalid('Invalid sparse index buffer range');
+    }
+    const sparseValues = readView(sparse.values.bufferView, 'sparse values');
+    const valuesOffset = sparse.values.byteOffset ?? 0;
+    if (sparseValues.byteStride !== undefined || !Number.isSafeInteger(valuesOffset) || valuesOffset < 0 ||
+        sparseValues.start % format[0] !== 0 || valuesOffset % format[0] !== 0 ||
+        valuesOffset + sparse.count * size > sparseValues.end - sparseValues.start) {
+      invalid('Invalid sparse value buffer range');
+    }
+    let previous = -1;
+    for (let i = 0; i < sparse.count; i++) {
+      const target = indices.view[indexFormat[1]](indices.start + indexOffset + i * indexSize, true);
+      if (target <= previous || target >= a.count) invalid('Sparse indices must be increasing and within the accessor');
+      previous = target;
+      for (let c = 0; c < components; c++) {
+        values[target * components + c] = readValue(sparseValues.view, sparseValues.start + valuesOffset + i * size + c * format[0]);
+      }
+    }
+  } else if (a.bufferView === undefined) {
+    invalid('An accessor without a bufferView must be sparse');
   }
   return { values, count: a.count, componentType: a.componentType, normalized: !!a.normalized };
 }

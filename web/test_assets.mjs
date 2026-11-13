@@ -30,6 +30,26 @@ function glb(document, data) {
 }
 const glbDoc = structuredClone(doc); delete glbDoc.buffers[0].uri;
 const resources = new Map([['http://localhost/model.gltf', bytes(doc)], ['http://localhost/mesh.bin', binary], ['http://localhost/model.glb', glb(glbDoc, binary)], ['http://localhost/image.png', new Uint8Array([1])]]);
+function sparseFixture(name, { base = false, badIndex = false } = {}) {
+  const sparseBinary = new ArrayBuffer(16), sparseData = new DataView(sparseBinary);
+  sparseData.setUint8(0, badIndex ? 3 : 1);
+  [2, -1, 0].forEach((value, i) => sparseData.setFloat32(4 + i * 4, value, true));
+  const document = structuredClone(doc);
+  document.buffers.push({ byteLength: sparseBinary.byteLength, uri: `${name}.bin` });
+  const indexView = document.bufferViews.push({ buffer: 1, byteLength: 1 }) - 1;
+  const valueView = document.bufferViews.push({ buffer: 1, byteOffset: 4, byteLength: 12 }) - 1;
+  document.accessors[0].sparse = { count: 1, indices: { bufferView: indexView, componentType: 5121 }, values: { bufferView: valueView } };
+  if (!base) delete document.accessors[0].bufferView;
+  resources.set(`http://localhost/${name}.bin`, sparseBinary);
+  return document;
+}
+for (const [name, options] of [
+  ['sparse-zero-base', {}],
+  ['sparse-base-override', { base: true }],
+]) {
+  resources.set(`http://localhost/${name}.gltf`, bytes(sparseFixture(name, options)));
+}
+resources.set('http://localhost/bad-sparse.gltf', bytes(sparseFixture('bad-sparse', { badIndex: true })));
 resources.set('http://localhost/sample.glb', await readFile(new URL('./viewer/sample.glb', import.meta.url)));
 const skinChunks = [], skinViews = [], skinAccessors = [];
 let skinByteLength = 0;
@@ -113,6 +133,18 @@ resources.set('http://localhost/quantized-weights.bin', quantizedWeights);
 globalThis.fetch = async url => resources.has(String(url)) ? new Response(resources.get(String(url))) : new Response('', { status: 404 });
 globalThis.createImageBitmap = async () => ({ width: 1, height: 1, close() {} });
 globalThis.document = { createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8Array([255, 0, 0, 255]) }) }) }) };
+
+for (const [name, expected] of [
+  ['sparse-zero-base', [0, 0, 0, 2, -1, 0, 0, 0, 0]],
+  ['sparse-base-override', [-1, -1, 0, 2, -1, 0, 0, 1, 0]],
+]) {
+  const sparseEngine = fakeEngine(), sparseModel = await loadGLTF(sparseEngine, `http://localhost/${name}.gltf`);
+  assert.deepEqual(sparseEngine.calls.filter(call => call[0] === 'vertex').flatMap(call => call.slice(1, 4)), expected);
+  sparseModel.dispose();
+}
+const rejectedSparseEngine = fakeEngine();
+await assert.rejects(loadGLTF(rejectedSparseEngine, 'http://localhost/bad-sparse.gltf'), error => error.code === 'INVALID_GLTF');
+assert.equal(rejectedSparseEngine.calls.length, 0, 'invalid sparse accessors fail before creating engine resources');
 
 function fakeEngine() {
   const calls = [], memory = new ArrayBuffer(1 << 20), engine = { calls, HEAPU8: new Uint8Array(memory), HEAPF32: new Float32Array(memory) };
