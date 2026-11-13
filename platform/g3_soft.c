@@ -795,18 +795,18 @@ g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *ou
     float env_scale = it->pbr.x > 0.5f ? 1.0f - fmaxf(0.0f, fminf(metallic, 1.0f)) : 1.0f;
     if (sky < 0.0f) sky = 0.0f;
     if (sky > 1.0f) sky = 1.0f;
-    r += base[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w * env_scale * ao;
-    g += base[1] * (vs->env_ground.y * (1.0f - sky) + vs->env_sky.y * sky) * vs->env_sky.w * env_scale * ao;
-    b += base[2] * (vs->env_ground.z * (1.0f - sky) + vs->env_sky.z * sky) * vs->env_sky.w * env_scale * ao;
+    r += base[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w * env_scale * ao * it->environment_intensity;
+    g += base[1] * (vs->env_ground.y * (1.0f - sky) + vs->env_sky.y * sky) * vs->env_sky.w * env_scale * ao * it->environment_intensity;
+    b += base[2] * (vs->env_ground.z * (1.0f - sky) + vs->env_sky.z * sky) * vs->env_sky.w * env_scale * ao * it->environment_intensity;
     if (vs->environment_texture >= 0 && vs->environment_texture < texture_count &&
         (textures[vs->environment_texture].pixels || textures[vs->environment_texture].hdr_pixels)) {
         float env[4];
         float y = n.y < -1.0f ? -1.0f : n.y > 1.0f ? 1.0f : n.y;
         sample_environment_lod(vs->environment_texture, atan2f(n.z, n.x) / 6.28318530718f + 0.5f,
                                acosf(y) / 3.14159265359f, 0.0f, env);
-        r += base[0] * env[0] * vs->environment_intensity * env_scale * ao;
-        g += base[1] * env[1] * vs->environment_intensity * env_scale * ao;
-        b += base[2] * env[2] * vs->environment_intensity * env_scale * ao;
+        r += base[0] * env[0] * vs->environment_intensity * env_scale * ao * it->environment_intensity;
+        g += base[1] * env[1] * vs->environment_intensity * env_scale * ao * it->environment_intensity;
+        b += base[2] * env[2] * vs->environment_intensity * env_scale * ao * it->environment_intensity;
         if (it->pbr.x > 0.5f) {
             float rx=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.x-vx;
             float ry=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.y-vy;
@@ -835,7 +835,7 @@ g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *ou
                 float dc=fmaxf(0.0f,fminf(dielectric_f0(it->pbr.w)*specular_color[c],1.0f));
                 float f0=dc*(1.0f-metal)+base[c]*metal;
                 float strength=specular_strength*(1.0f-metal)+metal;
-                float specular=reflected[c]*(f0*brdf_a+brdf_b)*strength*vs->environment_intensity*ao;
+                float specular=reflected[c]*(f0*brdf_a+brdf_b)*strength*vs->environment_intensity*ao*it->environment_intensity;
                 if (c==0) r+=specular; else if (c==1) g+=specular; else b+=specular;
             }
             if (coat_factor > 0.0f) {
@@ -848,16 +848,16 @@ g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *ou
                 sample_environment_lod(vs->environment_texture,atan2f(crz,crx)/6.28318530718f+0.5f,
                                        acosf(coat_ry)/3.14159265359f,coat_lod,coat_reflected);
                 sample_brdf_lut(coat_nv,coat_rough,&coat_a,&coat_b);
-                for(int c=0;c<3;c++) coat[c]+=coat_reflected[c]*(0.04f*coat_a+coat_b)*vs->environment_intensity*ao*coat_factor;
+                for(int c=0;c<3;c++) coat[c]+=coat_reflected[c]*(0.04f*coat_a+coat_b)*vs->environment_intensity*ao*coat_factor*it->environment_intensity;
             }
             float sheen_nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f);
             float sheen_fresnel=powf(1.0f-sheen_nv,5.0f);
             float sheen_lod=fmaxf(0.07f,fminf(sheen_roughness,1.0f))*(float)max_lod, sheen_reflected[4];
             sample_environment_lod(vs->environment_texture,atan2f(rz,rx)/6.28318530718f+0.5f,
                                    acosf(ryc)/3.14159265359f,sheen_lod,sheen_reflected);
-            r+=sheen_color[0]*sheen_reflected[0]*vs->environment_intensity*ao*sheen_fresnel;
-            g+=sheen_color[1]*sheen_reflected[1]*vs->environment_intensity*ao*sheen_fresnel;
-            b+=sheen_color[2]*sheen_reflected[2]*vs->environment_intensity*ao*sheen_fresnel;
+            r+=sheen_color[0]*sheen_reflected[0]*vs->environment_intensity*ao*sheen_fresnel*it->environment_intensity;
+            g+=sheen_color[1]*sheen_reflected[1]*vs->environment_intensity*ao*sheen_fresnel*it->environment_intensity;
+            b+=sheen_color[2]*sheen_reflected[2]*vs->environment_intensity*ao*sheen_fresnel*it->environment_intensity;
         }
     }
     int count = vs->light_count < 0 ? 0 : vs->light_count > 8 ? 8 : vs->light_count;

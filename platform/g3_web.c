@@ -86,7 +86,7 @@ typedef struct {
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
     GLint specular, specular_tex, specular_textured, specular_color_tex, specular_color_textured;
-    GLint clearcoat;
+    GLint clearcoat, material_environment;
     GLint clearcoat_tex, clearcoat_textured, clearcoat_roughness_tex, clearcoat_roughness_textured;
     GLint clearcoat_normal_tex, clearcoat_normal_textured, clearcoat_normal_scale;
     GLint sheen, sheen_color_tex, sheen_color_textured;
@@ -277,6 +277,7 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_emissive_textured;\n"
     "uniform vec4 u_specular;\n"
     "uniform vec4 u_clearcoat;\n"
+    "uniform float u_material_environment;\n"
     "uniform sampler2D u_clearcoat_tex;\n"
     "uniform bool u_clearcoat_textured;\n"
     "uniform sampler2D u_clearcoat_roughness_tex;\n"
@@ -462,23 +463,23 @@ static const char *FRAGMENT_SRC =
     "    float env_scale = u_pbr.x > 0.5 ? 1.0-metal : 1.0;\n"
     "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale*ao + ((aniso_strength>0.0?anisotropic_light(n,v,l,aniso_t,aniso_b,base,mr.x,clamp(mr.y,0.045,1.0),u_pbr.w,specular_strength,specular_color,aniso_strength):pbr_light(n,v,l,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color))+sheen_light(n,v,l,sheen_color,sheen_roughness))*u_light_color*visibility;\n"
     "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
-    "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale * ao;\n"
+    "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale * ao * u_material_environment;\n"
     "    if (u_env_map_enabled) {\n"
     "        vec2 env_uv = vec2(atan(n.z, n.x) / 6.28318530718 + 0.5, acos(clamp(n.y, -1.0, 1.0)) / 3.14159265359);\n"
-    "        col += base * textureLod(u_env_map, env_uv, 0.0).rgb * u_env_map_intensity * env_scale * ao;\n"
+    "        col += base * textureLod(u_env_map, env_uv, 0.0).rgb * u_env_map_intensity * env_scale * ao * u_material_environment;\n"
     "        if (u_pbr.x > 0.5) {\n"
     "            vec3 env_n=n;if(aniso_strength>0.0){vec3 bent_cross=cross(aniso_b,v);vec3 bent=length(bent_cross)>1e-12?normalize(cross(bent_cross,aniso_b)):n;float bent_mix=pow(1.0-aniso_strength*(1.0-clamp(mr.y,0.0,1.0)),4.0);bent=normalize(mix(bent,n,bent_mix));vec3 bent_reflect=reflect(-v,bent);env_n=normalize(mix(bent_reflect,bent,clamp(mr.y,0.0,1.0)*clamp(mr.y,0.0,1.0)));}\n"
     "            vec3 reflected = reflect(-v, env_n);\n"
     "            vec2 spec_uv = vec2(atan(reflected.z, reflected.x) / 6.28318530718 + 0.5, acos(clamp(reflected.y, -1.0, 1.0)) / 3.14159265359);\n"
     "            float rough = clamp(mr.y, 0.045, 1.0);\n"
     "            vec2 brdf = texture(u_brdf_lut, vec2(max(dot(n,v),0.0),rough)).rg;\n"
-    "            col += textureLod(u_env_map, spec_uv, rough*u_env_map_max_lod).rgb * (f0*brdf.x+vec3(brdf.y)) * specular_weight * u_env_map_intensity * ao;\n"
+    "            col += textureLod(u_env_map, spec_uv, rough*u_env_map_max_lod).rgb * (f0*brdf.x+vec3(brdf.y)) * specular_weight * u_env_map_intensity * ao * u_material_environment;\n"
     "            vec3 coat_reflected = reflect(-v, clearcoat_n);\n"
     "            vec2 coat_uv = vec2(atan(coat_reflected.z,coat_reflected.x)/6.28318530718+0.5,acos(clamp(coat_reflected.y,-1.0,1.0))/3.14159265359);\n"
     "            vec2 coat_brdf = texture(u_brdf_lut, vec2(max(dot(clearcoat_n,v),0.0),coat_roughness)).rg;\n"
-    "            coat += textureLod(u_env_map, coat_uv, coat_roughness*u_env_map_max_lod).rgb * (vec3(0.04*coat_brdf.x+coat_brdf.y)) * u_env_map_intensity * ao * coat_factor;\n"
+    "            coat += textureLod(u_env_map, coat_uv, coat_roughness*u_env_map_max_lod).rgb * (vec3(0.04*coat_brdf.x+coat_brdf.y)) * u_env_map_intensity * ao * coat_factor * u_material_environment;\n"
     "            float sheen_nv=max(dot(n,v),0.0); float sheen_fresnel=pow(1.0-sheen_nv,5.0);\n"
-    "            col += sheen_color * textureLod(u_env_map,spec_uv,sheen_roughness*u_env_map_max_lod).rgb * u_env_map_intensity * ao * sheen_fresnel;\n"
+    "            col += sheen_color * textureLod(u_env_map,spec_uv,sheen_roughness*u_env_map_max_lod).rgb * u_env_map_intensity * ao * sheen_fresnel * u_material_environment;\n"
     "        }\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
@@ -611,6 +612,7 @@ static void find_uniforms(void) {
     shader.specular_color_tex = glGetUniformLocation(shader.program, "u_specular_color_tex");
     shader.specular_color_textured = glGetUniformLocation(shader.program, "u_specular_color_textured");
     shader.clearcoat = glGetUniformLocation(shader.program, "u_clearcoat");
+    shader.material_environment = glGetUniformLocation(shader.program, "u_material_environment");
     shader.clearcoat_tex = glGetUniformLocation(shader.program, "u_clearcoat_tex");
     shader.clearcoat_textured = glGetUniformLocation(shader.program, "u_clearcoat_textured");
     shader.clearcoat_roughness_tex = glGetUniformLocation(shader.program, "u_clearcoat_roughness_tex");
@@ -1163,6 +1165,7 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            a->clearcoat_roughness_texture == b->clearcoat_roughness_texture &&
            a->clearcoat_normal_texture == b->clearcoat_normal_texture &&
            a->clearcoat_normal_scale == b->clearcoat_normal_scale &&
+           a->environment_intensity == b->environment_intensity &&
            same_vec4(a->sheen,b->sheen) && a->sheen_color_texture == b->sheen_color_texture &&
            a->sheen_roughness_texture == b->sheen_roughness_texture &&
            same_vec4(a->anisotropy,b->anisotropy) && a->anisotropy_texture == b->anisotropy_texture &&
@@ -1841,6 +1844,7 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
 
     glUniform4f(shader.specular, it->specular.x, it->specular.y, it->specular.z, it->specular.w);
     glUniform4f(shader.clearcoat, it->clearcoat.x, it->clearcoat.y, 0.0f, 0.0f);
+    glUniform1f(shader.material_environment, it->environment_intensity);
     int clearcoat_textured = it->clearcoat_texture >= 0 && it->clearcoat_texture < texture_count && textures[it->clearcoat_texture];
     glActiveTexture(GL_TEXTURE17);
     glBindTexture(GL_TEXTURE_2D, clearcoat_textured ? textures[it->clearcoat_texture] : 0);

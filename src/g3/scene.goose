@@ -96,6 +96,7 @@ struct Material {
     anisotropy_rotation: f32,
     anisotropy_texture: i32 = -1,
     anisotropy_uv: g3::UvTransform = g3::UvTransform { scale: float2 { 1.0, 1.0 }, .. },
+    environment_intensity: f32 = 1.0,
     removed: bool,
     asset_owned: bool,
     generation: i32 = 1,
@@ -182,6 +183,12 @@ fn material_handle(id: i32) -> MaterialHandle {
 
 fn material_handle_valid(handle: MaterialHandle) -> bool {
     return material_valid(handle.id) && g_materials[handle.id].generation == handle.generation;
+}
+
+fn material_set_environment_intensity(id: i32, intensity: f32) -> bool {
+    guard material_valid(id) && intensity >= 0.0 && intensity <= 3.4e38 else { return false; }
+    g_materials[id].environment_intensity = intensity;
+    return true;
 }
 
 fn material_asset_release(handle: MaterialHandle) -> bool {

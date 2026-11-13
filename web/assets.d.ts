@@ -205,6 +205,8 @@ export function setEnvironmentMap(
 export function isMeshHandleValid(engine: Goose3DEngine, handle: ResourceHandle | null | undefined): boolean;
 export function isTextureHandleValid(engine: Goose3DEngine, handle: ResourceHandle | null | undefined): boolean;
 export function isMaterialHandleValid(engine: Goose3DEngine, handle: ResourceHandle | null | undefined): boolean;
+/** Set the environment-lighting multiplier for one checked model material. */
+export function setMaterialEnvironmentIntensity(engine: Goose3DEngine, handle: ResourceHandle, intensity: number): boolean;
 export function isNodeHandleValid(engine: Goose3DEngine, handle: NodeHandle | null | undefined): boolean;
 
 /** Pick the frontmost visible node at CSS client coordinates, or return null. */

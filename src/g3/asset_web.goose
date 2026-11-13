@@ -103,6 +103,9 @@ export fn g3_asset_material_anisotropy(id: i32, strength: f32, rotation: f32, te
     m.anisotropy_texture = texture;
     return true;
 }
+export fn g3_asset_material_environment(id: i32, intensity: f32) -> bool {
+    return g3::material_set_environment_intensity(id, intensity);
+}
 export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offset_y: f32, scale_x: f32, scale_y: f32, rotation: f32, texcoord: i32) -> bool {
     guard g3::material_valid(id) && texcoord >= 0 && texcoord <= 7 else { return false; }
     let transform = g3::UvTransform { offset: float2 { offset_x, offset_y }, scale: float2 { scale_x, scale_y }, rotation: rotation, texcoord: texcoord };

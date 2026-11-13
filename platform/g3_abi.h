@@ -77,6 +77,7 @@ typedef struct {
     g3_vec4 anisotropy; /* x strength, y rotation */
     int32_t anisotropy_texture;
     g3_uv_transform anisotropy_uv;
+    float environment_intensity; /* per-material multiplier for environment fill and reflections */
 } g3_draw_item;
 
 typedef struct { g3_vec4 position, direction, color; float inner, attenuation; } g3_light;
@@ -132,7 +133,7 @@ _Static_assert(offsetof(g3_vertex, uv7) == 80, "Vertex.uv7 offset");
 _Static_assert(offsetof(g3_vertex, tangent) == 88, "Vertex.tangent offset");
 _Static_assert(offsetof(g3_vertex, color) == 104, "Vertex.color offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
-_Static_assert(sizeof(g3_draw_item) == 649, "g3_draw_item must be 649 bytes");
+_Static_assert(sizeof(g3_draw_item) == 653, "g3_draw_item must be 653 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
 _Static_assert(offsetof(g3_draw_item, alpha_mode) == 172, "DrawItem.alpha_mode offset");
 _Static_assert(offsetof(g3_draw_item, alpha_cutoff) == 176, "DrawItem.alpha_cutoff offset");
@@ -171,6 +172,7 @@ _Static_assert(offsetof(g3_draw_item, sheen_roughness_uv) == 581, "DrawItem.shee
 _Static_assert(offsetof(g3_draw_item, anisotropy) == 605, "DrawItem.anisotropy offset");
 _Static_assert(offsetof(g3_draw_item, anisotropy_texture) == 621, "DrawItem.anisotropy_texture offset");
 _Static_assert(offsetof(g3_draw_item, anisotropy_uv) == 625, "DrawItem.anisotropy_uv offset");
+_Static_assert(offsetof(g3_draw_item, environment_intensity) == 649, "DrawItem.environment_intensity offset");
 _Static_assert(sizeof(g3_light) == 56, "g3_light must be 56 bytes");
 _Static_assert(offsetof(g3_light, attenuation) == 52, "Light.attenuation offset");
 _Static_assert(sizeof(g3_view_state) == 1260, "g3_view_state must be 1260 bytes");

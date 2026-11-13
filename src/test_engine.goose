@@ -706,16 +706,22 @@ fn case_lights() {
     g3::frame(1.0 / 60.0);
     testing::check(away && is_color(g3::read_pixel(200, 200), 0, 0, 0, 1), "spot light excludes surfaces outside its cone");
     g3::clear_lights();
+    let environment_material = g3::material_add();
+    n.material = environment_material;
+    testing::check(g3::material_set_environment_intensity(environment_material, 0.5) &&
+                   !g3::material_set_environment_intensity(environment_material, -1.0),
+                   "material environment intensity accepts non-negative factors only");
     g3::set_environment(float3 { 0.0, 0.0, 1.0 }, float3 { 1.0, 0.0, 0.0 }, 1.0);
     g3::frame(1.0 / 60.0);
-    testing::check(is_color(g3::read_pixel(200, 200), 128, 0, 128, 2), "environment mixes sky and ground on a vertical face");
+    testing::check(is_color(g3::read_pixel(200, 200), 64, 0, 64, 2), "material environment intensity scales hemispherical fill");
     g3::set_environment(float3_0, float3_0, 0.0);
     let env_pixel: u8[4] = [64, 128, 192, 255];
     let env = g3::texture_create(1, 1, env_pixel[..]);
     g3::set_environment_map(env, 0.5);
     g3::frame(1.0 / 60.0);
-    testing::check(is_color(g3::read_pixel(200, 200), 32, 64, 96, 2), "environment map contributes its sampled colour");
+    testing::check(is_color(g3::read_pixel(200, 200), 16, 32, 48, 2), "material environment intensity scales texture fill");
     g3::set_environment_map(-1, 0.0);
+    g3::material_remove(environment_material);
     testing::check(!g3::add_point_light(float3_0, float3_1, 0.0), "invalid light range is rejected");
 
     g3::clear_lights();

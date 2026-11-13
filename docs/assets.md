@@ -12,12 +12,14 @@ their declarations. Applications still build and initialize their own Goose
 WebAssembly engine before calling the helpers.
 
 ```js
-import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setToneMapping, setFXAA, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
+import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setMaterialEnvironmentIntensity, setToneMapping, setFXAA, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
 
 try {
   setOutputColorSpace(engine, 'srgb'); // after engine startup
   setFXAA(engine, true); // optional output edge smoothing
   const model = await loadGLTF(engine, './model.glb');
+  // Scale environment fill/reflections for one material without changing others.
+  if (model.materials.length) setMaterialEnvironmentIntensity(engine, model.materials[0], 0.6);
   // Pass { scene: 1 } to load a different scene by index.
   if (model.animations.length) {
     model.playAnimation(0, { loop: true });
@@ -118,6 +120,11 @@ low-level engine functions bypasses the safety check. `model.meshes`,
 cannot release a different resource that later reuses the ID. Raw IDs and
 legacy Goose node indices bypass these checks. Goose callers can also use
 `mesh_handle`/`mesh_handle_valid` and `texture_handle`/`texture_handle_valid`.
+`setMaterialEnvironmentIntensity(engine, handle, value)` changes the
+hemispherical and equirectangular environment contribution for that material;
+it returns `false` for a stale, foreign, or invalid handle/value. The default
+multiplier is 1, and 0 disables environment lighting for that material while
+preserving its direct lights.
 When an asset node is released, surviving children are reparented to its former
 parent and their local transforms are baked into matrices to preserve their
 world transforms. Changing a baked child's TRS fields has no effect until its
@@ -194,8 +201,10 @@ fetches and decodes assets in JavaScript.
   vertex normals from triangle faces. Interleaved byte strides are accepted for
   vertex attributes only; strided indices, animation data, and inverse-bind
   matrices are rejected.
-  Repeated nodes referencing the same static primitive share one uploaded mesh;
-  skinned and morphed primitives keep per-node geometry for deformation.
+  Repeated nodes referencing the same static primitive share one uploaded mesh.
+  Instances of one morphing node also share geometry and its morph upload;
+  separate nodes retain independent deformation state. Skinned primitives keep
+  per-node geometry.
 * `EXT_mesh_gpu_instancing` translation, rotation and scale attributes on
   unskinned mesh nodes, up to 65,536 instances per node. Instance transforms
   become engine nodes that share the static primitive geometry, allowing the

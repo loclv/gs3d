@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, setToneMapping, setFXAA, AssetError } from './assets.js';
+import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setMaterialEnvironmentIntensity, setOutputColorSpace, setToneMapping, setFXAA, AssetError } from './assets.js';
 
 const binary = new ArrayBuffer(78);
 const view = new DataView(binary);
@@ -415,6 +415,7 @@ function fakeEngine() {
   engine._g3_asset_material_clearcoat = (...args) => { calls.push(['material_clearcoat', ...args]); return true; };
   engine._g3_asset_material_sheen = (...args) => { calls.push(['material_sheen', ...args]); return true; };
   engine._g3_asset_material_anisotropy = (...args) => { calls.push(['material_anisotropy', ...args]); return true; };
+  engine._g3_asset_material_environment = (...args) => { calls.push(['material_environment', ...args]); return true; };
   engine._g3_asset_material_uv_transform = (...args) => { calls.push(['material_uv_transform', ...args]); return true; };
   engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); const id = nextMesh++; meshGenerations.set(id, 1); return id; };
   engine._g3_host_mesh_update = (id, positions, normals, tangents, count) => {
@@ -595,6 +596,10 @@ for (const path of ['model.gltf', 'model.glb']) {
   assert.equal(isMeshHandleValid(fakeEngine(), model.meshes[0]), false);
   assert.equal(isMaterialHandleValid(engine, model.materials[0]), true);
   assert.equal(isMaterialHandleValid(fakeEngine(), model.materials[0]), false);
+  assert.equal(setMaterialEnvironmentIntensity(engine, model.materials[0], 0.35), true);
+  assert.deepEqual(engine.calls.find(call => call[0] === 'material_environment'), ['material_environment', model.materials[0].id, 0.35]);
+  assert.equal(setMaterialEnvironmentIntensity(engine, model.materials[0], -1), false, 'material environment intensity cannot be negative');
+  assert.equal(setMaterialEnvironmentIntensity(fakeEngine(), model.materials[0], 0.5), false, 'material handles belong to their creating engine');
   assert.equal(engine.calls.filter(x => x[0] === 'vertex').length, 3);
   assert.deepEqual(engine.calls.find(x => x[0] === 'triangle'), ['triangle', 0, 1, 2]);
   assert.deepEqual(engine.calls.find(x => x[0] === 'material'), ['material', 1, 0.25, 0.5, 1, 1, -1, 0, 0.5, 1, 1, -1, -1, 1, -1, 1, 0, 0, 0, -1, 0, 0, 1.5]);
@@ -610,6 +615,7 @@ for (const path of ['model.gltf', 'model.glb']) {
   assert.equal(pickNode(engine, canvas, 220, 60), null);
   model.dispose(); model.dispose();
   assert.equal(isMaterialHandleValid(engine, model.materials[0]), false);
+  assert.equal(setMaterialEnvironmentIntensity(engine, model.materials[0], 0.5), false, 'disposed material handles cannot change rendering state');
   assert.equal(isMeshHandleValid(engine, model.meshes[0]), false);
   assert.equal(isNodeHandleValid(engine, selected), false);
   engine.generations.set(selected.index, 2);

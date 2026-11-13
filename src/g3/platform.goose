@@ -74,6 +74,7 @@ struct DrawItem {
     anisotropy: float4, // x strength, y rotation in radians
     anisotropy_texture: i32, // linear RG direction and B strength map
     anisotropy_uv: UvTransform,
+    environment_intensity: f32, // scales environment lighting for this material
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

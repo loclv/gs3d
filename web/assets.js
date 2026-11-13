@@ -203,6 +203,10 @@ export function isTextureHandleValid(engine, handle) {
 export function isMaterialHandleValid(engine, handle) {
   return !!handle && materialHandleOwners.get(handle) === engine && !!engine._g3_asset_material_valid(handle.id, handle.generation);
 }
+export function setMaterialEnvironmentIntensity(engine, handle, intensity) {
+  if (!isMaterialHandleValid(engine, handle) || !Number.isFinite(intensity) || intensity < 0 || intensity > 3.4e38) return false;
+  return !!engine._g3_asset_material_environment(handle.id, intensity);
+}
 function makeNodeHandle(engine, index) {
   const generation = engine._g3_asset_node_generation(index);
   if (generation <= 0) return null;

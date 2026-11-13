@@ -531,6 +531,7 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         anisotropy: float4 { surface.anisotropy_strength, surface.anisotropy_rotation, 0.0, 0.0 },
         anisotropy_texture: surface.anisotropy_texture,
         anisotropy_uv: surface.anisotropy_uv,
+        environment_intensity: surface.environment_intensity,
     };
 }
 
