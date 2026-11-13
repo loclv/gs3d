@@ -147,9 +147,10 @@ shadow behavior and browser reference images for the GPU path.
 * **Partly implemented:** selectable perspective and orthographic cameras have
   stable IDs, active-camera fallback, and removal. The browser glTF loader
   imports perspective and orthographic cameras, applies node and animated
-  parent transforms, and restores the previous view when a model camera is
-  deselected or disposed. Reusable orbit, pinch, pan and keyboard controls are
-  available; validate camera switching and input in a real browser.
+  parent transforms and authored aspect framing, and restores the previous view
+  when a model camera is deselected or disposed. Reusable orbit, pinch, pan and
+  keyboard controls are available; validate camera switching and input in a
+  real browser.
 * **Partly implemented:** the browser loader reads `KHR_lights_punctual` and
   can apply four scene lights with nested, out-of-order-safe restoration and
   animated node transforms. The finite-range attenuation differs from the

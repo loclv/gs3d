@@ -183,9 +183,8 @@ fetches and decodes assets in JavaScript.
   switches the active engine camera; `selectCamera(null)` restores the view
   that was active before selection. Camera node transforms include their
   parent transforms and update when an animated transform changes. Projection
-  uses the canvas aspect ratio; orthographic height comes from `ymag`, while
-  `xmag` and perspective `aspectRatio` do not lock the projection to a fixed
-  aspect ratio.
+  honors perspective `aspectRatio` when provided; otherwise it follows the
+  canvas. Orthographic `xmag` and `ymag` both set the authored view extent.
 * `KHR_lights_punctual` directional, point and spot light instances in the
   selected scene. Loading only exposes metadata; call `model.applyLights()` to
   replace the engine's four extra lights, and `model.clearLights()` or

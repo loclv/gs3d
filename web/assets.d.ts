@@ -128,7 +128,7 @@ export interface LoadedModel {
   /** glTF node hierarchy and references for the selected scene, in depth-first order. */
   readonly nodes: readonly ModelNodeInfo[];
   /** Camera definitions in the glTF document; node is null when not instantiated in the selected scene. */
-  readonly cameras: readonly { readonly index: number; readonly name: string | null; readonly type: 'perspective' | 'orthographic'; readonly node: number | null }[];
+  readonly cameras: readonly { readonly index: number; readonly name: string | null; readonly type: 'perspective' | 'orthographic'; readonly node: number | null; readonly aspectRatio: number | null }[];
   /** Select a glTF camera by document index; pass null to restore the view active before selection. */
   selectCamera(index: number | null): boolean;
   /** Selected glTF camera index, or -1 when the pre-load view is active. */

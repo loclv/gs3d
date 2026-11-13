@@ -82,14 +82,15 @@ fn pick_screen(x: f32, y: f32, aspect: f32) -> RayHit {
     if length(right) > 0.000001 { right = normalize(right); }
     else { right = float3 { 1.0, 0.0, 0.0 }; }
     let up = cross(right, forward);
+    let camera_aspect = if cam.aspect > 0.0 { cam.aspect } else { aspect };
     if cam.orthographic {
         guard cam.ortho_height > 0.0 else { return RayHit { .. }; }
         let half = cam.ortho_height * 0.5;
-        let origin = cam.pos + right * (x * aspect * half) + up * (y * half);
+        let origin = cam.pos + right * (x * camera_aspect * half) + up * (y * half);
         return raycast(origin, forward, cam.near, cam.far);
     }
     let half = tan(cam.fov * 0.5);
-    let direction = normalize(forward + right * (x * aspect * half) + up * (y * half));
+    let direction = normalize(forward + right * (x * camera_aspect * half) + up * (y * half));
     let depth = dot(direction, forward);
     guard depth > 0.0 else { return RayHit { .. }; }
     return raycast(cam.pos, direction, cam.near / depth, cam.far / depth);

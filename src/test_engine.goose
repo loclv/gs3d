@@ -1107,8 +1107,15 @@ fn case_orthographic_camera() {
     c.near = 5.0;
     testing::check(g3::pick_screen(-0.5, 0.0, 1.0).node == -1 && g3::pick_screen(0.5, 0.0, 1.0).node == right,
         "orthographic picking respects near clipping");
-    c.orthographic = false;
     c.near = 0.1;
+    c.aspect = 2.0;
+    g3::frame(1.0 / 60.0);
+    testing::check(g3::pick_screen(0.25, 0.0, 1.0).node == right && g3::pick_screen(0.5, 0.0, 1.0).node == -1,
+        "orthographic picking honors authored xmag-to-ymag framing");
+    testing::check(abs(g3::view_proj_matrix().m[0] - 0.25) < 0.001,
+        "orthographic projection uses the authored width as well as height");
+    c.aspect = 0.0;
+    c.orthographic = false;
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(340, 200), 255, 0, 255, 2), "switching back restores perspective projection");
 }

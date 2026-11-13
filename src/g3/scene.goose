@@ -102,6 +102,7 @@ struct Camera {
     target: float3,
     up: float3 = float3 { 0.0, 1.0, 0.0 },
     fov: f32 = 0.9,             // vertical, radians
+    aspect: f32,                // zero follows the viewport; positive locks horizontal framing
     orthographic: bool,         // perspective by default
     ortho_height: f32 = 10.0,  // full vertical extent, world units
     near: f32 = 0.1,
@@ -376,11 +377,12 @@ fn camera_select(id: i64) -> bool {
 
 // Both renderers consume this projection through the common view-projection matrix.
 fn camera_projection(cam: Camera, aspect: f32) -> Mat4 {
+    let projection_aspect = if cam.aspect > 0.0 { cam.aspect } else { aspect };
     if cam.orthographic {
         let half = cam.ortho_height * 0.5;
-        return mat4_ortho(-half * aspect, half * aspect, -half, half, cam.near, cam.far);
+        return mat4_ortho(-half * projection_aspect, half * projection_aspect, -half, half, cam.near, cam.far);
     }
-    return mat4_perspective(cam.fov, aspect, cam.near, cam.far);
+    return mat4_perspective(cam.fov, projection_aspect, cam.near, cam.far);
 }
 
 // Point the camera at a place from a place.

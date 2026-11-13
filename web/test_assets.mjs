@@ -434,8 +434,8 @@ function fakeEngine() {
 
 const cameraEngine = fakeEngine(), cameraModel = await loadGLTF(cameraEngine, 'http://localhost/cameras.gltf');
 assert.deepEqual(cameraModel.cameras, [
-  { index: 0, name: 'Perspective', type: 'perspective', node: 0 },
-  { index: 1, name: 'Ortho', type: 'orthographic', node: 1 },
+  { index: 0, name: 'Perspective', type: 'perspective', node: 0, aspectRatio: 1.5 },
+  { index: 1, name: 'Ortho', type: 'orthographic', node: 1, aspectRatio: 2 },
 ]);
 assert.equal(cameraModel.selectCamera(0), true);
 assert.deepEqual(cameraEngine.calls.find(call => call[0] === 'camera_update').slice(0, 11),

@@ -969,16 +969,17 @@ async function prepare(url, requestedScene) {
     if (camera.type === 'perspective') {
       const p = camera.perspective;
       if (!p || !Number.isFinite(p.yfov) || !(p.yfov > 0 && p.yfov < Math.PI) ||
-          !Number.isFinite(p.znear) || !(p.znear > 0) ||
-          (p.zfar !== undefined && (!Number.isFinite(p.zfar) || !(p.zfar > p.znear))) ||
-          (p.aspectRatio !== undefined && (!Number.isFinite(p.aspectRatio) || !(p.aspectRatio > 0)))) invalid(`Invalid perspective camera ${cameraIndex}`);
+          !Number.isFinite(p.znear) || !(p.znear > 0 && p.znear <= 3.4e38) ||
+          (p.zfar !== undefined && (!Number.isFinite(p.zfar) || !(p.zfar > p.znear) || p.zfar > 3.4e38)) ||
+          (p.aspectRatio !== undefined && (!Number.isFinite(p.aspectRatio) || !(p.aspectRatio > 0 && p.aspectRatio <= 3.4e38)))) invalid(`Invalid perspective camera ${cameraIndex}`);
       return { index: cameraIndex, name: camera.name ?? null, type: 'perspective', fov: p.yfov,
         orthoHeight: 10, near: p.znear, far: p.zfar ?? Math.max(400, p.znear + 1), aspectRatio: p.aspectRatio ?? null, node: null };
     }
     if (camera.type === 'orthographic') {
       const o = camera.orthographic;
-      if (!o || !Number.isFinite(o.xmag) || !(o.xmag > 0) || !Number.isFinite(o.ymag) || !(o.ymag > 0) ||
-          !Number.isFinite(o.znear) || !Number.isFinite(o.zfar) || !(o.znear >= 0 && o.zfar > o.znear)) invalid(`Invalid orthographic camera ${cameraIndex}`);
+      if (!o || !Number.isFinite(o.xmag) || !(o.xmag > 0 && o.xmag <= 3.4e38) || !Number.isFinite(o.ymag) || !(o.ymag > 0 && o.ymag <= 3.4e38) ||
+          !Number.isFinite(o.znear) || !Number.isFinite(o.zfar) || !(o.znear >= 0 && o.zfar > o.znear && o.zfar <= 3.4e38) ||
+          !Number.isFinite(o.xmag / o.ymag) || o.xmag / o.ymag > 3.4e38) invalid(`Invalid orthographic camera ${cameraIndex}`);
       return { index: cameraIndex, name: camera.name ?? null, type: 'orthographic', fov: 0.9,
         orthoHeight: 2 * o.ymag, near: o.znear, far: o.zfar, aspectRatio: o.xmag / o.ymag, node: null };
     }
@@ -1268,7 +1269,7 @@ export async function loadGLTF(engine, url, options = {}) {
     const camera = data.cameras[selectedCamera], pose = cameraPose(camera), id = modelCameraIds[selectedCamera];
     if (!pose) return false;
     return !!engine._g3_asset_camera_update(id, ...pose.pos, ...pose.target, ...pose.up,
-      camera.fov, camera.type === 'orthographic' ? 1 : 0, camera.orthoHeight, camera.near, camera.far);
+      camera.fov, camera.aspectRatio ?? 0, camera.type === 'orthographic' ? 1 : 0, camera.orthoHeight, camera.near, camera.far);
   };
   const lightPose = light => {
     let result = null;
@@ -1576,7 +1577,7 @@ export async function loadGLTF(engine, url, options = {}) {
       const pose = cameraPose(camera);
       if (!pose) { modelCameraIds.push(-1); continue; }
       const id = engine._g3_asset_camera_add(...pose.pos, ...pose.target, ...pose.up,
-        camera.fov, camera.type === 'orthographic' ? 1 : 0, camera.orthoHeight, camera.near, camera.far);
+        camera.fov, camera.aspectRatio ?? 0, camera.type === 'orthographic' ? 1 : 0, camera.orthoHeight, camera.near, camera.far);
       if (id < 0) throw new AssetError('UPLOAD', 'Could not create glTF camera');
       modelCameraIds.push(id);
     }
@@ -1586,7 +1587,7 @@ export async function loadGLTF(engine, url, options = {}) {
       roots: Object.freeze(roots),
       nodes: Object.freeze(modelNodes),
       cameras: Object.freeze(data.cameras.map(camera => Object.freeze({ index: camera.index, name: camera.name,
-        type: camera.type, node: camera.node }))),
+        type: camera.type, node: camera.node, aspectRatio: camera.aspectRatio }))),
       lights: Object.freeze(data.lights.map(light => Object.freeze({ index: light.index, name: light.name,
         type: light.type, node: light.node, color: Object.freeze([...light.color]), intensity: light.intensity,
         range: light.range, effectiveRange: light.effectiveRange, innerConeAngle: light.type === 'spot' ? light.inner : null,
