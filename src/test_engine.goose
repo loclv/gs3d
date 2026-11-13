@@ -1356,6 +1356,14 @@ fn case_pbr() {
     g3::add_directional_light(float3 { 0.0, 0.0, -1.0 }, float3 { 0.5, 0.5, 0.5 });
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 16, 8, 4, 2), "additional lights use the PBR model");
+    // The preceding 0.5 directional light yields (16, 8, 4). An unbounded
+    // physical point light at distance 2 has 1/d^2 = 1/4 attenuation.
+    g3::clear_lights();
+    g3::set_light(float3 { 0.0, 0.0, -1.0 }, float3_0);
+    let physical_pbr = g3::add_point_light_physical(float3 { 0.0, 0.0, 3.0 }, float3 { 0.5, 0.5, 0.5 }, 0.0);
+    g3::frame(1.0 / 60.0);
+    testing::check(physical_pbr && is_color(g3::read_pixel(200, 200), 4, 2, 1, 2),
+                   "inverse-square attenuation scales direct PBR lighting");
     g3::camera().orthographic = false;
     g3::material_remove(mat);
 }
