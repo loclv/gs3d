@@ -326,10 +326,30 @@ function sampleChannel(channel, time) {
     else high = middle;
   }
   const a = Math.max(0, low - 1), b = Math.min(times.length - 1, low);
-  const valueAt = index => channel.values.slice(index * channel.components, (index + 1) * channel.components);
+  const cubic = channel.interpolation === 'CUBICSPLINE';
+  const valueAt = index => {
+    const valueIndex = cubic ? index * 3 + 1 : index;
+    return channel.values.slice(valueIndex * channel.components, (valueIndex + 1) * channel.components);
+  };
   const from = valueAt(a);
   if (a === b || channel.interpolation === 'STEP') return channel.path === 'rotation' ? normalizedQuaternion(from) : from;
-  const to = valueAt(b), t = Math.max(0, Math.min(1, (time - times[a]) / (times[b] - times[a])));
+  const duration = times[b] - times[a];
+  const t = Math.max(0, Math.min(1, (time - times[a]) / duration));
+  const to = valueAt(b);
+  if (cubic) {
+    const tangentAt = (index, tangent) => {
+      const valueIndex = index * 3 + tangent;
+      return channel.values.slice(valueIndex * channel.components, (valueIndex + 1) * channel.components);
+    };
+    const outTangent = tangentAt(a, 2), inTangent = tangentAt(b, 0);
+    const t2 = t * t, t3 = t2 * t;
+    const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t;
+    const h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+    const result = from.map((value, i) => h00 * value + h10 * duration * outTangent[i] +
+      h01 * to[i] + h11 * duration * inTangent[i]);
+    if (!result.every(Number.isFinite)) invalid('Invalid cubic animation value');
+    return channel.path === 'rotation' ? normalizedQuaternion(result) : result;
+  }
   if (channel.path !== 'rotation') return from.map((value, i) => value + (to[i] - value) * t);
   const q1 = normalizedQuaternion(from), q2 = normalizedQuaternion(to);
   let cosine = q1.reduce((sum, value, i) => sum + value * q2[i], 0);
@@ -469,15 +489,17 @@ async function prepare(url) {
       if (usedTargets.has(targetKey)) invalid('Animation targets the same node property more than once');
       usedTargets.add(targetKey);
       const interpolation = sampler.interpolation ?? 'LINEAR';
-      if (interpolation !== 'LINEAR' && interpolation !== 'STEP') unsupported(`Animation interpolation ${interpolation} is unsupported`);
+      if (interpolation !== 'LINEAR' && interpolation !== 'STEP' && interpolation !== 'CUBICSPLINE') unsupported(`Animation interpolation ${interpolation} is unsupported`);
       const input = accessor(doc, buffers, sampler.input, 'SCALAR');
       const output = accessor(doc, buffers, sampler.output, path === 'rotation' ? 'VEC4' : 'VEC3');
-      if (input.componentType !== 5126 || output.componentType !== 5126 || input.count !== output.count) invalid('Invalid animation accessor types or counts');
+      const expectedOutputCount = interpolation === 'CUBICSPLINE' ? input.count * 3 : input.count;
+      if (input.componentType !== 5126 || output.componentType !== 5126 || input.count < 1 || output.count !== expectedOutputCount ||
+          (interpolation === 'CUBICSPLINE' && input.count < 2)) invalid('Invalid animation accessor types or counts');
       for (let i = 0; i < input.values.length; i++) {
         const time = input.values[i];
         if (time < 0 || (i > 0 && time <= input.values[i - 1])) invalid('Animation input times must be non-negative and strictly increasing');
       }
-      if (path === 'rotation') for (let i = 0; i < output.values.length; i += 4) {
+      if (path === 'rotation') for (let i = interpolation === 'CUBICSPLINE' ? 4 : 0; i < output.values.length; i += interpolation === 'CUBICSPLINE' ? 12 : 4) {
         if (!(Math.hypot(output.values[i], output.values[i + 1], output.values[i + 2], output.values[i + 3]) > 0)) invalid('Animation rotations must be non-zero quaternions');
       }
       duration = Math.max(duration, input.values[input.values.length - 1]);

@@ -140,7 +140,7 @@ mechanism.
   images are decoded from sRGB before filtering; factors and alpha are linear.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
-skins, morph targets, cubic-spline animation, sparse accessors, non-triangle modes,
+skins, morph targets, sparse accessors, non-triangle modes,
 double-sided materials and advanced
 texture/sampler extensions. Tangent frames for normal maps are derived per
 triangle from positions and `TEXCOORD_0`; explicit glTF tangent attributes are
@@ -167,10 +167,12 @@ glTF animation clips expose `name` and `duration` in `model.animations`.
 `playAnimation(index, { loop })`, `pauseAnimation()`, `resumeAnimation()`,
 `seekAnimation(seconds)`, and `stopAnimation()` control translation, rotation,
 and scale channels. Call
-`model.update(dt)` from the frame loop. LINEAR and STEP interpolation are
-supported; rotations use quaternion spherical interpolation. Clips can target
-only nodes in the selected glTF scene. Skinning, morph weights, cubic spline,
-and matrix-form animated nodes are unsupported.
+`model.update(dt)` from the frame loop. LINEAR, STEP and CUBICSPLINE
+interpolation are supported. LINEAR rotations use quaternion spherical
+interpolation. CUBICSPLINE uses glTF's in-tangent, value, out-tangent key layout
+and normalizes interpolated rotation quaternions. Clips can target only nodes in
+the selected glTF scene. Skinning, morph weights, and matrix-form animated
+nodes are unsupported.
 
 Run the browser-loader logic tests with `node web/test_assets.mjs`. These use a
 mock engine and image decoder; they do not replace a browser/WebGL integration
