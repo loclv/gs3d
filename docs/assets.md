@@ -89,18 +89,32 @@ import vec;
 import g3.scene;
 import g3.gltf_native;
 
+let image = g3::native_texture_load_ppm("model-base-color.ppm");
+guard g3::texture_handle_valid(image) else { print("could not load model texture"); return; }
 let loaded_mesh, mesh_ok = g3::native_glb_load_node_mesh("model.gltf", 0);
-guard mesh_ok else { print("could not load GLB node 0"); return; }
+guard mesh_ok else { g3::texture_remove(image); print("could not load GLB node 0"); return; }
 var model_mesh = loaded_mesh;
 let root = g3::native_glb_mesh_root(model_mesh);
 g3::node(root.index).use_local_matrix = false;
 g3::node(root.index).pos = float3 { 0.0, 1.0, 0.0 }; // move every primitive together
 for i in 0..g3::native_glb_mesh_primitive_count(model_mesh) {
   let node = g3::native_glb_mesh_primitive_node(model_mesh, i);
-  // Use each checked primitive handle for per-part scene operations.
+  let material = g3::native_glb_mesh_primitive_material(model_mesh, i);
+  if g3::material_handle_valid(material) {
+    let surface .= g3::material(material.id);
+    // Manually bind a separately decoded image as the base-colour map.
+    // The material remains owned by model_mesh and is released with it.
+    surface.texture = image.id;
+  }
 }
 g3::native_glb_mesh_dispose(model_mesh);
+g3::texture_remove(image);
 ```
+
+`native_glb_mesh_primitive_material` returns the checked imported material for
+each primitive, or an invalid handle when the glTF primitive has no material.
+This supports application-supplied native images on imported meshes. The native
+loader still does not resolve glTF `images`/`textures` references automatically.
 
 The loader supports float32 and `KHR_mesh_quantization` `POSITION`, `NORMAL`,
 `TEXCOORD_0`, and `TANGENT` attributes, `COLOR_0` as float32 or normalized

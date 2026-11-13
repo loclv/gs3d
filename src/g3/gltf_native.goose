@@ -873,6 +873,20 @@ fn native_glb_mesh_primitive_node(handle: NativeGlbMeshHandle, primitive_index: 
     return NodeHandle { .. };
 }
 
+// Return the checked imported material for one primitive. This lets native
+// callers add or replace texture handles after decoding images themselves.
+fn native_glb_mesh_primitive_material(handle: NativeGlbMeshHandle, primitive_index: i32) -> MaterialHandle {
+    guard native_glb_mesh_valid(handle) && primitive_index >= 0 && primitive_index < g_native_glb_meshes[handle.id].primitive_count else { return MaterialHandle { .. }; }
+    for i in 0..g_native_glb_parts.len {
+        let part = g_native_glb_parts[i];
+        if part.active && part.owner_id == handle.id && part.owner_generation == handle.generation && part.primitive_index == primitive_index {
+            if material_handle_valid(part.model.material) { return part.model.material; }
+            return MaterialHandle { .. };
+        }
+    }
+    return MaterialHandle { .. };
+}
+
 // Release the one imported node, material, and mesh. Mesh and material storage
 // is released even if a scene reset has already invalidated the node handle.
 fn native_glb_dispose(model: NativeGlbModel&) -> bool {
