@@ -774,6 +774,70 @@ fn case_shadow() {
     testing::check(is_color(g3::read_pixel(303, 200), 180, 180, 180, 3), "disabling shadows restores the light");
 }
 
+fn case_point_shadow() {
+    g3::scene_clear();
+    flat_camera();
+    g3::clear_lights();
+    g3::set_environment(float3_0, float3_0, 0.0);
+    g3::set_ambient(float3_0, 0.0);
+    let ground .= g3::node(g3::node_add(g3::mesh_plane(8.0, 1)));
+    ground.spec = 0.0;
+    let cube .= g3::node(g3::node_add(g3::mesh_cube(0.5)));
+    cube.pos.y = 1.0;
+    cube.spec = 0.0;
+    let camera .= g3::camera();
+    camera.pos = float3 { 0.0, 6.0, 0.0 };
+    camera.target = float3_0;
+    camera.up = float3 { 0.0, 0.0, -1.0 };
+
+    // The cube top is y=1.5. A ray from (-2,4,0) through (0,1.5,0)
+    // reaches the ground at x=1.2; the ray to x=2.5 misses the cube.
+    let added = g3::add_point_light(float3 { -2.0, 4.0, 0.0 }, float3_1, 20.0);
+    let enabled = g3::set_point_light_shadows(0, 0.0001);
+    g3::frame(1.0 / 60.0);
+    let shadowed = channel(g3::read_pixel(283, 200), 16);
+    let lit = channel(g3::read_pixel(372, 200), 16);
+    g3::clear_point_light_shadows();
+    g3::frame(1.0 / 60.0);
+    let unshadowed = channel(g3::read_pixel(283, 200), 16);
+    testing::check(added && enabled && lit > 10, "a point light illuminates ground beyond its cube caster");
+    testing::check(unshadowed - shadowed > 20, "point-light cube shadow darkens the projected ground footprint");
+    g3::clear_lights();
+}
+
+fn case_spot_shadow() {
+    g3::scene_clear();
+    flat_camera();
+    g3::clear_lights();
+    g3::set_environment(float3_0, float3_0, 0.0);
+    g3::set_ambient(float3_0, 0.0);
+    let ground .= g3::node(g3::node_add(g3::mesh_plane(8.0, 1)));
+    ground.spec = 0.0;
+    let cube .= g3::node(g3::node_add(g3::mesh_cube(0.5)));
+    cube.pos.y = 1.0;
+    cube.spec = 0.0;
+    let camera .= g3::camera();
+    camera.pos = float3 { 0.0, 6.0, 0.0 };
+    camera.target = float3_0;
+    camera.up = float3 { 0.0, 0.0, -1.0 };
+
+    // The spot axis from (-2,4,0) through the cube top at (0,1.5,0)
+    // reaches x=1.2 on the ground. At x=2.5 the ray stays in the cone but
+    // misses the cube.
+    let added = g3::add_spot_light(float3 { -2.0, 4.0, 0.0 }, float3 { 1.0, -1.0, 0.0 },
+                                   float3_1, 20.0, 0.2, 0.4);
+    let enabled = g3::set_spot_light_shadows(0, 0.0001);
+    g3::frame(1.0 / 60.0);
+    let shadowed = channel(g3::read_pixel(283, 200), 16);
+    let lit = channel(g3::read_pixel(372, 200), 16);
+    g3::clear_spot_light_shadows();
+    g3::frame(1.0 / 60.0);
+    let unshadowed = channel(g3::read_pixel(283, 200), 16);
+    testing::check(added && enabled && lit > 10, "a spot light illuminates ground within its cone beyond its caster");
+    testing::check(unshadowed - shadowed > 20, "spot-light shadow darkens the projected ground footprint");
+    g3::clear_lights();
+}
+
 fn case_clipping() {
     g3::scene_clear();
     flat_camera();
@@ -1683,6 +1747,8 @@ fn main() {
     case_render_target();
     case_lights();
     case_shadow();
+    case_point_shadow();
+    case_spot_shadow();
     case_clipping();
     case_normal_transform();
     case_asset_reuse();

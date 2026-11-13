@@ -142,6 +142,8 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
   256, 512, or 1024-pixel maps, opaque and masked casters, and optional 3×3 or
   5×5 PCF. Equirectangular maps provide diffuse fill and GGX-prefiltered
   reflections; browser and native Radiance RGBE loading retain HDR radiance.
+  CPU pixel regressions now verify that point and spot casters darken their
+  projected ground footprints while nearby illuminated samples remain lit.
 * **Implemented:** browser Radiance HDR environment image loading. The CPU
   backend composites in floating point; WebGL uses a floating-point render
   target when supported and has an inline fallback. Verify colour output
