@@ -21,7 +21,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and deformation benchmarks; GPU morph targets fall back to CPU above 64 targets or device texture limits |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and shrinking arena backing arrays |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection | Browser integration tests |
-| Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters, FXAA-style full-screen post-processing | User render targets, general post-processing and custom shaders; CPU reference renderer still processes draw items individually |
+| Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters, FXAA-style full-screen post-processing | User render targets, composable post-processing, and a bounded custom shader extension; CPU reference renderer still processes draw items individually |
 | Developer experience | Goose API, custom browser host, typed browser asset helpers and a package manifest | Publish the package, examples, and automated browser rendering tests |
 
 Three.js's [fundamentals](https://threejs.org/manual/pages/fundamentals.html),
@@ -136,7 +136,9 @@ Tests cover animation interpolation, skinning, and camera projection.
   and GPU configurations before selecting further optimisations.
 * **Implemented:** optional FXAA-style luma edge smoothing runs as a full-screen
   WebGL output pass and in the CPU reference renderer.
-* Add user render targets, general post-processing, and a supported custom-shader interface.
+* Add user render targets with explicit creation, resize, and disposal. A target is also a sampleable texture; document whether its stored values are linear HDR or display-referred LDR, its alpha behavior, and whether tone mapping or FXAA runs when rendering to it. Prevent feedback loops when a pass samples its own output. Keep default-framebuffer rendering unchanged.
+* Build general post-processing on top of render targets as an ordered list of named passes. Start with built-in passes and explicit input/output targets; define resize and lifetime behavior before exposing arbitrary shader code. Keep the existing FXAA convenience switch as a built-in pass.
+* Add a supported custom shader extension only after shader inputs, uniforms, texture slots, vertex attributes, and failure reporting have stable contracts. Bound shader resources and state that cannot be overridden so the extension remains usable on WebGL2 and does not silently promise CPU parity.
 * Package and document the browser API, including lifecycle and errors; add
   examples and continuous browser tests. Add native asset loading when native
   interactive applications are a target.
@@ -151,6 +153,15 @@ reuse, and published examples build and run through the supported API.
   hand-derived pixel checks. Run browser tests for actual shader compilation,
   texture uploads, and interaction; a successful WebAssembly build alone does
   not verify them.
+* For render targets, test target dimensions and resize, rendering a known colour
+  into a target, sampling that target on a later draw, target disposal, and
+  rejection of invalid or feedback-loop use. Compare linear/display conversion
+  and alpha behavior between the CPU reference and WebGL. A target must not
+  inherit screen-only tone mapping or FXAA unless the caller explicitly runs
+  those as passes.
+* For post-processing, test pass order and input/output selection with small
+  hand-derived images. A failed or unsupported pass should produce a readable
+  error and leave the default render path usable.
 * State backend differences, supported glTF features, and limits explicitly;
   update [assets.md](assets.md), the ABI documentation, and examples as APIs
   evolve.
