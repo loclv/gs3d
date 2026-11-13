@@ -424,6 +424,13 @@ fn case_native_glb_load() {
                    is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
                    "native JSON glTF reads accessors across multiple nested external buffers");
     testing::check(g3::native_glb_dispose(external_model), "native external-buffer glTF resources dispose cleanly");
+    let data_uri_model, data_uri_loaded = g3::native_glb_load_primitive("testdata/native-external/data-uri.gltf", 0, 0);
+    g3::frame(1.0 / 60.0);
+    let data_uri_stats = g3::stats();
+    testing::check(data_uri_loaded && data_uri_stats.drawn == 1 && data_uri_stats.triangles == 12 &&
+                   is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
+                   "native JSON glTF decodes base64 buffer data URIs");
+    testing::check(g3::native_glb_dispose(data_uri_model), "native data-URI glTF resources dispose cleanly");
     let external_mesh, external_mesh_loaded = g3::native_glb_load_node_mesh("testdata/native-external/model.gltf", 0);
     let external_mesh_ok = external_mesh_loaded && g3::native_glb_mesh_primitive_count(external_mesh) == 1;
     testing::check(external_mesh_ok && g3::native_glb_mesh_dispose(external_mesh),
@@ -431,9 +438,10 @@ fn case_native_glb_load() {
     let traversal_model, traversal_loaded = g3::native_glb_load_primitive("testdata/native-external/traversal.gltf", 0, 0);
     let missing_buffer_model, missing_buffer_loaded = g3::native_glb_load_primitive("testdata/native-external/missing.gltf", 0, 0);
     let bad_buffer_model, bad_buffer_loaded = g3::native_glb_load_primitive("testdata/native-external/bad-buffer-range.gltf", 0, 0);
+    let bad_data_uri_model, bad_data_uri_loaded = g3::native_glb_load_primitive("testdata/native-external/bad-data-uri.gltf", 0, 0);
     testing::check(!traversal_loaded && traversal_model.mesh.id < 0 && !missing_buffer_loaded && missing_buffer_model.mesh.id < 0 &&
-                   !bad_buffer_loaded && bad_buffer_model.mesh.id < 0,
-                   "native JSON glTF rejects unsafe, missing, and out-of-range buffer references without allocating resources");
+                   !bad_buffer_loaded && bad_buffer_model.mesh.id < 0 && !bad_data_uri_loaded && bad_data_uri_model.mesh.id < 0,
+                   "native JSON glTF rejects unsafe, missing, malformed, and out-of-range buffers without allocating resources");
     let ushort_bytes: u8[8] = [0, 0, 255, 255, 0, 128, 0, 64];
     let ushort_color, ushort_color_ok = g3::glb_vertex_color(ushort_bytes[..], 0, g3::GlbAccessor { stride: 8, components: 4, .. }, 5123, 0);
     testing::check(ushort_color_ok && abs(ushort_color.x) < 0.001 && abs(ushort_color.y - 1.0) < 0.001 &&

@@ -54,6 +54,53 @@ fn glb_f32(bytes: const u8[:], at: i64) -> f32, bool {
 
 fn glb_json_index(node: json::Node?) -> i64, bool { return json::as_i64(node); }
 
+fn glb_base64_value(c: u8) -> i64, bool {
+    if c >= 65 && c <= 90 { return c - 65, true; }
+    if c >= 97 && c <= 122 { return c - 97 + 26, true; }
+    if c >= 48 && c <= 57 { return c - 48 + 52, true; }
+    if c == 43 { return 62, true; }
+    if c == 47 { return 63, true; }
+    return 0, false;
+}
+
+// Decode a base64 data URI into a caller-owned byte array. Only the standard
+// alphabet and canonical final padding are accepted.
+fn glb_decode_data_uri(uri: const u8[:], output: u8[>..]&) -> bool {
+    guard uri.len >= 16 && uri[0] == 100 && uri[1] == 97 && uri[2] == 116 && uri[3] == 97 && uri[4] == 58 else { return false; }
+    var comma: i64 = -1;
+    for i in 5..uri.len { if uri[i] == 44 { comma = i; break; } }
+    guard comma > 12 && uri[comma - 7] == 59 && uri[comma - 6] == 98 && uri[comma - 5] == 97 &&
+          uri[comma - 4] == 115 && uri[comma - 3] == 101 && uri[comma - 2] == 54 && uri[comma - 1] == 52 else { return false; }
+    let encoded_length = uri.len - comma - 1;
+    guard encoded_length > 0 && encoded_length % 4 == 0 else { return false; }
+    for i in 0..encoded_length / 4 {
+        let at = comma + 1 + i * 4;
+        let a, a_ok = glb_base64_value(uri[at]); let b, b_ok = glb_base64_value(uri[at + 1]);
+        guard a_ok && b_ok else { return false; }
+        let last = i == encoded_length / 4 - 1;
+        let c_pad = uri[at + 2] == 61;
+        let d_pad = uri[at + 3] == 61;
+        if c_pad {
+            guard last && d_pad && (b & 15) == 0 else { return false; }
+            output.push(((a << 2) | (b >> 4)) as u8);
+        } else {
+            let c, c_ok = glb_base64_value(uri[at + 2]);
+            guard c_ok else { return false; }
+            output.push(((a << 2) | (b >> 4)) as u8);
+            if d_pad {
+                guard last && (c & 3) == 0 else { return false; }
+                output.push(((b << 4) | (c >> 2)) as u8);
+            } else {
+                let d, d_ok = glb_base64_value(uri[at + 3]);
+                guard d_ok else { return false; }
+                output.push(((b << 4) | (c >> 2)) as u8);
+                output.push(((c << 6) | d) as u8);
+            }
+        }
+    }
+    return true;
+}
+
 fn glb_optional_index(node: json::Node?, fallback: i64) -> i64, bool {
     if !node { return fallback, true; }
     return glb_json_index(node);
@@ -471,34 +518,39 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     for buffer_index in 0..buffer_count {
         let buffer = glb_json_element(buffers, buffer_index);
         let declared_bytes, declared_ok = glb_json_index(json::member(buffer, "byteLength"));
-        guard buffer && declared_ok && declared_bytes > 0 && declared_bytes <= 268435456 else { return NativeGlbModel { .. }, false; }
+        guard buffer && declared_ok && declared_bytes > 0 && declared_bytes <= 268435456 && bytes.len + declared_bytes <= 268435456 else { return NativeGlbModel { .. }, false; }
         if is_glb {
             guard buffer_index == 0 && !json::member(buffer, "uri") && declared_bytes <= bin_size && bin_size - declared_bytes <= 3 else { return NativeGlbModel { .. }, false; }
             buffer_bases.push(bin_start);
             buffer_sizes.push(declared_bytes);
         } else {
             let uri, uri_ok = json::as_string(json::member(buffer, "uri"));
-            guard uri_ok && uri.len > 0 && uri.len < 4096 else { return NativeGlbModel { .. }, false; }
-            // Only plain relative paths are accepted; reject URI schemes,
-            // encoded separators, queries, fragments, and dot path segments.
-            var segment_start: i64 = 0;
-            for i in 0..uri.len {
-                let c = uri[i];
-                guard c != 92 && c != 58 && c != 63 && c != 35 && c != 37 else { return NativeGlbModel { .. }, false; }
-                if c == 47 {
-                    guard i > segment_start && !(i - segment_start == 1 && uri[segment_start] == 46) && !(i - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) else { return NativeGlbModel { .. }, false; }
-                    segment_start = i + 1;
-                }
-            }
-            guard segment_start < uri.len && !(uri.len - segment_start == 1 && uri[segment_start] == 46) && !(uri.len - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) && uri[0] != 47 else { return NativeGlbModel { .. }, false; }
-            var external_path: u8[>..] = [];
-            var directory_end: i64 = 0;
-            for i in 0..path.len { if path[i] == 47 { directory_end = i + 1; } }
-            guard directory_end + uri.len < 4096 else { return NativeGlbModel { .. }, false; }
-            for i in 0..directory_end { external_path.push(path[i]); }
-            for i in 0..uri.len { external_path.push(uri[i]); }
+            guard uri_ok && uri.len > 0 else { return NativeGlbModel { .. }, false; }
             var external: u8[>..] = [];
-            guard read_file(external_path[..], external) && external.len <= 268435456 && declared_bytes <= external.len && bytes.len + declared_bytes <= 268435456 else { return NativeGlbModel { .. }, false; }
+            if uri.len >= 5 && uri[0] == 100 && uri[1] == 97 && uri[2] == 116 && uri[3] == 97 && uri[4] == 58 {
+                guard uri.len <= 268435456 && glb_decode_data_uri(uri, external) && external.len == declared_bytes else { return NativeGlbModel { .. }, false; }
+            } else {
+                guard uri.len < 4096 else { return NativeGlbModel { .. }, false; }
+                // Only plain relative paths are accepted; reject URI schemes,
+                // encoded separators, queries, fragments, and dot path segments.
+                var segment_start: i64 = 0;
+                for i in 0..uri.len {
+                    let c = uri[i];
+                    guard c != 92 && c != 58 && c != 63 && c != 35 && c != 37 else { return NativeGlbModel { .. }, false; }
+                    if c == 47 {
+                        guard i > segment_start && !(i - segment_start == 1 && uri[segment_start] == 46) && !(i - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) else { return NativeGlbModel { .. }, false; }
+                        segment_start = i + 1;
+                    }
+                }
+                guard segment_start < uri.len && !(uri.len - segment_start == 1 && uri[segment_start] == 46) && !(uri.len - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) && uri[0] != 47 else { return NativeGlbModel { .. }, false; }
+                var external_path: u8[>..] = [];
+                var directory_end: i64 = 0;
+                for i in 0..path.len { if path[i] == 47 { directory_end = i + 1; } }
+                guard directory_end + uri.len < 4096 else { return NativeGlbModel { .. }, false; }
+                for i in 0..directory_end { external_path.push(path[i]); }
+                for i in 0..uri.len { external_path.push(uri[i]); }
+                guard read_file(external_path[..], external) && external.len == declared_bytes else { return NativeGlbModel { .. }, false; }
+            }
             buffer_bases.push(bytes.len);
             buffer_sizes.push(declared_bytes);
             for i in 0..declared_bytes { bytes.push(external[i]); }

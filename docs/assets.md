@@ -65,9 +65,9 @@ relative to the model URL. Resources require normal browser fetch/CORS access.
 
 Native Goose programs can import `g3.gltf_native` and load static geometry from
 a glTF 2.0 GLB or a JSON `.gltf` document. JSON glTF accepts up to 16 external
-buffers whose URIs are plain relative paths beneath the document directory.
-Each buffer view is range-checked against its referenced buffer. Load one
-primitive by mesh index:
+buffers with plain relative paths beneath the document directory or base64
+data URIs. Each buffer view is range-checked against its referenced buffer.
+Load one primitive by mesh index:
 
 ```goose
 import g3.gltf_native;
@@ -118,7 +118,8 @@ to emissive output and dielectric response. The factor portions of
 `NativeGlbModel` owns checked mesh, node, and material handles; dispose the model
 to release them. External buffer paths containing schemes, absolute paths,
 encoded URI components, query strings, fragments, or dot path segments are
-rejected. It does not yet load material textures, images, skins, animations,
+rejected. Data URIs must use base64 encoding. It does not yet load material
+textures, images, skins, animations,
 sparse accessors, or the full node hierarchy as engine parent/child nodes.
 Browser applications should use the broader `web/assets.js` loader.
 
