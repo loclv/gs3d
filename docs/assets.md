@@ -147,6 +147,9 @@ fetches and decodes assets in JavaScript.
 
 * `.gltf` JSON and `.glb` version 2, with external, data-URI, or GLB binary
   buffers; images may be external, data-URI, or stored in buffer views.
+  `EXT_texture_webp` selects its WebP image and falls back to the core image
+  source if WebP fetching or decoding fails; WebP-only textures must declare
+  the extension as required.
 * The selected scene's hierarchy (the glTF default scene, or the optional
   `loadGLTF` `{ scene: index }` choice), matrix or TRS transforms, indexed or
   non-indexed triangle primitives, float positions, optional float normals,

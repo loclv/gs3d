@@ -163,8 +163,17 @@ quantizedMorphDoc.animations[0].samplers[0].output = quantizedAccessor;
 resources.set('http://localhost/quantized-morph.gltf', bytes(quantizedMorphDoc));
 resources.set('http://localhost/quantized-weights.bin', quantizedWeights);
 globalThis.fetch = async url => resources.has(String(url)) ? new Response(resources.get(String(url))) : new Response('', { status: 404 });
-globalThis.createImageBitmap = async () => ({ width: 1, height: 1, close() {} });
-globalThis.document = { createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8Array([255, 0, 0, 255]) }) }) }) };
+let rejectWebpDecode = false;
+globalThis.createImageBitmap = async blob => {
+  const marker = new Uint8Array(await blob.arrayBuffer())[0] || 1;
+  if (rejectWebpDecode && marker === 2) throw new Error('WebP decoding unavailable');
+  return { width: marker % 16 + 1, height: 1, marker, close() {} };
+};
+globalThis.document = { createElement: () => {
+  let pixel = 255;
+  return { getContext: () => ({ drawImage: bitmap => { pixel = bitmap.marker; },
+    getImageData: (_x, _y, width, height) => ({ data: new Uint8Array(width * height * 4).fill(pixel) }) }) };
+} };
 
 for (const [name, expected] of [
   ['sparse-zero-base', [0, 0, 0, 2, -1, 0, 0, 0, 0]],
@@ -495,13 +504,41 @@ textured.accessors.push({ bufferView: 0, componentType: 5126, count: 3, type: 'V
 textured.meshes[0].primitives[0].attributes.TEXCOORD_0 = 3;
 textured.materials[0].pbrMetallicRoughness.baseColorTexture = { index: 0 };
 resources.set('http://localhost/textured.gltf', bytes(textured));
+resources.set('http://localhost/image.webp', new Uint8Array([2]));
+const webpTexture = structuredClone(textured);
+webpTexture.images.push({ uri: 'image.webp' });
+webpTexture.textures[0].extensions = { EXT_texture_webp: { source: 1 } };
+webpTexture.extensionsUsed = ['EXT_texture_webp'];
+resources.set('http://localhost/webp-texture.gltf', bytes(webpTexture));
+const webpOnlyTexture = structuredClone(webpTexture);
+delete webpOnlyTexture.textures[0].source;
+webpOnlyTexture.extensionsRequired = ['EXT_texture_webp'];
+resources.set('http://localhost/webp-only.gltf', bytes(webpOnlyTexture));
+const invalidWebpOnlyTexture = structuredClone(webpOnlyTexture);
+delete invalidWebpOnlyTexture.extensionsRequired;
+resources.set('http://localhost/invalid-webp-only.gltf', bytes(invalidWebpOnlyTexture));
 const texturedEngine = fakeEngine();
 const texturedModel = await loadGLTF(texturedEngine, 'http://localhost/textured.gltf');
 assert.equal(texturedEngine.calls.filter(x => x[0] === 'texture_srgb').length, 1);
 assert.equal(texturedEngine.calls.find(x => x[0] === 'material')[6], 5);
+assert.equal(texturedEngine.calls.find(x => x[0] === 'texture_srgb')[3], 2, 'core texture source is used without an image extension');
 assert.deepEqual(texturedEngine.calls.find(x => x[0] === 'wrap'), ['wrap', 5, 1, 1]);
 texturedModel.dispose();
 assert.equal(texturedEngine.calls.filter(x => x[0] === 'recycle_texture').length, 1);
+const webpEngine = fakeEngine(), webpModel = await loadGLTF(webpEngine, 'http://localhost/webp-texture.gltf');
+assert.equal(webpEngine.calls.find(x => x[0] === 'texture_srgb')[3], 3, 'EXT_texture_webp source takes precedence over the fallback image');
+webpModel.dispose();
+const webpOnlyEngine = fakeEngine(), webpOnlyModel = await loadGLTF(webpOnlyEngine, 'http://localhost/webp-only.gltf');
+assert.equal(webpOnlyEngine.calls.find(x => x[0] === 'texture_srgb')[3], 3, 'required WebP-only textures load without a core source');
+webpOnlyModel.dispose();
+const invalidWebpOnlyEngine = fakeEngine();
+await assert.rejects(loadGLTF(invalidWebpOnlyEngine, 'http://localhost/invalid-webp-only.gltf'), error => error.code === 'INVALID_GLTF');
+assert.equal(invalidWebpOnlyEngine.calls.length, 0, 'WebP-only textures require the extension before engine allocation');
+rejectWebpDecode = true;
+const fallbackWebpEngine = fakeEngine(), fallbackWebpModel = await loadGLTF(fallbackWebpEngine, 'http://localhost/webp-texture.gltf');
+assert.equal(fallbackWebpEngine.calls.find(x => x[0] === 'texture_srgb')[3], 2, 'undecodable WebP uses the core texture source');
+fallbackWebpModel.dispose();
+rejectWebpDecode = false;
 const transformedTexture = structuredClone(textured);
 transformedTexture.extensionsUsed = ['KHR_texture_transform'];
 transformedTexture.extensionsRequired = ['KHR_texture_transform'];

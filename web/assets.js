@@ -654,7 +654,7 @@ async function prepare(url, requestedScene) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_texture_transform', 'KHR_materials_variants'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   if (doc.extensions !== undefined && (!doc.extensions || typeof doc.extensions !== 'object' || Array.isArray(doc.extensions))) invalid('Invalid glTF extensions');
   const variantExtension = doc.extensions?.KHR_materials_variants;
@@ -676,13 +676,32 @@ async function prepare(url, requestedScene) {
     if (!data || !Number.isInteger(buffer.byteLength) || buffer.byteLength < 0 || data.byteLength < buffer.byteLength) invalid('Missing or truncated buffer');
     return data;
   }));
-  const images = await Promise.all((doc.images || []).map(async image => {
+  const imageDefinitions = doc.images || [];
+  if (!Array.isArray(imageDefinitions)) invalid('Invalid glTF images');
+  const webpFallbacks = new Map();
+  for (const texture of doc.textures || []) {
+    const webpSource = texture?.extensions?.EXT_texture_webp?.source;
+    if (webpSource !== undefined) {
+      const fallbackSource = texture.source ?? null;
+      if (webpFallbacks.has(webpSource) && webpFallbacks.get(webpSource) !== fallbackSource) invalid('WebP image has conflicting fallback sources');
+      webpFallbacks.set(webpSource, fallbackSource);
+    }
+  }
+  const decodeImageDefinition = async image => {
     if (image.uri !== undefined) return decodeImage(await fetchBytes(new URL(image.uri, absolute)), image.mimeType || '');
     const bv = item(doc.bufferViews, image.bufferView, 'image bufferView');
     const data = item(buffers, bv.buffer, 'image buffer');
     const start = bv.byteOffset || 0, end = start + bv.byteLength;
     if (!Number.isInteger(start) || start < 0 || !Number.isInteger(end) || end > data.byteLength) invalid('Image exceeds its buffer');
     return decodeImage(data.slice(start, end), image.mimeType || '');
+  };
+  const images = await Promise.all(imageDefinitions.map(async (image, index) => {
+    try { return await decodeImageDefinition(image); }
+    catch (error) {
+      const fallback = webpFallbacks.get(index);
+      if (fallback === undefined || fallback === null) throw error;
+      return decodeImageDefinition(item(imageDefinitions, fallback, 'fallback image'));
+    }
   }));
   const skins = (doc.skins || []).map((skin, index) => {
     if (skin.extensions || !Array.isArray(skin.joints) || skin.joints.length < 1 ||
@@ -700,14 +719,28 @@ async function prepare(url, requestedScene) {
   });
   const wrapModes = { 33071: 0, 10497: 1, 33648: 2 };
   const textureSpecs = (doc.textures || []).map(texture => {
-    item(images, texture.source, 'image');
+    if (!texture || typeof texture !== 'object' || Array.isArray(texture)) invalid('Invalid texture');
+    let source = texture.source;
+    if (texture.extensions !== undefined) {
+      if (!texture.extensions || typeof texture.extensions !== 'object' || Array.isArray(texture.extensions)) invalid('Invalid texture extensions');
+      const extensions = Object.keys(texture.extensions);
+      if (extensions.some(name => name !== 'EXT_texture_webp')) unsupported('Unsupported texture extension');
+      if (extensions.includes('EXT_texture_webp')) {
+        if (!extensionsUsed.includes('EXT_texture_webp')) invalid('EXT_texture_webp must be listed in extensionsUsed');
+        const webp = texture.extensions.EXT_texture_webp;
+        if (!webp || typeof webp !== 'object' || Array.isArray(webp)) invalid('Invalid EXT_texture_webp extension');
+        source = webp.source;
+        if (texture.source === undefined && !extensionsRequired.includes('EXT_texture_webp')) invalid('EXT_texture_webp without a core fallback must be required');
+      }
+    }
+    item(images, source, 'image');
     const sampler = texture.sampler === undefined ? {} : item(doc.samplers, texture.sampler, 'sampler');
-    if (sampler.extensions || texture.extensions) unsupported('Texture or sampler extensions are not supported');
+    if (sampler.extensions) unsupported('Sampler extensions are not supported');
     if (sampler.magFilter !== undefined && ![9728, 9729].includes(sampler.magFilter)) invalid('Invalid magnification filter');
     if (sampler.minFilter !== undefined && ![9728, 9729, 9984, 9985, 9986, 9987].includes(sampler.minFilter)) invalid('Invalid minification filter');
     const s = sampler.wrapS ?? 10497, t = sampler.wrapT ?? 10497;
     if (!Object.hasOwn(wrapModes, s) || !Object.hasOwn(wrapModes, t)) invalid('Invalid texture wrapping mode');
-    return { image: texture.source, wrapU: wrapModes[s], wrapV: wrapModes[t],
+    return { image: source, wrapU: wrapModes[s], wrapV: wrapModes[t],
       minFilter: sampler.minFilter ?? 9729, magFilter: sampler.magFilter ?? 9729 };
   });
   const meshes = (doc.meshes || []).map((mesh, meshIndex) => {
