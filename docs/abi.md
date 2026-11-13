@@ -94,7 +94,7 @@ ignored for opaque items.
 | 36 | `g3_vec4` | `ambient` | rgb, a = intensity (multiply by it) |
 | 52 | `g3_vec4` | `fog` | rgb, a = density, exponential per world unit; 0 disables |
 | 68 | `g3_vec4` | `clear` | the colour a frame starts from |
-| 84 | `g3_vec4` | `params` | x time, y sRGB output encoding, z ACES tone mapping, w exposure |
+| 84 | `g3_vec4` | `params` | x time, y sRGB output encoding, z tone-map mode (0 none, 1 Reinhard, 2 ACES), w exposure |
 | 100 | `g3_light[4]` | `lights` | extra directional, point and spot lights |
 | 308 | `int32_t` | `light_count` | number of active extra lights, 0–4 |
 | 312 | `g3_vec4` | `env_sky` | hemispherical sky RGB and intensity |

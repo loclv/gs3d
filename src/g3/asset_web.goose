@@ -110,6 +110,6 @@ export fn g3_asset_pick(x: f32, y: f32, aspect: f32) -> i32 {
     return g3::pick_screen(x, y, aspect).node as i32;
 }
 export fn g3_asset_output_srgb(enabled: i32) { g3::set_output_srgb(enabled != 0); }
-export fn g3_asset_tone_mapping(enabled: i32) { g3::set_tone_mapping(enabled != 0); }
+export fn g3_asset_tone_mapping(mode: i32) -> bool { return g3::set_tone_mapping_mode(mode); }
 export fn g3_asset_exposure(value: f32) -> bool { return g3::set_exposure(value); }
 export fn g3_asset_environment_map(texture: i32, intensity: f32) { g3::set_environment_map(texture, intensity); }

@@ -36,7 +36,7 @@ var g_view: Mat4;
 var g_view_proj: Mat4;
 var g_frustum: Frustum;
 var g_output_srgb: bool;
-var g_tone_mapping: bool;
+var g_tone_mapping: i32;
 var g_exposure: f32 = 1.0;
 var g_shadow_center: float3;
 var g_shadow_extent: f32;
@@ -225,9 +225,20 @@ fn set_background(color: float4) { g_view_state.clear = color; }
 // framebuffer is encoded to sRGB. Disabled by default for existing scenes.
 fn set_output_srgb(enabled: bool) { g_output_srgb = enabled; }
 
-// Apply the ACES fitted curve to HDR output. WebGL uses inline mapping when
-// floating-point color blending is unavailable.
-fn set_tone_mapping(enabled: bool) { g_tone_mapping = enabled; }
+let TONE_MAPPING_NONE = 0;
+let TONE_MAPPING_REINHARD = 1;
+let TONE_MAPPING_ACES = 2;
+
+// Select how linear HDR output is mapped to the display range. WebGL uses
+// inline mapping when floating-point color blending is unavailable.
+fn set_tone_mapping_mode(mode: i32) -> bool {
+    guard mode >= TONE_MAPPING_NONE && mode <= TONE_MAPPING_ACES else { return false; }
+    g_tone_mapping = mode;
+    return true;
+}
+
+// Kept for existing callers: true selects ACES and false disables mapping.
+fn set_tone_mapping(enabled: bool) { g_tone_mapping = if enabled { TONE_MAPPING_ACES } else { TONE_MAPPING_NONE }; }
 
 // Linear exposure multiplier applied before tone mapping.
 fn set_exposure(exposure: f32) -> bool {
@@ -257,7 +268,7 @@ fn begin_frame(time: f64, width: i32, height: i32) {
     g_view_state.eye = g_camera.pos;
     // The third row of look-at points from the scene toward the camera.
     g_view_state.view_direction = float4 { g_view.m[2], g_view.m[6], g_view.m[10], if g_camera.orthographic { 1.0 } else { 0.0 } };
-    g_view_state.params = float4 { time as f32, if g_output_srgb { 1.0 } else { 0.0 }, if g_tone_mapping { 1.0 } else { 0.0 }, g_exposure };
+    g_view_state.params = float4 { time as f32, if g_output_srgb { 1.0 } else { 0.0 }, g_tone_mapping, g_exposure };
 }
 
 // Where an item sorts. Opaque items sort by mesh id, so the backend sees runs

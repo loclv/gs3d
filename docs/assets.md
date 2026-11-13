@@ -217,8 +217,10 @@ lighting and blending; `'linear'` restores the default. Background, light,
 fog, and material RGB values must be supplied in linear space in sRGB output
   mode. The viewer enables this mode. `loadImage` creates a linear texture by
   default; pass `{ colorSpace: 'srgb' }` for an sRGB image. glTF base-colour
-  textures are sRGB. `setToneMapping(engine, true)` enables the ACES fitted
-  curve and `setExposure(engine, value)` sets exposure. The CPU composites HDR
+  textures are sRGB. `setToneMapping(engine, 'reinhard')` or
+  `setToneMapping(engine, 'aces')` selects a tone-mapping curve;
+  `'none'` disables it. The legacy boolean `true` still selects ACES.
+  `setExposure(engine, value)` sets exposure. The CPU composites HDR
   radiance in floating point. WebGL uploads environment radiance as RGBA16F
   and uses a floating point environment prefilter when `EXT_color_buffer_float`
   is available; otherwise rough reflections use

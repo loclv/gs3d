@@ -16,7 +16,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for glTF/GLB meshes, materials, transform animations, dense and sparse accessors, with reusable asset-owned slots | Remaining glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
-| Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion, emissive and specular maps, static authored tangents, double-sided rendering, `KHR_materials_unlit`, `KHR_materials_ior`, `KHR_materials_specular`, `KHR_materials_emissive_strength`, per-texture `KHR_texture_transform` on `TEXCOORD_0` and `_1`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and ACES tone mapping with exposure | Browser reference validation |
+| Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion, emissive and specular maps, static authored tangents, double-sided rendering, `KHR_materials_unlit`, `KHR_materials_ior`, `KHR_materials_specular`, `KHR_materials_emissive_strength`, per-texture `KHR_texture_transform` on `TEXCOORD_0` and `_1`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and Reinhard/ACES tone mapping with exposure | Browser reference validation |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and deformation benchmarks; GPU morph targets fall back to CPU above 64 targets or device texture limits |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and shrinking arena backing arrays |
@@ -87,7 +87,7 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
   emissive maps. Static meshes use authored glTF tangents when provided;
   skinned or morphed geometry and missing tangents use a UV-derived frame.
   Equirectangular maps add diffuse fill, GGX importance-sampled specular mips,
-  and a split-sum BRDF integration LUT. ACES tone mapping, exposure controls,
+  and a split-sum BRDF integration LUT. Reinhard and ACES tone mapping, exposure controls,
   and browser/native Radiance HDR environment loading are implemented; validate
   browser references.
 * **Implemented:** shadows from the primary directional light, one
@@ -96,7 +96,7 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
   256, 512, or 1024-pixel maps, opaque and masked casters, and optional 3×3 or
   5×5 PCF. Equirectangular maps provide diffuse fill and GGX-prefiltered
   reflections; browser and native Radiance RGBE loading retain HDR radiance.
-* **Implemented:** ACES tone mapping with exposure controls and browser Radiance
+* **Implemented:** selectable Reinhard and ACES tone mapping with exposure controls and browser Radiance
   HDR environment image loading. The CPU backend composites in floating point;
   WebGL uses a floating-point render target when supported and has an inline
   fallback. Verify colour output against browser reference images.

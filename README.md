@@ -270,9 +270,9 @@ What the API gives you:
   Use `texture_create_srgb` for sRGB colour images; RGB is decoded before
   filtering and alpha stays linear. `set_output_srgb(true)` renders and blends
   in linear space before encoding the finished frame. Output encoding is opt-in
-  for compatibility with existing scenes. `set_tone_mapping(true)` enables an
-  ACES fitted curve, and `set_exposure(value)` sets its linear exposure
-  multiplier (0–32). The CPU backend composites into a floating-point buffer;
+  for compatibility with existing scenes. `set_tone_mapping_mode(mode)` selects
+  none, Reinhard, or ACES; `set_tone_mapping(true)` remains an ACES alias.
+  `set_exposure(value)` sets the linear exposure multiplier (0–32). The CPU backend composites into a floating-point buffer;
   WebGL uses an RGBA16F target when floating-point color rendering and blending
   are available, and otherwise maps each fragment before blending. Tone mapping
   works with HDR lighting values. Browser projects can use `loadHDRImage`;
@@ -433,9 +433,9 @@ Deliberately out of scope for now, in rough order of how much they would add:
   indirect fill, plus emissive factors and textures. Static, non-deformed
   glTF meshes use authored tangent attributes for normal maps; skinned or
   morphed meshes still use the UV-derived frame. GGX-prefiltered
-  environment lighting, ACES tone mapping, exposure controls, and Radiance
-  RGBE environment image loading are available. Full colour management remains
-  incomplete.
+  environment lighting, Reinhard and ACES tone mapping, exposure controls, and
+  Radiance RGBE environment image loading are available. Full colour
+  management remains incomplete.
 * **Limited shadows, environment lighting, and normals.** The primary
   directional light, one selected extra point light, and one selected spot
   light cast shadows; PCF filtering has hard, 3×3, and 5×5 settings, and

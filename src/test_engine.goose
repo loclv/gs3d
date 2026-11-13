@@ -438,6 +438,29 @@ fn case_color_space() {
     g3::set_output_srgb(false);
 }
 
+fn case_tone_mapping() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_output_srgb(false);
+    g3::set_background(float4 { 0.5, 0.5, 0.5, 1.0 });
+    testing::check(!g3::set_tone_mapping_mode(-1) && !g3::set_tone_mapping_mode(3), "unknown tone mapping modes are rejected");
+    testing::check(g3::set_tone_mapping_mode(g3::TONE_MAPPING_NONE), "linear tone mapping mode is accepted");
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(3, 3), 128, 128, 128, 1), "no tone mapping preserves linear mid-gray");
+    testing::check(g3::set_tone_mapping_mode(g3::TONE_MAPPING_REINHARD), "Reinhard tone mapping mode is accepted");
+    g3::frame(1.0 / 60.0);
+    // Reinhard maps 0.5 to 0.5 / 1.5 = 1/3, or 85/255.
+    testing::check(is_color(g3::read_pixel(3, 3), 85, 85, 85, 1), "Reinhard maps linear HDR values with x/(1+x)");
+    testing::check(g3::set_tone_mapping_mode(g3::TONE_MAPPING_ACES), "ACES tone mapping mode is accepted");
+    g3::frame(1.0 / 60.0);
+    // The fitted ACES curve maps 0.5 to ~0.616, or 157/255.
+    testing::check(is_color(g3::read_pixel(3, 3), 157, 157, 157, 1), "ACES retains its fitted HDR curve");
+    g3::set_tone_mapping(true);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(3, 3), 157, 157, 157, 1), "legacy boolean tone mapping still selects ACES");
+    g3::set_tone_mapping(false);
+}
+
 fn case_lights() {
     g3::scene_clear();
     flat_camera();
@@ -1257,6 +1280,7 @@ fn main() {
     case_texture_wrap();
     case_texture_filter();
     case_color_space();
+    case_tone_mapping();
     case_lights();
     case_shadow();
     case_clipping();

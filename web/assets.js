@@ -233,8 +233,12 @@ export function setOutputColorSpace(engine, space) {
   engine._g3_asset_output_srgb(space === 'srgb' ? 1 : 0);
 }
 
-export function setToneMapping(engine, enabled) {
-  engine._g3_asset_tone_mapping(enabled ? 1 : 0);
+export function setToneMapping(engine, mode) {
+  const modes = { none: 0, reinhard: 1, aces: 2 };
+  const value = typeof mode === 'boolean' ? (mode ? modes.aces : modes.none) : modes[mode];
+  if (!Number.isInteger(value) || !engine._g3_asset_tone_mapping(value)) {
+    throw new AssetError('TONE_MAPPING', `Unsupported tone mapping mode: ${mode}`);
+  }
 }
 
 export function setExposure(engine, exposure) {

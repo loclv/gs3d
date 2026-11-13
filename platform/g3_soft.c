@@ -273,6 +273,13 @@ static float srgb_encode(float x) {
     return x <= 0.0031308f ? x * 12.92f : 1.055f * powf(x, 1.0f / 2.4f) - 0.055f;
 }
 
+static float tone_map_value(float x, int mode) {
+    if (!isfinite(x) || x < 0.0f) x=0.0f;
+    if (mode == 1) return x/(1.0f+x);
+    if (mode == 2) return (x*(2.51f*x+0.03f))/(x*(2.43f*x+0.59f)+0.14f);
+    return x;
+}
+
 static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int srgb) {
     if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
     if (id >= texture_count) {
@@ -568,17 +575,15 @@ static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
     float m = fmaxf(0.0f, fminf(metallic, 1.0f));
     float dielectric = dielectric_f0(ior);
     float fresnel_weight = powf(1.0f - fminf(vh, 1.0f), 5.0f);
-    float f_values[3], max_f=0.0f;
+    float f_values[3];
     for (int i = 0; i < 3; i++) {
         float dc = fmaxf(0.0f, fminf(dielectric*specular_color[i], 1.0f));
         float f0 = dc*(1.0f-m) + base[i]*m;
         float strength = specular_strength*(1.0f-m)+m;
         f_values[i] = (f0 + (1.0f-f0)*fresnel_weight)*strength;
-        if (f_values[i] > max_f) max_f=f_values[i];
     }
-    float diffuse_energy=1.0f-max_f;
     for (int i = 0; i < 3; i++) {
-        out[i] = (diffuse_energy*(1.0f-m)*base[i]/3.14159265359f + distribution*visibility*f_values[i])*nl;
+        out[i] = ((1.0f-f_values[i])*(1.0f-m)*base[i]/3.14159265359f + distribution*visibility*f_values[i])*nl;
     }
 }
 
@@ -642,34 +647,13 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
         float brdf[3];
         pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, metallic, roughness, it->pbr.w, specular_strength, specular_color, brdf);
         float metal = fmaxf(0.0f, fminf(metallic, 1.0f));
-        float nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f), fw=powf(1.0f-nv,5.0f), dielectric=dielectric_f0(it->pbr.w);
-        float diffuse_energy=1.0f;
-        for (int c=0;c<3;c++) {
-            float dc=fmaxf(0.0f,fminf(dielectric*specular_color[c],1.0f));
-            float f0=dc*(1.0f-metal)+base[c]*metal;
-            float f=(f0+(1.0f-f0)*fw)*(specular_strength*(1.0f-metal)+metal);
-            float energy=1.0f-f;
-            if (energy<diffuse_energy) diffuse_energy=energy;
-        }
-        if (diffuse_energy<0.0f) diffuse_energy=0.0f;
-        float diffuse = (1.0f-metal)*diffuse_energy;
+        float diffuse = 1.0f-metal;
         r = base[0]*vs->ambient.x*amb*diffuse*ao + brdf[0]*vs->light_color.x*visible;
         g = base[1]*vs->ambient.y*amb*diffuse*ao + brdf[1]*vs->light_color.y*visible;
         b = base[2]*vs->ambient.z*amb*diffuse*ao + brdf[2]*vs->light_color.z*visible;
     }
     float sky = n.y * 0.5f + 0.5f;
     float env_scale = it->pbr.x > 0.5f ? 1.0f - fmaxf(0.0f, fminf(metallic, 1.0f)) : 1.0f;
-    if (it->pbr.x > 0.5f) {
-        float nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f), fw=powf(1.0f-nv,5.0f), dielectric=dielectric_f0(it->pbr.w);
-        float metal=fmaxf(0.0f,fminf(metallic,1.0f)), max_f=0.0f;
-        for (int c=0;c<3;c++) {
-            float dc=fmaxf(0.0f,fminf(dielectric*specular_color[c],1.0f));
-            float f0=dc*(1.0f-metal)+base[c]*metal;
-            float f=(f0+(1.0f-f0)*fw)*(specular_strength*(1.0f-metal)+metal);
-            if (f>max_f) max_f=f;
-        }
-        env_scale *= 1.0f-max_f;
-    }
     if (sky < 0.0f) sky = 0.0f;
     if (sky > 1.0f) sky = 1.0f;
     r += base[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w * env_scale * ao;
@@ -1621,12 +1605,12 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         rasterize_blocks(view, &one);
         merge_counts(&prof, &one);
     }
-    if (view->params.z > 0.5f) {
+    int tone_mode=(int)(view->params.z+0.5f);
+    if (tone_mode > 0) {
         size_t components=(size_t)fb_w*(size_t)fb_h*3;
         for(size_t i=0;i<components;i++){
             float value=hdr_fb[i]*view->params.w;
-            if (!isfinite(value) || value<0.0f) value=0.0f;
-            float mapped=(value*(2.51f*value+0.03f))/(value*(2.43f*value+0.59f)+0.14f);
+            float mapped=tone_map_value(value,tone_mode);
             mapped=clamp01(mapped);
             if(view->params.y>0.5f)mapped=srgb_encode(mapped);
             fb[i]=(uint8_t)(mapped*255.0f+0.5f);

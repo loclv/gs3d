@@ -260,11 +260,12 @@ static const char *FRAGMENT_SRC =
     "uniform vec4 u_spot_shadow_params;\n"
     "uniform vec4 u_ambient;\n"
     "uniform vec4 u_fog;\n"
-    "uniform bool u_tone_map_inline;\n"
+    "uniform int u_tone_map_inline;\n"
     "uniform float u_exposure_inline;\n"
     "out vec4 out_color;\n"
     "vec2 material_uv(int slot) { vec2 coord=u_uv_set[slot]==1?v_uv1:v_uv; vec2 scaled=coord*u_uv_transform[slot].zw; float c=cos(u_uv_rotation[slot]), s=sin(u_uv_rotation[slot]); return u_uv_transform[slot].xy+vec2(c*scaled.x-s*scaled.y,s*scaled.x+c*scaled.y); }\n"
     "float dielectric_f0(float ior) { float ratio=(clamp(ior,1.0,2.333)-1.0)/(clamp(ior,1.0,2.333)+1.0); return ratio*ratio; }\n"
+    "vec3 tone_map_color(vec3 x,int mode) { x=max(x,vec3(0.0)); if(mode==1) return x/(vec3(1.0)+x); if(mode==2) return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); return x; }\n"
     "vec3 pbr_light(vec3 n, vec3 v, vec3 l, vec3 base, float metal, float rough, float ior, float specular_strength, vec3 specular_color) {\n"
     "    float nl = max(dot(n,l), 0.0), nv = max(dot(n,v), 0.0);\n"
     "    vec3 sum = l + v; float len = length(sum);\n"
@@ -278,8 +279,7 @@ static const char *FRAGMENT_SRC =
     "    vec3 f0 = mix(dielectric, base, metal);\n"
     "    float strength = mix(clamp(specular_strength,0.0,1.0),1.0,metal);\n"
     "    vec3 f = (f0 + (1.0-f0)*pow(1.0-min(vh, 1.0), 5.0))*strength;\n"
-    "    float diffuse_energy = 1.0-max(f.r,max(f.g,f.b));\n"
-    "    return (diffuse_energy*(1.0-metal)*base/3.14159265359 + d*vis*f)*nl;\n"
+    "    return ((1.0-f)*(1.0-metal)*base/3.14159265359 + d*vis*f)*nl;\n"
     "}\n"
     "void main() {\n"
     "    vec2 base_uv = material_uv(0);\n"
@@ -339,9 +339,6 @@ static const char *FRAGMENT_SRC =
     "    vec3 dielectric = clamp(vec3(dielectric_f0(u_pbr.w))*specular_color,0.0,1.0);\n"
     "    vec3 f0 = mix(dielectric,base,metal);\n"
     "    float specular_weight = mix(clamp(specular_strength,0.0,1.0),1.0,metal);\n"
-    "    float fresnel_weight = pow(1.0-max(dot(n,v),0.0),5.0);\n"
-    "    vec3 fresnel = (f0+(1.0-f0)*fresnel_weight)*specular_weight;\n"
-    "    float diffuse_energy = 1.0-max(fresnel.r,max(fresnel.g,fresnel.b));\n"
     "    float visibility = 1.0;\n"
     "    if (u_shadow_params.x > 0.5) {\n"
     "        vec4 light_pos = u_shadow_matrix * vec4(v_world, 1.0);\n"
@@ -357,7 +354,7 @@ static const char *FRAGMENT_SRC =
     "    }\n"
     "    vec3 col = base * (u_ambient.rgb * u_ambient.a * ao + u_light_color * diff * visibility)\n"
     "             + u_light_color * spec * visibility;\n"
-    "    float env_scale = u_pbr.x > 0.5 ? (1.0-metal)*diffuse_energy : 1.0;\n"
+    "    float env_scale = u_pbr.x > 0.5 ? 1.0-metal : 1.0;\n"
     "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale*ao + pbr_light(n,v,l,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color)*u_light_color*visibility;\n"
     "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
     "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale * ao;\n"
@@ -425,7 +422,7 @@ static const char *FRAGMENT_SRC =
     "    float dist = length(u_eye - v_world);\n"
     "    float fog = clamp(1.0 - exp(-dist * u_fog.a), 0.0, 1.0);\n"
     "    col = mix(col, u_fog.rgb, fog);\n"
-    "    if (u_tone_map_inline) { vec3 x=max(col*u_exposure_inline,vec3(0.0)); col=clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); }\n"
+    "    if (u_tone_map_inline!=0) col=tone_map_color(col*u_exposure_inline,u_tone_map_inline);\n"
     "    out_color = vec4(col, u_alpha_mode == 2 ? alpha : 1.0);\n"
     "}\n";
 
@@ -1631,7 +1628,7 @@ static void report_first_gl_error(void) {
 static int ensure_output_target(int hdr) {
     if (!output_program) {
         const char *vs_src = "#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}\n";
-        const char *fs_src = "#version 300 es\nprecision highp float;\nuniform sampler2D u_linear;uniform bool u_tone_map;uniform float u_exposure;uniform bool u_encode_srgb;out vec4 color;\nvoid main(){vec3 c=texelFetch(u_linear,ivec2(gl_FragCoord.xy),0).rgb;if(u_tone_map){c=max(c*u_exposure,vec3(0.0));c=clamp((c*(2.51*c+0.03))/(c*(2.43*c+0.59)+0.14),0.0,1.0);}if(u_encode_srgb){vec3 lo=c*12.92;vec3 hi=1.055*pow(c,vec3(1.0/2.4))-0.055;c=mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}color=vec4(c,1.0);}\n";
+        const char *fs_src = "#version 300 es\nprecision highp float;\nuniform sampler2D u_linear;uniform int u_tone_map;uniform float u_exposure;uniform bool u_encode_srgb;out vec4 color;\nvec3 tone_map_color(vec3 x,int mode){x=max(x,vec3(0.0));if(mode==1)return x/(vec3(1.0)+x);if(mode==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\nvoid main(){vec3 c=texelFetch(u_linear,ivec2(gl_FragCoord.xy),0).rgb;if(u_tone_map!=0)c=tone_map_color(c*u_exposure,u_tone_map);if(u_encode_srgb){vec3 lo=c*12.92;vec3 hi=1.055*pow(c,vec3(1.0/2.4))-0.055;c=mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}color=vec4(c,1.0);}\n";
         GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "output vertex");
         GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "output fragment");
         if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); return 0; }
@@ -1676,7 +1673,8 @@ static void present_output(const g3_view_state *view) {
     glUseProgram(output_program);
     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, output_color);
     glUniform1i(output_sampler, 0);
-    glUniform1i(output_tone_map,view->params.z>0.5f && !tone_map_inline_frame);
+    int tone_mode=(int)(view->params.z+0.5f);
+    glUniform1i(output_tone_map,tone_map_inline_frame ? 0 : tone_mode);
     glUniform1f(output_exposure,view->params.w);
     glUniform1i(output_encode_srgb,view->params.y>0.5f);
     glBindVertexArray(output_vao);
@@ -1704,22 +1702,22 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         render_point_shadow_maps(items, view);
     if (view->spot_shadow_params.x > 0.5f && view->spot_shadow_light_index >= 0 && view->spot_shadow_light_index < view->light_count && view->lights[view->spot_shadow_light_index].position.w > 1.5f && ensure_spot_shadow_map())
         render_shadow_map(items, view, &view->spot_shadow_view_proj, spot_shadow_texture);
-    int tone=view->params.z>0.5f;
+    int tone_mode=(int)(view->params.z+0.5f);
+    int tone=tone_mode!=0;
     int encode=0;
-    tone_map_inline_frame=tone && !hdr_color_buffer_supported;
+    tone_map_inline_frame=tone && !hdr_color_buffer_supported ? tone_mode : 0;
     if (tone && hdr_color_buffer_supported) {
         encode=ensure_output_target(1);
-        if(!encode) tone_map_inline_frame=1;
+        if(!encode) tone_map_inline_frame=tone_mode;
     }
     if (!encode && view->params.y>0.5f) encode=ensure_output_target(0);
     glBindFramebuffer(GL_FRAMEBUFFER, encode ? output_fbo : 0);
     glViewport(0, 0, surf_w, surf_h);
     float cr=view->clear.x,cg=view->clear.y,cb=view->clear.z;
     if(tone_map_inline_frame){
-        cr=cr*view->params.w;cg=cg*view->params.w;cb=cb*view->params.w;
-        cr=fminf(1.0f,fmaxf(0.0f,(cr*(2.51f*cr+0.03f))/(cr*(2.43f*cr+0.59f)+0.14f)));
-        cg=fminf(1.0f,fmaxf(0.0f,(cg*(2.51f*cg+0.03f))/(cg*(2.43f*cg+0.59f)+0.14f)));
-        cb=fminf(1.0f,fmaxf(0.0f,(cb*(2.51f*cb+0.03f))/(cb*(2.43f*cb+0.59f)+0.14f)));
+        cr*=view->params.w;cg*=view->params.w;cb*=view->params.w;
+        if(tone_map_inline_frame==1){cr=cr/(1.0f+cr);cg=cg/(1.0f+cg);cb=cb/(1.0f+cb);}
+        else {cr=fminf(1.0f,fmaxf(0.0f,(cr*(2.51f*cr+0.03f))/(cr*(2.43f*cr+0.59f)+0.14f)));cg=fminf(1.0f,fmaxf(0.0f,(cg*(2.51f*cg+0.03f))/(cg*(2.43f*cg+0.59f)+0.14f)));cb=fminf(1.0f,fmaxf(0.0f,(cb*(2.51f*cb+0.03f))/(cb*(2.43f*cb+0.59f)+0.14f)));}
     }
     glClearColor(cr,cg,cb,1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
