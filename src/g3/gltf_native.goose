@@ -320,7 +320,7 @@ fn glb_node_world_matrix(root: json::Node?, node_index: i64) -> Mat4, bool {
 // indices and scalar/factor materials; skins, animation, sparse accessors,
 // textures, and external buffers are outside this native subset. It applies
 // the first node instance transform.
-fn native_glb_load_primitive(path: const u8[:], mesh_index: i64, primitive_index: i64) -> NativeGlbModel, bool {
+fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primitive_index: i64, node_index: i64) -> NativeGlbModel, bool {
     var bytes: u8[>..] = [];
     guard path.len > 0 && read_file(path, bytes) && bytes.len <= 268435456 else { return NativeGlbModel { .. }, false; }
     guard bytes.len >= 20 && glb_u32(bytes[..], 0) == 0x46546C67 && glb_u32(bytes[..], 4) == 2 && glb_u32(bytes[..], 8) == bytes.len else { return NativeGlbModel { .. }, false; }
@@ -346,6 +346,15 @@ fn native_glb_load_primitive(path: const u8[:], mesh_index: i64, primitive_index
     let buffer = glb_json_element(buffers, 0);
     let declared_bytes, declared_ok = glb_json_index(json::member(buffer, "byteLength"));
     guard version_ok && version == "2.0" && declared_ok && declared_bytes > 0 && declared_bytes <= bin_size && bin_size - declared_bytes <= 3 else { return NativeGlbModel { .. }, false; }
+    guard node_index >= -1 else { return NativeGlbModel { .. }, false; }
+    var mesh_index = requested_mesh_index;
+    let nodes = json::member(root, "nodes");
+    if node_index >= 0 {
+        let instance = glb_json_element(nodes, node_index);
+        let instance_mesh, instance_mesh_ok = glb_json_index(json::member(instance, "mesh"));
+        guard instance && instance_mesh_ok && instance_mesh >= 0 else { return NativeGlbModel { .. }, false; }
+        mesh_index = instance_mesh;
+    } else { guard mesh_index >= 0 else { return NativeGlbModel { .. }, false; } }
     let meshes = json::member(root, "meshes");
     let mesh = glb_json_element(meshes, mesh_index);
     let primitives = json::member(mesh, "primitives");
@@ -392,15 +401,15 @@ fn native_glb_load_primitive(path: const u8[:], mesh_index: i64, primitive_index
     }
     guard out_indices.len > 0 else { return NativeGlbModel { .. }, false; }
     var transform = mat4_identity();
-    let nodes = json::member(root, "nodes");
-    for i in 0..glb_array_count(nodes) {
-        let candidate = glb_json_element(nodes, i);
-        let node_mesh = json::member(candidate, "mesh");
-        if node_mesh {
-            let id, ok = glb_json_index(node_mesh);
-            if ok && id == mesh_index { let matrix, valid = glb_node_world_matrix(root, i); guard valid else { return NativeGlbModel { .. }, false; } transform = matrix; break; }
+    var transform_node = node_index;
+    if transform_node < 0 {
+        for i in 0..glb_array_count(nodes) {
+            let candidate = glb_json_element(nodes, i);
+            let node_mesh = json::member(candidate, "mesh");
+            if node_mesh { let id, ok = glb_json_index(node_mesh); if ok && id == mesh_index { transform_node = i; break; } }
         }
     }
+    if transform_node >= 0 { let matrix, valid = glb_node_world_matrix(root, transform_node); guard valid else { return NativeGlbModel { .. }, false; } transform = matrix; }
     let imported_material, material_ok = glb_material(root, primitive);
     guard material_ok else { return NativeGlbModel { .. }, false; }
     let mesh_id = mesh_asset_create(vertices[..], out_indices[..]);
@@ -411,6 +420,17 @@ fn native_glb_load_primitive(path: const u8[:], mesh_index: i64, primitive_index
     node(node_id).local_matrix = transform;
     node(node_id).use_local_matrix = true;
     return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id), material: imported_material }, true;
+}
+
+// Load a primitive by mesh index, using the first node that instances the mesh.
+fn native_glb_load_primitive(path: const u8[:], mesh_index: i64, primitive_index: i64) -> NativeGlbModel, bool {
+    return native_glb_load_selected(path, mesh_index, primitive_index, -1);
+}
+
+// Load a primitive from a specific glTF node instance, preserving that
+// instance's full ancestor-composed world transform.
+fn native_glb_load_node_primitive(path: const u8[:], node_index: i64, primitive_index: i64) -> NativeGlbModel, bool {
+    return native_glb_load_selected(path, -1, primitive_index, node_index);
 }
 
 // Release the one imported node, material, and mesh. Mesh and material storage

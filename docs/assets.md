@@ -76,6 +76,10 @@ g3::frame(1.0 / 60.0);
 g3::native_glb_dispose(model);
 ```
 
+`native_glb_load_primitive` uses the first node that instances the mesh. Use
+`native_glb_load_node_primitive(path, node_index, primitive_index)` to select a
+specific instance when a glTF mesh appears in multiple nodes.
+
 The loader supports float32 `POSITION`, `NORMAL`, and optional `TEXCOORD_0`
 attributes, triangle primitives, and unsigned 8-, 16-, or 32-bit indices. It
 applies the first matching node instance's matrix or TRS transform composed

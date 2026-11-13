@@ -353,6 +353,16 @@ fn case_native_glb_load() {
                    "native GLB imports specular, clearcoat, sheen, and anisotropy factors");
     if g3::material_handle_valid(factors_material) { g3::material_asset_release(factors_material); }
     let model, loaded = g3::native_glb_load_primitive("web/viewer/sample.glb", 0, 0);
+    let selected, selected_ok = g3::native_glb_load_node_primitive("web/viewer/sample.glb", 0, 0);
+    let same_transform = selected_ok && loaded && g3::node_handle_valid(selected.node) &&
+                         g3::node(selected.node.index).local_matrix.m[12] == g3::node(model.node.index).local_matrix.m[12] &&
+                         g3::node(selected.node.index).local_matrix.m[13] == g3::node(model.node.index).local_matrix.m[13] &&
+                         g3::node(selected.node.index).local_matrix.m[14] == g3::node(model.node.index).local_matrix.m[14];
+    testing::check(same_transform && g3::native_glb_dispose(selected),
+                   "native GLB loader can select an explicit node instance");
+    let invalid_instance, invalid_instance_ok = g3::native_glb_load_node_primitive("web/viewer/sample.glb", 99, 0);
+    testing::check(!invalid_instance_ok && invalid_instance.mesh.id < 0,
+                   "native GLB node-instance loader rejects an invalid node index");
     let live = loaded && g3::mesh_handle_valid(model.mesh) && g3::node_handle_valid(model.node) &&
                g3::material_handle_valid(model.material) && g3::node(model.node.index).material == model.material.id;
     let imported_material = g3::material(model.material.id);
