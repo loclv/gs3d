@@ -41,7 +41,7 @@ typedef struct {
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
-    GLint env_map, env_map_enabled, env_map_intensity;
+    GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
     GLint spot_shadow_map, spot_shadow_matrix, spot_shadow_index, spot_shadow_params;
@@ -55,8 +55,13 @@ static int32_t surf_w = 1280, surf_h = 720;
 static web_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
 static GLuint *textures;
+static int32_t *texture_widths, *texture_heights;
 static int32_t texture_count;
 static GLuint env_sampler;
+static GLuint env_source_sampler;
+static GLuint env_prefilter_program, env_prefilter_fbo, env_prefilter_texture, env_prefilter_vao;
+static GLint env_prefilter_source, env_prefilter_roughness, env_prefilter_resolution;
+static int env_prefilter_source_id = -1, env_prefilter_max_lod;
 static int checked_gl;
 static GLuint shadow_program, shadow_fbo, shadow_texture;
 static GLuint point_shadow_texture;
@@ -125,6 +130,7 @@ static const char *FRAGMENT_SRC =
     "uniform sampler2D u_env_map;\n"
     "uniform bool u_env_map_enabled;\n"
     "uniform float u_env_map_intensity;\n"
+    "uniform float u_env_map_max_lod;\n"
     "uniform sampler2D u_shadow_map;\n"
     "uniform mat4 u_shadow_matrix;\n"
     "uniform vec4 u_shadow_params;\n"
@@ -215,7 +221,7 @@ static const char *FRAGMENT_SRC =
     "            float rough = clamp(mr.y, 0.045, 1.0);\n"
     "            vec3 f0 = mix(vec3(0.04), base, clamp(mr.x, 0.0, 1.0));\n"
     "            vec3 fresnel = f0 + (max(vec3(1.0-rough), f0)-f0)*pow(1.0-max(dot(n,v),0.0),5.0);\n"
-    "            col += textureLod(u_env_map, spec_uv, rough*rough*8.0).rgb * fresnel * u_env_map_intensity * ao;\n"
+    "            col += textureLod(u_env_map, spec_uv, rough*u_env_map_max_lod).rgb * fresnel * u_env_map_intensity * ao;\n"
     "        }\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
@@ -349,6 +355,7 @@ static void find_uniforms(void) {
     shader.env_map = glGetUniformLocation(shader.program, "u_env_map");
     shader.env_map_enabled = glGetUniformLocation(shader.program, "u_env_map_enabled");
     shader.env_map_intensity = glGetUniformLocation(shader.program, "u_env_map_intensity");
+    shader.env_map_max_lod = glGetUniformLocation(shader.program, "u_env_map_max_lod");
     shader.shadow_map = glGetUniformLocation(shader.program, "u_shadow_map");
     shader.shadow_matrix = glGetUniformLocation(shader.program, "u_shadow_matrix");
     shader.shadow_params = glGetUniformLocation(shader.program, "u_shadow_params");
@@ -450,10 +457,20 @@ void g3p_shutdown(void) {
     shadow_program = shadow_fbo = shadow_texture = 0;
     point_shadow_texture = 0;
     spot_shadow_texture = 0;
+    if (env_prefilter_texture) glDeleteTextures(1,&env_prefilter_texture);
+    if (env_prefilter_program) glDeleteProgram(env_prefilter_program);
+    if (env_prefilter_fbo) glDeleteFramebuffers(1,&env_prefilter_fbo);
+    if (env_prefilter_vao) glDeleteVertexArrays(1,&env_prefilter_vao);
+    env_prefilter_texture=env_prefilter_program=env_prefilter_fbo=env_prefilter_vao=0;
+    env_prefilter_source_id=-1;env_prefilter_max_lod=0;
     for (int32_t i = 0; i < texture_count; i++) glDeleteTextures(1, &textures[i]);
     free(textures); textures = NULL; texture_count = 0;
+    free(texture_widths); texture_widths=NULL;
+    free(texture_heights); texture_heights=NULL;
     if (env_sampler) glDeleteSamplers(1, &env_sampler);
+    if (env_source_sampler) glDeleteSamplers(1,&env_source_sampler);
     env_sampler = 0;
+    env_source_sampler=0;
     for (int32_t i = 0; i < mesh_count; i++) {
         glDeleteVertexArrays(1, &meshes[i].vao);
         glDeleteBuffers(1, &meshes[i].vbo);
@@ -525,19 +542,33 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
 static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int srgb) {
     if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
     if (id >= texture_count) {
-        GLuint *grown = realloc(textures, ((size_t)id + 1) * sizeof(*textures));
+        size_t count=(size_t)id+1;
+        GLuint *grown = realloc(textures, count * sizeof(*textures));
         if (!grown) return;
         textures = grown;
-        memset(textures + texture_count, 0, ((size_t)id + 1 - (size_t)texture_count) * sizeof(*textures));
+        int32_t *grown_widths=realloc(texture_widths,count*sizeof(*texture_widths));
+        if (!grown_widths) return;
+        texture_widths=grown_widths;
+        int32_t *grown_heights=realloc(texture_heights,count*sizeof(*texture_heights));
+        if (!grown_heights) return;
+        texture_heights=grown_heights;
+        memset(textures + texture_count, 0, (count - (size_t)texture_count) * sizeof(*textures));
+        memset(texture_widths + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_widths));
+        memset(texture_heights + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_heights));
         texture_count = id + 1;
     }
     if (!textures[id]) glGenTextures(1, &textures[id]);
+    if (env_prefilter_source_id == id) {
+        if (env_prefilter_texture) glDeleteTextures(1,&env_prefilter_texture);
+        env_prefilter_texture=0; env_prefilter_source_id=-1; env_prefilter_max_lod=0;
+    }
     glBindTexture(GL_TEXTURE_2D, textures[id]);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(GL_TEXTURE_2D, 0, srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data);
+    texture_widths[id]=width;texture_heights[id]=height;
 }
 
 void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
@@ -573,6 +604,86 @@ void g3p_texture_generate_mips(int32_t id) {
     glGenerateMipmap(GL_TEXTURE_2D);
 }
 
+static GLuint ensure_env_source_sampler(void) {
+    if (!env_source_sampler) {
+        glGenSamplers(1,&env_source_sampler);
+        glSamplerParameteri(env_source_sampler,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+        glSamplerParameteri(env_source_sampler,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glSamplerParameteri(env_source_sampler,GL_TEXTURE_WRAP_S,GL_REPEAT);
+        glSamplerParameteri(env_source_sampler,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    }
+    return env_source_sampler;
+}
+
+static GLuint ensure_env_sampler(void) {
+    if (!env_sampler) {
+        glGenSamplers(1,&env_sampler);
+        glSamplerParameteri(env_sampler,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+        glSamplerParameteri(env_sampler,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glSamplerParameteri(env_sampler,GL_TEXTURE_WRAP_S,GL_REPEAT);
+        glSamplerParameteri(env_sampler,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    }
+    return env_sampler;
+}
+
+void g3p_texture_generate_env_mips(int32_t id) {
+    if (id<0 || id>=texture_count || !textures[id]) return;
+    if (env_prefilter_source_id==id && env_prefilter_texture) return;
+    if (env_prefilter_texture) glDeleteTextures(1,&env_prefilter_texture);
+    env_prefilter_texture=0; env_prefilter_source_id=-1; env_prefilter_max_lod=0;
+    if (!env_prefilter_program) {
+        const char *vs_src="#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}\n";
+        const char *fs_src=
+            "#version 300 es\nprecision highp float;precision highp int;\n"
+            "uniform sampler2D u_source;uniform float u_roughness;uniform vec2 u_resolution;out vec4 color;\n"
+            "uint reverse_bits(uint b){b=(b<<16)|(b>>16);b=((b&0x55555555u)<<1)|((b&0xAAAAAAAAu)>>1);b=((b&0x33333333u)<<2)|((b&0xCCCCCCCCu)>>2);b=((b&0x0F0F0F0Fu)<<4)|((b&0xF0F0F0F0u)>>4);b=((b&0x00FF00FFu)<<8)|((b&0xFF00FF00u)>>8);return b;}\n"
+            "float radical_inverse(uint b){return float(reverse_bits(b))*2.3283064365386963e-10;}\n"
+            "vec2 env_uv(vec3 d){return vec2(atan(d.z,d.x)/6.28318530718+0.5,acos(clamp(d.y,-1.0,1.0))/3.14159265359);}\n"
+            "vec3 importance_ggx(vec2 xi,vec3 n,float rough){float a=rough*rough;float phi=6.28318530718*xi.x;float ct=sqrt((1.0-xi.y)/(1.0+(a*a-1.0)*xi.y));float st=sqrt(max(0.0,1.0-ct*ct));vec3 h=vec3(cos(phi)*st,sin(phi)*st,ct);vec3 up=abs(n.y)<0.999?vec3(0.0,1.0,0.0):vec3(1.0,0.0,0.0);vec3 t=normalize(cross(up,n));vec3 b=cross(n,t);return normalize(t*h.x+b*h.y+n*h.z);}\n"
+            "void main(){vec2 uv=gl_FragCoord.xy/u_resolution;float phi=(uv.x-0.5)*6.28318530718;float theta=uv.y*3.14159265359;vec3 n=vec3(sin(theta)*cos(phi),cos(theta),sin(theta)*sin(phi));if(u_roughness<0.001){color=textureLod(u_source,uv,0.0);return;}vec3 sum=vec3(0.0);float weight=0.0;const uint SAMPLES=32u;for(uint i=0u;i<SAMPLES;i++){vec2 xi=vec2((float(i)+0.5)/float(SAMPLES),radical_inverse(i));vec3 h=importance_ggx(xi,n,u_roughness);vec3 l=reflect(-n,h);float nl=max(dot(n,l),0.0);if(nl>0.0){sum+=textureLod(u_source,env_uv(l),0.0).rgb*nl;weight+=nl;}}color=vec4(sum/max(weight,1e-6),1.0);}\n";
+        GLuint vs=compile_shader(GL_VERTEX_SHADER,vs_src,"environment prefilter vertex");
+        GLuint fs=compile_shader(GL_FRAGMENT_SHADER,fs_src,"environment prefilter fragment");
+        if (!vs || !fs) { if(vs)glDeleteShader(vs);if(fs)glDeleteShader(fs);return; }
+        GLuint program=glCreateProgram(); glAttachShader(program,vs);glAttachShader(program,fs);glLinkProgram(program);
+        glDeleteShader(vs);glDeleteShader(fs);GLint linked=0;glGetProgramiv(program,GL_LINK_STATUS,&linked);
+        if(!linked){glDeleteProgram(program);report("Could not link environment prefilter shader.");return;}
+        env_prefilter_program=program;
+        env_prefilter_source=glGetUniformLocation(program,"u_source");
+        env_prefilter_roughness=glGetUniformLocation(program,"u_roughness");
+        env_prefilter_resolution=glGetUniformLocation(program,"u_resolution");
+        glGenFramebuffers(1,&env_prefilter_fbo);glGenVertexArrays(1,&env_prefilter_vao);
+    }
+    GLint width=texture_widths[id],height=texture_heights[id];
+    if(width<=0 || height<=0) return;
+    int levels=1,w=width,h=height;
+    while((w>1||h>1)&&levels<32){w=w>1?w/2:1;h=h>1?h/2:1;levels++;}
+    glGenTextures(1,&env_prefilter_texture);glBindTexture(GL_TEXTURE_2D,env_prefilter_texture);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    w=width;h=height;
+    glDisable(GL_DEPTH_TEST);glDisable(GL_CULL_FACE);glDisable(GL_BLEND);
+    glBindFramebuffer(GL_FRAMEBUFFER,env_prefilter_fbo);glUseProgram(env_prefilter_program);
+    glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,textures[id]);glBindSampler(0,ensure_env_source_sampler());
+    glUniform1i(env_prefilter_source,0);glBindVertexArray(env_prefilter_vao);
+    for(int level=0;level<levels;level++){
+        glTexImage2D(GL_TEXTURE_2D,level,GL_RGBA8,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,NULL);
+        glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,env_prefilter_texture,level);
+        GLenum color_attachment=GL_COLOR_ATTACHMENT0;glDrawBuffers(1,&color_attachment);glReadBuffer(GL_COLOR_ATTACHMENT0);
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE){
+            glBindFramebuffer(GL_FRAMEBUFFER,0);glBindSampler(0,0);glDeleteTextures(1,&env_prefilter_texture);env_prefilter_texture=0;
+            glEnable(GL_DEPTH_TEST);glEnable(GL_CULL_FACE);return;
+        }
+        glViewport(0,0,w,h);glUniform1f(env_prefilter_roughness,levels>1?(float)level/(float)(levels-1):0.0f);
+        glUniform2f(env_prefilter_resolution,(float)w,(float)h);glDrawArrays(GL_TRIANGLES,0,3);
+        w=w>1?w/2:1;h=h>1?h/2:1;
+    }
+    glBindVertexArray(0);glBindFramebuffer(GL_FRAMEBUFFER,0);glBindSampler(0,0);glBindTexture(GL_TEXTURE_2D,0);
+    glEnable(GL_DEPTH_TEST);glEnable(GL_CULL_FACE);
+    env_prefilter_source_id=id;env_prefilter_max_lod=levels-1;
+}
+
 EMSCRIPTEN_KEEPALIVE void g3_host_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter) {
     g3p_texture_filter(id, min_filter, mag_filter);
 }
@@ -606,8 +717,13 @@ EMSCRIPTEN_KEEPALIVE void g3_host_release_mesh(int32_t id) {
 
 EMSCRIPTEN_KEEPALIVE void g3_host_release_texture(int32_t id) {
     if (id < 0 || id >= texture_count) return;
+    if (env_prefilter_source_id==id) {
+        if (env_prefilter_texture) glDeleteTextures(1,&env_prefilter_texture);
+        env_prefilter_texture=0;env_prefilter_source_id=-1;env_prefilter_max_lod=0;
+    }
     glDeleteTextures(1, &textures[id]);
     textures[id] = 0;
+    texture_widths[id]=texture_heights[id]=0;
 }
 
 /* --- a frame --- */
@@ -627,18 +743,12 @@ static void bind_view(const g3_view_state *view) {
     int env = view->environment_texture;
     int has_env = env >= 0 && env < texture_count && textures[env];
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, has_env ? textures[env] : 0);
-    if (!env_sampler) {
-        glGenSamplers(1, &env_sampler);
-        glSamplerParameteri(env_sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glSamplerParameteri(env_sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glSamplerParameteri(env_sampler, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glSamplerParameteri(env_sampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    }
-    glBindSampler(1, env_sampler);
+    glBindTexture(GL_TEXTURE_2D, has_env ? (env_prefilter_source_id==env?env_prefilter_texture:textures[env]) : 0);
+    glBindSampler(1, ensure_env_sampler());
     glUniform1i(shader.env_map, 1);
     glUniform1i(shader.env_map_enabled, has_env);
     glUniform1f(shader.env_map_intensity, view->environment_intensity);
+    glUniform1f(shader.env_map_max_lod, has_env && env_prefilter_source_id==env ? (float)env_prefilter_max_lod : 0.0f);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
     glUniform1i(shader.shadow_map, 2);

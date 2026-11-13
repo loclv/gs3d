@@ -160,13 +160,13 @@ fn set_environment(sky: float3, ground: float3, intensity: f32) {
 }
 
 // Equirectangular environment: diffuse lookup stays on the surface normal;
-// metallic-roughness materials also sample a roughness-selected mip along the
-// reflection direction. Longitude wraps and latitude clamps. Mips are a
-// box-filtered approximation, not GGX PMREM.
+// metallic-roughness materials sample GGX-prefiltered mips along the reflection
+// direction. Longitude wraps and latitude clamps. The split-sum BRDF LUT is
+// not implemented yet.
 fn set_environment_map(texture: i32, intensity: f32) {
     g_view_state.environment_texture = texture;
     g_view_state.environment_intensity = intensity;
-    if texture >= 0 && texture < g_texture_count { g3p_texture_generate_mips(texture); }
+    if texture >= 0 && texture < g_texture_count { g3p_texture_generate_env_mips(texture); }
 }
 
 // The primary directional light casts into an explicitly bounded box. Objects

@@ -16,8 +16,8 @@ and pixel tests provide a useful reference for rendering changes.
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for static glTF/GLB with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
-| Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, and roughness-selected equirectangular reflections | GGX-prefiltered environment maps, BRDF integration, HDR tone mapping, browser reference validation |
-| Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and equirectangular diffuse fill | GGX-prefiltered image-based environment lighting |
+| Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, and GGX-prefiltered equirectangular reflections | Split-sum BRDF integration, HDR tone mapping, browser reference validation |
+| Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and equirectangular diffuse fill | Split-sum environment BRDF integration |
 | Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
 | Scene management | Parent hierarchy, checked node removal, and selectable perspective or orthographic cameras | General mesh and texture removal, reusable resources, camera lifecycle |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit and pinch controls, viewer selection | Additional touch gestures, panning, keyboard camera controls, browser integration tests |
@@ -60,9 +60,8 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
 
 * **Implemented:** shared materials, metallic-roughness, normal, occlusion and
   emissive maps, with per-triangle tangent frames derived from positions and UVs.
-  Equirectangular maps now add diffuse fill and roughness-selected reflections through a
-  box-filtered mip chain and Fresnel approximation. Replace this approximation
-  with GGX-prefiltered radiance and a BRDF integration LUT.
+  Equirectangular maps add diffuse fill and GGX importance-sampled specular
+  mips. Add a split-sum BRDF integration LUT and validate browser references.
 * **Implemented:** shadows from the primary directional light, one
   selected extra point light, and one selected spot light. Point shadows use a
   six-face cube map; spot shadows use a perspective map. Both backends use

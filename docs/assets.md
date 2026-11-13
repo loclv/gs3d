@@ -113,10 +113,10 @@ mechanism.
   base colour and metallic-roughness, the loader keeps separate sRGB and linear
   uploads.
   Equirectangular environment maps add diffuse fill and a roughness-selected
-  specular reflection with a Fresnel approximation. The map's box-filtered mip
-  chain is an approximation, not GGX convolution with a BRDF integration LUT.
+  specular reflection from a GGX importance-sampled mip chain, with a Fresnel
+  approximation. A split-sum BRDF integration LUT is not implemented.
   Sampling wraps longitude and clamps latitude; selecting the environment map
-  generates a mip chain for roughness filtering.
+  generates the prefiltered chain for roughness filtering.
   Nearest, linear and mipmapped filters are supported,
   as are clamp, repeat and mirrored repeat separately for each axis. An omitted
   glTF wrapping mode defaults to repeat; omitted filters use linear. The CPU
@@ -130,8 +130,8 @@ double-sided materials and advanced
 texture/sampler extensions. Tangent frames for normal maps are derived per
 triangle from positions and `TEXCOORD_0`; explicit glTF tangent attributes are
 not used, so mirrored UV seams can differ from MikkTSpace results. Direct PBR
-lighting uses GGX; environment reflections use the documented mip/Fresnel
-approximation. Roughness is clamped to at least 0.045.
+lighting uses GGX; environment reflections use the documented prefiltered
+mip/Fresnel approximation. Roughness is clamped to at least 0.045.
 Unsupported optional data may be
 ignored. Files needing these features require a fuller loader and renderer.
 

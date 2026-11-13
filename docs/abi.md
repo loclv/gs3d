@@ -129,6 +129,7 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 | `void g3p_upload_texture_srgb(int32_t id, g3_u8_slice, int32_t w, int32_t h)` | same upload, decoding sRGB RGB channels to linear for filtering; alpha remains linear |
 | `void g3p_texture_wrap(int32_t id, int32_t u, int32_t v)` | set U and V wrapping: 0 clamp, 1 repeat, 2 mirrored repeat |
 | `void g3p_texture_filter(int32_t id, int32_t min_filter, int32_t mag_filter)` | set glTF/WebGL filter enum values; generate mipmaps when a mipmapped minification filter is requested |
+| `void g3p_texture_generate_env_mips(int32_t id)` | build GGX importance-sampled roughness mips without changing ordinary material mipmaps |
 | `void g3p_draw_frame(g3_draw_item_slice, const g3_view_state *)` | clear, then draw every item in order |
 | `uint8_t g3p_key_down(int32_t key)` | is this key down right now |
 | `float g3p_mouse_dx(void)` / `g3p_mouse_dy(void)` | movement since last read; **reading consumes it** |

@@ -47,8 +47,8 @@ static float *depth;     /* [0, 1], 1 is far */
 static soft_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
 typedef struct {
-    uint8_t *pixels, *mips[31];
-    int32_t w, h, wrap_u, wrap_v, min_filter, mag_filter, levels, srgb;
+    uint8_t *pixels, *mips[31], *env_mips[31];
+    int32_t w, h, wrap_u, wrap_v, min_filter, mag_filter, levels, env_levels, srgb;
 } soft_texture;
 static soft_texture *textures;
 static int32_t texture_count;
@@ -183,7 +183,7 @@ void g3p_shutdown(void) {
     report_profile();
     for (int32_t i = 0; i < texture_count; i++) {
         free(textures[i].pixels);
-        for (int j = 0; j < 31; j++) free(textures[i].mips[j]);
+        for (int j = 0; j < 31; j++) { free(textures[i].mips[j]); free(textures[i].env_mips[j]); }
     }
     free(textures); textures = NULL; texture_count = 0;
     free(queue);
@@ -261,7 +261,7 @@ static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_
     if (!copy) { fprintf(stderr, "g3_soft: out of memory for texture pixels\n"); exit(1); }
     memcpy(copy, pixels.data, (size_t)pixels.len);
     free(textures[id].pixels);
-    for (int j = 0; j < 31; j++) free(textures[id].mips[j]);
+    for (int j = 0; j < 31; j++) { free(textures[id].mips[j]); free(textures[id].env_mips[j]); }
     textures[id] = (soft_texture){ .pixels = copy, .w = width, .h = height,
                                    .min_filter = 9729, .mag_filter = 9729, .levels = 1, .srgb = srgb };
 }
@@ -454,7 +454,9 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
             float rz=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.z-vz;
             float ryc=ry < -1.0f ? -1.0f : ry > 1.0f ? 1.0f : ry;
             float rough=fmaxf(0.045f,fminf(roughness,1.0f));
-            float lod=rough*rough*8.0f, reflected[4];
+            soft_texture *environment=&textures[vs->environment_texture];
+            int max_lod=environment->env_levels>1?environment->env_levels-1:environment->levels-1;
+            float lod=rough*(float)max_lod, reflected[4];
             sample_environment_lod(vs->environment_texture,atan2f(rz,rx)/6.28318530718f+0.5f,
                                    acosf(ryc)/3.14159265359f,lod,reflected);
             float nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f);
@@ -628,7 +630,77 @@ static void sample_environment_lod(int32_t id, float u, float v, float lod, floa
     soft_texture environment = textures[id];
     environment.wrap_u = 1; /* equirectangular longitude wraps */
     environment.wrap_v = 0; /* latitude clamps at the poles */
+    if (environment.env_levels > 1) {
+        environment.levels = environment.env_levels;
+        for (int i=0; i<environment.env_levels-1; i++) environment.mips[i] = environment.env_mips[i];
+    }
     sample_texture_lod_from(&environment,u,v,lod,out);
+}
+
+static float radical_inverse_vdc(uint32_t bits) {
+    bits=(bits<<16)|(bits>>16);
+    bits=((bits&0x55555555u)<<1)|((bits&0xAAAAAAAAu)>>1);
+    bits=((bits&0x33333333u)<<2)|((bits&0xCCCCCCCCu)>>2);
+    bits=((bits&0x0F0F0F0Fu)<<4)|((bits&0xF0F0F0F0u)>>4);
+    bits=((bits&0x00FF00FFu)<<8)|((bits&0xFF00FF00u)>>8);
+    return (float)bits * 2.3283064365386963e-10f;
+}
+
+void g3p_texture_generate_env_mips(int32_t id) {
+    if (id < 0 || id >= texture_count || !textures[id].pixels) return;
+    soft_texture *t=&textures[id];
+    if (t->env_levels > 1) return;
+    int levels=1,w=t->w,h=t->h;
+    while ((w>1 || h>1) && levels<32) { w=w>1?w/2:1; h=h>1?h/2:1; levels++; }
+    t->env_levels=levels;
+    soft_texture source=*t;
+    source.wrap_u=1; source.wrap_v=0; source.levels=1;
+    w=t->w; h=t->h;
+    const int sample_count=32;
+    for (int level=1; level<levels; level++) {
+        int nw=w>1?w/2:1, nh=h>1?h/2:1;
+        uint8_t *dst=malloc((size_t)nw*(size_t)nh*4);
+        if (!dst) { fprintf(stderr,"g3_soft: out of memory for GGX environment mipmaps\n"); exit(1); }
+        float roughness=(float)level/(float)(levels-1), alpha=roughness*roughness, alpha2=alpha*alpha;
+        for (int y=0;y<nh;y++) for (int x=0;x<nw;x++) {
+            float u=((float)x+0.5f)/(float)nw, v=((float)y+0.5f)/(float)nh;
+            float phi=(u-0.5f)*6.28318530718f, theta=v*3.14159265359f;
+            float nx=sinf(theta)*cosf(phi), ny=cosf(theta), nz=sinf(theta)*sinf(phi);
+            float ux=fabsf(ny)<0.999f?0.0f:1.0f, uy=fabsf(ny)<0.999f?1.0f:0.0f, uz=0.0f;
+            float tx=uy*nz-uz*ny, ty=uz*nx-ux*nz, tz=ux*ny-uy*nx;
+            float tl=sqrtf(tx*tx+ty*ty+tz*tz); tx/=tl; ty/=tl; tz/=tl;
+            float bx=ny*tz-nz*ty, by=nz*tx-nx*tz, bz=nx*ty-ny*tx;
+            float sum[3]={0,0,0}, weight=0.0f;
+            for (uint32_t i=0;i<sample_count;i++) {
+                float xi1=((float)i+0.5f)/(float)sample_count, xi2=radical_inverse_vdc(i);
+                float sample_phi=6.28318530718f*xi1;
+                float cos_theta=sqrtf((1.0f-xi2)/(1.0f+(alpha2-1.0f)*xi2));
+                float sin_theta=sqrtf(fmaxf(0.0f,1.0f-cos_theta*cos_theta));
+                float hx=tx*cosf(sample_phi)*sin_theta+bx*sinf(sample_phi)*sin_theta+nx*cos_theta;
+                float hy=ty*cosf(sample_phi)*sin_theta+by*sinf(sample_phi)*sin_theta+ny*cos_theta;
+                float hz=tz*cosf(sample_phi)*sin_theta+bz*sinf(sample_phi)*sin_theta+nz*cos_theta;
+                float nh=fmaxf(nx*hx+ny*hy+nz*hz,0.0f);
+                float lx=2.0f*nh*hx-nx, ly=2.0f*nh*hy-ny, lz=2.0f*nh*hz-nz;
+                float nl=fmaxf(nx*lx+ny*ly+nz*lz,0.0f);
+                if (nl<=0.0f) continue;
+                float sample_u=atan2f(lz,lx)/6.28318530718f+0.5f;
+                float sample_y=ly<-1.0f?-1.0f:ly>1.0f?1.0f:ly;
+                float sample_v=acosf(sample_y)/3.14159265359f, rgba[4];
+                sample_level(&source,0,1,sample_u,sample_v,rgba);
+                for (int c=0;c<3;c++) sum[c]+=rgba[c]*nl;
+                weight+=nl;
+            }
+            size_t offset=((size_t)y*nw+x)*4;
+            for (int c=0;c<3;c++) {
+                float value=weight>0.0f?sum[c]/weight:0.0f;
+                if (t->srgb) value=srgb_encode(value);
+                dst[offset+c]=(uint8_t)(fmaxf(0.0f,fminf(value,1.0f))*255.0f+0.5f);
+            }
+            dst[offset+3]=255;
+        }
+        t->env_mips[level-1]=dst;
+        w=nw; h=nh;
+    }
 }
 
 /* Clip in homogeneous space before division. Interpolating object-space
