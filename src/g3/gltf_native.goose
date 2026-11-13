@@ -223,6 +223,59 @@ fn glb_accessor(doc: json::Node?, binary_size: i64, index: i64, type_name: const
     return GlbAccessor { offset: start, stride: stride, count: count, components: components }, true;
 }
 
+fn glb_color_accessor(doc: json::Node?, binary_size: i64, index: i64) -> GlbAccessor, i64, bool {
+    let accessor = glb_json_element(json::member(doc, "accessors"), index);
+    let views = json::member(doc, "bufferViews");
+    guard accessor && views else { return GlbAccessor { .. }, 0, false; }
+    let count, count_ok = glb_json_index(json::member(accessor, "count"));
+    let component_type, component_ok = glb_json_index(json::member(accessor, "componentType"));
+    let view_index, view_ok = glb_json_index(json::member(accessor, "bufferView"));
+    let type_name, type_ok = json::as_string(json::member(accessor, "type"));
+    let components: i64 = if type_name == "VEC3" { 3 } else if type_name == "VEC4" { 4 } else { 0 };
+    let normalized_node = json::member(accessor, "normalized");
+    var normalized = false;
+    if normalized_node { let value, valid = json::as_bool(normalized_node); guard valid else { return GlbAccessor { .. }, 0, false; } normalized = value; }
+    let bytes_per_component: i64 = if component_type == 5126 { 4 } else if component_type == 5123 { 2 } else if component_type == 5121 { 1 } else { 0 };
+    guard count_ok && count > 0 && count <= 1048576 && component_ok && view_ok && type_ok && components >= 3 && bytes_per_component > 0 &&
+          ((component_type == 5126 && !normalized) || ((component_type == 5121 || component_type == 5123) && normalized)) && !json::member(accessor, "sparse")
+    else { return GlbAccessor { .. }, 0, false; }
+    let view = glb_json_element(views, view_index);
+    guard view else { return GlbAccessor { .. }, 0, false; }
+    let buffer_index, buffer_ok = glb_optional_index(json::member(view, "buffer"), 0);
+    let view_offset, view_offset_ok = glb_optional_index(json::member(view, "byteOffset"), 0);
+    let view_length, length_ok = glb_json_index(json::member(view, "byteLength"));
+    let accessor_offset, accessor_offset_ok = glb_optional_index(json::member(accessor, "byteOffset"), 0);
+    let packed_size = components * bytes_per_component;
+    let stride, stride_ok = glb_optional_index(json::member(view, "byteStride"), packed_size);
+    guard buffer_ok && buffer_index == 0 && view_offset_ok && view_offset >= 0 && length_ok && view_length > 0 &&
+          accessor_offset_ok && accessor_offset >= 0 && stride_ok && stride >= packed_size && stride <= 252 &&
+          (!json::member(view, "byteStride") || (stride % 4 == 0)) else { return GlbAccessor { .. }, 0, false; }
+    let start = view_offset + accessor_offset;
+    let last = accessor_offset + (count - 1) * stride + packed_size;
+    guard last <= view_length && view_offset + view_length <= binary_size && start % bytes_per_component == 0 else { return GlbAccessor { .. }, 0, false; }
+    return GlbAccessor { offset: start, stride: stride, count: count, components: components }, component_type, true;
+}
+
+fn glb_color_channel(bytes: const u8[:], at: i64, component_type: i64) -> f32, bool {
+    if component_type == 5126 { return glb_f32(bytes, at); }
+    if component_type == 5121 { return bytes[at] / 255.0, true; }
+    let lo: i64 = bytes[at]; let hi: i64 = bytes[at + 1];
+    let value = lo | hi << 8;
+    return value / 65535.0, true;
+}
+
+fn glb_vertex_color(bytes: const u8[:], binary_start: i64, accessor: GlbAccessor, component_type: i64, vertex_index: i64) -> float4, bool {
+    let component_bytes: i64 = if component_type == 5126 { 4 } else if component_type == 5123 { 2 } else { 1 };
+    let at = binary_start + accessor.offset + vertex_index * accessor.stride;
+    let r, r_ok = glb_color_channel(bytes, at, component_type);
+    let g, g_ok = glb_color_channel(bytes, at + component_bytes, component_type);
+    let b, b_ok = glb_color_channel(bytes, at + 2 * component_bytes, component_type);
+    guard r_ok && g_ok && b_ok else { return float4_1, false; }
+    var alpha: f32 = 1.0;
+    if accessor.components == 4 { let value, ok = glb_color_channel(bytes, at + 3 * component_bytes, component_type); guard ok else { return float4_1, false; } alpha = value; }
+    return float4 { r, g, b, alpha }, true;
+}
+
 fn glb_index_accessor(doc: json::Node?, binary_size: i64, index: i64) -> GlbAccessor, i64, bool {
     let accessors = json::member(doc, "accessors");
     let views = json::member(doc, "bufferViews");
@@ -378,6 +431,9 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     let uv_node = json::member(attributes, "TEXCOORD_0");
     var uvs = GlbAccessor { .. };
     if uv_node { let uv_index, uv_ok = glb_json_index(uv_node); guard uv_ok else { return NativeGlbModel { .. }, false; } let uv_result, uv_valid = glb_accessor(root, declared_bytes, uv_index, "VEC2", 5126, 2); guard uv_valid && uv_result.count == positions.count else { return NativeGlbModel { .. }, false; } uvs = uv_result; }
+    let color_node = json::member(attributes, "COLOR_0");
+    var colors = GlbAccessor { .. }; var color_type: i64 = 0;
+    if color_node { let color_index, color_index_ok = glb_json_index(color_node); guard color_index_ok else { return NativeGlbModel { .. }, false; } let color_info, color_component_type, color_ok = glb_color_accessor(root, declared_bytes, color_index); guard color_ok && color_info.count == positions.count else { return NativeGlbModel { .. }, false; } colors = color_info; color_type = color_component_type; }
     let indices_node = json::member(primitive, "indices");
     var index_info = GlbAccessor { .. }; var index_type: i64 = 0;
     if indices_node { let index_id, index_ok = glb_json_index(indices_node); guard index_ok else { return NativeGlbModel { .. }, false; } let info, kind, ok = glb_index_accessor(root, declared_bytes, index_id); guard ok && info.count % 3 == 0 else { return NativeGlbModel { .. }, false; } index_info = info; index_type = kind; }
@@ -392,7 +448,9 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
         guard a && b && c && d && e && f else { return NativeGlbModel { .. }, false; }
         var uv = float2_0;
         if uv_node { let uv_base = bin_start + uvs.offset + i * uvs.stride; let u, g = glb_f32(bytes[..], uv_base); let v, h = glb_f32(bytes[..], uv_base + 4); guard g && h else { return NativeGlbModel { .. }, false; } uv = float2 { u, v }; }
-        vertices.push(Vertex { pos: float3 { px, py, pz }, normal: float3 { nx, ny, nz }, uv: uv, color: float4_1, .. });
+        var color = float4_1;
+        if color_node { let color_value, color_valid = glb_vertex_color(bytes[..], bin_start, colors, color_type, i); guard color_valid else { return NativeGlbModel { .. }, false; } color = color_value; }
+        vertices.push(Vertex { pos: float3 { px, py, pz }, normal: float3 { nx, ny, nz }, uv: uv, color: color, .. });
     }
     for i in 0..index_info.count {
         let at = bin_start + index_info.offset + i * index_info.stride;

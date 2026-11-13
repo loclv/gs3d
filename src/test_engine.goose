@@ -410,6 +410,25 @@ fn case_native_glb_load() {
     let rollback_stats = g3::stats();
     testing::check(!failed_mesh_loaded && !g3::native_glb_mesh_valid(failed_mesh) && rollback_stats.drawn == 0,
                    "native GLB mesh load rolls back earlier primitives when a later primitive fails");
+    let color_model, color_loaded = g3::native_glb_load_primitive("testdata/native-color-vertex.glb", 0, 0);
+    g3::frame(1.0 / 60.0);
+    let color_stats = g3::stats();
+    testing::check(color_loaded && color_stats.drawn == 1 && color_stats.triangles == 12 &&
+                   is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
+                   "native GLB decodes normalized byte COLOR_0 into rendered vertex colour");
+    testing::check(g3::native_glb_dispose(color_model), "native vertex-colour GLB resources dispose cleanly");
+    let ushort_bytes: u8[8] = [0, 0, 255, 255, 0, 128, 0, 64];
+    let ushort_color, ushort_color_ok = g3::glb_vertex_color(ushort_bytes[..], 0, g3::GlbAccessor { stride: 8, components: 4, .. }, 5123, 0);
+    testing::check(ushort_color_ok && abs(ushort_color.x) < 0.001 && abs(ushort_color.y - 1.0) < 0.001 &&
+                   abs(ushort_color.z - 0.5) < 0.001,
+                   "native GLB decodes normalized unsigned-short COLOR_0 RGB");
+    testing::check(abs(ushort_color.w - 0.25) < 0.001,
+                   "native GLB decodes normalized unsigned-short COLOR_0 alpha");
+    let float_bytes: u8[12] = [0, 0, 128, 63, 0, 0, 0, 63, 0, 0, 128, 62];
+    let float_color, float_color_ok = g3::glb_vertex_color(float_bytes[..], 0, g3::GlbAccessor { stride: 12, components: 3, .. }, 5126, 0);
+    testing::check(float_color_ok && abs(float_color.x - 1.0) < 0.001 && abs(float_color.y - 0.5) < 0.001 &&
+                   abs(float_color.z - 0.25) < 0.001 && float_color.w == 1.0,
+                   "native GLB decodes float VEC3 COLOR_0 with implicit opaque alpha");
     let absent, missing_file = g3::native_glb_load_primitive("testdata/missing.glb", 0, 0);
     testing::check(!missing_file && absent.mesh.id < 0, "native GLB loader reports a missing asset without creating resources");
 }
