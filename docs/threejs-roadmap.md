@@ -15,7 +15,7 @@ and pixel tests provide a useful reference for rendering changes.
 
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
-| Assets | Built-in primitives, custom geometry, and a browser loader for glTF/GLB meshes, optional generated normals, vertex colours, materials, transform animations, dense and sparse accessors, with reusable asset-owned slots | Remaining glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
+| Assets | Built-in primitives, custom geometry, and a browser loader for glTF/GLB meshes, selectable scenes, optional generated normals, vertex colours, materials, transform animations, dense and sparse accessors, with reusable asset-owned slots | Remaining glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
 | Materials | Shared glTF materials with `COLOR_0`, metallic-roughness, tangent-space normal, occlusion, emissive and specular maps, authored and morphed tangents, six texture-coordinate sets, double-sided rendering, `KHR_materials_unlit`, `KHR_materials_ior`, `KHR_materials_specular`, `KHR_materials_emissive_strength`, per-texture `KHR_texture_transform` on `TEXCOORD_0` through `_5`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and Reinhard/ACES tone mapping with exposure | Browser reference validation |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL/TANGENT morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and deformation benchmarks; GPU morph targets fall back to CPU above 64 targets or device texture limits |
@@ -59,6 +59,9 @@ and a browser integration check for behavior exposed through WebGL.
   sparse-only data and validated sparse indices, ranges, component alignment,
   byte strides and normalized flags. Continue expanding validation for the rest
   of the glTF specification.
+* **Implemented:** the browser loader selects the glTF default scene or an
+  explicit scene index, and rejects an invalid selection before creating engine
+  resources.
 * **Implemented:** glTF `doubleSided` materials disable face culling in colour
   and shadow passes and reverse back-face normals before colour lighting.
   Continue filling the remaining supported-material gaps.

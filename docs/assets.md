@@ -18,12 +18,13 @@ try {
   setOutputColorSpace(engine, 'srgb'); // after engine startup
   setFXAA(engine, true); // optional output edge smoothing
   const model = await loadGLTF(engine, './model.glb');
+  // Pass { scene: 1 } to load a different scene by index.
   if (model.animations.length) {
     model.playAnimation(0, { loop: true });
     model.update(1 / 60); // call from the frame loop with elapsed seconds
     // model.pauseAnimation(); model.seekAnimation(0.5); model.stopAnimation();
   }
-  // model.roots contains checked node handles for the loaded scene.
+  // model.sceneIndex identifies the loaded scene; roots contains its checked node handles.
   // model.pick(canvas, event.clientX, event.clientY) returns a handle or null.
   // pickNode(engine, canvas, clientX, clientY) can pick any visible mesh.
   // isNodeHandleValid(engine, handle) detects disposal or a scene reset.
@@ -144,7 +145,8 @@ fetches and decodes assets in JavaScript.
 
 * `.gltf` JSON and `.glb` version 2, with external, data-URI, or GLB binary
   buffers; images may be external, data-URI, or stored in buffer views.
-* The selected scene's hierarchy, matrix or TRS transforms, indexed or
+* The selected scene's hierarchy (the glTF default scene, or the optional
+  `loadGLTF` `{ scene: index }` choice), matrix or TRS transforms, indexed or
   non-indexed triangle primitives, float positions, optional float normals,
   optional `TEXCOORD_0` through `TEXCOORD_5`, and optional `COLOR_0` as float
   `VEC3`/`VEC4` or normalized unsigned-byte/unsigned-short `VEC3`/`VEC4`.

@@ -30,6 +30,10 @@ function glb(document, data) {
 }
 const glbDoc = structuredClone(doc); delete glbDoc.buffers[0].uri;
 const resources = new Map([['http://localhost/model.gltf', bytes(doc)], ['http://localhost/mesh.bin', binary], ['http://localhost/model.glb', glb(glbDoc, binary)], ['http://localhost/image.png', new Uint8Array([1])]]);
+const multiSceneDoc = structuredClone(doc);
+multiSceneDoc.nodes.push({ translation: [9, 8, 7], mesh: 0 });
+multiSceneDoc.scenes = [{ nodes: [0] }, { nodes: [1] }];
+resources.set('http://localhost/multi-scene.gltf', bytes(multiSceneDoc));
 resources.set('http://localhost/oversized-glb-padding.glb', glb(glbDoc, new ArrayBuffer(84)));
 const missingGlbBuffer = structuredClone(glbDoc); delete missingGlbBuffer.buffers;
 resources.set('http://localhost/unreferenced-glb-bin.glb', glb(missingGlbBuffer, binary));
@@ -296,6 +300,7 @@ function enableFakeGpuMorph(engine, { upload = true, skin = true } = {}) {
 
 for (const path of ['model.gltf', 'model.glb']) {
   const engine = fakeEngine(), model = await loadGLTF(engine, `http://localhost/${path}`);
+  assert.equal(model.sceneIndex, 0);
   assert.deepEqual(model.roots, [{ index: 0, generation: 1, epoch: 0 }]);
   assert.equal(isNodeHandleValid(engine, model.roots[0]), true);
   assert.equal(isNodeHandleValid(fakeEngine(), model.roots[0]), false);
@@ -326,6 +331,16 @@ for (const path of ['model.gltf', 'model.glb']) {
   assert.equal(engine.calls.filter(x => x[0] === 'hide').length, 2);
   assert.equal(engine.calls.filter(x => x[0] === 'recycle_mesh').length, 1);
 }
+const selectedSceneEngine = fakeEngine();
+const selectedSceneModel = await loadGLTF(selectedSceneEngine, 'http://localhost/multi-scene.gltf', { scene: 1 });
+assert.equal(selectedSceneModel.sceneIndex, 1);
+assert.deepEqual(selectedSceneModel.roots, [{ index: 0, generation: 1, epoch: 0 }]);
+assert.equal(selectedSceneEngine.calls.some(call => call[0] === 'matrix' && call[2] === 12 && call[3] === 9), true,
+  'the requested scene supplies the loaded node hierarchy');
+selectedSceneModel.dispose();
+const invalidSceneEngine = fakeEngine();
+await assert.rejects(loadGLTF(invalidSceneEngine, 'http://localhost/multi-scene.gltf', { scene: 2 }), error => error.code === 'INVALID_GLTF');
+assert.equal(invalidSceneEngine.calls.length, 0, 'invalid scene indices fail before creating engine resources');
 for (const path of ['oversized-glb-padding.glb', 'unreferenced-glb-bin.glb', 'glb-bin-with-uri.glb']) {
   const engine = fakeEngine();
   await assert.rejects(loadGLTF(engine, `http://localhost/${path}`), error => error.code === 'INVALID_GLTF');

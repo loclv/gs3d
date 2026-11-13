@@ -528,7 +528,7 @@ function parseTextureTransform(info, extensionsUsed) {
   return { offset, scale, rotation, texcoord: texCoord };
 }
 
-async function prepare(url) {
+async function prepare(url, requestedScene) {
   const absolute = new URL(url, globalThis.location?.href || 'http://localhost/');
   const { json, bin, glb } = unpack(await fetchBytes(absolute));
   let doc;
@@ -769,7 +769,12 @@ async function prepare(url) {
     if (!Array.isArray(weights) || weights.length !== targetCount || !weights.every(Number.isFinite)) invalid(`Invalid default morph weights in mesh ${meshIndex}`);
     return { primitives, targetCount, weights: [...weights] };
   });
-  const nodes = doc.nodes || [], roots = item(doc.scenes, doc.scene ?? 0, 'scene').nodes || [];
+  const nodes = doc.nodes || [];
+  const sceneIndex = requestedScene ?? doc.scene ?? 0;
+  if (!Number.isInteger(sceneIndex) || sceneIndex < 0) invalid('Invalid scene index');
+  const scene = item(doc.scenes, sceneIndex, 'scene');
+  if (scene.nodes !== undefined && !Array.isArray(scene.nodes)) invalid('Invalid scene roots');
+  const roots = scene.nodes || [];
   const seen = new Set(), usedSkinIndices = new Set();
   function visit(index, depth) {
     if (depth > 63 || seen.has(index)) invalid('Invalid or overly deep node hierarchy');
@@ -857,13 +862,15 @@ async function prepare(url) {
     });
     return { name: typeof animation.name === 'string' ? animation.name : `Animation ${animationIndex}`, duration, channels };
   });
-  return { images, textureSpecs, roots: sceneRoots, skins, animations };
+  return { images, textureSpecs, roots: sceneRoots, skins, animations, sceneIndex };
 }
 
 // Model disposal is idempotent. GPU objects are released; arena records remain.
-export async function loadGLTF(engine, url) {
+export async function loadGLTF(engine, url, options = {}) {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) invalid('Invalid glTF load options');
+  if (options.scene !== undefined && (!Number.isInteger(options.scene) || options.scene < 0)) invalid('Invalid scene index');
   let data;
-  try { data = await prepare(url); }
+  try { data = await prepare(url, options.scene); }
   catch (error) {
     if (error instanceof AssetError) throw error;
     throw new AssetError('INVALID_GLTF', 'Invalid glTF structure or URL', error);
@@ -1219,6 +1226,7 @@ export async function loadGLTF(engine, url) {
     const roots = data.roots.map(root => createNode(root, -1));
     if (!applyAnimation(-1, 0)) throw new AssetError('UPLOAD', 'Could not initialize skinned model');
     return {
+      sceneIndex: data.sceneIndex,
       roots: Object.freeze(roots),
       animations: Object.freeze(data.animations.map(({ name, duration }, index) => Object.freeze({ index, name, duration }))),
       meshes: Object.freeze([...meshes]),

@@ -46,6 +46,8 @@ export interface AnimationInfo {
 }
 
 export interface LoadedModel {
+  /** Index of the glTF scene loaded into this model. */
+  readonly sceneIndex: number;
   readonly roots: readonly NodeHandle[];
   readonly animations: readonly AnimationInfo[];
   readonly meshes: readonly ResourceHandle[];
@@ -112,8 +114,15 @@ export function setToneMapping(engine: Goose3DEngine, mode: ToneMappingMode | bo
 export function setFXAA(engine: Goose3DEngine, enabled: boolean): void;
 export function setExposure(engine: Goose3DEngine, exposure: number): void;
 
+/** Options for selecting which glTF scene to load. */
+export interface LoadGLTFOptions {
+  /** Defaults to the document's `scene`, or scene 0 when no default is declared. */
+  scene?: number;
+}
+
 /** Load a glTF 2.0 JSON or GLB model. The caller owns and must dispose the result. */
 export function loadGLTF(
   engine: Goose3DEngine,
   url: string | URL,
+  options?: LoadGLTFOptions,
 ): Promise<LoadedModel>;
