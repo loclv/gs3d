@@ -20,7 +20,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning for skin-only meshes; CPU geometry retained for picking | GPU morph targets, browser rendering validation, and deformation benchmarks |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and shrinking arena backing arrays |
-| Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan and pinch controls, viewer selection | Keyboard camera controls, browser integration tests |
+| Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection | Browser integration tests |
 | Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
 | Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
 
@@ -92,9 +92,9 @@ shadow behavior and browser reference images for the GPU path.
   CPU deformation. Validate animated WebGL output and benchmark pose updates on
   representative characters; GPU morph targets remain unimplemented.
 * **Partly implemented:** selectable perspective and orthographic cameras have
-  stable IDs, active-camera fallback, and removal. Reusable orbit and pinch
-  and pan controls are available; validate camera switching and touch controls
-  in a real browser, then add keyboard camera controls.
+  stable IDs, active-camera fallback, and removal. Reusable orbit, pinch, pan
+  and keyboard controls are available; validate camera switching and input in
+  a real browser.
 
 **Done when:** an imported animated character plays, pauses, and switches
 clips, and a scene can switch between perspective and orthographic cameras.

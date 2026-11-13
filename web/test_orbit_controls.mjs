@@ -3,6 +3,7 @@ import { createOrbitControls } from './orbit-controls.js';
 
 class Canvas {
   style = { touchAction: 'pan-y' };
+  tabIndex = -1;
   clientHeight = 400;
   listeners = new Map();
   captures = new Set();
@@ -12,7 +13,7 @@ class Canvas {
   hasPointerCapture(id) { return this.captures.has(id); }
   releasePointerCapture(id) { this.captures.delete(id); }
   emit(name, fields = {}) {
-    const event = { pointerId: 1, pointerType: 'mouse', button: 0, clientX: 0, clientY: 0, deltaY: 0, deltaMode: 0, preventDefault() { this.prevented = true; }, ...fields };
+    const event = { pointerId: 1, pointerType: 'mouse', button: 0, clientX: 0, clientY: 0, deltaY: 0, deltaMode: 0, key: '', preventDefault() { this.prevented = true; }, ...fields };
     this.listeners.get(name)?.(event);
     return event;
   }
@@ -21,15 +22,23 @@ class Canvas {
 const canvas = new Canvas(), orbits = [], zooms = [], pans = [], selections = [];
 const controls = createOrbitControls(canvas, { onOrbit: (...v) => orbits.push(v), onZoom: v => zooms.push(v), onPan: (...v) => pans.push(v), onSelect: (x, y) => selections.push([x, y]) });
 assert.equal(canvas.style.touchAction, 'none');
+assert.equal(canvas.tabIndex, 0);
+assert.equal(canvas.emit('keydown', { key: 'ArrowLeft' }).prevented, true);
+assert.deepEqual(orbits.at(-1), [-0.06, 0]);
+canvas.emit('keydown', { key: 'W' });
+assert.deepEqual(pans.at(-1), [0, -24]);
+canvas.emit('keydown', { key: '+' });
+assert.equal(zooms.at(-1), 0.9);
+assert.equal(canvas.emit('keydown', { key: 'Tab' }).prevented, undefined);
 canvas.emit('pointerdown', { clientX: 10, clientY: 20 });
 canvas.emit('pointermove', { clientX: 20, clientY: 24 });
 canvas.emit('pointerup', { clientX: 20, clientY: 24 });
-assert.deepEqual(orbits, [[-0.06, 0.02]]);
+assert.deepEqual(orbits, [[-0.06, 0], [-0.06, 0.02]]);
 assert.deepEqual(selections, []);
 canvas.emit('pointerdown', { button: 2, clientX: 10, clientY: 10 });
 canvas.emit('pointermove', { button: -1, clientX: 25, clientY: 5 });
 canvas.emit('pointerup', { button: 2, clientX: 25, clientY: 5 });
-assert.deepEqual(pans, [[15, -5]]);
+assert.deepEqual(pans, [[0, -24], [15, -5]]);
 canvas.emit('pointerdown', { shiftKey: true, clientX: 1, clientY: 2 });
 canvas.emit('pointermove', { clientX: 3, clientY: 6 });
 canvas.emit('pointerup', { clientX: 3, clientY: 6 });
@@ -63,6 +72,7 @@ assert.equal(contextMenu.prevented, true);
 canvas.emit('pointerdown', { pointerId: 9 });
 controls.dispose(); controls.dispose();
 assert.equal(canvas.style.touchAction, 'pan-y');
+assert.equal(canvas.tabIndex, -1);
 assert.equal(canvas.listeners.size, 0);
 assert.equal(canvas.hasPointerCapture(9), false);
 assert.throws(() => createOrbitControls(new Canvas()), TypeError);

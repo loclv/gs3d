@@ -1,8 +1,11 @@
 // Input-only orbit controls. Callbacks apply deltas to the application's camera.
-export function createOrbitControls(canvas, { onOrbit, onZoom, onPan = () => {}, onSelect = () => {}, rotateSpeedX = 0.006, rotateSpeedY = 0.005, panSpeed = 1, wheelSpeed = 0.001, clickTolerance = 4 } = {}) {
+export function createOrbitControls(canvas, { onOrbit, onZoom, onPan = () => {}, onSelect = () => {}, rotateSpeedX = 0.006, rotateSpeedY = 0.005, panSpeed = 1, wheelSpeed = 0.001, clickTolerance = 4, keyRotateStep = 0.06, keyPanPixels = 24, keyZoomFactor = 0.9 } = {}) {
   if (typeof onOrbit !== 'function' || typeof onZoom !== 'function') throw new TypeError('onOrbit and onZoom are required');
   const pointers = new Map();
   const previousTouchAction = canvas.style.touchAction;
+  const previousTabIndex = canvas.tabIndex;
+  const addedTabIndex = previousTabIndex < 0;
+  if (addedTabIndex) canvas.tabIndex = 0;
   canvas.style.touchAction = 'none';
   let candidate = null, disposed = false;
 
@@ -50,7 +53,24 @@ export function createOrbitControls(canvas, { onOrbit, onZoom, onPan = () => {},
     onZoom(Math.exp(Math.max(-1, Math.min(1, event.deltaY * units * wheelSpeed))));
   }
   function contextMenu(event) { event.preventDefault(); }
-  const listeners = [['pointerdown', down], ['pointermove', move], ['pointerup', up], ['pointercancel', cancel], ['lostpointercapture', cancel], ['wheel', wheel, { passive: false }], ['contextmenu', contextMenu]];
+  function keyDown(event) {
+    let handled = true;
+    switch (event.key.toLowerCase()) {
+      case 'arrowleft': onOrbit(-keyRotateStep, 0); break;
+      case 'arrowright': onOrbit(keyRotateStep, 0); break;
+      case 'arrowup': onOrbit(0, keyRotateStep); break;
+      case 'arrowdown': onOrbit(0, -keyRotateStep); break;
+      case 'a': onPan(-keyPanPixels * panSpeed, 0); break;
+      case 'd': onPan(keyPanPixels * panSpeed, 0); break;
+      case 'w': onPan(0, -keyPanPixels * panSpeed); break;
+      case 's': onPan(0, keyPanPixels * panSpeed); break;
+      case '+': case '=': onZoom(keyZoomFactor); break;
+      case '-': case '_': onZoom(1 / keyZoomFactor); break;
+      default: handled = false;
+    }
+    if (handled) event.preventDefault();
+  }
+  const listeners = [['pointerdown', down], ['pointermove', move], ['pointerup', up], ['pointercancel', cancel], ['lostpointercapture', cancel], ['wheel', wheel, { passive: false }], ['contextmenu', contextMenu], ['keydown', keyDown]];
   for (const [name, listener, options] of listeners) canvas.addEventListener(name, listener, options);
   return { dispose() {
     if (disposed) return;
@@ -59,5 +79,6 @@ export function createOrbitControls(canvas, { onOrbit, onZoom, onPan = () => {},
     for (const id of pointers.keys()) if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
     pointers.clear(); candidate = null;
     canvas.style.touchAction = previousTouchAction;
+    if (addedTabIndex) canvas.tabIndex = previousTabIndex;
   } };
 }

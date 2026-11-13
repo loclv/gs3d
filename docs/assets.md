@@ -62,9 +62,11 @@ The callbacks can target any camera implementation; the example's exported
 touch orbit, right drag or Shift+left drag pans, and two-finger movement pans
 while pinch distance zooms. The wheel also zooms, and a click or tap invokes
 `onSelect` when movement stays below the threshold. Options `rotateSpeedX`,
-`rotateSpeedY`, `panSpeed`, `wheelSpeed`, and `clickTolerance` adjust input
-sensitivity. Disposal removes listeners and restores the canvas's previous
-`touch-action`. Keyboard camera controls are not included.
+`rotateSpeedY`, `panSpeed`, `wheelSpeed`, and `clickTolerance` adjust pointer
+sensitivity. Focus the canvas to use arrow keys to orbit, WASD to pan, and `+`/
+`-` to zoom; `keyRotateStep`, `keyPanPixels`, and `keyZoomFactor` set those
+increments. Disposal removes listeners, restores the canvas's original
+`tabIndex`, and restores its previous `touch-action`.
 
 `loadImage` decodes images into RGBA8; `loadHDRImage` decodes Radiance RGBE
 `.hdr` images into linear floating-point radiance. HDR loading supports the
