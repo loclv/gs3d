@@ -750,6 +750,7 @@ fn case_asset_reuse() {
         g3::g_verts.len == vertex_count && g3::g_indices.len == index_count,
         "asset reload reuses node and geometry storage");
     testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "reused asset geometry renders");
+    let mesh_count = g3::g_meshes.len;
     for i in 100 {
         g3::node_asset_release(second);
         g3::mesh_asset_release(replacement);
@@ -757,8 +758,9 @@ fn case_asset_reuse() {
         let node_again = g3::node_asset_add(again);
         g3::node(node_again).unlit = true;
     }
-    testing::check(g3::node_count() == node_count && g3::g_verts.len == vertex_count && g3::g_indices.len == index_count,
-        "repeated load and release keeps arena lengths bounded");
+    testing::check(g3::node_count() == node_count && g3::g_meshes.len == mesh_count &&
+        g3::g_verts.len == vertex_count && g3::g_indices.len == index_count,
+        "repeated load and release keeps node, mesh descriptor, and geometry arena lengths bounded");
     let texture = g3::texture_asset_create();
     let texture_handle = g3::texture_handle(texture);
     g3::texture_asset_release(texture);

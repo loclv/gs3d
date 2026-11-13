@@ -19,7 +19,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion, emissive and specular maps, static authored tangents, double-sided rendering, `KHR_materials_unlit`, `KHR_materials_ior`, `KHR_materials_specular`, `KHR_materials_emissive_strength`, per-texture `KHR_texture_transform` on `TEXCOORD_0` and `_1`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and Reinhard/ACES tone mapping with exposure | Browser reference validation |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and deformation benchmarks; GPU morph targets fall back to CPU above 64 targets or device texture limits |
-| Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and shrinking arena backing arrays |
+| Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; asset-owned mesh descriptor reuse; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Shrinking grow-only backing arrays; ordinary mesh IDs remain permanent for compatibility |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection | Browser integration tests |
 | Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters, FXAA-style full-screen post-processing, basic user render targets, built-in post-processing, bounded fragment shader extension | Browser shader validation; CPU reference renderer still processes draw items individually |
 | Developer experience | Goose API, custom browser host, typed browser asset helpers and a package manifest | Publish the package, examples, and automated browser rendering tests |
@@ -46,8 +46,12 @@ and a browser integration check for behavior exposed through WebGL.
   can be removed when no live node, material or environment references them,
   and browser asset handles check generation. Node handles also check scene
   epoch, and ordinary nodes can be removed with checked handles. Explicit
-  compaction packs and reuploads live geometry. Reclaim mesh descriptor records
-  and shrink backing arrays so varied load/dispose cycles remain bounded in memory.
+  compaction packs and reuploads live geometry. Repeated asset load/dispose
+  cycles reuse mesh descriptors and keep geometry arena lengths bounded. Ordinary
+  mesh IDs stay permanent, and Goose growable arrays cannot shrink, so explicit
+  compaction reuses the packed tail without returning backing storage. Revisit
+  physical reclamation only with an API and runtime design that preserves handle
+  safety and stable ordinary IDs.
 * **Implemented:** texture alpha, wrapping, filtering, and opt-in sRGB output,
   including glTF base-colour decoding and per-texture sampler settings. Expand
   the glTF loader's material and sampler support.
