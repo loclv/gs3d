@@ -241,15 +241,15 @@ fn case_texture() {
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(120, 280), 0, 255, 0, 1), "base-colour UV offset shifts sampling into the neighboring texel");
 
-    // A mesh keeps six UV sets independent, and a material selects each.
+    // A mesh keeps eight UV sets independent, and a material selects each.
     g3::scene_clear();
     flat_camera();
     let uv1_texture = g3::texture_create(2, 2, pixels[..]);
     let verts: g3::Vertex[4] = [
-        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, uv3: float2 { 0.0, 1.0 }, uv4: float2 { 1.0, 1.0 }, uv5: float2 { 1.0, 0.0 }, color: float4_1, .. },
-        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, uv3: float2 { 0.0, 1.0 }, uv4: float2 { 1.0, 1.0 }, uv5: float2 { 1.0, 0.0 }, color: float4_1, .. },
-        g3::Vertex { pos: float3 { 1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, uv3: float2 { 0.0, 1.0 }, uv4: float2 { 1.0, 1.0 }, uv5: float2 { 1.0, 0.0 }, color: float4_1, .. },
-        g3::Vertex { pos: float3 { -1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, uv3: float2 { 0.0, 1.0 }, uv4: float2 { 1.0, 1.0 }, uv5: float2 { 1.0, 0.0 }, color: float4_1, .. },
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, uv3: float2 { 0.0, 1.0 }, uv4: float2 { 1.0, 1.0 }, uv5: float2 { 1.0, 0.0 }, uv6: float2 { 0.0, 1.0 }, uv7: float2 { 1.0, 1.0 }, color: float4_1, .. },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, uv3: float2 { 0.0, 1.0 }, uv4: float2 { 1.0, 1.0 }, uv5: float2 { 1.0, 0.0 }, uv6: float2 { 0.0, 1.0 }, uv7: float2 { 1.0, 1.0 }, color: float4_1, .. },
+        g3::Vertex { pos: float3 { 1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, uv3: float2 { 0.0, 1.0 }, uv4: float2 { 1.0, 1.0 }, uv5: float2 { 1.0, 0.0 }, uv6: float2 { 0.0, 1.0 }, uv7: float2 { 1.0, 1.0 }, color: float4_1, .. },
+        g3::Vertex { pos: float3 { -1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, uv3: float2 { 0.0, 1.0 }, uv4: float2 { 1.0, 1.0 }, uv5: float2 { 1.0, 0.0 }, uv6: float2 { 0.0, 1.0 }, uv7: float2 { 1.0, 1.0 }, color: float4_1, .. },
     ];
     let indices: u32[6] = [0, 1, 2, 0, 2, 3];
     let mesh = g3::mesh_asset_create(verts[..], indices[..]);
@@ -274,6 +274,12 @@ fn case_texture() {
     uv1_surface.base_color_uv.texcoord = 5;
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 0, 255, 0, 1), "base-colour texture samples TEXCOORD_5");
+    uv1_surface.base_color_uv.texcoord = 6;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 0, 0, 255, 1), "base-colour texture samples TEXCOORD_6");
+    uv1_surface.base_color_uv.texcoord = 7;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 1), "base-colour texture samples TEXCOORD_7");
 }
 
 fn case_native_hdr_load() {

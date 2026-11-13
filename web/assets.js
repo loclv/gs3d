@@ -509,7 +509,7 @@ function identityUvTransform() { return { offset: [0, 0], scale: [1, 1], rotatio
 function parseTextureTransform(info, extensionsUsed) {
   const outerTexCoord = info.texCoord === undefined ? 0 : info.texCoord;
   if (!Number.isInteger(outerTexCoord) || outerTexCoord < 0) invalid('Invalid texture coordinate set');
-  if (outerTexCoord > 5) unsupported('Only TEXCOORD_0 through TEXCOORD_5 are supported');
+  if (outerTexCoord > 7) unsupported('Only TEXCOORD_0 through TEXCOORD_7 are supported');
   if (info.extensions === undefined) {
     return { ...identityUvTransform(), texcoord: outerTexCoord };
   }
@@ -522,7 +522,7 @@ function parseTextureTransform(info, extensionsUsed) {
   if (!extension || typeof extension !== 'object' || Array.isArray(extension)) invalid('Invalid KHR_texture_transform extension');
   const texCoord = extension.texCoord === undefined ? outerTexCoord : extension.texCoord;
   if (!Number.isInteger(texCoord) || texCoord < 0) invalid('Invalid texture coordinate set');
-  if (texCoord > 5) unsupported('Only TEXCOORD_0 through TEXCOORD_5 are supported');
+  if (texCoord > 7) unsupported('Only TEXCOORD_0 through TEXCOORD_7 are supported');
   const offset = extension.offset === undefined ? [0, 0] : extension.offset;
   const scale = extension.scale === undefined ? [1, 1] : extension.scale;
   const rotation = extension.rotation === undefined ? 0 : extension.rotation;
@@ -795,7 +795,7 @@ async function prepare(url, requestedScene) {
     const primitives = (mesh.primitives || []).map(p => {
     if ((p.mode ?? 4) !== 4) unsupported('Only triangle mesh primitives are supported');
     if (Object.keys(p.attributes || {}).some(name => /^(JOINTS|WEIGHTS)_\d+$/.test(name) && Number(name.slice(name.indexOf('_') + 1)) > 1)) unsupported('At most eight skin influences are supported');
-    if (Object.keys(p.attributes || {}).some(name => /^TEXCOORD_\d+$/.test(name) && Number(name.slice(9)) > 5)) unsupported('Only TEXCOORD_0 through TEXCOORD_5 are supported');
+    if (Object.keys(p.attributes || {}).some(name => /^TEXCOORD_\d+$/.test(name) && Number(name.slice(9)) > 7)) unsupported('Only TEXCOORD_0 through TEXCOORD_7 are supported');
     const pos = accessor(doc, buffers, p.attributes?.POSITION, 'VEC3');
     const normal = p.attributes?.NORMAL === undefined ? null : accessor(doc, buffers, p.attributes.NORMAL, 'VEC3');
     const uv = p.attributes?.TEXCOORD_0 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_0, 'VEC2');
@@ -804,6 +804,8 @@ async function prepare(url, requestedScene) {
     const uv3 = p.attributes?.TEXCOORD_3 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_3, 'VEC2');
     const uv4 = p.attributes?.TEXCOORD_4 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_4, 'VEC2');
     const uv5 = p.attributes?.TEXCOORD_5 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_5, 'VEC2');
+    const uv6 = p.attributes?.TEXCOORD_6 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_6, 'VEC2');
+    const uv7 = p.attributes?.TEXCOORD_7 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_7, 'VEC2');
     const tangent = p.attributes?.TANGENT === undefined ? null : accessor(doc, buffers, p.attributes.TANGENT, 'VEC4');
     const colorIndex = p.attributes?.COLOR_0;
     const colorType = colorIndex === undefined ? null : item(doc.accessors, colorIndex, 'COLOR_0 accessor').type;
@@ -812,11 +814,11 @@ async function prepare(url, requestedScene) {
     validateMeshAttributeEncoding(pos, 'POSITION', false, extensionsUsed, extensionsRequired);
     validateMeshAttributeEncoding(normal, 'NORMAL', false, extensionsUsed, extensionsRequired);
     validateMeshAttributeEncoding(tangent, 'TANGENT', false, extensionsUsed, extensionsRequired);
-    for (const [set, coord] of [uv, uv1, uv2, uv3, uv4, uv5].entries()) {
+    for (const [set, coord] of [uv, uv1, uv2, uv3, uv4, uv5, uv6, uv7].entries()) {
       validateMeshAttributeEncoding(coord, `TEXCOORD_${set}`, false, extensionsUsed, extensionsRequired);
     }
     if ((normal && normal.count !== pos.count) ||
-        [uv, uv1, uv2, uv3, uv4, uv5].some(coord => coord && coord.count !== pos.count) ||
+        [uv, uv1, uv2, uv3, uv4, uv5, uv6, uv7].some(coord => coord && coord.count !== pos.count) ||
         (vertexColor && (vertexColor.count !== pos.count ||
           !((vertexColor.componentType === 5126 && !vertexColor.normalized) ||
             ([5121, 5123].includes(vertexColor.componentType) && vertexColor.normalized)) ||
@@ -857,7 +859,7 @@ async function prepare(url, requestedScene) {
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
     const normalValues = normal ? normal.values : generateVertexNormals(pos.values, indices);
-    const availableUvSets = [uv, uv1, uv2, uv3, uv4, uv5];
+    const availableUvSets = [uv, uv1, uv2, uv3, uv4, uv5, uv6, uv7];
     const variantMaterials = new Map();
     if (p.extensions !== undefined) {
       if (!p.extensions || typeof p.extensions !== 'object' || Array.isArray(p.extensions)) invalid('Invalid primitive extensions');
@@ -884,7 +886,7 @@ async function prepare(url, requestedScene) {
     }
     const materialSpec = parseMaterial(doc, textureSpecs, p.material, availableUvSets, extensionsUsed);
     return { pos: pos.values, normal: normalValues, uv: uv?.values, uv1: uv1?.values, uv2: uv2?.values,
-      uv3: uv3?.values, uv4: uv4?.values, uv5: uv5?.values,
+      uv3: uv3?.values, uv4: uv4?.values, uv5: uv5?.values, uv6: uv6?.values, uv7: uv7?.values,
       vertexColor: vertexColor?.values, colorComponents: colorType === 'VEC3' ? 3 : vertexColor ? 4 : 0,
       tangent: tangent?.values, joints, weights, targets, indices, ...materialSpec, variantMaterials };
     });
@@ -1313,6 +1315,8 @@ export async function loadGLTF(engine, url, options = {}) {
           ...(p.uv3 ? p.uv3.slice(i*2, i*2+2) : [0, 0]),
           ...(p.uv4 ? p.uv4.slice(i*2, i*2+2) : [0, 0]),
           ...(p.uv5 ? p.uv5.slice(i*2, i*2+2) : [0, 0]),
+          ...(p.uv6 ? p.uv6.slice(i*2, i*2+2) : [0, 0]),
+          ...(p.uv7 ? p.uv7.slice(i*2, i*2+2) : [0, 0]),
           ...(useAuthoredTangents ? p.tangent.slice(i*4, i*4+4) : [0, 0, 0, 0]),
           ...(p.vertexColor ? p.vertexColor.slice(i*p.colorComponents, i*p.colorComponents+p.colorComponents) : [1, 1, 1, 1]),
           ...(p.vertexColor && p.colorComponents === 3 ? [1] : []));

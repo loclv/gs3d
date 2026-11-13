@@ -86,6 +86,8 @@ typedef struct {
     float uv3[3][2];
     float uv4[3][2];
     float uv5[3][2];
+    float uv6[3][2];
+    float uv7[3][2];
     float tangent[3][4];
     float color[3][4];
     float derived_tangent[3], derived_bitangent[3];
@@ -106,6 +108,8 @@ static const float (*triangle_uv(const soft_tri *triangle, int set))[2] {
         case 3: return triangle->uv3;
         case 4: return triangle->uv4;
         case 5: return triangle->uv5;
+        case 6: return triangle->uv6;
+        case 7: return triangle->uv7;
         default: return triangle->uv;
     }
 }
@@ -1104,6 +1108,8 @@ static g3_vertex clip_lerp(g3_vertex a, g3_vertex b, float t) {
     LERP(uv3.x); LERP(uv3.y);
     LERP(uv4.x); LERP(uv4.y);
     LERP(uv5.x); LERP(uv5.y);
+    LERP(uv6.x); LERP(uv6.y);
+    LERP(uv7.x); LERP(uv7.y);
     LERP(tangent.x); LERP(tangent.y); LERP(tangent.z); LERP(tangent.w);
     LERP(color.x); LERP(color.y); LERP(color.z); LERP(color.w);
 #undef LERP
@@ -1165,6 +1171,10 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
         t->uv4[k][1] = tri[k]->uv4.y;
         t->uv5[k][0] = tri[k]->uv5.x;
         t->uv5[k][1] = tri[k]->uv5.y;
+        t->uv6[k][0] = tri[k]->uv6.x;
+        t->uv6[k][1] = tri[k]->uv6.y;
+        t->uv7[k][0] = tri[k]->uv7.x;
+        t->uv7[k][1] = tri[k]->uv7.y;
         t->color[k][0] = tri[k]->color.x;
         t->color[k][1] = tri[k]->color.y;
         t->color[k][2] = tri[k]->color.z;

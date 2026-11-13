@@ -24,7 +24,7 @@ The procedural checklist lives in
 
 ## Types
 
-### `g3_vertex` — 104 bytes
+### `g3_vertex` — 120 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -36,8 +36,10 @@ The procedural checklist lives in
 | 48 | `float[2]` | `uv3` | fourth texture coordinate set; zero when absent |
 | 56 | `float[2]` | `uv4` | fifth texture coordinate set; zero when absent |
 | 64 | `float[2]` | `uv5` | sixth texture coordinate set; zero when absent |
-| 72 | `float[4]` | `tangent` | local tangent direction and handedness; a zero direction selects the derived frame |
-| 88 | `float[4]` | `color` | linear vertex colour multiplied by the material base colour; built-ins and assets use white when absent |
+| 72 | `float[2]` | `uv6` | seventh texture coordinate set; zero when absent |
+| 80 | `float[2]` | `uv7` | eighth texture coordinate set; zero when absent |
+| 88 | `float[4]` | `tangent` | local tangent direction and handedness; a zero direction selects the derived frame |
+| 104 | `float[4]` | `color` | linear vertex colour multiplied by the material base colour; built-ins and assets use white when absent |
 
 ### `g3_mat4` — 64 bytes
 
@@ -46,7 +48,7 @@ The procedural checklist lives in
 ### `g3_uv_transform` — 24 bytes
 
 `offset: float2`, `scale: float2`, `rotation: float` in radians, and the
-selected `texcoord` set (0 through 5). The renderer scales the selected UV, rotates
+selected `texcoord` set (0 through 7). The renderer scales the selected UV, rotates
 it, then adds the offset.
 
 ### `g3_draw_item` — 429 bytes

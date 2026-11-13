@@ -15,8 +15,8 @@ export fn g3_asset_mesh_begin() {
     asset_vertices.clear();
     asset_indices.clear();
 }
-export fn g3_asset_vertex(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, u: f32, v: f32, u1: f32, v1: f32, u2: f32, v2: f32, u3: f32, v3: f32, u4: f32, v4: f32, u5: f32, v5: f32, tx: f32, ty: f32, tz: f32, tw: f32, cr: f32, cg: f32, cb: f32, ca: f32) {
-    asset_vertices.push(g3::Vertex { pos: float3 { x, y, z }, normal: float3 { nx, ny, nz }, uv: float2 { u, v }, uv1: float2 { u1, v1 }, uv2: float2 { u2, v2 }, uv3: float2 { u3, v3 }, uv4: float2 { u4, v4 }, uv5: float2 { u5, v5 }, tangent: float4 { tx, ty, tz, tw }, color: float4 { cr, cg, cb, ca } });
+export fn g3_asset_vertex(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, u: f32, v: f32, u1: f32, v1: f32, u2: f32, v2: f32, u3: f32, v3: f32, u4: f32, v4: f32, u5: f32, v5: f32, u6: f32, v6: f32, u7: f32, v7: f32, tx: f32, ty: f32, tz: f32, tw: f32, cr: f32, cg: f32, cb: f32, ca: f32) {
+    asset_vertices.push(g3::Vertex { pos: float3 { x, y, z }, normal: float3 { nx, ny, nz }, uv: float2 { u, v }, uv1: float2 { u1, v1 }, uv2: float2 { u2, v2 }, uv3: float2 { u3, v3 }, uv4: float2 { u4, v4 }, uv5: float2 { u5, v5 }, uv6: float2 { u6, v6 }, uv7: float2 { u7, v7 }, tangent: float4 { tx, ty, tz, tw }, color: float4 { cr, cg, cb, ca } });
 }
 export fn g3_asset_triangle(a: u32, b: u32, c: u32) { asset_indices.push(a); asset_indices.push(b); asset_indices.push(c); }
 export fn g3_asset_mesh_end() -> i32 { return g3::mesh_asset_create(asset_vertices[..], asset_indices[..]); }
@@ -72,7 +72,7 @@ export fn g3_asset_material_specular(id: i32, factor: f32, color_r: f32, color_g
     return true;
 }
 export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offset_y: f32, scale_x: f32, scale_y: f32, rotation: f32, texcoord: i32) -> bool {
-    guard g3::material_valid(id) && texcoord >= 0 && texcoord <= 5 else { return false; }
+    guard g3::material_valid(id) && texcoord >= 0 && texcoord <= 7 else { return false; }
     let transform = g3::UvTransform { offset: float2 { offset_x, offset_y }, scale: float2 { scale_x, scale_y }, rotation: rotation, texcoord: texcoord };
     if slot == 0 { g3::material(id).base_color_uv = transform; }
     else if slot == 1 { g3::material(id).metallic_roughness_uv = transform; }
