@@ -513,11 +513,14 @@ fn case_render_target() {
     g3::set_tone_mapping_mode(g3::TONE_MAPPING_ACES);
     g3::set_background(float4 { 0.5, 0.5, 0.5, 1.0 });
     let target = g3::render_target_create(80, 40);
-    testing::check(target >= 0 && g3::render_target_set(target), "render target allocates and can be selected");
+    let target_handle = g3::render_target_handle(target);
+    testing::check(target >= 0 && g3::render_target_handle_valid(target_handle) &&
+                   g3::render_target_texture_id(target_handle) == target && g3::render_target_set_handle(target_handle),
+                   "typed render-target handle validates, exposes its texture ID, and can be selected");
     testing::check(!g3::render_target_set(99999), "unknown render targets are rejected");
     g3::frame(1.0 / 60.0);
-    testing::check(!g3::render_target_resize(target, 0, 80) &&
-                   g3::render_target_resize(target, 40, 80) && abs(g3::aspect() - 0.5) < 0.001,
+    testing::check(!g3::render_target_resize_handle(target_handle, 0, 80) &&
+                   g3::render_target_resize_handle(target_handle, 40, 80) && abs(g3::aspect() - 0.5) < 0.001,
                    "resize validates dimensions and updates the active camera aspect");
     g3::frame(1.0 / 60.0);
 
@@ -562,9 +565,10 @@ fn case_render_target() {
 
     set_first_node_texture(target);
     testing::check(is_color(render_target_feedback(target), 0, 0, 0, 1), "sampling the active target is suppressed instead of creating feedback");
-    testing::check(!g3::render_target_remove(target), "a render target referenced by a live node cannot be removed");
+    testing::check(!g3::render_target_remove_handle(target_handle), "a render target referenced by a live node cannot be removed");
     g3::scene_clear();
-    testing::check(g3::render_target_remove(target), "render target storage is released after references are removed");
+    testing::check(g3::render_target_remove_handle(target_handle) && !g3::render_target_handle_valid(target_handle) &&
+                   g3::render_target_texture_id(target_handle) == -1, "render target removal invalidates its stale typed handle");
     testing::check(g3::render_target_remove(processed), "post-process destination is removable after references are removed");
     testing::check(g3::render_target_remove(fxaa_target), "FXAA destination is removable after references are removed");
 }

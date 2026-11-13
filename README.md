@@ -264,6 +264,10 @@ What the API gives you:
   target in the same frame skips that item to avoid framebuffer feedback.
   Texture coordinate v=0 addresses the bottom row of a render target.
   Targets are limited to 4,194,304 pixels each.
+  `render_target_handle(id)` returns a generation-checked handle with matching
+  `render_target_set_handle`, `render_target_resize_handle`, and
+  `render_target_remove_handle` operations. `render_target_texture_id(handle)`
+  returns the texture ID to assign to a node or material.
   `post_process_run(source, destination, effect)` applies a built-in
   `POST_PROCESS_COPY`, `POST_PROCESS_GRAYSCALE`, `POST_PROCESS_INVERT`, or
   `POST_PROCESS_FXAA` pass to a distinct render target. Chain calls to control

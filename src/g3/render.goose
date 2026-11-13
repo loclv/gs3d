@@ -207,6 +207,11 @@ fn render_target_remove(id: i32) -> bool {
     return true;
 }
 
+fn render_target_remove_handle(handle: RenderTargetHandle) -> bool {
+    guard render_target_handle_valid(handle) else { return false; }
+    return render_target_remove(handle.texture.id);
+}
+
 // The primary directional light casts into an explicitly bounded box. Objects
 // outside this box do not cast or receive shadows. Bias is in depth-map units.
 fn set_directional_shadows(center: float3, extent: f32, bias: f32) -> bool {

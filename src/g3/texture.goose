@@ -20,6 +20,7 @@ var g_render_target_height: i32;
 var g_asset_textures: i32[>..];
 struct TextureSlot { generation: i32 = 1, asset_owned: bool, asset_free: bool, removed: bool, render_target: bool }
 struct TextureHandle { id: i32 = -1, generation: i32 }
+struct RenderTargetHandle { texture: TextureHandle }
 var g_texture_slots: TextureSlot[>..];
 
 fn texture_handle(id: i32) -> TextureHandle {
@@ -80,6 +81,25 @@ fn render_target_create(width: i32, height: i32) -> i32 {
     return id;
 }
 
+fn render_target_handle(id: i32) -> RenderTargetHandle {
+    guard id >= 0 && id < g_texture_count && g_texture_slots[id].render_target && texture_slot_live(id) else { return RenderTargetHandle { .. }; }
+    return RenderTargetHandle { texture: texture_handle(id) };
+}
+
+fn render_target_handle_valid(handle: RenderTargetHandle) -> bool {
+    return texture_handle_valid(handle.texture) && g_texture_slots[handle.texture.id].render_target;
+}
+
+fn render_target_texture_id(handle: RenderTargetHandle) -> i32 {
+    guard render_target_handle_valid(handle) else { return -1; }
+    return handle.texture.id;
+}
+
+fn render_target_set_handle(handle: RenderTargetHandle) -> bool {
+    guard render_target_handle_valid(handle) else { return false; }
+    return render_target_set(handle.texture.id);
+}
+
 // Select the target for the next frame. Pass -1 to render to the window.
 fn render_target_set(id: i32) -> bool {
     if id == -1 {
@@ -102,6 +122,11 @@ fn render_target_resize(id: i32, width: i32, height: i32) -> bool {
     guard g3p_resize_render_target(id, width, height) else { return false; }
     if id == g_render_target { g_render_target_width = width; g_render_target_height = height; }
     return true;
+}
+
+fn render_target_resize_handle(handle: RenderTargetHandle, width: i32, height: i32) -> bool {
+    guard render_target_handle_valid(handle) else { return false; }
+    return render_target_resize(handle.texture.id, width, height);
 }
 
 // Native-only Radiance RGBE loader. Browser applications should use loadHDRImage.
