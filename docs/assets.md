@@ -113,12 +113,13 @@ if an upload fails it releases the resources already created. Browser graphics
 driver failures may still be reported separately through the backend's error
 mechanism.
 
-The glTF loader supports `KHR_materials_unlit` and
-`KHR_materials_emissive_strength`. Unlit selects the engine's unlit material
-path; emissive strength multiplies the material's `emissiveFactor` before the
+The glTF loader supports `KHR_materials_unlit`,
+`KHR_materials_emissive_strength`, and a shared-UV subset of
+`KHR_texture_transform`. Unlit selects the engine's unlit material path;
+emissive strength multiplies the material's `emissiveFactor` before the
 emissive texture is applied. Required extensions outside this supported set are
-reported as `UNSUPPORTED`; optional material extensions that the loader does
-not recognize are also rejected when present on a material.
+reported as `UNSUPPORTED`; optional extensions that the loader does not
+recognize are also rejected when present on a material or texture.
 
 Native Goose programs can call `texture_load_hdr(path)` from `g3.texture` to
 load a Radiance `.hdr` file into the CPU backend. It accepts the same canonical
@@ -164,6 +165,9 @@ fetches and decodes assets in JavaScript.
   `KHR_materials_unlit` selects unlit shading for a material.
   `KHR_materials_emissive_strength` scales `emissiveFactor`, including values
   above 1 for HDR emission.
+  `KHR_texture_transform` applies offset, rotation and scale to texture UVs when
+  all material textures share the same transform. Only `TEXCOORD_0` is
+  supported; distinct transforms on one material's texture slots are rejected.
   Double-sided materials disable back-face culling in colour and shadow passes;
   back-face normals are flipped before colour-pass lighting.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.

@@ -16,7 +16,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for glTF/GLB meshes, materials, transform animations, dense and sparse accessors, with reusable asset-owned slots | Remaining glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
-| Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, static authored tangents, double-sided rendering, `KHR_materials_unlit`, `KHR_materials_emissive_strength`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and ACES tone mapping with exposure | Browser reference validation |
+| Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, static authored tangents, double-sided rendering, `KHR_materials_unlit`, `KHR_materials_emissive_strength`, shared `KHR_texture_transform`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and ACES tone mapping with exposure | Browser reference validation |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and deformation benchmarks; GPU morph targets fall back to CPU above 64 targets or device texture limits |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and shrinking arena backing arrays |
@@ -61,6 +61,9 @@ and a browser integration check for behavior exposed through WebGL.
   path; unsupported required extensions are rejected with an asset error.
 * **Implemented:** `KHR_materials_emissive_strength` scales emissive factors,
   including values above 1 for HDR emission.
+* **Partly implemented:** `KHR_texture_transform` applies offset, rotation and
+  scale when all texture slots on a material share one transform. Distinct
+  per-slot transforms and UV sets beyond `TEXCOORD_0` remain unsupported.
 * **Implemented:** static, non-skinned, non-morphed glTF meshes use authored
   `TANGENT` frames for normal maps; other meshes keep the derivative fallback.
   Add tangent deformation for animated assets and validate browser references.

@@ -341,6 +341,25 @@ assert.equal(texturedEngine.calls.find(x => x[0] === 'material')[6], 5);
 assert.deepEqual(texturedEngine.calls.find(x => x[0] === 'wrap'), ['wrap', 5, 1, 1]);
 texturedModel.dispose();
 assert.equal(texturedEngine.calls.filter(x => x[0] === 'recycle_texture').length, 1);
+const transformedTexture = structuredClone(textured);
+transformedTexture.extensionsUsed = ['KHR_texture_transform'];
+transformedTexture.extensionsRequired = ['KHR_texture_transform'];
+transformedTexture.materials[0].pbrMetallicRoughness.baseColorTexture.extensions = {
+  KHR_texture_transform: { offset: [0.25, 0.5], rotation: Math.PI / 2, scale: [2, 3] },
+};
+resources.set('http://localhost/transformed-texture.gltf', bytes(transformedTexture));
+const transformedEngine = fakeEngine(), transformedModel = await loadGLTF(transformedEngine, 'http://localhost/transformed-texture.gltf');
+assert.ok(transformedEngine.calls.find(call => call[0] === 'vertex').slice(-6, -4).every((value, i) => Math.abs(value - [3.25, -1.5][i]) < 1e-6), 'KHR_texture_transform applies offset, rotation and scale to UVs');
+transformedModel.dispose();
+const unsupportedUvSet = structuredClone(transformedTexture);
+unsupportedUvSet.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.texCoord = 1;
+resources.set('http://localhost/unsupported-transform-uv.gltf', bytes(unsupportedUvSet));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/unsupported-transform-uv.gltf'), e => e.code === 'UNSUPPORTED');
+const unlistedTextureTransform = structuredClone(transformedTexture);
+delete unlistedTextureTransform.extensionsUsed;
+delete unlistedTextureTransform.extensionsRequired;
+resources.set('http://localhost/unlisted-texture-transform.gltf', bytes(unlistedTextureTransform));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/unlisted-texture-transform.gltf'), e => e.code === 'INVALID_GLTF');
 const packedMr = structuredClone(textured);
 packedMr.materials[0].pbrMetallicRoughness.metallicRoughnessTexture = { index: 0 };
 resources.set('http://localhost/packed-mr.gltf', bytes(packedMr));

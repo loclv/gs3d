@@ -466,6 +466,34 @@ function sampleChannel(channel, time) {
   return normalizedQuaternion(q1.map((value, i) => value * weightA + q2[i] * weightB));
 }
 
+function identityUvTransform() { return { offset: [0, 0], scale: [1, 1], rotation: 0 }; }
+function sameUvTransform(a, b) {
+  return a.offset[0] === b.offset[0] && a.offset[1] === b.offset[1] &&
+    a.scale[0] === b.scale[0] && a.scale[1] === b.scale[1] && a.rotation === b.rotation;
+}
+function parseTextureTransform(info, extensionsUsed) {
+  const outerTexCoord = info.texCoord ?? 0;
+  if (!Number.isInteger(outerTexCoord) || outerTexCoord < 0) invalid('Invalid texture coordinate set');
+  if (info.extensions === undefined) {
+    if (outerTexCoord !== 0) unsupported('Only TEXCOORD_0 is supported');
+    return null;
+  }
+  if (!info.extensions || typeof info.extensions !== 'object' || Array.isArray(info.extensions)) invalid('Invalid texture extensions');
+  const keys = Object.keys(info.extensions);
+  if (keys.some(extension => extension !== 'KHR_texture_transform')) unsupported('Unsupported texture feature');
+  if (!keys.length) return null;
+  if (!extensionsUsed.includes('KHR_texture_transform')) invalid('KHR_texture_transform must be listed in extensionsUsed');
+  const extension = info.extensions.KHR_texture_transform;
+  if (!extension || typeof extension !== 'object' || Array.isArray(extension)) invalid('Invalid KHR_texture_transform extension');
+  const texCoord = extension.texCoord ?? outerTexCoord;
+  if (!Number.isInteger(texCoord) || texCoord < 0) invalid('Invalid texture coordinate set');
+  if (texCoord !== 0) unsupported('Only TEXCOORD_0 is supported');
+  const offset = extension.offset ?? [0, 0], scale = extension.scale ?? [1, 1], rotation = extension.rotation ?? 0;
+  if (!Array.isArray(offset) || offset.length !== 2 || !offset.every(Number.isFinite) ||
+      !Array.isArray(scale) || scale.length !== 2 || !scale.every(Number.isFinite) || !Number.isFinite(rotation)) invalid('Invalid texture transform');
+  return { offset, scale, rotation };
+}
+
 async function prepare(url) {
   const absolute = new URL(url, globalThis.location?.href || 'http://localhost/');
   const { json, bin } = unpack(await fetchBytes(absolute));
@@ -477,7 +505,7 @@ async function prepare(url) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_texture_transform'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   const buffers = await Promise.all((doc.buffers || []).map(async (buffer, i) => {
     const data = buffer.uri !== undefined ? await fetchBytes(new URL(buffer.uri, absolute)) : i === 0 ? bin : undefined;
@@ -585,10 +613,15 @@ async function prepare(url) {
     const cutoff = material.alphaCutoff ?? 0.5;
     if (!Number.isFinite(cutoff) || cutoff < 0) invalid('Invalid alpha cutoff');
     const pbr = material.pbrMetallicRoughness || {};
+    const baseUvTransform = pbr.baseColorTexture ? parseTextureTransform(pbr.baseColorTexture, extensionsUsed) : null;
+    const normalUvTransform = material.normalTexture ? parseTextureTransform(material.normalTexture, extensionsUsed) : null;
+    const occlusionUvTransform = material.occlusionTexture ? parseTextureTransform(material.occlusionTexture, extensionsUsed) : null;
+    const emissiveUvTransform = material.emissiveTexture ? parseTextureTransform(material.emissiveTexture, extensionsUsed) : null;
+    const metallicRoughnessUvTransform = pbr.metallicRoughnessTexture ? parseTextureTransform(pbr.metallicRoughnessTexture, extensionsUsed) : null;
     let normalTextureIndex = -1;
     const normalScale = material.normalTexture?.scale ?? 1;
     if (material.normalTexture) {
-      if (!uv || (material.normalTexture.texCoord || 0) !== 0 || material.normalTexture.extensions) unsupported('Unsupported normal texture coordinates');
+      if (!uv) unsupported('Unsupported normal texture coordinates');
       item(textureSpecs, material.normalTexture.index, 'normal texture');
       if (!Number.isFinite(normalScale)) invalid('Invalid normal scale');
       normalTextureIndex = material.normalTexture.index;
@@ -596,7 +629,7 @@ async function prepare(url) {
     let occlusionTextureIndex = -1;
     const occlusionStrength = material.occlusionTexture?.strength ?? 1;
     if (material.occlusionTexture) {
-      if (!uv || (material.occlusionTexture.texCoord || 0) !== 0 || material.occlusionTexture.extensions) unsupported('Unsupported occlusion texture coordinates');
+      if (!uv) unsupported('Unsupported occlusion texture coordinates');
       item(textureSpecs, material.occlusionTexture.index, 'occlusion texture');
       if (!Number.isFinite(occlusionStrength) || occlusionStrength < 0 || occlusionStrength > 1) invalid('Invalid occlusion strength');
       occlusionTextureIndex = material.occlusionTexture.index;
@@ -605,13 +638,13 @@ async function prepare(url) {
     if (!Array.isArray(emissive) || emissive.length !== 3 || !emissive.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid emissive factor');
     let emissiveTextureIndex = -1;
     if (material.emissiveTexture) {
-      if (!uv || (material.emissiveTexture.texCoord || 0) !== 0 || material.emissiveTexture.extensions) unsupported('Unsupported emissive texture coordinates');
+      if (!uv) unsupported('Unsupported emissive texture coordinates');
       item(textureSpecs, material.emissiveTexture.index, 'emissive texture');
       emissiveTextureIndex = material.emissiveTexture.index;
     }
     let metallicRoughnessTextureIndex = -1;
     if (pbr.metallicRoughnessTexture) {
-      if (!uv || (pbr.metallicRoughnessTexture.texCoord || 0) !== 0 || pbr.metallicRoughnessTexture.extensions) unsupported('Unsupported metallic-roughness texture coordinates');
+      if (!uv) unsupported('Unsupported metallic-roughness texture coordinates');
       item(textureSpecs, pbr.metallicRoughnessTexture.index, 'metallic-roughness texture');
       metallicRoughnessTextureIndex = pbr.metallicRoughnessTexture.index;
     }
@@ -621,12 +654,27 @@ async function prepare(url) {
     if (color.length !== 4 || !color.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid base color');
     let textureIndex = -1;
     if (pbr.baseColorTexture) {
-      if (!uv || (pbr.baseColorTexture.texCoord || 0) !== 0 || pbr.baseColorTexture.extensions) unsupported('Unsupported texture coordinates');
+      if (!uv) unsupported('Unsupported texture coordinates');
       item(textureSpecs, pbr.baseColorTexture.index, 'texture');
       textureIndex = pbr.baseColorTexture.index;
     }
+    const uvTransforms = [
+      [pbr.baseColorTexture, baseUvTransform], [material.normalTexture, normalUvTransform],
+      [material.occlusionTexture, occlusionUvTransform], [material.emissiveTexture, emissiveUvTransform],
+      [pbr.metallicRoughnessTexture, metallicRoughnessUvTransform],
+    ].filter(([info]) => info !== undefined && info !== null);
+    const transform = uvTransforms.find(([, value]) => value !== null)?.[1] ?? null;
+    if (transform) {
+      if (!uv) unsupported('KHR_texture_transform requires TEXCOORD_0');
+      for (const [, value] of uvTransforms) if (!sameUvTransform(transform, value ?? identityUvTransform())) unsupported('Different transforms per material texture are not supported');
+      const c = Math.cos(transform.rotation), s = Math.sin(transform.rotation);
+      uv.values = uv.values.map((value, index) => {
+        if (index % 2 === 1) return transform.offset[1] + s * transform.scale[0] * uv.values[index - 1] + c * transform.scale[1] * value;
+        return transform.offset[0] + c * transform.scale[0] * value - s * transform.scale[1] * uv.values[index + 1];
+      });
+    }
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
-    return { pos: pos.values, normal: normal.values, uv: uv?.values, tangent: tangent?.values, joints, weights, targets, indices,
+    return { pos: pos.values, normal: normal.values, uv: uv?.values, tangent: transform && normalTextureIndex >= 0 ? null : tangent?.values, joints, weights, targets, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
