@@ -1452,6 +1452,40 @@ fn case_environment_specular() {
                    "IOR controls dielectric environment reflection");
 }
 
+// A grazing view of a white environment map contributes the coloured sheen
+// Fresnel response even with black base colour and no direct light.
+fn case_environment_sheen() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_environment(float3_0, float3_0, 0.0);
+    g3::clear_lights();
+    g3::set_light(float3 { 0.0, 0.0, -1.0 }, float3_0);
+    let fv = g3::g_verts.len;
+    let fi = g3::g_indices.len;
+    let normal = float3 { 0.8660254, 0.0, 0.5 };
+    g3::push_vertex_uv(float3 { -1.0, -1.0, 0.0 }, normal, float2 { 0.0, 0.0 });
+    g3::push_vertex_uv(float3 { 1.0, -1.0, 0.0 }, normal, float2 { 1.0, 0.0 });
+    g3::push_vertex_uv(float3 { 0.0, 1.0, 0.0 }, normal, float2 { 0.5, 1.0 });
+    g3::push_triangle(0, 1, 2);
+    let node = g3::node_add(g3::mesh_close(fv, fi));
+    let mat = g3::material_add();
+    g3::node(node).material = mat;
+    g3::material(mat).pbr = true;
+    g3::material(mat).metallic = 0.0;
+    g3::material(mat).color = float4 { 0.0, 0.0, 0.0, 1.0 };
+    g3::material(mat).sheen_color = float3 { 1.0, 0.0, 0.0 };
+    g3::material(mat).sheen_roughness = 0.5;
+    let white: u8[4] = [255, 255, 255, 255];
+    let env = g3::texture_create(1, 1, white[..]);
+    g3::set_environment_map(env, 1.0);
+    g3::frame(1.0 / 60.0);
+    let pixel = g3::read_pixel(200, 200);
+    testing::check(channel(pixel, 16) > channel(pixel, 8) + 2 &&
+        abs(channel(pixel, 8) - channel(pixel, 0)) <= 1,
+        "environment map adds a coloured grazing sheen reflection");
+}
+
 // glTF occlusion reduces indirect ambient light according to strength, while
 // leaving direct illumination untouched.
 fn case_occlusion_map() {
@@ -1585,6 +1619,7 @@ fn main() {
     case_pbr();
     case_normal_map();
     case_environment_specular();
+    case_environment_sheen();
     case_occlusion_map();
     case_emissive_material();
     case_asset_mesh_update();

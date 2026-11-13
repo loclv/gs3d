@@ -85,7 +85,8 @@ and a browser integration check for behavior exposed through WebGL.
   specular highlights and Fresnel-attenuate the base layer in both backends.
 * **Implemented:** `KHR_materials_sheen` colour and roughness factors/maps use
   independent texture transforms and add a Charlie-style grazing response to
-  direct lighting in both backends. Environment-map sheen remains unsupported.
+  direct lighting and a roughness-blurred reflection from environment maps in
+  both backends.
 * **Implemented:** `KHR_materials_variants` loads each referenced material,
   switches mapped primitives by variant name or index, and restores the
   original materials when passed `null`.

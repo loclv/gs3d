@@ -813,6 +813,14 @@ float material_clearcoat, float material_clearcoat_roughness, const float sheen_
                 sample_brdf_lut(coat_nv,coat_rough,&coat_a,&coat_b);
                 for(int c=0;c<3;c++) coat[c]+=coat_reflected[c]*(0.04f*coat_a+coat_b)*vs->environment_intensity*ao*coat_factor;
             }
+            float sheen_nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f);
+            float sheen_fresnel=powf(1.0f-sheen_nv,5.0f);
+            float sheen_lod=fmaxf(0.07f,fminf(sheen_roughness,1.0f))*(float)max_lod, sheen_reflected[4];
+            sample_environment_lod(vs->environment_texture,atan2f(rz,rx)/6.28318530718f+0.5f,
+                                   acosf(ryc)/3.14159265359f,sheen_lod,sheen_reflected);
+            r+=sheen_color[0]*sheen_reflected[0]*vs->environment_intensity*ao*sheen_fresnel;
+            g+=sheen_color[1]*sheen_reflected[1]*vs->environment_intensity*ao*sheen_fresnel;
+            b+=sheen_color[2]*sheen_reflected[2]*vs->environment_intensity*ao*sheen_fresnel;
         }
     }
     int count = vs->light_count < 0 ? 0 : vs->light_count > 4 ? 4 : vs->light_count;

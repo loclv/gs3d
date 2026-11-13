@@ -252,7 +252,8 @@ fetches and decodes assets in JavaScript.
   `KHR_materials_sheen` adds a Charlie-style coloured grazing response under
   direct directional, point, and spot lights. Its sRGB colour map uses RGB;
   its linear roughness map uses alpha. Both maps accept independent texture
-  transforms. Environment-map sheen reflections are not implemented yet.
+  transforms. Prefiltered environment maps also contribute a roughness-blurred
+  grazing sheen reflection.
   `KHR_materials_emissive_strength` scales `emissiveFactor`, including values
   above 1 for HDR emission.
   `KHR_materials_variants` exposes its names on the loaded model. Call

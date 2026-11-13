@@ -465,6 +465,8 @@ static const char *FRAGMENT_SRC =
     "            vec2 coat_uv = vec2(atan(coat_reflected.z,coat_reflected.x)/6.28318530718+0.5,acos(clamp(coat_reflected.y,-1.0,1.0))/3.14159265359);\n"
     "            vec2 coat_brdf = texture(u_brdf_lut, vec2(max(dot(clearcoat_n,v),0.0),coat_roughness)).rg;\n"
     "            coat += textureLod(u_env_map, coat_uv, coat_roughness*u_env_map_max_lod).rgb * (vec3(0.04*coat_brdf.x+coat_brdf.y)) * u_env_map_intensity * ao * coat_factor;\n"
+    "            float sheen_nv=max(dot(n,v),0.0); float sheen_fresnel=pow(1.0-sheen_nv,5.0);\n"
+    "            col += sheen_color * textureLod(u_env_map,spec_uv,sheen_roughness*u_env_map_max_lod).rgb * u_env_map_intensity * ao * sheen_fresnel;\n"
     "        }\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
