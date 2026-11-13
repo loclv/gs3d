@@ -1271,11 +1271,7 @@ export async function loadGLTF(engine, url, options = {}) {
       const groupHandle = makeNodeHandle(engine, group);
       if (!groupHandle) throw new AssetError('UPLOAD', 'Could not create node');
       nodes.push(groupHandle);
-      modelNodes.push(Object.freeze({
-        index: node.index, name: node.name, parent: parentIndex,
-        children: Object.freeze(node.children.map(child => child.index)),
-        mesh: node.meshIndex, skin: node.skinIndex < 0 ? null : node.skinIndex, handle: groupHandle,
-      }));
+      const primitiveHandles = [];
       node.matrix.forEach((value, index) => engine._g3_asset_matrix(group, index, value));
       if (node.translation || node.weights.length) transformNodes.set(node.index, {
         handle: groupHandle,
@@ -1332,11 +1328,18 @@ export async function loadGLTF(engine, url, options = {}) {
         const nodeHandle = makeNodeHandle(engine, id);
         if (!nodeHandle) throw new AssetError('UPLOAD', 'Could not create node');
         nodes.push(nodeHandle);
+        primitiveHandles.push(nodeHandle);
         const material = getMaterial(p);
         engine._g3_asset_node_material(id, material.id);
         if (p.variantMaterials.size) variantBindings.push({ handle: nodeHandle, defaultMaterial: material.id,
           materials: new Map([...p.variantMaterials].map(([variantIndex, spec]) => [variantIndex, getMaterial(spec).id])) });
       }
+      modelNodes.push(Object.freeze({
+        index: node.index, name: node.name, parent: parentIndex,
+        children: Object.freeze(node.children.map(child => child.index)),
+        mesh: node.meshIndex, skin: node.skinIndex < 0 ? null : node.skinIndex,
+        handle: groupHandle, primitives: Object.freeze(primitiveHandles),
+      }));
       for (const child of node.children) createNode(child, group, node.index);
       return groupHandle;
     }

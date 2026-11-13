@@ -44,7 +44,17 @@ async function start() {
       onSelect: (x, y) => {
         if (!model) return;
         const hit = model.pick(canvas, x, y);
-        status.textContent = hit === null ? 'No mesh selected.' : `Selected mesh node ${hit.index}.`;
+        if (hit === null) {
+          status.textContent = 'No mesh selected.';
+          return;
+        }
+        const owner = model.nodes.find(node => node.primitives.some(handle =>
+          handle.index === hit.index && handle.generation === hit.generation && handle.epoch === hit.epoch));
+        if (!owner) status.textContent = `Selected mesh node ${hit.index}.`;
+        else {
+          const primitive = owner.primitives.findIndex(handle => handle.index === hit.index && handle.generation === hit.generation);
+          status.textContent = `Selected ${owner.name || `glTF node ${owner.index}`}, primitive ${primitive + 1}.`;
+        }
       },
     });
     requestAnimationFrame(frame);

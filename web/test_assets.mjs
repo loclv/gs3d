@@ -230,6 +230,8 @@ assert.deepEqual(quantizedModel.nodes.map(({ index, name, parent, children, mesh
   { index: 1, name: 'Marker', parent: 0, children: [], mesh: null, skin: null },
 ], 'model inspection lists the selected scene hierarchy with mesh and skin references');
 assert.ok(isNodeHandleValid(quantizedEngine, quantizedModel.nodes[0].handle), 'inspected node metadata carries a checked node handle');
+assert.equal(quantizedModel.nodes[0].primitives.length, 1, 'node inspection exposes handles for each mesh primitive');
+assert.ok(isNodeHandleValid(quantizedEngine, quantizedModel.nodes[0].primitives[0]), 'primitive handles are checked node handles');
 const quantizedVertex = quantizedEngine.calls.find(call => call[0] === 'vertex');
 assert.deepEqual(quantizedVertex.slice(1, 4), [-1, -1, 0], 'quantized integer positions retain their specified values');
 assert.deepEqual(quantizedVertex.slice(4, 7), [0, 0, 1], 'normalized quantized normals decode to floats');
@@ -241,6 +243,7 @@ assert.deepEqual(quantizedUpdate[2], [-1,0,0, 1,0,0, 0,2,0],
 assert.deepEqual(quantizedUpdate[3], [0,0,1, 0,0,1, 0,0,1], 'quantized morph normals decode and normalize');
 assert.deepEqual(quantizedUpdate[4], [1,0,0,1, 1,0,0,1, 1,0,0,1], 'quantized morph tangents preserve their base handedness');
 quantizedModel.dispose();
+assert.ok(!isNodeHandleValid(quantizedEngine, quantizedModel.nodes[0].primitives[0]), 'disposing the model invalidates inspected primitive handles');
 const undeclaredQuantizedDoc = structuredClone(quantizedDoc);
 undeclaredQuantizedDoc.extensionsRequired = [];
 resources.set('http://localhost/undeclared-quantized.gltf', bytes(undeclaredQuantizedDoc));

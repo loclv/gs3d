@@ -58,6 +58,8 @@ export interface ModelNodeInfo {
   readonly skin: number | null;
   /** Checked engine node handle for the glTF node's transform group. */
   readonly handle: NodeHandle;
+  /** Checked handles for the engine nodes created from this glTF mesh's primitives. */
+  readonly primitives: readonly NodeHandle[];
 }
 
 export interface LoadedModel {
