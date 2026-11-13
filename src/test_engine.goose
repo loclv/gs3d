@@ -552,7 +552,17 @@ fn case_render_target() {
     testing::check(!g3::post_process_run(target, target, g3::POST_PROCESS_COPY) &&
                    !g3::post_process_run(target, processed, 99), "post-processing rejects feedback and unknown effects");
     testing::check(is_color(draw_target_texture(processed), 127, 127, 127, 2), "invert output is sampleable on the next frame");
-    testing::check(g3::post_process_run(processed, target, g3::POST_PROCESS_INVERT), "post-process calls can be chained in order");
+    var passes_added = true;
+    g3::post_process_queue_clear();
+    for i in 0..g3::POST_PROCESS_MAX_PASSES {
+        if !g3::post_process_queue_add(target, processed, g3::POST_PROCESS_COPY) { passes_added = false; }
+    }
+    let overflow_rejected = !g3::post_process_queue_add(target, processed, g3::POST_PROCESS_COPY);
+    g3::post_process_queue_clear();
+    testing::check(passes_added && overflow_rejected, "post-process queue enforces its fixed pass limit");
+    testing::check(g3::post_process_queue_add(target, processed, g3::POST_PROCESS_INVERT) &&
+                   g3::post_process_queue_add(processed, target, g3::POST_PROCESS_INVERT) &&
+                   g3::post_process_queue_execute(), "queued post-process passes execute in order");
     testing::check(is_color(draw_target_texture(target), 128, 128, 128, 2), "two invert passes restore the original target colour");
 
     testing::check(g3::post_process_run(red_texture, processed, g3::POST_PROCESS_GRAYSCALE) &&

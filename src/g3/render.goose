@@ -50,6 +50,10 @@ let POST_PROCESS_COPY = 0;
 let POST_PROCESS_GRAYSCALE = 1;
 let POST_PROCESS_INVERT = 2;
 let POST_PROCESS_FXAA = 3;
+let POST_PROCESS_MAX_PASSES = 8;
+
+struct QueuedPostProcessPass { source: i32, destination: i32, effect: i32, shader: i32 = -1 }
+var g_post_process_queue: QueuedPostProcessPass[>..];
 
 // --- the frame's constants
 
@@ -297,6 +301,37 @@ fn post_process_shader_remove(shader: i32) -> bool {
     g3p_post_process_shader_release(shader);
     g_post_process_shader_live[shader] = false;
     return true;
+}
+
+fn post_process_queue_clear() { g_post_process_queue.clear(); }
+
+fn post_process_queue_add(source: i32, destination: i32, effect: i32) -> bool {
+    guard g_post_process_queue.len < POST_PROCESS_MAX_PASSES && source != destination &&
+          texture_slot_live(source) && texture_slot_live(destination) && g_texture_slots[destination].render_target &&
+          effect >= POST_PROCESS_COPY && effect <= POST_PROCESS_FXAA else { return false; }
+    g_post_process_queue.push(QueuedPostProcessPass { source, destination, effect, .. });
+    return true;
+}
+
+fn post_process_queue_add_shader(shader: i32, source: i32, destination: i32) -> bool {
+    guard g_post_process_queue.len < POST_PROCESS_MAX_PASSES && shader >= 0 &&
+          shader < g_post_process_shader_live.len && g_post_process_shader_live[shader] && source != destination &&
+          texture_slot_live(source) && texture_slot_live(destination) && g_texture_slots[destination].render_target else { return false; }
+    g_post_process_queue.push(QueuedPostProcessPass { source, destination, shader });
+    return true;
+}
+
+// Execute queued passes in order, then clear the queue even if a backend pass fails.
+fn post_process_queue_execute() -> bool {
+    var ok = true;
+    for i in 0..g_post_process_queue.len {
+        let pass = g_post_process_queue[i];
+        ok = if pass.shader >= 0 { post_process_shader_run(pass.shader, pass.source, pass.destination) }
+             else { post_process_run(pass.source, pass.destination, pass.effect) };
+        if !ok { break; }
+    }
+    g_post_process_queue.clear();
+    return ok;
 }
 
 // Linear exposure multiplier applied before tone mapping.

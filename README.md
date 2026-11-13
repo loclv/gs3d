@@ -273,6 +273,9 @@ What the API gives you:
   `POST_PROCESS_FXAA` pass to a distinct render target. Chain calls to control
   pass order. These passes keep linear RGBA8 values and do not tone map or
   encode sRGB; use `set_fxaa` for the existing screen-output convenience pass.
+  For deferred execution, `post_process_queue_add` (or
+  `post_process_queue_add_shader`) appends a pass to a fixed eight-pass queue;
+  `post_process_queue_execute` runs them in order and clears the queue.
   WebGL projects can create a fragment-body pass with
   `post_process_shader_create(body)`, run it with
   `post_process_shader_run(shader, source, destination)`, and release it with
