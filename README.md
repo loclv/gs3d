@@ -289,8 +289,8 @@ What the API gives you:
   `texture_remove(handle)` releases an ordinary texture only when no live node,
   material or environment uses it. Asset textures are released by their owner.
   Built-in meshes have UVs; custom meshes can use `push_vertex_uv`,
-  `push_vertex_uv_sets` for two UV sets, or `push_vertex_uv_tangent` to provide a
-  tangent and handedness for normal maps.
+  `push_vertex_uv_sets` for two UV sets, `push_vertex_uv_3sets` for three, or
+  `push_vertex_uv_tangent` to provide a tangent and handedness for normal maps.
   Both backends support nearest, linear, and mipmapped filtering via
   `texture_set_filter`, and clamp, repeat, and mirrored repeat per axis via
   `texture_set_wrap`. Uploading pixels resets those settings. Raster image

@@ -26,7 +26,7 @@ typedef struct { float m[16]; } g3_mat4;          /* column-major */
 typedef struct { g3_vec2 offset, scale; float rotation; int32_t texcoord; } g3_uv_transform;
 
 /* Tangent.xyz is local direction and w is handedness; zero xyz derives it from UVs. */
-typedef struct { g3_vec3 pos, normal; g3_vec2 uv, uv1; g3_vec4 tangent; } g3_vertex;
+typedef struct { g3_vec3 pos, normal; g3_vec2 uv, uv1, uv2; g3_vec4 tangent; } g3_vertex;
 
 /* One primitive: mesh, matrices, colour, and the shading parameters.
    params.x is 1 for unlit, .y specular strength, .z shininess, .w 1 when
@@ -107,10 +107,11 @@ typedef struct { const float *data; int64_t len; } g3_f32_slice;
 
 #pragma pack(pop)
 
-_Static_assert(sizeof(g3_vertex) == 56, "g3_vertex must be 56 bytes");
+_Static_assert(sizeof(g3_vertex) == 64, "g3_vertex must be 64 bytes");
 _Static_assert(offsetof(g3_vertex, uv) == 24, "Vertex.uv offset");
 _Static_assert(offsetof(g3_vertex, uv1) == 32, "Vertex.uv1 offset");
-_Static_assert(offsetof(g3_vertex, tangent) == 40, "Vertex.tangent offset");
+_Static_assert(offsetof(g3_vertex, uv2) == 40, "Vertex.uv2 offset");
+_Static_assert(offsetof(g3_vertex, tangent) == 48, "Vertex.tangent offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
 _Static_assert(sizeof(g3_draw_item) == 429, "g3_draw_item must be 429 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");

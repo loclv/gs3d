@@ -241,15 +241,15 @@ fn case_texture() {
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(120, 280), 0, 255, 0, 1), "base-colour UV offset shifts sampling into the neighboring texel");
 
-    // A mesh can keep UV0 and UV1 independent, and a material selects UV1.
+    // A mesh keeps three UV sets independent, and a material selects each.
     g3::scene_clear();
     flat_camera();
     let uv1_texture = g3::texture_create(2, 2, pixels[..]);
     let verts: g3::Vertex[4] = [
-        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, .. },
-        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, .. },
-        g3::Vertex { pos: float3 { 1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, .. },
-        g3::Vertex { pos: float3 { -1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, .. },
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, .. },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, .. },
+        g3::Vertex { pos: float3 { 1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, .. },
+        g3::Vertex { pos: float3 { -1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, .. },
     ];
     let indices: u32[6] = [0, 1, 2, 0, 2, 3];
     let mesh = g3::mesh_asset_create(verts[..], indices[..]);
@@ -262,6 +262,9 @@ fn case_texture() {
     uv1_node.material = uv1_material;
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 0, 255, 0, 1), "base-colour texture samples TEXCOORD_1 independently of TEXCOORD_0");
+    uv1_surface.base_color_uv.texcoord = 2;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 255, 0, 0, 1), "base-colour texture samples TEXCOORD_2 independently of TEXCOORD_0 and TEXCOORD_1");
 }
 
 fn case_native_hdr_load() {

@@ -24,7 +24,7 @@ The procedural checklist lives in
 
 ## Types
 
-### `g3_vertex` — 56 bytes
+### `g3_vertex` — 64 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -32,7 +32,8 @@ The procedural checklist lives in
 | 12 | `float[3]` | `normal` | local-space normal, transformed by the inverse-transpose model matrix and re-normalized |
 | 24 | `float[2]` | `uv` | texture coordinates, first image row at v = 0 |
 | 32 | `float[2]` | `uv1` | second texture coordinate set; zero when absent |
-| 40 | `float[4]` | `tangent` | local tangent direction and handedness; a zero direction selects the derived frame |
+| 40 | `float[2]` | `uv2` | third texture coordinate set; zero when absent |
+| 48 | `float[4]` | `tangent` | local tangent direction and handedness; a zero direction selects the derived frame |
 
 ### `g3_mat4` — 64 bytes
 
@@ -41,7 +42,7 @@ The procedural checklist lives in
 ### `g3_uv_transform` — 24 bytes
 
 `offset: float2`, `scale: float2`, `rotation: float` in radians, and the
-selected `texcoord` set (0 or 1). The renderer scales the selected UV, rotates
+selected `texcoord` set (0, 1, or 2). The renderer scales the selected UV, rotates
 it, then adds the offset.
 
 ### `g3_draw_item` — 429 bytes

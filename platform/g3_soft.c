@@ -82,6 +82,7 @@ typedef struct {
     float nrm[3][3];
     float uv[3][2];
     float uv1[3][2];
+    float uv2[3][2];
     float tangent[3][4];
     float derived_tangent[3], derived_bitangent[3];
     float det;              /* twice the signed area in pixels */
@@ -1085,6 +1086,7 @@ static g3_vertex clip_lerp(g3_vertex a, g3_vertex b, float t) {
     LERP(normal.x); LERP(normal.y); LERP(normal.z);
     LERP(uv.x); LERP(uv.y);
     LERP(uv1.x); LERP(uv1.y);
+    LERP(uv2.x); LERP(uv2.y);
     LERP(tangent.x); LERP(tangent.y); LERP(tangent.z); LERP(tangent.w);
 #undef LERP
     return a;
@@ -1137,6 +1139,8 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
         t->uv[k][1] = tri[k]->uv.y;
         t->uv1[k][0] = tri[k]->uv1.x;
         t->uv1[k][1] = tri[k]->uv1.y;
+        t->uv2[k][0] = tri[k]->uv2.x;
+        t->uv2[k][1] = tri[k]->uv2.y;
         ndc[k][0] = cx * w;
         ndc[k][1] = cy * w;
         ndc[k][2] = cz * w;
@@ -1167,7 +1171,7 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
     }
 
     float normal_uv[3][2];
-    float (*normal_coords)[2] = it->normal_uv.texcoord == 1 ? t->uv1 : t->uv;
+    float (*normal_coords)[2] = it->normal_uv.texcoord == 1 ? t->uv1 : it->normal_uv.texcoord == 2 ? t->uv2 : t->uv;
     for (int k=0;k<3;k++) transform_uv(&it->normal_uv,normal_coords[k][0],normal_coords[k][1],&normal_uv[k][0],&normal_uv[k][1]);
     float e1[3], e2[3], du1=normal_uv[1][0]-normal_uv[0][0], dv1=normal_uv[1][1]-normal_uv[0][1];
     float du2=normal_uv[2][0]-normal_uv[0][0], dv2=normal_uv[2][1]-normal_uv[0][1];
@@ -1283,7 +1287,7 @@ static int uv_transform_identity(const g3_uv_transform *transform) {
 }
 
 static void interpolate_uv(const soft_tri *triangle, int set, float b0, float b1, float b2, float *u, float *v) {
-    float (*uv)[2] = set == 1 ? triangle->uv1 : triangle->uv;
+    float (*uv)[2] = set == 1 ? triangle->uv1 : set == 2 ? triangle->uv2 : triangle->uv;
     *u = uv[0][0]*b0+uv[1][0]*b1+uv[2][0]*b2;
     *v = uv[0][1]*b0+uv[1][1]*b1+uv[2][1]*b2;
 }
@@ -1292,7 +1296,7 @@ static float texture_footprint(const soft_tri *t, int32_t id, const g3_uv_transf
     if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels)) return 0.0f;
     const soft_texture *tex = &textures[id];
     if (tex->min_filter == tex->mag_filter) return 0.0f;
-    float (*uv)[2] = transform->texcoord == 1 ? t->uv1 : t->uv;
+    float (*uv)[2] = transform->texcoord == 1 ? t->uv1 : transform->texcoord == 2 ? t->uv2 : t->uv;
     float dl0x = (t->sy[1] - t->sy[2]) / t->det;
     float dl1x = (t->sy[2] - t->sy[0]) / t->det;
     float dl0y = (t->sx[2] - t->sx[1]) / t->det;
