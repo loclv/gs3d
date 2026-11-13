@@ -56,8 +56,9 @@ and a browser integration check for behavior exposed through WebGL.
   including glTF base-colour decoding and per-texture sampler settings. Expand
   the glTF loader's material and sampler support.
 * **Implemented:** dense and sparse accessors, including zero-initialized
-  sparse-only data and validated sparse indices and ranges. Continue expanding
-  validation for the rest of the glTF specification.
+  sparse-only data and validated sparse indices, ranges, component alignment,
+  byte strides and normalized flags. Continue expanding validation for the rest
+  of the glTF specification.
 * **Implemented:** glTF `doubleSided` materials disable face culling in colour
   and shadow passes and reverse back-face normals before colour lighting.
   Continue filling the remaining supported-material gaps.

@@ -613,6 +613,18 @@ resources.set('http://localhost/bad.gltf', bytes(invalid));
 const untouched = fakeEngine();
 await assert.rejects(loadGLTF(untouched, 'http://localhost/bad.gltf'), e => e.code === 'UNSUPPORTED');
 assert.equal(untouched.calls.length, 0);
+for (const [name, mutate] of [
+  ['bad-stride-alignment', document => { document.bufferViews[0].byteStride = 13; }],
+  ['bad-stride-limit', document => { document.bufferViews[0].byteStride = 256; }],
+  ['bad-normalized-flag', document => { document.accessors[0].normalized = 'false'; }],
+]) {
+  const malformed = structuredClone(doc);
+  mutate(malformed);
+  resources.set(`http://localhost/${name}.gltf`, bytes(malformed));
+  const untouchedEngine = fakeEngine();
+  await assert.rejects(loadGLTF(untouchedEngine, `http://localhost/${name}.gltf`), error => error.code === 'INVALID_GLTF');
+  assert.equal(untouchedEngine.calls.length, 0, `${name} is rejected before engine resource creation`);
+}
 const skinEngine = fakeEngine(), skinnedModel = await loadGLTF(skinEngine, 'http://localhost/skinned.gltf');
 assert.equal(skinnedModel.animations.length, 1);
 assert.equal(skinnedModel.playAnimation(0, { loop: false }), true);

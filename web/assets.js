@@ -276,6 +276,7 @@ function unpack(bytes) {
 function accessor(doc, buffers, index, expected) {
   const a = item(doc.accessors, index, 'accessor');
   if (a.type !== expected) invalid(`Expected ${expected} accessor`);
+  if (a.normalized !== undefined && typeof a.normalized !== 'boolean') invalid('Invalid accessor normalized flag');
   const widths = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
   const formats = { 5120: [1, 'getInt8'], 5121: [1, 'getUint8'], 5122: [2, 'getInt16'],
     5123: [2, 'getUint16'], 5125: [4, 'getUint32'], 5126: [4, 'getFloat32'] };
@@ -304,7 +305,8 @@ function accessor(doc, buffers, index, expected) {
     const base = readView(a.bufferView, 'accessor'), offset = a.byteOffset ?? 0;
     const stride = base.byteStride ?? size;
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(stride) || stride < size ||
-        stride % format[0] !== 0 || base.start % format[0] !== 0 || offset % format[0] !== 0) invalid('Invalid accessor alignment or stride');
+        stride % format[0] !== 0 || base.start % format[0] !== 0 || offset % format[0] !== 0 ||
+        (base.byteStride !== undefined && (stride < 4 || stride > 252 || stride % 4 !== 0))) invalid('Invalid accessor alignment or stride');
     const start = base.start + offset, end = start + (a.count - 1) * stride + size;
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end > base.end) invalid('Accessor exceeds its buffer view');
     for (let i = 0; i < a.count; i++) for (let c = 0; c < components; c++) {
