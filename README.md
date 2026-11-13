@@ -256,8 +256,9 @@ What the API gives you:
   `texture_handle` and `texture_handle_valid` check ordinary and asset textures;
   `texture_remove(handle)` releases an ordinary texture only when no live node,
   material or environment uses it. Asset textures are released by their owner.
-  Built-in meshes have UVs; custom meshes can use `push_vertex_uv`, or
-  `push_vertex_uv_tangent` to provide a tangent and handedness for normal maps.
+  Built-in meshes have UVs; custom meshes can use `push_vertex_uv`,
+  `push_vertex_uv_sets` for two UV sets, or `push_vertex_uv_tangent` to provide a
+  tangent and handedness for normal maps.
   Both backends support nearest, linear, and mipmapped filtering via
   `texture_set_filter`, and clamp, repeat, and mirrored repeat per axis via
   `texture_set_wrap`. Uploading pixels resets those settings. Raster image
@@ -371,7 +372,7 @@ near, so they are drawn after everything opaque and read the depth they should.
 
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
 `Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings,
-a double-sided flag and five texture-coordinate transforms, 337 bytes.
+a double-sided flag and five texture-coordinate transforms, 357 bytes.
 `g3p_draw_frame` hands the backend a slice
 of them plus the frame's `ViewState`, and `platform/g3_abi.h`
 static-asserts every offset, so the Goose and C sides cannot drift apart

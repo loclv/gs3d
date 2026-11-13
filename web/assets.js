@@ -466,30 +466,30 @@ function sampleChannel(channel, time) {
   return normalizedQuaternion(q1.map((value, i) => value * weightA + q2[i] * weightB));
 }
 
-function identityUvTransform() { return { offset: [0, 0], scale: [1, 1], rotation: 0 }; }
+function identityUvTransform() { return { offset: [0, 0], scale: [1, 1], rotation: 0, texcoord: 0 }; }
 function parseTextureTransform(info, extensionsUsed) {
   const outerTexCoord = info.texCoord === undefined ? 0 : info.texCoord;
   if (!Number.isInteger(outerTexCoord) || outerTexCoord < 0) invalid('Invalid texture coordinate set');
+  if (outerTexCoord > 1) unsupported('Only TEXCOORD_0 and TEXCOORD_1 are supported');
   if (info.extensions === undefined) {
-    if (outerTexCoord !== 0) unsupported('Only TEXCOORD_0 is supported');
-    return identityUvTransform();
+    return { ...identityUvTransform(), texcoord: outerTexCoord };
   }
   if (!info.extensions || typeof info.extensions !== 'object' || Array.isArray(info.extensions)) invalid('Invalid texture extensions');
   const keys = Object.keys(info.extensions);
   if (keys.some(extension => extension !== 'KHR_texture_transform')) unsupported('Unsupported texture feature');
-  if (!keys.length) return identityUvTransform();
+  if (!keys.length) return { ...identityUvTransform(), texcoord: outerTexCoord };
   if (!extensionsUsed.includes('KHR_texture_transform')) invalid('KHR_texture_transform must be listed in extensionsUsed');
   const extension = info.extensions.KHR_texture_transform;
   if (!extension || typeof extension !== 'object' || Array.isArray(extension)) invalid('Invalid KHR_texture_transform extension');
   const texCoord = extension.texCoord === undefined ? outerTexCoord : extension.texCoord;
   if (!Number.isInteger(texCoord) || texCoord < 0) invalid('Invalid texture coordinate set');
-  if (texCoord !== 0) unsupported('Only TEXCOORD_0 is supported');
+  if (texCoord > 1) unsupported('Only TEXCOORD_0 and TEXCOORD_1 are supported');
   const offset = extension.offset === undefined ? [0, 0] : extension.offset;
   const scale = extension.scale === undefined ? [1, 1] : extension.scale;
   const rotation = extension.rotation === undefined ? 0 : extension.rotation;
   if (!Array.isArray(offset) || offset.length !== 2 || !offset.every(Number.isFinite) ||
       !Array.isArray(scale) || scale.length !== 2 || !scale.every(Number.isFinite) || !Number.isFinite(rotation)) invalid('Invalid texture transform');
-  return { offset, scale, rotation };
+  return { offset, scale, rotation, texcoord: texCoord };
 }
 
 async function prepare(url) {
@@ -548,12 +548,16 @@ async function prepare(url) {
     const primitives = (mesh.primitives || []).map(p => {
     if ((p.mode ?? 4) !== 4) unsupported('Only triangle mesh primitives are supported');
     if (Object.keys(p.attributes || {}).some(name => /^(JOINTS|WEIGHTS)_\d+$/.test(name) && Number(name.slice(name.indexOf('_') + 1)) > 1)) unsupported('At most eight skin influences are supported');
+    if (Object.keys(p.attributes || {}).some(name => /^TEXCOORD_\d+$/.test(name) && Number(name.slice(9)) > 1)) unsupported('Only TEXCOORD_0 and TEXCOORD_1 are supported');
     const pos = accessor(doc, buffers, p.attributes?.POSITION, 'VEC3');
     const normal = accessor(doc, buffers, p.attributes?.NORMAL, 'VEC3');
     const uv = p.attributes?.TEXCOORD_0 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_0, 'VEC2');
+    const uv1 = p.attributes?.TEXCOORD_1 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_1, 'VEC2');
     const tangent = p.attributes?.TANGENT === undefined ? null : accessor(doc, buffers, p.attributes.TANGENT, 'VEC4');
     if (pos.componentType !== 5126 || normal.componentType !== 5126 || pos.count !== normal.count ||
-        (uv && uv.count !== pos.count) || (tangent && (tangent.componentType !== 5126 || tangent.normalized || tangent.count !== pos.count ||
+        [uv, uv1].some(coord => coord && (coord.count !== pos.count ||
+          !((coord.componentType === 5126 && !coord.normalized) || ([5121, 5123].includes(coord.componentType) && coord.normalized)))) ||
+        (tangent && (tangent.componentType !== 5126 || tangent.normalized || tangent.count !== pos.count ||
           tangent.values.some((value, index) => index % 4 === 3 && Math.abs(Math.abs(value) - 1) > 1e-4)))) invalid('Invalid vertex attributes');
     const joints = [], weights = [];
     for (let set = 0; set < 2; set++) {
@@ -616,10 +620,11 @@ async function prepare(url) {
     const occlusionUvTransform = material.occlusionTexture ? parseTextureTransform(material.occlusionTexture, extensionsUsed) : identityUvTransform();
     const emissiveUvTransform = material.emissiveTexture ? parseTextureTransform(material.emissiveTexture, extensionsUsed) : identityUvTransform();
     const metallicRoughnessUvTransform = pbr.metallicRoughnessTexture ? parseTextureTransform(pbr.metallicRoughnessTexture, extensionsUsed) : identityUvTransform();
+    const availableUvSets = [uv, uv1];
     let normalTextureIndex = -1;
     const normalScale = material.normalTexture?.scale ?? 1;
     if (material.normalTexture) {
-      if (!uv) unsupported('Unsupported normal texture coordinates');
+      if (!availableUvSets[normalUvTransform.texcoord]) unsupported('Unsupported normal texture coordinates');
       item(textureSpecs, material.normalTexture.index, 'normal texture');
       if (!Number.isFinite(normalScale)) invalid('Invalid normal scale');
       normalTextureIndex = material.normalTexture.index;
@@ -627,7 +632,7 @@ async function prepare(url) {
     let occlusionTextureIndex = -1;
     const occlusionStrength = material.occlusionTexture?.strength ?? 1;
     if (material.occlusionTexture) {
-      if (!uv) unsupported('Unsupported occlusion texture coordinates');
+      if (!availableUvSets[occlusionUvTransform.texcoord]) unsupported('Unsupported occlusion texture coordinates');
       item(textureSpecs, material.occlusionTexture.index, 'occlusion texture');
       if (!Number.isFinite(occlusionStrength) || occlusionStrength < 0 || occlusionStrength > 1) invalid('Invalid occlusion strength');
       occlusionTextureIndex = material.occlusionTexture.index;
@@ -636,13 +641,13 @@ async function prepare(url) {
     if (!Array.isArray(emissive) || emissive.length !== 3 || !emissive.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid emissive factor');
     let emissiveTextureIndex = -1;
     if (material.emissiveTexture) {
-      if (!uv) unsupported('Unsupported emissive texture coordinates');
+      if (!availableUvSets[emissiveUvTransform.texcoord]) unsupported('Unsupported emissive texture coordinates');
       item(textureSpecs, material.emissiveTexture.index, 'emissive texture');
       emissiveTextureIndex = material.emissiveTexture.index;
     }
     let metallicRoughnessTextureIndex = -1;
     if (pbr.metallicRoughnessTexture) {
-      if (!uv) unsupported('Unsupported metallic-roughness texture coordinates');
+      if (!availableUvSets[metallicRoughnessUvTransform.texcoord]) unsupported('Unsupported metallic-roughness texture coordinates');
       item(textureSpecs, pbr.metallicRoughnessTexture.index, 'metallic-roughness texture');
       metallicRoughnessTextureIndex = pbr.metallicRoughnessTexture.index;
     }
@@ -652,12 +657,12 @@ async function prepare(url) {
     if (color.length !== 4 || !color.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid base color');
     let textureIndex = -1;
     if (pbr.baseColorTexture) {
-      if (!uv) unsupported('Unsupported texture coordinates');
+      if (!availableUvSets[baseUvTransform.texcoord]) unsupported('Unsupported texture coordinates');
       item(textureSpecs, pbr.baseColorTexture.index, 'texture');
       textureIndex = pbr.baseColorTexture.index;
     }
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
-    return { pos: pos.values, normal: normal.values, uv: uv?.values, tangent: tangent?.values, joints, weights, targets, indices,
+    return { pos: pos.values, normal: normal.values, uv: uv?.values, uv1: uv1?.values, tangent: tangent?.values, joints, weights, targets, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
@@ -1027,6 +1032,7 @@ export async function loadGLTF(engine, url) {
         const useAuthoredTangents = !!p.tangent && node.skinIndex < 0 && !p.targets.length;
         for (let i = 0; i < p.pos.length / 3; i++) engine._g3_asset_vertex(
           ...p.pos.slice(i*3, i*3+3), ...p.normal.slice(i*3, i*3+3), ...(p.uv ? p.uv.slice(i*2, i*2+2) : [0, 0]),
+          ...(p.uv1 ? p.uv1.slice(i*2, i*2+2) : [0, 0]),
           ...(useAuthoredTangents ? p.tangent.slice(i*4, i*4+4) : [0, 0, 0, 0]));
         for (let i = 0; i < p.indices.length; i += 3) engine._g3_asset_triangle(...p.indices.slice(i, i+3));
         const mesh = engine._g3_asset_mesh_end();
@@ -1070,7 +1076,7 @@ export async function loadGLTF(engine, url) {
             getTexture(p.emissiveTextureIndex, true), p.doubleSided ? 1 : 0, p.unlit ? 1 : 0);
           for (let slot = 0; slot < p.uvTransforms.length; slot++) {
             const transform = p.uvTransforms[slot];
-            if (!engine._g3_asset_material_uv_transform(materialId, slot, ...transform.offset, ...transform.scale, transform.rotation)) {
+            if (!engine._g3_asset_material_uv_transform(materialId, slot, ...transform.offset, ...transform.scale, transform.rotation, transform.texcoord)) {
               throw new AssetError('UPLOAD', 'Could not set material texture transform');
             }
           }

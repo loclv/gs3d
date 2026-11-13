@@ -15,8 +15,8 @@ export fn g3_asset_mesh_begin() {
     asset_vertices.clear();
     asset_indices.clear();
 }
-export fn g3_asset_vertex(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, u: f32, v: f32, tx: f32, ty: f32, tz: f32, tw: f32) {
-    asset_vertices.push(g3::Vertex { pos: float3 { x, y, z }, normal: float3 { nx, ny, nz }, uv: float2 { u, v }, tangent: float4 { tx, ty, tz, tw } });
+export fn g3_asset_vertex(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, u: f32, v: f32, u1: f32, v1: f32, tx: f32, ty: f32, tz: f32, tw: f32) {
+    asset_vertices.push(g3::Vertex { pos: float3 { x, y, z }, normal: float3 { nx, ny, nz }, uv: float2 { u, v }, uv1: float2 { u1, v1 }, tangent: float4 { tx, ty, tz, tw } });
 }
 export fn g3_asset_triangle(a: u32, b: u32, c: u32) { asset_indices.push(a); asset_indices.push(b); asset_indices.push(c); }
 export fn g3_asset_mesh_end() -> i32 { return g3::mesh_asset_create(asset_vertices[..], asset_indices[..]); }
@@ -59,9 +59,9 @@ export fn g3_asset_material(r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_
     m.unlit = unlit;
     return id;
 }
-export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offset_y: f32, scale_x: f32, scale_y: f32, rotation: f32) -> bool {
-    guard g3::material_valid(id) else { return false; }
-    let transform = g3::UvTransform { offset: float2 { offset_x, offset_y }, scale: float2 { scale_x, scale_y }, rotation: rotation };
+export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offset_y: f32, scale_x: f32, scale_y: f32, rotation: f32, texcoord: i32) -> bool {
+    guard g3::material_valid(id) && (texcoord == 0 || texcoord == 1) else { return false; }
+    let transform = g3::UvTransform { offset: float2 { offset_x, offset_y }, scale: float2 { scale_x, scale_y }, rotation: rotation, texcoord: texcoord };
     if slot == 0 { g3::material(id).base_color_uv = transform; }
     else if slot == 1 { g3::material(id).metallic_roughness_uv = transform; }
     else if slot == 2 { g3::material(id).normal_uv = transform; }

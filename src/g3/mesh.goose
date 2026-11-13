@@ -129,11 +129,15 @@ fn push_vertex(p: float3, n: float3) {
 }
 
 fn push_vertex_uv(p: float3, n: float3, uv: float2) {
-    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv, tangent: float4_0 });
+    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv, tangent: float4_0, .. });
+}
+
+fn push_vertex_uv_sets(p: float3, n: float3, uv: float2, uv1: float2) {
+    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv, uv1: uv1, tangent: float4_0 });
 }
 
 fn push_vertex_uv_tangent(p: float3, n: float3, uv: float2, tangent: float4) {
-    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv, tangent: tangent });
+    g_build_verts.push(Vertex { pos: p, normal: n, uv: uv, tangent: tangent, .. });
 }
 
 fn push_triangle(a: u32, b: u32, c: u32) {

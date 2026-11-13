@@ -24,25 +24,27 @@ The procedural checklist lives in
 
 ## Types
 
-### `g3_vertex` — 48 bytes
+### `g3_vertex` — 56 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
 | 0 | `float[3]` | `pos` | local-space position |
 | 12 | `float[3]` | `normal` | local-space normal, transformed by the inverse-transpose model matrix and re-normalized |
 | 24 | `float[2]` | `uv` | texture coordinates, first image row at v = 0 |
-| 32 | `float[4]` | `tangent` | local tangent direction and handedness; a zero direction selects the derived frame |
+| 32 | `float[2]` | `uv1` | second texture coordinate set; zero when absent |
+| 40 | `float[4]` | `tangent` | local tangent direction and handedness; a zero direction selects the derived frame |
 
 ### `g3_mat4` — 64 bytes
 
 `float m[16]`, column-major: element `(row r, column c)` is `m[c*4 + r]`.
 
-### `g3_uv_transform` — 20 bytes
+### `g3_uv_transform` — 24 bytes
 
-`offset: float2`, `scale: float2`, and `rotation: float` in radians. The
-renderer scales the input UV, rotates it, then adds the offset.
+`offset: float2`, `scale: float2`, `rotation: float` in radians, and the
+selected `texcoord` set (0 or 1). The renderer scales the selected UV, rotates
+it, then adds the offset.
 
-### `g3_draw_item` — 337 bytes
+### `g3_draw_item` — 357 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -64,11 +66,11 @@ renderer scales the input UV, rotates it, then adds the offset.
 | 216 | `g3_vec4` | `emissive` | linear RGB emission factor |
 | 232 | `int32_t` | `emissive_texture` | sRGB emission texture id, or -1 for no texture |
 | 236 | `uint8_t` | `double_sided` | draw both winding directions and flip back-face normals |
-| 237 | `g3_uv_transform` | `base_color_uv` | base-colour UV offset, scale and rotation |
-| 257 | `g3_uv_transform` | `metallic_roughness_uv` | metallic-roughness UV offset, scale and rotation |
-| 277 | `g3_uv_transform` | `normal_uv` | normal-map UV offset, scale and rotation |
-| 297 | `g3_uv_transform` | `occlusion_uv` | occlusion UV offset, scale and rotation |
-| 317 | `g3_uv_transform` | `emissive_uv` | emissive UV offset, scale and rotation |
+| 237 | `g3_uv_transform` | `base_color_uv` | base-colour UV offset, scale, rotation and set |
+| 261 | `g3_uv_transform` | `metallic_roughness_uv` | metallic-roughness UV offset, scale, rotation and set |
+| 285 | `g3_uv_transform` | `normal_uv` | normal-map UV offset, scale, rotation and set |
+| 309 | `g3_uv_transform` | `occlusion_uv` | occlusion UV offset, scale, rotation and set |
+| 333 | `g3_uv_transform` | `emissive_uv` | emissive UV offset, scale, rotation and set |
 
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).

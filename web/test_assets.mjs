@@ -350,8 +350,8 @@ transformedTexture.materials[0].pbrMetallicRoughness.baseColorTexture.extensions
 };
 resources.set('http://localhost/transformed-texture.gltf', bytes(transformedTexture));
 const transformedEngine = fakeEngine(), transformedModel = await loadGLTF(transformedEngine, 'http://localhost/transformed-texture.gltf');
-assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'vertex').slice(-6, -4), [-1, -1], 'mesh UVs remain shared and unmodified');
-assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0), ['material_uv_transform', 1, 0, 0.25, 0.5, 2, 3, Math.PI / 2], 'base-colour texture transform reaches its material slot');
+assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'vertex').slice(-8, -6), [-1, -1], 'mesh UVs remain shared and unmodified');
+assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0), ['material_uv_transform', 1, 0, 0.25, 0.5, 2, 3, Math.PI / 2, 0], 'base-colour texture transform reaches its material slot');
 transformedModel.dispose();
 const perTextureTransforms = structuredClone(transformedTexture);
 perTextureTransforms.materials[0].pbrMetallicRoughness.metallicRoughnessTexture = { index: 0, extensions: {
@@ -359,13 +359,24 @@ perTextureTransforms.materials[0].pbrMetallicRoughness.metallicRoughnessTexture 
 } };
 resources.set('http://localhost/per-texture-transforms.gltf', bytes(perTextureTransforms));
 const perTextureEngine = fakeEngine(), perTextureModel = await loadGLTF(perTextureEngine, 'http://localhost/per-texture-transforms.gltf');
-assert.deepEqual(perTextureEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0).slice(3), [0.25, 0.5, 2, 3, Math.PI / 2]);
-assert.deepEqual(perTextureEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 1).slice(3), [0, 0, 4, 4, 0], 'different texture slots retain independent transforms');
+assert.deepEqual(perTextureEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0).slice(3), [0.25, 0.5, 2, 3, Math.PI / 2, 0]);
+assert.deepEqual(perTextureEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 1).slice(3), [0, 0, 4, 4, 0, 0], 'different texture slots retain independent transforms');
 perTextureModel.dispose();
 const unsupportedUvSet = structuredClone(transformedTexture);
-unsupportedUvSet.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.texCoord = 1;
+unsupportedUvSet.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.texCoord = 2;
 resources.set('http://localhost/unsupported-transform-uv.gltf', bytes(unsupportedUvSet));
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/unsupported-transform-uv.gltf'), e => e.code === 'UNSUPPORTED');
+const uvSet1 = structuredClone(transformedTexture);
+const uvSet1Accessor = uvSet1.accessors.push({ bufferView: 1, componentType: 5126, count: 3, type: 'VEC2' }) - 1;
+uvSet1.meshes[0].primitives[0].attributes.TEXCOORD_1 = uvSet1Accessor;
+uvSet1.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.texCoord = 1;
+resources.set('http://localhost/uv-set-1.gltf', bytes(uvSet1));
+const uvSet1Engine = fakeEngine(), uvSet1Model = await loadGLTF(uvSet1Engine, 'http://localhost/uv-set-1.gltf');
+const uvSet1Vertex = uvSet1Engine.calls.find(call => call[0] === 'vertex');
+assert.deepEqual(uvSet1Vertex.slice(-8, -6), [-1, -1], 'TEXCOORD_0 remains available independently');
+assert.deepEqual(uvSet1Vertex.slice(-6, -4), [0, 0], 'TEXCOORD_1 reaches the mesh vertex');
+assert.equal(uvSet1Engine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0).at(-1), 1, 'texture transform selects TEXCOORD_1');
+uvSet1Model.dispose();
 const invalidTextureTransform = structuredClone(transformedTexture);
 invalidTextureTransform.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.offset = null;
 resources.set('http://localhost/invalid-texture-transform.gltf', bytes(invalidTextureTransform));

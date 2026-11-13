@@ -240,6 +240,28 @@ fn case_texture() {
     n.material = material_id;
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(120, 280), 0, 255, 0, 1), "base-colour UV offset shifts sampling into the neighboring texel");
+
+    // A mesh can keep UV0 and UV1 independent, and a material selects UV1.
+    g3::scene_clear();
+    flat_camera();
+    let uv1_texture = g3::texture_create(2, 2, pixels[..]);
+    let verts: g3::Vertex[4] = [
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, .. },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, .. },
+        g3::Vertex { pos: float3 { 1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, .. },
+        g3::Vertex { pos: float3 { -1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, .. },
+    ];
+    let indices: u32[6] = [0, 1, 2, 0, 2, 3];
+    let mesh = g3::mesh_asset_create(verts[..], indices[..]);
+    let uv1_node .= g3::node(g3::node_add(mesh));
+    let uv1_material = g3::material_add();
+    let uv1_surface .= g3::material(uv1_material);
+    uv1_surface.texture = uv1_texture;
+    uv1_surface.unlit = true;
+    uv1_surface.base_color_uv = g3::UvTransform { offset: float2_0, scale: float2_1, texcoord: 1, .. };
+    uv1_node.material = uv1_material;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 0, 255, 0, 1), "base-colour texture samples TEXCOORD_1 independently of TEXCOORD_0");
 }
 
 fn case_native_hdr_load() {
@@ -553,9 +575,9 @@ fn case_asset_reuse() {
     g3::scene_clear();
     flat_camera();
     let vertices: g3::Vertex[3] = [
-        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0 },
-        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0 },
-        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0 }];
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, .. },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, .. },
+        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, .. }];
     let indices: u32[3] = [0, 1, 2];
     let mesh = g3::mesh_asset_create(vertices[..], indices[..]);
     let mesh_handle = g3::mesh_handle(mesh);
@@ -747,7 +769,7 @@ fn case_node_removal() {
 }
 
 fn case_asset_fragmentation() {
-    let v = g3::Vertex { pos: float3 { 1.0, 2.0, 3.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0 };
+    let v = g3::Vertex { pos: float3 { 1.0, 2.0, 3.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, .. };
     let small: g3::Vertex[6] = [v; 6];
     let large: g3::Vertex[12] = [v; 12];
     let small_i: u32[6] = [0, 1, 2, 3, 4, 5];
@@ -1176,9 +1198,9 @@ fn case_asset_mesh_update() {
     g3::scene_clear();
     flat_camera();
     let verts: g3::Vertex[3] = [
-        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0 },
-        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0 },
-        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0 },
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0, .. },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0, .. },
+        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0, .. },
     ];
     let indices: u32[3] = [0, 1, 2];
     let mesh = g3::mesh_asset_create(verts[..], indices[..]);

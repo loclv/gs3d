@@ -77,6 +77,7 @@ typedef struct {
     float world[3][3];
     float nrm[3][3];
     float uv[3][2];
+    float uv1[3][2];
     float tangent[3][4];
     float derived_tangent[3], derived_bitangent[3];
     float det;              /* twice the signed area in pixels */
@@ -87,6 +88,7 @@ typedef struct {
 
 static void transform_uv(const g3_uv_transform *transform, float u, float v, float *out_u, float *out_v);
 static int uv_transform_identity(const g3_uv_transform *transform);
+static void interpolate_uv(const soft_tri *triangle, int set, float b0, float b1, float b2, float *u, float *v);
 
 typedef struct {
     soft_tri tri;
@@ -949,6 +951,7 @@ static g3_vertex clip_lerp(g3_vertex a, g3_vertex b, float t) {
     LERP(pos.x); LERP(pos.y); LERP(pos.z);
     LERP(normal.x); LERP(normal.y); LERP(normal.z);
     LERP(uv.x); LERP(uv.y);
+    LERP(uv1.x); LERP(uv1.y);
     LERP(tangent.x); LERP(tangent.y); LERP(tangent.z); LERP(tangent.w);
 #undef LERP
     return a;
@@ -999,6 +1002,8 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
         t->inv_w[k] = w;
         t->uv[k][0] = tri[k]->uv.x;
         t->uv[k][1] = tri[k]->uv.y;
+        t->uv1[k][0] = tri[k]->uv1.x;
+        t->uv1[k][1] = tri[k]->uv1.y;
         ndc[k][0] = cx * w;
         ndc[k][1] = cy * w;
         ndc[k][2] = cz * w;
@@ -1029,7 +1034,8 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
     }
 
     float normal_uv[3][2];
-    for (int k=0;k<3;k++) transform_uv(&it->normal_uv,t->uv[k][0],t->uv[k][1],&normal_uv[k][0],&normal_uv[k][1]);
+    float (*normal_coords)[2] = it->normal_uv.texcoord == 1 ? t->uv1 : t->uv;
+    for (int k=0;k<3;k++) transform_uv(&it->normal_uv,normal_coords[k][0],normal_coords[k][1],&normal_uv[k][0],&normal_uv[k][1]);
     float e1[3], e2[3], du1=normal_uv[1][0]-normal_uv[0][0], dv1=normal_uv[1][1]-normal_uv[0][1];
     float du2=normal_uv[2][0]-normal_uv[0][0], dv2=normal_uv[2][1]-normal_uv[0][1];
     for (int c=0;c<3;c++) { e1[c]=t->world[1][c]-t->world[0][c]; e2[c]=t->world[2][c]-t->world[0][c]; }
@@ -1140,13 +1146,20 @@ static void transform_uv(const g3_uv_transform *transform, float u, float v, flo
 
 static int uv_transform_identity(const g3_uv_transform *transform) {
     return transform->offset.x == 0.0f && transform->offset.y == 0.0f &&
-           transform->scale.x == 1.0f && transform->scale.y == 1.0f && transform->rotation == 0.0f;
+           transform->scale.x == 1.0f && transform->scale.y == 1.0f && transform->rotation == 0.0f && transform->texcoord == 0;
+}
+
+static void interpolate_uv(const soft_tri *triangle, int set, float b0, float b1, float b2, float *u, float *v) {
+    float (*uv)[2] = set == 1 ? triangle->uv1 : triangle->uv;
+    *u = uv[0][0]*b0+uv[1][0]*b1+uv[2][0]*b2;
+    *v = uv[0][1]*b0+uv[1][1]*b1+uv[2][1]*b2;
 }
 
 static float texture_footprint(const soft_tri *t, int32_t id, const g3_uv_transform *transform, float l0, float l1, float l2, float u, float v) {
     if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels)) return 0.0f;
     const soft_texture *tex = &textures[id];
     if (tex->min_filter == tex->mag_filter) return 0.0f;
+    float (*uv)[2] = transform->texcoord == 1 ? t->uv1 : t->uv;
     float dl0x = (t->sy[1] - t->sy[2]) / t->det;
     float dl1x = (t->sy[2] - t->sy[0]) / t->det;
     float dl0y = (t->sx[2] - t->sx[1]) / t->det;
@@ -1161,8 +1174,8 @@ static float texture_footprint(const soft_tri *t, int32_t id, const g3_uv_transf
         if (sum <= 1e-12f) continue;
         float neighbor_u, neighbor_v;
         transform_uv(transform,
-            (t->uv[0][0]*w0+t->uv[1][0]*w1+t->uv[2][0]*w2)/sum,
-            (t->uv[0][1]*w0+t->uv[1][1]*w1+t->uv[2][1]*w2)/sum, &neighbor_u, &neighbor_v);
+            (uv[0][0]*w0+uv[1][0]*w1+uv[2][0]*w2)/sum,
+            (uv[0][1]*w0+uv[1][1]*w1+uv[2][1]*w2)/sum, &neighbor_u, &neighbor_v);
         float du = (neighbor_u-center_u)*tex->w;
         float dv = (neighbor_v-center_v)*tex->h;
         float sq = du*du+dv*dv;
@@ -1209,8 +1222,8 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs,
                     float pw = l0*t.inv_w[0] + l1*t.inv_w[1] + l2*t.inv_w[2];
                     if (pw <= 0.0f) continue;
                     float b0=l0*t.inv_w[0]/pw, b1=l1*t.inv_w[1]/pw, b2=l2*t.inv_w[2]/pw;
-                    float u=t.uv[0][0]*b0+t.uv[1][0]*b1+t.uv[2][0]*b2;
-                    float v=t.uv[0][1]*b0+t.uv[1][1]*b1+t.uv[2][1]*b2;
+                    float u, v;
+                    interpolate_uv(&t,source->base_color_uv.texcoord,b0,b1,b2,&u,&v);
                     float tex[4];
                     float tu, tv;
                     transform_uv(&source->base_color_uv,u,v,&tu,&tv);
@@ -1288,8 +1301,8 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             n.z = t->nrm[0][2] * b0 + t->nrm[1][2] * b1 + t->nrm[2][2] * b2;
 
             float rgb[3], tex[4], emissive_tex[4], emission[3], mr[4] = { 1, 1, 1, 1 }, ao = 1.0f;
-            float u = t->uv[0][0] * b0 + t->uv[1][0] * b1 + t->uv[2][0] * b2;
-            float v = t->uv[0][1] * b0 + t->uv[1][1] * b1 + t->uv[2][1] * b2;
+            float u, v;
+            interpolate_uv(t,it->base_color_uv.texcoord,b0,b1,b2,&u,&v);
             float nl=sqrtf(n.x*n.x+n.y*n.y+n.z*n.z);
             if (nl>1e-12f) { n.x/=nl; n.y/=nl; n.z/=nl; }
             if (it->normal_texture >= 0 && nl>1e-12f) {
@@ -1318,9 +1331,10 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
                     if (bl>1e-12f) {
                         bx/=bl; by/=bl; bz/=bl;
                         float normal_sample[4];
-                        float nu, nv;
-                        transform_uv(&it->normal_uv,u,v,&nu,&nv);
-                        sample_texture(it->normal_texture,nu,nv,texture_footprint(t,it->normal_texture,&it->normal_uv,l0,l1,l2,u,v),normal_sample);
+                        float nu, nv, normal_u, normal_v;
+                        interpolate_uv(t,it->normal_uv.texcoord,b0,b1,b2,&normal_u,&normal_v);
+                        transform_uv(&it->normal_uv,normal_u,normal_v,&nu,&nv);
+                        sample_texture(it->normal_texture,nu,nv,texture_footprint(t,it->normal_texture,&it->normal_uv,l0,l1,l2,normal_u,normal_v),normal_sample);
                         float mx=(normal_sample[0]*2.0f-1.0f)*it->normal_scale;
                         float my=(normal_sample[1]*2.0f-1.0f)*it->normal_scale;
                         float mz=normal_sample[2]*2.0f-1.0f;
@@ -1335,21 +1349,24 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             float rho = texture_footprint(t, it->texture, &it->base_color_uv, l0, l1, l2, u, v);
             sample_texture(it->texture, bu, bv, rho, tex);
             if (it->pbr.x > 0.5f && it->metallic_roughness_texture >= 0) {
-                float mu, mv;
-                transform_uv(&it->metallic_roughness_uv,u,v,&mu,&mv);
-                float mr_rho = texture_footprint(t, it->metallic_roughness_texture, &it->metallic_roughness_uv, l0, l1, l2, u, v);
+                float mu, mv, mr_u, mr_v;
+                interpolate_uv(t,it->metallic_roughness_uv.texcoord,b0,b1,b2,&mr_u,&mr_v);
+                transform_uv(&it->metallic_roughness_uv,mr_u,mr_v,&mu,&mv);
+                float mr_rho = texture_footprint(t, it->metallic_roughness_texture, &it->metallic_roughness_uv, l0, l1, l2, mr_u, mr_v);
                 sample_texture(it->metallic_roughness_texture, mu, mv, mr_rho, mr);
             }
             if (it->occlusion_texture >= 0) {
-                float occlusion[4], ou, ov;
-                transform_uv(&it->occlusion_uv,u,v,&ou,&ov);
-                float ao_rho = texture_footprint(t, it->occlusion_texture, &it->occlusion_uv, l0, l1, l2, u, v);
+                float occlusion[4], ou, ov, occ_u, occ_v;
+                interpolate_uv(t,it->occlusion_uv.texcoord,b0,b1,b2,&occ_u,&occ_v);
+                transform_uv(&it->occlusion_uv,occ_u,occ_v,&ou,&ov);
+                float ao_rho = texture_footprint(t, it->occlusion_texture, &it->occlusion_uv, l0, l1, l2, occ_u, occ_v);
                 sample_texture(it->occlusion_texture, ou, ov, ao_rho, occlusion);
                 ao = 1.0f + it->occlusion_strength * (occlusion[0] - 1.0f);
             }
-            float eu, ev;
-            transform_uv(&it->emissive_uv,u,v,&eu,&ev);
-            float emissive_rho = texture_footprint(t, it->emissive_texture, &it->emissive_uv, l0, l1, l2, u, v);
+            float eu, ev, emissive_u, emissive_v;
+            interpolate_uv(t,it->emissive_uv.texcoord,b0,b1,b2,&emissive_u,&emissive_v);
+            transform_uv(&it->emissive_uv,emissive_u,emissive_v,&eu,&ev);
+            float emissive_rho = texture_footprint(t, it->emissive_texture, &it->emissive_uv, l0, l1, l2, emissive_u, emissive_v);
             sample_texture(it->emissive_texture, eu, ev, emissive_rho, emissive_tex);
             emission[0] = it->emissive.x * emissive_tex[0];
             emission[1] = it->emissive.y * emissive_tex[1];

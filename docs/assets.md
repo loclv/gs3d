@@ -115,7 +115,7 @@ mechanism.
 
 The glTF loader supports `KHR_materials_unlit`,
 `KHR_materials_emissive_strength`, and per-texture
-`KHR_texture_transform` on `TEXCOORD_0`. Unlit selects the engine's unlit material path;
+`KHR_texture_transform` on `TEXCOORD_0` or `TEXCOORD_1`. Unlit selects the engine's unlit material path;
 emissive strength multiplies the material's `emissiveFactor` before the
 emissive texture is applied. Required extensions outside this supported set are
 reported as `UNSUPPORTED`; optional extensions that the loader does not
@@ -136,7 +136,7 @@ fetches and decodes assets in JavaScript.
   buffers; images may be external, data-URI, or stored in buffer views.
 * The selected scene's hierarchy, matrix or TRS transforms, indexed or
   non-indexed triangle primitives, float positions and normals, and optional
-  `TEXCOORD_0`. Positions and normals are required.
+  `TEXCOORD_0` and optional `TEXCOORD_1`. Positions and normals are required.
 * Optional float `VEC4` `TANGENT` attributes with handedness `w` of `-1` or `1`.
   Authored tangents are used on static, unskinned and unmorphed meshes; other
   normal-mapped meshes derive a frame from positions and UVs.
@@ -166,7 +166,7 @@ fetches and decodes assets in JavaScript.
   `KHR_materials_emissive_strength` scales `emissiveFactor`, including values
   above 1 for HDR emission.
   `KHR_texture_transform` applies an independent offset, rotation and scale to
-  each texture slot. Only `TEXCOORD_0` is supported.
+  each texture slot. `TEXCOORD_0` and `TEXCOORD_1` are supported.
   Double-sided materials disable back-face culling in colour and shadow passes;
   back-face normals are flipped before colour-pass lighting.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
@@ -195,7 +195,8 @@ This is **not a complete glTF implementation**. It rejects required extensions,
 more than eight skin influences, tangent morph targets, non-triangle modes and
 advanced texture/sampler extensions. Authored glTF `TANGENT` attributes are
 used for static, non-skinned and non-morphed meshes. Otherwise tangent frames
-for normal maps are derived per triangle from positions and `TEXCOORD_0`, so
+for normal maps are derived per triangle from positions and the selected
+texture-coordinate set, so
 mirrored UV seams can differ from MikkTSpace results. Direct PBR
 lighting uses GGX; environment reflections use the documented prefiltered
 mip/Fresnel approximation. Roughness is clamped to at least 0.045.

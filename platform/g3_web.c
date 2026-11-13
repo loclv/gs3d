@@ -73,7 +73,7 @@ typedef struct {
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
-    GLint uv_transform[5], uv_rotation[5];
+    GLint uv_transform[5], uv_rotation[5], uv_set[5];
     GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
@@ -117,7 +117,7 @@ static GLint shadow_mask, shadow_cutoff, shadow_alpha, shadow_tex, shadow_textur
 static GLint shadow_skin_enabled, shadow_joint_palette, shadow_joint_count;
 static GLint shadow_morph_enabled, shadow_morph_positions;
 static GLint shadow_morph_weights, shadow_morph_target_count;
-static GLint shadow_uv_transform, shadow_uv_rotation;
+static GLint shadow_uv_transform, shadow_uv_rotation, shadow_uv_set;
 static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
 static GLint output_sampler, output_tone_map, output_exposure, output_encode_srgb;
 static int output_width, output_height;
@@ -130,13 +130,16 @@ static const char *VERTEX_SRC =
     "layout(location = 0) in vec3 a_pos;\n"
     "layout(location = 1) in vec3 a_normal;\n"
     "layout(location = 2) in vec2 a_uv;\n"
+    "layout(location = 14) in vec2 a_uv1;\n"
     "layout(location = 15) in vec4 a_tangent;\n"
     "layout(location = 3) in vec4 a_joints0;\n"
     "layout(location = 4) in vec4 a_weights0;\n"
     "layout(location = 5) in vec4 a_joints1;\n"
     "layout(location = 6) in vec4 a_weights1;\n"
     "layout(location = 7) in mat4 a_instance_mvp;\n"
-    "layout(location = 11) in mat4 a_instance_model;\n"
+    "layout(location = 11) in vec4 a_instance_model_row0;\n"
+    "layout(location = 12) in vec4 a_instance_model_row1;\n"
+    "layout(location = 13) in vec4 a_instance_model_row2;\n"
     "uniform mat4 u_mvp;\n"
     "uniform mat4 u_model;\n"
     "uniform mat3 u_normal_matrix;\n"
@@ -152,6 +155,7 @@ static const char *VERTEX_SRC =
     "out vec3 v_normal;\n"
     "out vec3 v_world;\n"
     "out vec2 v_uv;\n"
+    "out vec2 v_uv1;\n"
     "out vec4 v_tangent;\n"
     "mat4 joint_matrix(float joint) {\n"
     "    int index = clamp(int(joint + 0.5), 0, u_joint_count - 1);\n"
@@ -159,7 +163,11 @@ static const char *VERTEX_SRC =
     "                texelFetch(u_joint_palette, ivec2(2,index), 0), texelFetch(u_joint_palette, ivec2(3,index), 0));\n"
     "}\n"
     "void main() {\n"
-    "    mat4 model = u_instanced ? a_instance_model : u_model;\n"
+    "    mat4 instance_model = mat4(vec4(a_instance_model_row0.x,a_instance_model_row1.x,a_instance_model_row2.x,0.0),\n"
+    "                             vec4(a_instance_model_row0.y,a_instance_model_row1.y,a_instance_model_row2.y,0.0),\n"
+    "                             vec4(a_instance_model_row0.z,a_instance_model_row1.z,a_instance_model_row2.z,0.0),\n"
+    "                             vec4(a_instance_model_row0.w,a_instance_model_row1.w,a_instance_model_row2.w,1.0));\n"
+    "    mat4 model = u_instanced ? instance_model : u_model;\n"
     "    mat4 mvp = u_instanced ? a_instance_mvp : u_mvp;\n"
     "    vec4 position = vec4(a_pos, 1.0); vec3 normal = a_normal;\n"
     "    if (u_morph_enabled) {\n"
@@ -180,6 +188,7 @@ static const char *VERTEX_SRC =
     "    vec4 world = model * position;\n"
     "    v_world = world.xyz;\n"
     "    v_uv = a_uv;\n"
+    "    v_uv1 = a_uv1;\n"
     "    v_normal = u_instanced ? transpose(inverse(mat3(model))) * normal : u_normal_matrix * normal;\n"
     "    float model_sign = determinant(mat3(model)) < 0.0 ? -1.0 : 1.0;\n"
     "    v_tangent = (u_skin_enabled || u_morph_enabled) ? vec4(0.0) : vec4(mat3(model) * a_tangent.xyz, a_tangent.w * model_sign);\n"
@@ -193,6 +202,7 @@ static const char *FRAGMENT_SRC =
     "in vec3 v_normal;\n"
     "in vec3 v_world;\n"
     "in vec2 v_uv;\n"
+    "in vec2 v_uv1;\n"
     "in vec4 v_tangent;\n"
     "uniform sampler2D u_tex;\n"
     "uniform bool u_textured;\n"
@@ -212,6 +222,7 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_emissive_textured;\n"
     "uniform vec4 u_uv_transform[5];\n"
     "uniform float u_uv_rotation[5];\n"
+    "uniform int u_uv_set[5];\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform bool u_double_sided;\n"
@@ -246,7 +257,7 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_tone_map_inline;\n"
     "uniform float u_exposure_inline;\n"
     "out vec4 out_color;\n"
-    "vec2 material_uv(int slot, vec2 coord) { vec2 scaled=coord*u_uv_transform[slot].zw; float c=cos(u_uv_rotation[slot]), s=sin(u_uv_rotation[slot]); return u_uv_transform[slot].xy+vec2(c*scaled.x-s*scaled.y,s*scaled.x+c*scaled.y); }\n"
+    "vec2 material_uv(int slot) { vec2 coord=u_uv_set[slot]==1?v_uv1:v_uv; vec2 scaled=coord*u_uv_transform[slot].zw; float c=cos(u_uv_rotation[slot]), s=sin(u_uv_rotation[slot]); return u_uv_transform[slot].xy+vec2(c*scaled.x-s*scaled.y,s*scaled.x+c*scaled.y); }\n"
     "vec3 pbr_light(vec3 n, vec3 v, vec3 l, vec3 base, float metal, float rough) {\n"
     "    float nl = max(dot(n,l), 0.0), nv = max(dot(n,v), 0.0);\n"
     "    vec3 sum = l + v; float len = length(sum);\n"
@@ -261,16 +272,16 @@ static const char *FRAGMENT_SRC =
     "    return ((1.0-f)*(1.0-metal)*base/3.14159265359 + d*vis*f)*nl;\n"
     "}\n"
     "void main() {\n"
-    "    vec2 base_uv = material_uv(0, v_uv);\n"
-    "    vec2 mr_uv = material_uv(1, v_uv);\n"
-    "    vec2 normal_uv = material_uv(2, v_uv);\n"
-    "    vec2 occlusion_uv = material_uv(3, v_uv);\n"
-    "    vec2 emissive_uv = material_uv(4, v_uv);\n"
+    "    vec2 base_uv = material_uv(0);\n"
+    "    vec2 mr_uv = material_uv(1);\n"
+    "    vec2 normal_uv = material_uv(2);\n"
+    "    vec2 occlusion_uv = material_uv(3);\n"
+    "    vec2 emissive_uv = material_uv(4);\n"
     "    float normal_length = length(v_normal);\n"
     "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
     "    if (u_normal_textured && normal_length > 1e-12) {\n"
     "        vec3 t, b; float tangent_length = length(v_tangent.xyz);\n"
-    "        bool identity_normal_uv = all(equal(u_uv_transform[2], vec4(0.0,0.0,1.0,1.0))) && u_uv_rotation[2] == 0.0;\n"
+    "        bool identity_normal_uv = u_uv_set[2] == 0 && all(equal(u_uv_transform[2], vec4(0.0,0.0,1.0,1.0))) && u_uv_rotation[2] == 0.0;\n"
     "        bool authored_tangent = tangent_length > 1e-12 && abs(v_tangent.w) > 0.5 && identity_normal_uv;\n"
     "        if (authored_tangent) {\n"
     "            t = v_tangent.xyz; b = vec3(0.0);\n"
@@ -463,6 +474,7 @@ static void find_uniforms(void) {
         char name[64];
         snprintf(name, sizeof(name), "u_uv_transform[%d]", i); shader.uv_transform[i] = glGetUniformLocation(shader.program, name);
         snprintf(name, sizeof(name), "u_uv_rotation[%d]", i); shader.uv_rotation[i] = glGetUniformLocation(shader.program, name);
+        snprintf(name, sizeof(name), "u_uv_set[%d]", i); shader.uv_set[i] = glGetUniformLocation(shader.program, name);
     }
     shader.eye = glGetUniformLocation(shader.program, "u_eye");
     shader.view_direction = glGetUniformLocation(shader.program, "u_view_direction");
@@ -698,7 +710,7 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(sizeof(uint32_t) * (size_t)indices.len),
                  indices.data, GL_STATIC_DRAW);
 
-    /* Interleaved position, normal, UV, and tangent attributes. */
+    /* Interleaved position, normal, two UV sets, and tangent attributes. */
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(g3_vertex),
                           (const void *)0);
@@ -708,9 +720,12 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(g3_vertex),
                           (const void *)(sizeof(float) * 6));
+    glEnableVertexAttribArray(14);
+    glVertexAttribPointer(14, 2, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(g3_vertex),
+                          (const void *)(sizeof(float) * 8));
     glEnableVertexAttribArray(15);
     glVertexAttribPointer(15, 4, GL_FLOAT, GL_FALSE, (GLsizei)sizeof(g3_vertex),
-                          (const void *)(sizeof(float) * 8));
+                          (const void *)(sizeof(float) * 10));
     glBindVertexArray(0);
 
     m->count = (GLsizei)indices.len;
@@ -874,8 +889,8 @@ void g3p_release_mesh(int32_t id) {
 
 static int upload_instance_data(g3_draw_item_slice items, int64_t first, int32_t count) {
     if (count < 2 || first < 0 || first + count > items.len ||
-        (size_t)count > SIZE_MAX / (32 * sizeof(float))) return 0;
-    size_t float_count = (size_t)count * 32;
+        (size_t)count > SIZE_MAX / (28 * sizeof(float))) return 0;
+    size_t float_count = (size_t)count * 28;
     if (float_count > instance_capacity) {
         float *grown = realloc(instance_data, float_count * sizeof(float));
         if (!grown) return 0;
@@ -883,9 +898,15 @@ static int upload_instance_data(g3_draw_item_slice items, int64_t first, int32_t
         instance_capacity = float_count;
     }
     for (int32_t i = 0; i < count; i++) {
-        float *dst = instance_data + (size_t)i * 32;
+        float *dst = instance_data + (size_t)i * 28;
         memcpy(dst, items.data[first + i].mvp.m, 16 * sizeof(float));
-        memcpy(dst + 16, items.data[first + i].model.m, 16 * sizeof(float));
+        const float *m = items.data[first + i].model.m;
+        for (int row = 0; row < 3; row++) {
+            dst[16 + row * 4 + 0] = m[row];
+            dst[16 + row * 4 + 1] = m[4 + row];
+            dst[16 + row * 4 + 2] = m[8 + row];
+            dst[16 + row * 4 + 3] = m[12 + row];
+        }
     }
     if (!instance_vbo) glGenBuffers(1, &instance_vbo);
     if (!instance_vbo) return 0;
@@ -894,25 +915,26 @@ static int upload_instance_data(g3_draw_item_slice items, int64_t first, int32_t
     return glGetError() == GL_NO_ERROR;
 }
 
-/* Locations 7-10 carry MVP columns; 11-14 carry model columns. */
+/* Locations 7-10 carry MVP columns; 11-13 carry affine model rows. */
 static void bind_instance_attributes(void) {
     glBindBuffer(GL_ARRAY_BUFFER, instance_vbo);
     for (GLuint column = 0; column < 4; column++) {
-        GLuint locations[2] = { 7 + column, 11 + column };
-        uintptr_t offsets[2] = { (uintptr_t)column * 4 * sizeof(float),
-                                 (uintptr_t)(16 + column * 4) * sizeof(float) };
-        for (int matrix = 0; matrix < 2; matrix++) {
-            glEnableVertexAttribArray(locations[matrix]);
-            glVertexAttribPointer(locations[matrix], 4, GL_FLOAT, GL_FALSE,
-                                  32 * (GLsizei)sizeof(float), (const void *)offsets[matrix]);
-            glVertexAttribDivisor(locations[matrix], 1);
-        }
+        glEnableVertexAttribArray(7 + column);
+        glVertexAttribPointer(7 + column, 4, GL_FLOAT, GL_FALSE,
+                              28 * (GLsizei)sizeof(float), (const void *)((uintptr_t)column * 4 * sizeof(float)));
+        glVertexAttribDivisor(7 + column, 1);
+    }
+    for (GLuint row = 0; row < 3; row++) {
+        glEnableVertexAttribArray(11 + row);
+        glVertexAttribPointer(11 + row, 4, GL_FLOAT, GL_FALSE,
+                              28 * (GLsizei)sizeof(float), (const void *)((uintptr_t)(16 + row * 4) * sizeof(float)));
+        glVertexAttribDivisor(11 + row, 1);
     }
 }
 
 static void clear_instance_attributes(const web_mesh *mesh) {
     glBindVertexArray(mesh->vao);
-    for (GLuint location = 7; location <= 14; location++) {
+    for (GLuint location = 7; location <= 13; location++) {
         glVertexAttribDivisor(location, 0);
         glDisableVertexAttribArray(location);
     }
@@ -924,7 +946,7 @@ static int same_vec4(g3_vec4 a, g3_vec4 b) {
 
 static int same_uv_transform(g3_uv_transform a, g3_uv_transform b) {
     return a.offset.x == b.offset.x && a.offset.y == b.offset.y &&
-           a.scale.x == b.scale.x && a.scale.y == b.scale.y && a.rotation == b.rotation;
+           a.scale.x == b.scale.x && a.scale.y == b.scale.y && a.rotation == b.rotation && a.texcoord == b.texcoord;
 }
 
 static int shadow_compatible(const g3_draw_item *a, const g3_draw_item *b) {
@@ -1245,13 +1267,13 @@ static int ensure_shadow_map(void) {
     if (shadow_program && shadow_fbo && shadow_texture && allocated_shadow_size == shadow_map_size) return 1;
     const char *vs_src =
         "#version 300 es\n"
-        "layout(location=0) in vec3 a_pos; layout(location=2) in vec2 a_uv;\n"
+        "layout(location=0) in vec3 a_pos; layout(location=2) in vec2 a_uv; layout(location=14) in vec2 a_uv1;\n"
         "layout(location=3) in vec4 a_joints0; layout(location=4) in vec4 a_weights0;\n"
         "layout(location=5) in vec4 a_joints1; layout(location=6) in vec4 a_weights1;\n"
-        "layout(location=11) in mat4 a_instance_model;\n"
+        "layout(location=11) in vec4 a_instance_model_row0; layout(location=12) in vec4 a_instance_model_row1; layout(location=13) in vec4 a_instance_model_row2;\n"
         "uniform mat4 u_light; uniform mat4 u_model; uniform bool u_instanced; uniform bool u_skin_enabled;\n"
         "uniform bool u_morph_enabled; uniform sampler2D u_morph_positions; uniform sampler2D u_morph_weights; uniform int u_morph_target_count;\n"
-        "uniform sampler2D u_joint_palette; uniform int u_joint_count; out vec2 v_uv;\n"
+        "uniform sampler2D u_joint_palette; uniform int u_joint_count; out vec2 v_uv; out vec2 v_uv1;\n"
         "mat4 joint_matrix(float j) { int i=clamp(int(j+0.5),0,u_joint_count-1);\n"
         "return mat4(texelFetch(u_joint_palette,ivec2(0,i),0),texelFetch(u_joint_palette,ivec2(1,i),0),\n"
         "texelFetch(u_joint_palette,ivec2(2,i),0),texelFetch(u_joint_palette,ivec2(3,i),0)); }\n"
@@ -1259,8 +1281,8 @@ static int ensure_shadow_map(void) {
         "mat4 s=mat4(0.0); float t=0.0;\n"
         "for(int i=0;i<4;i++){float w=a_weights0[i];if(w>0.0){s+=joint_matrix(a_joints0[i])*w;t+=w;}}\n"
         "for(int i=0;i<4;i++){float w=a_weights1[i];if(w>0.0){s+=joint_matrix(a_joints1[i])*w;t+=w;}}\n"
-        "if(t>0.0)p=s*p/t;} v_uv=a_uv; gl_Position=u_light*(u_instanced?a_instance_model:u_model)*p; }\n";
-    const char *fs_src = "#version 300 es\nprecision highp float;\nin vec2 v_uv;\nuniform bool u_mask;\nuniform bool u_textured;\nuniform sampler2D u_tex;\nuniform float u_alpha;\nuniform float u_cutoff;\nuniform vec4 u_uv_transform;\nuniform float u_uv_rotation;\nvec2 material_uv(vec2 coord){vec2 scaled=coord*u_uv_transform.zw;float c=cos(u_uv_rotation),s=sin(u_uv_rotation);return u_uv_transform.xy+vec2(c*scaled.x-s*scaled.y,s*scaled.x+c*scaled.y);}\nvoid main(){if(u_mask && u_alpha*(u_textured ? texture(u_tex,material_uv(v_uv)).a : 1.0)<u_cutoff) discard;}\n";
+        "if(t>0.0)p=s*p/t;} mat4 instance_model=mat4(vec4(a_instance_model_row0.x,a_instance_model_row1.x,a_instance_model_row2.x,0.0),vec4(a_instance_model_row0.y,a_instance_model_row1.y,a_instance_model_row2.y,0.0),vec4(a_instance_model_row0.z,a_instance_model_row1.z,a_instance_model_row2.z,0.0),vec4(a_instance_model_row0.w,a_instance_model_row1.w,a_instance_model_row2.w,1.0)); v_uv=a_uv; v_uv1=a_uv1; gl_Position=u_light*(u_instanced?instance_model:u_model)*p; }\n";
+    const char *fs_src = "#version 300 es\nprecision highp float;\nin vec2 v_uv;in vec2 v_uv1;\nuniform bool u_mask;\nuniform bool u_textured;\nuniform sampler2D u_tex;\nuniform float u_alpha;\nuniform float u_cutoff;\nuniform vec4 u_uv_transform;\nuniform float u_uv_rotation;uniform int u_uv_set;\nvec2 material_uv(){vec2 coord=u_uv_set==1?v_uv1:v_uv;vec2 scaled=coord*u_uv_transform.zw;float c=cos(u_uv_rotation),s=sin(u_uv_rotation);return u_uv_transform.xy+vec2(c*scaled.x-s*scaled.y,s*scaled.x+c*scaled.y);}\nvoid main(){if(u_mask && u_alpha*(u_textured ? texture(u_tex,material_uv()).a : 1.0)<u_cutoff) discard;}\n";
     GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "shadow vertex");
     GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "shadow fragment");
     if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); return 0; }
@@ -1299,6 +1321,7 @@ static int ensure_shadow_map(void) {
     shadow_textured = glGetUniformLocation(program, "u_textured");
     shadow_uv_transform = glGetUniformLocation(program, "u_uv_transform");
     shadow_uv_rotation = glGetUniformLocation(program, "u_uv_rotation");
+    shadow_uv_set = glGetUniformLocation(program, "u_uv_set");
     shadow_skin_enabled = glGetUniformLocation(program, "u_skin_enabled");
     shadow_joint_palette = glGetUniformLocation(program, "u_joint_palette");
     shadow_joint_count = glGetUniformLocation(program, "u_joint_count");
@@ -1355,6 +1378,7 @@ static void draw_shadow_run(g3_draw_item_slice items, int64_t first, int32_t cou
     glUniform4f(shadow_uv_transform, it->base_color_uv.offset.x, it->base_color_uv.offset.y,
                 it->base_color_uv.scale.x, it->base_color_uv.scale.y);
     glUniform1f(shadow_uv_rotation, it->base_color_uv.rotation);
+    glUniform1i(shadow_uv_set, it->base_color_uv.texcoord);
     bind_shadow_skin(m);
     bind_shadow_morph(m);
     glBindVertexArray(m->vao);
@@ -1472,6 +1496,7 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
         glUniform4f(shader.uv_transform[uv], uv_transforms[uv]->offset.x, uv_transforms[uv]->offset.y,
                     uv_transforms[uv]->scale.x, uv_transforms[uv]->scale.y);
         glUniform1f(shader.uv_rotation[uv], uv_transforms[uv]->rotation);
+        glUniform1i(shader.uv_set[uv], uv_transforms[uv]->texcoord);
     }
     glUniform1i(shader.alpha_mode, it->alpha_mode);
     glUniform1f(shader.alpha_cutoff, it->alpha_cutoff);
