@@ -38,13 +38,20 @@ const repeatedMeshDoc = structuredClone(doc);
 repeatedMeshDoc.nodes = [{ name: 'First copy', mesh: 0 }, { name: 'Second copy', mesh: 0 }];
 repeatedMeshDoc.scenes = [{ nodes: [0, 1] }];
 resources.set('http://localhost/repeated-mesh.gltf', bytes(repeatedMeshDoc));
-const instancingDoc = structuredClone(doc), instanceBinary = new ArrayBuffer(24), instanceData = new DataView(instanceBinary);
-[-1, 0, 0, 1, 0, 0].forEach((value, index) => instanceData.setFloat32(index * 4, value, true));
-instancingDoc.buffers.push({ byteLength: 24, uri: 'instances.bin' });
-const instanceView = instancingDoc.bufferViews.push({ buffer: 1, byteLength: 24 }) - 1;
-const instanceAccessor = instancingDoc.accessors.push({ bufferView: instanceView, componentType: 5126, count: 2, type: 'VEC3' }) - 1;
+const instancingDoc = structuredClone(doc), instanceBinary = new ArrayBuffer(80), instanceData = new DataView(instanceBinary);
+[-1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, Math.SQRT1_2, Math.SQRT1_2, 2, 1, 1, 0.5, 0.5, 0.5]
+  .forEach((value, index) => instanceData.setFloat32(index * 4, value, true));
+instancingDoc.buffers.push({ byteLength: 80, uri: 'instances.bin' });
+const translationView = instancingDoc.bufferViews.push({ buffer: 1, byteLength: 24 }) - 1;
+const rotationView = instancingDoc.bufferViews.push({ buffer: 1, byteOffset: 24, byteLength: 32 }) - 1;
+const scaleView = instancingDoc.bufferViews.push({ buffer: 1, byteOffset: 56, byteLength: 24 }) - 1;
+const translationAccessor = instancingDoc.accessors.push({ bufferView: translationView, componentType: 5126, count: 2, type: 'VEC3' }) - 1;
+const rotationAccessor = instancingDoc.accessors.push({ bufferView: rotationView, componentType: 5126, count: 2, type: 'VEC4' }) - 1;
+const scaleAccessor = instancingDoc.accessors.push({ bufferView: scaleView, componentType: 5126, count: 2, type: 'VEC3' }) - 1;
 instancingDoc.extensionsUsed = ['EXT_mesh_gpu_instancing'];
-instancingDoc.nodes = [{ mesh: 0, extensions: { EXT_mesh_gpu_instancing: { attributes: { TRANSLATION: instanceAccessor } } } }];
+instancingDoc.nodes = [{ mesh: 0, extensions: { EXT_mesh_gpu_instancing: { attributes: {
+  TRANSLATION: translationAccessor, ROTATION: rotationAccessor, SCALE: scaleAccessor,
+} } } }];
 instancingDoc.scenes = [{ nodes: [0] }];
 resources.set('http://localhost/instancing.gltf', bytes(instancingDoc));
 resources.set('http://localhost/instances.bin', instanceBinary);
@@ -560,6 +567,11 @@ assert.equal(instancingEngine.calls.filter(call => call[0] === 'mesh_end').lengt
   'EXT_mesh_gpu_instancing uploads one shared static primitive');
 assert.deepEqual(instancingEngine.calls.filter(call => call[0] === 'matrix' && call[2] === 12).map(call => call[3]).filter(value => value !== 0), [-1, 1],
   'instance transforms are preserved in their engine node matrices');
+const firstInstanceMatrix = instancingEngine.calls.filter(call => call[0] === 'matrix' && call[1] === 1).map(call => call[3]);
+const secondInstanceMatrix = instancingEngine.calls.filter(call => call[0] === 'matrix' && call[1] === 3).map(call => call[3]);
+assert.equal(firstInstanceMatrix[0], 2, 'instance scale is applied');
+assert.ok(Math.abs(secondInstanceMatrix[1] - 0.5) < 1e-6 && Math.abs(secondInstanceMatrix[4] + 0.5) < 1e-6,
+  'instance quaternion rotation and scale are applied');
 instancingModel.dispose();
 assert.equal(instancingEngine.calls.filter(call => call[0] === 'recycle_mesh').length, 1);
 const invalidSceneEngine = fakeEngine();
