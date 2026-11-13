@@ -30,3 +30,10 @@ lifecycle, animation controls and rendering options.
 
 Run `npm test` in this directory to exercise the asset parser and lifecycle
 against a fake engine. These tests do not compile shaders or verify WebGL output.
+
+`model.applyLights()` opts into the selected scene's `KHR_lights_punctual`
+lights. Its optional `pointShadow` and `spotShadow` values select one caster of
+each type by index in `model.lights`; `bias` applies to both. Lights without a
+glTF `range` have no lighting cutoff. If selected for a shadow, they use a
+1000-unit shadow projection far plane. `model.clearLights()` or
+`model.dispose()` restores the previous light and shadow state.
