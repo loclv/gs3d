@@ -66,14 +66,14 @@ struct ViewState {
     environment_texture: i32, // equirectangular RGB texture, -1 disables
     environment_intensity: f32,
     shadow_view_proj: Mat4,
-    shadow_params: float4, // x enabled, y normalized depth bias
+    shadow_params: float4, // x enabled, y depth bias, z PCF radius in texels
     view_direction: float4, // xyz toward the viewer, w = orthographic
     point_shadow_view_proj: Mat4[6],
     point_shadow_light_index: i32,
-    point_shadow_params: float4, // x enabled, y normalized depth bias
+    point_shadow_params: float4, // x enabled, y depth bias, z PCF radius in texels
     spot_shadow_view_proj: Mat4,
     spot_shadow_light_index: i32,
-    spot_shadow_params: float4, // x enabled, y normalized depth bias
+    spot_shadow_params: float4, // x enabled, y depth bias, z PCF radius in texels
 }
 
 // --- the backend interface

@@ -83,20 +83,21 @@ ignored for opaque items.
 | 344 | `int32_t` | `environment_texture` | equirectangular RGB texture handle, or -1 |
 | 348 | `float` | `environment_intensity` | multiplier for texture-based environment fill and reflection |
 | 352 | `g3_mat4` | `shadow_view_proj` | primary directional light's world-to-shadow clip transform |
-| 416 | `g3_vec4` | `shadow_params` | x enabled, y normalized depth bias |
+| 416 | `g3_vec4` | `shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
 | 432 | `g3_vec4` | `view_direction` | xyz direction toward viewer, w selects orthographic shading |
 | 448 | `g3_mat4[6]` | `point_shadow_view_proj` | six point-light cube-face world-to-shadow transforms |
 | 832 | `int32_t` | `point_shadow_light_index` | selected extra point light, or -1 |
-| 836 | `g3_vec4` | `point_shadow_params` | x enabled, y normalized depth bias |
+| 836 | `g3_vec4` | `point_shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
 | 852 | `g3_mat4` | `spot_shadow_view_proj` | selected spot light's world-to-shadow clip transform |
 | 916 | `int32_t` | `spot_shadow_light_index` | selected extra spot light, or -1 |
-| 920 | `g3_vec4` | `spot_shadow_params` | x enabled, y normalized depth bias |
+| 920 | `g3_vec4` | `spot_shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
 
 One extra point light and one extra spot light can cast shadows per frame. The
 WebGL backend stores point depth in a cube texture and spot depth in a 2D
 texture; the CPU backend stores six point depth arrays and one spot depth
-array. All maps use 512×512 hard shadows, discard blended casters, and include
-masked alpha cutouts. Spot projection supports outer half-angles below 90°.
+array. Maps use 512×512 depth and hard, 3×3, or 5×5 PCF filtering; blended
+casters are discarded and masked alpha cutouts are supported. Spot projection
+supports outer half-angles below 90°.
 
 Each packed `g3_light` is 52 bytes: position and type in a `vec4`, direction
 and range in a `vec4`, colour and outer-cone cosine in a `vec4`, followed by

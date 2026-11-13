@@ -189,8 +189,14 @@ static const char *FRAGMENT_SRC =
     "    if (u_shadow_params.x > 0.5) {\n"
     "        vec4 light_pos = u_shadow_matrix * vec4(v_world, 1.0);\n"
     "        vec3 uvz = light_pos.xyz / light_pos.w * 0.5 + 0.5;\n"
-    "        if (light_pos.w > 0.0 && all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThan(uvz.xy, vec2(1.0))) && uvz.z <= 1.0)\n"
-    "            visibility = uvz.z - u_shadow_params.y <= texture(u_shadow_map, uvz.xy).r ? 1.0 : 0.0;\n"
+    "        if (light_pos.w > 0.0 && all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThan(uvz.xy, vec2(1.0))) && uvz.z <= 1.0) {\n"
+    "            int radius = int(u_shadow_params.z + 0.5); float sum = 0.0; float count = 0.0;\n"
+    "            for (int y=-2; y<=2; y++) for (int x=-2; x<=2; x++) if (abs(x)<=radius && abs(y)<=radius) {\n"
+    "                float depth = texture(u_shadow_map, uvz.xy + vec2(float(x),float(y))/512.0).r;\n"
+    "                sum += uvz.z-u_shadow_params.y <= depth ? 1.0 : 0.0; count += 1.0;\n"
+    "            }\n"
+    "            visibility = sum / max(count,1.0);\n"
+    "        }\n"
     "    }\n"
     "    vec3 col = base * (u_ambient.rgb * u_ambient.a * ao + u_light_color * diff * visibility)\n"
     "             + u_light_color * spec * visibility;\n"
@@ -229,11 +235,28 @@ static const char *FRAGMENT_SRC =
     "            int face = ad.x >= ad.y && ad.x >= ad.z ? (delta.x >= 0.0 ? 0 : 1) : ad.y >= ad.z ? (delta.y >= 0.0 ? 2 : 3) : (delta.z >= 0.0 ? 4 : 5);\n"
     "            vec4 lp = u_point_shadow_matrices[face] * vec4(v_world, 1.0);\n"
     "            float refz = lp.z / lp.w * 0.5 + 0.5 - u_point_shadow_params.y;\n"
-    "            if (lp.w > 0.0 && refz >= 0.0 && refz <= 1.0) falloff *= texture(u_point_shadow_map, vec4(delta, refz));\n"
+    "            if (lp.w > 0.0 && refz >= 0.0 && refz <= 1.0) {\n"
+    "                int radius=int(u_point_shadow_params.z+0.5); float sum=0.0; float count=0.0;\n"
+    "                vec3 ray=normalize(delta); vec3 up=abs(ray.y)<0.99?vec3(0.0,1.0,0.0):vec3(1.0,0.0,0.0);\n"
+    "                vec3 tangent=normalize(cross(ray,up)); vec3 bitangent=cross(ray,tangent);\n"
+    "                for(int y=-2;y<=2;y++) for(int x=-2;x<=2;x++) if(abs(x)<=radius&&abs(y)<=radius) {\n"
+    "                    vec3 sample_ray=delta+(tangent*float(x)+bitangent*float(y))*(2.0/512.0*length(delta));\n"
+    "                    sum+=texture(u_point_shadow_map,vec4(sample_ray,refz)); count+=1.0;\n"
+    "                }\n"
+    "                falloff*=sum/max(count,1.0);\n"
+    "            }\n"
     "        }\n"
     "        if (u_spot_shadow_params.x > 0.5 && i == u_spot_shadow_index && light.position.w > 1.5) {\n"
-    "            vec4 lp = u_spot_shadow_matrix * vec4(v_world, 1.0); vec3 uvz = lp.xyz / lp.w * 0.5 + 0.5;\n"
-    "            if (lp.w > 0.0 && all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThan(uvz.xy, vec2(1.0))) && uvz.z <= 1.0) falloff *= texture(u_spot_shadow_map, vec3(uvz.xy, uvz.z-u_spot_shadow_params.y));\n"
+    "            vec4 lp = u_spot_shadow_matrix * vec4(v_world, 1.0);\n"
+    "            if (lp.w > 0.0) { vec3 uvz = lp.xyz / lp.w * 0.5 + 0.5;\n"
+    "                if (all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThan(uvz.xy, vec2(1.0))) && uvz.z <= 1.0) {\n"
+    "                    int radius=int(u_spot_shadow_params.z+0.5); float sum=0.0; float count=0.0;\n"
+    "                    for(int y=-2;y<=2;y++) for(int x=-2;x<=2;x++) if(abs(x)<=radius&&abs(y)<=radius) {\n"
+    "                        sum+=texture(u_spot_shadow_map,vec3(uvz.xy+vec2(float(x),float(y))/512.0,uvz.z-u_spot_shadow_params.y)); count+=1.0;\n"
+    "                    }\n"
+    "                    falloff*=sum/max(count,1.0);\n"
+    "                }\n"
+    "            }\n"
     "        }\n"
     "        float d = max(dot(n, ld), 0.0);\n"
     "        vec3 halfdir = normalize(ld + v);\n"
@@ -617,19 +640,19 @@ static void bind_view(const g3_view_state *view) {
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
     glUniform1i(shader.shadow_map, 2);
     glUniformMatrix4fv(shader.shadow_matrix, 1, GL_FALSE, view->shadow_view_proj.m);
-    glUniform4f(shader.shadow_params, shadow_texture ? view->shadow_params.x : 0.0f, view->shadow_params.y, 0.0f, 0.0f);
+    glUniform4f(shader.shadow_params, shadow_texture ? view->shadow_params.x : 0.0f, view->shadow_params.y, view->shadow_params.z, 0.0f);
     glActiveTexture(GL_TEXTURE7);
     glBindTexture(GL_TEXTURE_CUBE_MAP, point_shadow_texture);
     glUniform1i(shader.point_shadow_map, 7);
     glUniformMatrix4fv(shader.point_shadow_matrices, 6, GL_FALSE, view->point_shadow_view_proj[0].m);
     glUniform1i(shader.point_shadow_index, view->point_shadow_light_index);
-    glUniform4f(shader.point_shadow_params, point_shadow_texture ? view->point_shadow_params.x : 0.0f, view->point_shadow_params.y, 0.0f, 0.0f);
+    glUniform4f(shader.point_shadow_params, point_shadow_texture ? view->point_shadow_params.x : 0.0f, view->point_shadow_params.y, view->point_shadow_params.z, 0.0f);
     glActiveTexture(GL_TEXTURE8);
     glBindTexture(GL_TEXTURE_2D, spot_shadow_texture);
     glUniform1i(shader.spot_shadow_map, 8);
     glUniformMatrix4fv(shader.spot_shadow_matrix, 1, GL_FALSE, view->spot_shadow_view_proj.m);
     glUniform1i(shader.spot_shadow_index, view->spot_shadow_light_index);
-    glUniform4f(shader.spot_shadow_params, spot_shadow_texture ? view->spot_shadow_params.x : 0.0f, view->spot_shadow_params.y, 0.0f, 0.0f);
+    glUniform4f(shader.spot_shadow_params, spot_shadow_texture ? view->spot_shadow_params.x : 0.0f, view->spot_shadow_params.y, view->spot_shadow_params.z, 0.0f);
     int count = view->light_count < 0 ? 0 : view->light_count > 4 ? 4 : view->light_count;
     glUniform1i(shader.light_count, count);
     for (int i = 0; i < count; i++) {

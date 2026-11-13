@@ -305,8 +305,9 @@ What the API gives you:
   both can be active at once. Spot outer half-angles must be under 90 degrees.
   `clear_point_light_shadows()` and `clear_spot_light_shadows()` disable those
   maps; `clear_lights()` clears both. All shadow maps use normalized depth
-  bias, hard edges, and opaque or masked casters; blended objects do not cast
-  shadows.
+  bias and opaque or masked casters; blended objects do not cast shadows.
+  `set_shadow_filter_radius(0..2)` chooses hard shadows, 3×3 PCF, or 5×5 PCF
+  for all three shadow types; hard shadows are the default.
 * **Frame** — `init`, `frame(dt)`, `shutdown`, `width`/`height`/`aspect`/`time`,
   `stats()` (nodes, drawn, culled, triangles, draws), `read_pixel`,
   `save_frame` where the backend can write one.
@@ -393,11 +394,11 @@ Deliberately out of scope for now, in rough order of how much they would add:
   environment lighting, HDR, and tone mapping remain to be implemented.
 * **Limited shadows, environment lighting, and normals.** The primary
   directional light, one selected extra point light, and one selected spot
-  light cast hard shadows; blended objects do not cast them. Maps have fixed
-  resolution (512 pixels per face or spot map), directional shadows have
-  explicit bounds, and shadow-enabled frames submit off-camera nodes so they
-  can cast shadows. Environment textures provide a diffuse approximation
-  rather than prefiltered reflections.
+  light cast shadows; PCF filtering has hard, 3×3, and 5×5 settings, and
+  blended objects do not cast them. Maps have fixed resolution (512 pixels per
+  face or spot map), directional shadows have explicit bounds, and shadow-
+  enabled frames submit off-camera nodes so they can cast shadows. Environment
+  textures provide a diffuse approximation rather than prefiltered reflections.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
 * **Limited removal.** Ordinary nodes can be removed and reused. Browser-loaded assets recycle their owned nodes, mesh

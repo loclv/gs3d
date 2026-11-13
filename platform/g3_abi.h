@@ -70,14 +70,14 @@ typedef struct {
     int32_t environment_texture;
     float environment_intensity;
     g3_mat4 shadow_view_proj;
-    g3_vec4 shadow_params;
+    g3_vec4 shadow_params; /* x enabled, y depth bias, z PCF radius */
     g3_vec4 view_direction; /* xyz toward viewer, w = orthographic */
     g3_mat4 point_shadow_view_proj[6];
     int32_t point_shadow_light_index;
-    g3_vec4 point_shadow_params;
+    g3_vec4 point_shadow_params; /* x enabled, y depth bias, z PCF radius */
     g3_mat4 spot_shadow_view_proj;
     int32_t spot_shadow_light_index;
-    g3_vec4 spot_shadow_params;
+    g3_vec4 spot_shadow_params; /* x enabled, y depth bias, z PCF radius */
 } g3_view_state;
 
 typedef struct { const g3_vertex *data; int64_t len; } g3_vertex_slice;

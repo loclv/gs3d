@@ -348,6 +348,20 @@ static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int light_index);
 static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 
+static float shadow_depth_visibility(const float *map, int px, int py, float z, float bias, int radius) {
+    if (radius < 0) radius = 0;
+    if (radius > 2) radius = 2;
+    int visible = 0, samples = 0;
+    for (int y=-radius; y<=radius; y++) for (int x=-radius; x<=radius; x++) {
+        int sx=px+x, sy=py+y;
+        if (sx<0) sx=0; else if (sx>=SHADOW_SIZE) sx=SHADOW_SIZE-1;
+        if (sy<0) sy=0; else if (sy>=SHADOW_SIZE) sy=SHADOW_SIZE-1;
+        visible += z-bias <= map[sy*SHADOW_SIZE+sx];
+        samples++;
+    }
+    return samples ? (float)visible/(float)samples : 1.0f;
+}
+
 /* glTF metallic-roughness direct BRDF: GGX, correlated Smith, Schlick. */
 static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
                       float metallic, float roughness, float out[3]) {
@@ -757,7 +771,7 @@ static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
     x = x / w * 0.5f + 0.5f; y = y / w * 0.5f + 0.5f; z = z / w * 0.5f + 0.5f;
     if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
     int px = (int)(x * SHADOW_SIZE), py = SHADOW_SIZE - 1 - (int)(y * SHADOW_SIZE);
-    return z - vs->shadow_params.y <= shadow_depth[py * SHADOW_SIZE + px] ? 1.0f : 0.0f;
+    return shadow_depth_visibility(shadow_depth,px,py,z,vs->shadow_params.y,(int)(vs->shadow_params.z+0.5f));
 }
 
 static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int light_index) {
@@ -775,7 +789,7 @@ static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int li
     x=x/w*0.5f+0.5f; y=y/w*0.5f+0.5f; z=z/w*0.5f+0.5f;
     if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
     int px=(int)(x*SHADOW_SIZE), py=SHADOW_SIZE-1-(int)(y*SHADOW_SIZE);
-    return z-vs->point_shadow_params.y <= point_shadow_depth[face][py*SHADOW_SIZE+px] ? 1.0f : 0.0f;
+    return shadow_depth_visibility(point_shadow_depth[face],px,py,z,vs->point_shadow_params.y,(int)(vs->point_shadow_params.z+0.5f));
 }
 
 static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
@@ -788,7 +802,7 @@ static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
     x=x/w*0.5f+0.5f; y=y/w*0.5f+0.5f; z=z/w*0.5f+0.5f;
     if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
     int px=(int)(x*SHADOW_SIZE), py=SHADOW_SIZE-1-(int)(y*SHADOW_SIZE);
-    return z-vs->spot_shadow_params.y <= spot_shadow_depth[py*SHADOW_SIZE+px] ? 1.0f : 0.0f;
+    return shadow_depth_visibility(spot_shadow_depth,px,py,z,vs->spot_shadow_params.y,(int)(vs->spot_shadow_params.z+0.5f));
 }
 
 /* Perspective-correct UV at a neighboring pixel, even if it lies just

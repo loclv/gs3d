@@ -70,6 +70,7 @@ fn init(width: i32, height: i32, title: const u8[:]) -> bool {
     set_environment(float3_0, float3_0, 0.0);
     set_environment_map(-1, 0.0);
     clear_shadows();
+    set_shadow_filter_radius(0);
     set_output_srgb(false);
     set_ambient(float3 { 0.34, 0.38, 0.5 }, 0.7);
     set_fog(float3 { 0.09, 0.1, 0.14 }, 0.0022);

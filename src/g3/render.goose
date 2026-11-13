@@ -39,6 +39,7 @@ var g_output_srgb: bool;
 var g_shadow_center: float3;
 var g_shadow_extent: f32;
 var g_shadow_bias: f32;
+var g_shadow_filter_radius: i32;
 
 // --- the frame's constants
 
@@ -92,7 +93,7 @@ fn set_point_light_shadows(light_index: i32, bias: f32) -> bool {
     ups[4] = float3 { 0.0, -1.0, 0.0 }; ups[5] = float3 { 0.0, -1.0, 0.0 };
     for i in 0..6 { g_view_state.point_shadow_view_proj[i] = mat4_mul(projection, mat4_look_at(eye, eye + directions[i], ups[i])); }
     g_view_state.point_shadow_light_index = light_index;
-    g_view_state.point_shadow_params = float4 { 1.0, bias, 0.0, 0.0 };
+    g_view_state.point_shadow_params = float4 { 1.0, bias, g_shadow_filter_radius, 0.0 };
     return true;
 }
 
@@ -113,13 +114,25 @@ fn set_spot_light_shadows(light_index: i32, bias: f32) -> bool {
     let projection = mat4_perspective(2.0 * acos(light.color.w), 1.0, 0.01, light.direction.w);
     g_view_state.spot_shadow_view_proj = mat4_mul(projection, mat4_look_at(eye, eye + dir, up));
     g_view_state.spot_shadow_light_index = light_index;
-    g_view_state.spot_shadow_params = float4 { 1.0, bias, 0.0, 0.0 };
+    g_view_state.spot_shadow_params = float4 { 1.0, bias, g_shadow_filter_radius, 0.0 };
     return true;
 }
 
 fn clear_spot_light_shadows() {
     g_view_state.spot_shadow_light_index = -1;
     g_view_state.spot_shadow_params.x = 0.0;
+}
+
+// Set a square PCF radius in map texels: 0 is hard, 1 is 3x3, 2 is 5x5.
+// Applies to every enabled and subsequently enabled shadow map.
+fn set_shadow_filter_radius(radius: i32) -> bool {
+    guard radius >= 0 && radius <= 2 else { return false; }
+    g_shadow_filter_radius = radius;
+    let r = radius;
+    g_view_state.shadow_params.z = r;
+    g_view_state.point_shadow_params.z = r;
+    g_view_state.spot_shadow_params.z = r;
+    return true;
 }
 
 // Angles are half-angles in radians, with a smooth falloff between them.
@@ -158,7 +171,7 @@ fn set_directional_shadows(center: float3, extent: f32, bias: f32) -> bool {
     let view = mat4_look_at(center - dir * (extent * 2.0), center, up);
     let proj = mat4_ortho(-extent, extent, -extent, extent, 0.01, extent * 4.0);
     g_view_state.shadow_view_proj = mat4_mul(proj, view);
-    g_view_state.shadow_params = float4 { 1.0, bias, 0.0, 0.0 };
+    g_view_state.shadow_params = float4 { 1.0, bias, g_shadow_filter_radius, 0.0 };
     g_shadow_center = center;
     g_shadow_extent = extent;
     g_shadow_bias = bias;
