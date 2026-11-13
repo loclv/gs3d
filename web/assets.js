@@ -175,6 +175,16 @@ export function setEnvironmentMap(engine, texture, intensity = 1) {
   engine._g3_asset_environment_map(id, intensity);
 }
 
+// Rotate an equirectangular environment around world up, in radians.
+export function setEnvironmentRotation(engine, radians) {
+  if (!Number.isFinite(radians) || Math.abs(radians) > 3.4e38) {
+    throw new AssetError('ENVIRONMENT', 'Expected a finite environment rotation in radians');
+  }
+  if (!engine._g3_asset_environment_rotation(radians)) {
+    throw new AssetError('ENVIRONMENT', 'The engine rejected the environment rotation');
+  }
+}
+
 const invalid = message => { throw new AssetError('INVALID_GLTF', message); };
 const unsupported = message => { throw new AssetError('UNSUPPORTED', message); };
 const item = (array, index, name) => {

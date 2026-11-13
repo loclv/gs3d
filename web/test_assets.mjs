@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setMaterialEnvironmentIntensity, setOutputColorSpace, setToneMapping, setFXAA, AssetError } from './assets.js';
+import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setMaterialEnvironmentIntensity, setEnvironmentRotation, setOutputColorSpace, setToneMapping, setFXAA, AssetError } from './assets.js';
 
 const binary = new ArrayBuffer(78);
 const view = new DataView(binary);
@@ -416,6 +416,7 @@ function fakeEngine() {
   engine._g3_asset_material_sheen = (...args) => { calls.push(['material_sheen', ...args]); return true; };
   engine._g3_asset_material_anisotropy = (...args) => { calls.push(['material_anisotropy', ...args]); return true; };
   engine._g3_asset_material_environment = (...args) => { calls.push(['material_environment', ...args]); return true; };
+  engine._g3_asset_environment_rotation = radians => { calls.push(['environment_rotation', radians]); return Number.isFinite(radians) && Math.abs(radians) <= 3.4e38; };
   engine._g3_asset_material_uv_transform = (...args) => { calls.push(['material_uv_transform', ...args]); return true; };
   engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); const id = nextMesh++; meshGenerations.set(id, 1); return id; };
   engine._g3_host_mesh_update = (id, positions, normals, tangents, count) => {
@@ -947,6 +948,10 @@ unsupportedRequiredExtension.extensionsRequired = ['KHR_draco_mesh_compression']
 resources.set('http://localhost/unsupported-required-extension.gltf', bytes(unsupportedRequiredExtension));
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/unsupported-required-extension.gltf'), e => e.code === 'UNSUPPORTED');
 const image = await loadImage(engine, 'http://localhost/image.png');
+setEnvironmentRotation(engine, Math.PI / 2);
+assert.deepEqual(engine.calls.find(x => x[0] === 'environment_rotation'), ['environment_rotation', Math.PI / 2]);
+assert.throws(() => setEnvironmentRotation(engine, Infinity), e => e.code === 'ENVIRONMENT');
+assert.throws(() => setEnvironmentRotation({ _g3_asset_environment_rotation: () => false }, 0), e => e.code === 'ENVIRONMENT');
 setOutputColorSpace(engine, 'srgb');
 assert.deepEqual(engine.calls.find(x => x[0] === 'output_srgb'), ['output_srgb', 1]);
 assert.throws(() => setOutputColorSpace(engine, 'unknown'), e => e.code === 'COLOR_SPACE');

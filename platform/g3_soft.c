@@ -802,7 +802,9 @@ g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *ou
         (textures[vs->environment_texture].pixels || textures[vs->environment_texture].hdr_pixels)) {
         float env[4];
         float y = n.y < -1.0f ? -1.0f : n.y > 1.0f ? 1.0f : n.y;
-        sample_environment_lod(vs->environment_texture, atan2f(n.z, n.x) / 6.28318530718f + 0.5f,
+        float env_x = n.x * vs->env_rotation.x + n.z * vs->env_rotation.y;
+        float env_z = -n.x * vs->env_rotation.y + n.z * vs->env_rotation.x;
+        sample_environment_lod(vs->environment_texture, atan2f(env_z, env_x) / 6.28318530718f + 0.5f,
                                acosf(y) / 3.14159265359f, 0.0f, env);
         r += base[0] * env[0] * vs->environment_intensity * env_scale * ao * it->environment_intensity;
         g += base[1] * env[1] * vs->environment_intensity * env_scale * ao * it->environment_intensity;
@@ -820,12 +822,14 @@ g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *ou
                 float vd=bx*vx+by*vy+bz*vz,rrx=2.0f*vd*bx-vx,rry=2.0f*vd*by-vy,rrz=2.0f*vd*bz-vz,q=roughness*roughness;
                 rx=rrx+(bx-rrx)*q;ry=rry+(by-rry)*q;rz=rrz+(bz-rrz)*q;float rl=sqrtf(rx*rx+ry*ry+rz*rz);if(rl>1e-12f){rx/=rl;ry/=rl;rz/=rl;}
             }
+            float rotated_rx = rx * vs->env_rotation.x + rz * vs->env_rotation.y;
+            float rotated_rz = -rx * vs->env_rotation.y + rz * vs->env_rotation.x;
             float ryc=ry < -1.0f ? -1.0f : ry > 1.0f ? 1.0f : ry;
             float rough=fmaxf(0.045f,fminf(roughness,1.0f));
             soft_texture *environment=&textures[vs->environment_texture];
             int max_lod=environment->env_levels>1?environment->env_levels-1:environment->levels-1;
             float lod=rough*(float)max_lod, reflected[4];
-            sample_environment_lod(vs->environment_texture,atan2f(rz,rx)/6.28318530718f+0.5f,
+            sample_environment_lod(vs->environment_texture,atan2f(rotated_rz,rotated_rx)/6.28318530718f+0.5f,
                                    acosf(ryc)/3.14159265359f,lod,reflected);
             float nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f);
             float brdf_a,brdf_b;
@@ -843,9 +847,11 @@ g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *ou
                 float coat_nv=fmaxf(clearcoat_n.x*vx+clearcoat_n.y*vy+clearcoat_n.z*vz,0.0f);
                 float coat_dv=clearcoat_n.x*vx+clearcoat_n.y*vy+clearcoat_n.z*vz;
                 float crx=2.0f*coat_dv*clearcoat_n.x-vx, cry=2.0f*coat_dv*clearcoat_n.y-vy, crz=2.0f*coat_dv*clearcoat_n.z-vz;
+                float rotated_crx = crx * vs->env_rotation.x + crz * vs->env_rotation.y;
+                float rotated_crz = -crx * vs->env_rotation.y + crz * vs->env_rotation.x;
                 float coat_ry=cry < -1.0f ? -1.0f : cry > 1.0f ? 1.0f : cry;
                 float coat_lod=coat_rough*(float)max_lod, coat_reflected[4], coat_a, coat_b;
-                sample_environment_lod(vs->environment_texture,atan2f(crz,crx)/6.28318530718f+0.5f,
+                sample_environment_lod(vs->environment_texture,atan2f(rotated_crz,rotated_crx)/6.28318530718f+0.5f,
                                        acosf(coat_ry)/3.14159265359f,coat_lod,coat_reflected);
                 sample_brdf_lut(coat_nv,coat_rough,&coat_a,&coat_b);
                 for(int c=0;c<3;c++) coat[c]+=coat_reflected[c]*(0.04f*coat_a+coat_b)*vs->environment_intensity*ao*coat_factor*it->environment_intensity;
@@ -853,7 +859,7 @@ g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *ou
             float sheen_nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f);
             float sheen_fresnel=powf(1.0f-sheen_nv,5.0f);
             float sheen_lod=fmaxf(0.07f,fminf(sheen_roughness,1.0f))*(float)max_lod, sheen_reflected[4];
-            sample_environment_lod(vs->environment_texture,atan2f(rz,rx)/6.28318530718f+0.5f,
+            sample_environment_lod(vs->environment_texture,atan2f(rotated_rz,rotated_rx)/6.28318530718f+0.5f,
                                    acosf(ryc)/3.14159265359f,sheen_lod,sheen_reflected);
             r+=sheen_color[0]*sheen_reflected[0]*vs->environment_intensity*ao*sheen_fresnel*it->environment_intensity;
             g+=sheen_color[1]*sheen_reflected[1]*vs->environment_intensity*ao*sheen_fresnel*it->environment_intensity;

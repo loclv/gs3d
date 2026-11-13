@@ -275,6 +275,14 @@ fn set_environment_map(texture: i32, intensity: f32) {
     if texture >= 0 && texture < g_texture_count { g3p_texture_generate_env_mips(texture); }
 }
 
+// Rotate the equirectangular environment around world up. The stored pair
+// keeps trigonometry out of per-pixel shading in the CPU backend.
+fn set_environment_rotation(rotation: f32) -> bool {
+    guard rotation >= -3.4e38 && rotation <= 3.4e38 else { return false; }
+    g_view_state.env_rotation = float2 { cos(rotation), sin(rotation) };
+    return true;
+}
+
 // Remove an ordinary texture only when no live scene or environment field uses it.
 // Asset textures are released through their owning model.
 fn texture_remove(handle: TextureHandle) -> bool {

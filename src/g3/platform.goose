@@ -112,6 +112,7 @@ struct ViewState {
     target_width: i32, // render-target size, ignored when render_target is -1
     target_height: i32,
     view_proj: Mat4, // camera view-projection matrix, used for WebGL instancing
+    env_rotation: float2, // cosine and sine of the equirectangular yaw
 }
 
 // --- the backend interface

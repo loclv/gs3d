@@ -70,6 +70,7 @@ fn init(width: i32, height: i32, title: const u8[:]) -> bool {
     clear_lights();
     set_environment(float3_0, float3_0, 0.0);
     set_environment_map(-1, 0.0);
+    set_environment_rotation(0.0);
     clear_shadows();
     set_shadow_filter_radius(0);
     set_shadow_resolution(512);

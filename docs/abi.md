@@ -108,7 +108,7 @@ discarded, including in the shadow pass. Blended items read depth but do not
 write it; opaque and surviving mask fragments write depth. Texture alpha is
 ignored for opaque items.
 
-### `g3_view_state` — 1260 bytes
+### `g3_view_state` — 1268 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -140,8 +140,9 @@ ignored for opaque items.
 | 1188 | `int32_t` | `target_width` | selected render-target width, in pixels |
 | 1192 | `int32_t` | `target_height` | selected render-target height, in pixels |
 | 1196 | `g3_mat4` | `view_proj` | camera view-projection matrix, also used to form instanced MVP matrices |
+| 1260 | `g3_vec2` | `env_rotation` | cosine and sine of the equirectangular environment yaw |
 
-`ViewState` is 1260 bytes.
+`ViewState` is 1268 bytes.
 
 A selected target is a linear RGBA8 texture with RGB clamped to 0..1 and alpha
 fixed to 1. Its texture-coordinate origin is the lower-left, matching WebGL.

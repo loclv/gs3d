@@ -204,6 +204,9 @@ export function setEnvironmentMap(
   intensity?: number,
 ): void;
 
+/** Rotate an equirectangular environment around world up, in radians. */
+export function setEnvironmentRotation(engine: Goose3DEngine, radians: number): void;
+
 export function isMeshHandleValid(engine: Goose3DEngine, handle: ResourceHandle | null | undefined): boolean;
 export function isTextureHandleValid(engine: Goose3DEngine, handle: ResourceHandle | null | undefined): boolean;
 export function isMaterialHandleValid(engine: Goose3DEngine, handle: ResourceHandle | null | undefined): boolean;

@@ -720,6 +720,18 @@ fn case_lights() {
     g3::set_environment_map(env, 0.5);
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 16, 32, 48, 2), "material environment intensity scales texture fill");
+    let orientation_pixels: u8[8] = [255, 0, 0, 255, 0, 255, 0, 255];
+    let orientation = g3::texture_create(2, 1, orientation_pixels[..]);
+    g3::set_environment_map(orientation, 1.0);
+    let zero_rotation = g3::set_environment_rotation(0.0);
+    g3::frame(1.0 / 60.0);
+    let east_sample = g3::read_pixel(200, 200);
+    let half_turn = g3::set_environment_rotation(PI);
+    g3::frame(1.0 / 60.0);
+    testing::check(zero_rotation && half_turn && is_color(east_sample, 0, 128, 0, 2) &&
+                   is_color(g3::read_pixel(200, 200), 128, 0, 0, 2),
+                   "environment yaw rotates the diffuse equirectangular lookup by half a turn");
+    g3::set_environment_rotation(0.0);
     g3::set_environment_map(-1, 0.0);
     g3::material_remove(environment_material);
     testing::check(!g3::add_point_light(float3_0, float3_1, 0.0), "invalid light range is rejected");

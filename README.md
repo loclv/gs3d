@@ -422,7 +422,7 @@ near, so they are drawn after everything opaque and read the depth they should.
 `Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings,
 a double-sided flag, twelve texture-coordinate transforms, clearcoat and sheen factors and maps, and per-material environment intensity, 653 bytes. A
 `Vertex` is 120 bytes, including eight UV sets, tangent and colour. Its
-`ViewState` is 1260 bytes and includes eight extra lights, render-target selection, dimensions and
+`ViewState` is 1268 bytes and includes eight extra lights, render-target selection, dimensions and
 the shared camera view-projection matrix.
 `g3p_draw_frame` hands the backend a slice
 of them plus the frame's `ViewState`, and `platform/g3_abi.h`

@@ -94,6 +94,7 @@ typedef struct {
     GLint anisotropy, anisotropy_tex, anisotropy_textured;
     GLint uv_transform[13], uv_rotation[13], uv_set[13];
     GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut;
+    GLint env_rotation;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
     GLint spot_shadow_map, spot_shadow_matrix, spot_shadow_index, spot_shadow_params;
@@ -316,6 +317,7 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_env_map_enabled;\n"
     "uniform float u_env_map_intensity;\n"
     "uniform float u_env_map_max_lod;\n"
+    "uniform vec2 u_env_rotation;\n"
     "uniform sampler2D u_brdf_lut;\n"
     "uniform sampler2D u_shadow_map;\n"
     "uniform mat4 u_shadow_matrix;\n"
@@ -335,6 +337,7 @@ static const char *FRAGMENT_SRC =
     "uniform float u_exposure_inline;\n"
     "out vec4 out_color;\n"
     "vec2 material_uv(int slot) { int set=u_uv_set[slot]; vec2 coord=set==7?v_uv7:set==6?v_uv6:set==5?v_uv5:set==4?v_uv4:set==3?v_uv3:set==2?v_uv2:set==1?v_uv1:v_uv; vec2 scaled=coord*u_uv_transform[slot].zw; float c=cos(u_uv_rotation[slot]), s=sin(u_uv_rotation[slot]); return u_uv_transform[slot].xy+vec2(c*scaled.x-s*scaled.y,s*scaled.x+c*scaled.y); }\n"
+    "vec2 environment_uv(vec3 d) { d=vec3(d.x*u_env_rotation.x+d.z*u_env_rotation.y,d.y,-d.x*u_env_rotation.y+d.z*u_env_rotation.x); return vec2(atan(d.z,d.x)/6.28318530718+0.5,acos(clamp(d.y,-1.0,1.0))/3.14159265359); }\n"
     "float dielectric_f0(float ior) { float ratio=(clamp(ior,1.0,2.333)-1.0)/(clamp(ior,1.0,2.333)+1.0); return ratio*ratio; }\n"
     "vec3 tone_map_color(vec3 x,int mode) { x=max(x,vec3(0.0)); if(mode==1) return x/(vec3(1.0)+x); if(mode==2) return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); return x; }\n"
     "vec3 pbr_light(vec3 n, vec3 v, vec3 l, vec3 base, float metal, float rough, float ior, float specular_strength, vec3 specular_color) {\n"
@@ -465,17 +468,17 @@ static const char *FRAGMENT_SRC =
     "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
     "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale * ao * u_material_environment;\n"
     "    if (u_env_map_enabled) {\n"
-    "        vec2 env_uv = vec2(atan(n.z, n.x) / 6.28318530718 + 0.5, acos(clamp(n.y, -1.0, 1.0)) / 3.14159265359);\n"
+    "        vec2 env_uv = environment_uv(n);\n"
     "        col += base * textureLod(u_env_map, env_uv, 0.0).rgb * u_env_map_intensity * env_scale * ao * u_material_environment;\n"
     "        if (u_pbr.x > 0.5) {\n"
     "            vec3 env_n=n;if(aniso_strength>0.0){vec3 bent_cross=cross(aniso_b,v);vec3 bent=length(bent_cross)>1e-12?normalize(cross(bent_cross,aniso_b)):n;float bent_mix=pow(1.0-aniso_strength*(1.0-clamp(mr.y,0.0,1.0)),4.0);bent=normalize(mix(bent,n,bent_mix));vec3 bent_reflect=reflect(-v,bent);env_n=normalize(mix(bent_reflect,bent,clamp(mr.y,0.0,1.0)*clamp(mr.y,0.0,1.0)));}\n"
     "            vec3 reflected = reflect(-v, env_n);\n"
-    "            vec2 spec_uv = vec2(atan(reflected.z, reflected.x) / 6.28318530718 + 0.5, acos(clamp(reflected.y, -1.0, 1.0)) / 3.14159265359);\n"
+    "            vec2 spec_uv = environment_uv(reflected);\n"
     "            float rough = clamp(mr.y, 0.045, 1.0);\n"
     "            vec2 brdf = texture(u_brdf_lut, vec2(max(dot(n,v),0.0),rough)).rg;\n"
     "            col += textureLod(u_env_map, spec_uv, rough*u_env_map_max_lod).rgb * (f0*brdf.x+vec3(brdf.y)) * specular_weight * u_env_map_intensity * ao * u_material_environment;\n"
     "            vec3 coat_reflected = reflect(-v, clearcoat_n);\n"
-    "            vec2 coat_uv = vec2(atan(coat_reflected.z,coat_reflected.x)/6.28318530718+0.5,acos(clamp(coat_reflected.y,-1.0,1.0))/3.14159265359);\n"
+    "            vec2 coat_uv = environment_uv(coat_reflected);\n"
     "            vec2 coat_brdf = texture(u_brdf_lut, vec2(max(dot(clearcoat_n,v),0.0),coat_roughness)).rg;\n"
     "            coat += textureLod(u_env_map, coat_uv, coat_roughness*u_env_map_max_lod).rgb * (vec3(0.04*coat_brdf.x+coat_brdf.y)) * u_env_map_intensity * ao * coat_factor * u_material_environment;\n"
     "            float sheen_nv=max(dot(n,v),0.0); float sheen_fresnel=pow(1.0-sheen_nv,5.0);\n"
@@ -651,6 +654,7 @@ static void find_uniforms(void) {
     shader.env_map_enabled = glGetUniformLocation(shader.program, "u_env_map_enabled");
     shader.env_map_intensity = glGetUniformLocation(shader.program, "u_env_map_intensity");
     shader.env_map_max_lod = glGetUniformLocation(shader.program, "u_env_map_max_lod");
+    shader.env_rotation = glGetUniformLocation(shader.program, "u_env_rotation");
     shader.brdf_lut = glGetUniformLocation(shader.program, "u_brdf_lut");
     shader.shadow_map = glGetUniformLocation(shader.program, "u_shadow_map");
     shader.shadow_matrix = glGetUniformLocation(shader.program, "u_shadow_matrix");
@@ -1530,6 +1534,7 @@ static void bind_view(const g3_view_state *view) {
     glUniform1i(shader.env_map_enabled, has_env);
     glUniform1f(shader.env_map_intensity, view->environment_intensity);
     glUniform1f(shader.env_map_max_lod, has_prefilter ? (float)env_prefilter_max_lod : 0.0f);
+    glUniform2f(shader.env_rotation, view->env_rotation.x, view->env_rotation.y);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
     glUniform1i(shader.shadow_map, 2);

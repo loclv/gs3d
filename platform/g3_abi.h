@@ -110,6 +110,7 @@ typedef struct {
     int32_t render_target; /* texture id, -1 renders to surface */
     int32_t target_width, target_height;
     g3_mat4 view_proj;
+    g3_vec2 env_rotation; /* cosine and sine of equirectangular yaw */
 } g3_view_state;
 
 typedef struct { const g3_vertex *data; int64_t len; } g3_vertex_slice;
@@ -175,7 +176,7 @@ _Static_assert(offsetof(g3_draw_item, anisotropy_uv) == 625, "DrawItem.anisotrop
 _Static_assert(offsetof(g3_draw_item, environment_intensity) == 649, "DrawItem.environment_intensity offset");
 _Static_assert(sizeof(g3_light) == 56, "g3_light must be 56 bytes");
 _Static_assert(offsetof(g3_light, attenuation) == 52, "Light.attenuation offset");
-_Static_assert(sizeof(g3_view_state) == 1260, "g3_view_state must be 1260 bytes");
+_Static_assert(sizeof(g3_view_state) == 1268, "g3_view_state must be 1268 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");
 _Static_assert(offsetof(g3_view_state, light_count) == 548, "ViewState.light_count offset");
 _Static_assert(offsetof(g3_view_state, env_sky) == 552, "ViewState.env_sky offset");
@@ -195,6 +196,7 @@ _Static_assert(offsetof(g3_view_state, render_target) == 1184, "ViewState.render
 _Static_assert(offsetof(g3_view_state, target_width) == 1188, "ViewState.target_width offset");
 _Static_assert(offsetof(g3_view_state, target_height) == 1192, "ViewState.target_height offset");
 _Static_assert(offsetof(g3_view_state, view_proj) == 1196, "ViewState.view_proj offset");
+_Static_assert(offsetof(g3_view_state, env_rotation) == 1260, "ViewState.env_rotation offset");
 _Static_assert(offsetof(g3_draw_item, mvp) == 4, "DrawItem.mvp offset");
 _Static_assert(offsetof(g3_draw_item, color) == 132, "DrawItem.color offset");
 _Static_assert(offsetof(g3_draw_item, params) == 148, "DrawItem.params offset");

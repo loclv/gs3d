@@ -12,7 +12,7 @@ their declarations. Applications still build and initialize their own Goose
 WebAssembly engine before calling the helpers.
 
 ```js
-import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setToneMapping, setFXAA, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
+import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setEnvironmentRotation, setToneMapping, setFXAA, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
 
 try {
   setOutputColorSpace(engine, 'srgb'); // after engine startup
@@ -48,6 +48,7 @@ try {
 
   const environment = await loadHDRImage(engine, './studio.hdr');
   setEnvironmentMap(engine, environment, 0.8);
+  setEnvironmentRotation(engine, Math.PI / 2); // rotate the equirectangular map around world up
   setToneMapping(engine, true);
   setExposure(engine, 1.0); // accepted range is 0–32
   // When no longer needed: setEnvironmentMap(engine, null); environment.dispose();
@@ -125,6 +126,9 @@ hemispherical and equirectangular environment contribution for that material;
 it returns `false` for a stale, foreign, or invalid handle/value. The default
 multiplier is 1, and 0 disables environment lighting for that material while
 preserving its direct lights.
+`setEnvironmentRotation(engine, radians)` rotates the equirectangular
+environment around world up. It affects diffuse and reflection lookups, accepts
+finite radians, and leaves hemispherical sky/ground fill unchanged.
 `model.setMaterialEnvironmentIntensity(index, value)` resolves a glTF material
 index (or `-1` for the implicit default material) through that model's checked
 handles and returns `false` after disposal or for an unknown index.
