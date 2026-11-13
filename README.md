@@ -412,7 +412,7 @@ near, so they are drawn after everything opaque and read the depth they should.
 
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
 `Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings,
-a double-sided flag, seven texture-coordinate transforms, and clearcoat factors, 445 bytes. A
+a double-sided flag, nine texture-coordinate transforms, clearcoat factors and maps, 501 bytes. A
 `Vertex` is 120 bytes, including eight UV sets, tangent and colour. Its
 `ViewState` is 1020 bytes and includes render-target selection, dimensions and
 the shared camera view-projection matrix.

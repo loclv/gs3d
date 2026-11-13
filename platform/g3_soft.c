@@ -508,7 +508,8 @@ uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height) {
 static int samples_texture(const g3_draw_item *it, int32_t id) {
     return it->texture == id || it->metallic_roughness_texture == id || it->normal_texture == id ||
            it->occlusion_texture == id || it->emissive_texture == id || it->specular_texture == id ||
-           it->specular_color_texture == id;
+           it->specular_color_texture == id || it->clearcoat_texture == id ||
+           it->clearcoat_roughness_texture == id;
 }
 
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
@@ -699,7 +700,8 @@ static void sample_brdf_lut(float nv, float roughness, float *a, float *b) {
 
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
                   const g3_vec3 wp, g3_vec3 n, const float tex[3], const float vertex_color[4], const float mr[4], float ao,
-                  const float emission[3], float specular_strength, const float specular_color[3], float *out_rgb) {
+                  const float emission[3], float specular_strength, const float specular_color[3],
+                  float material_clearcoat, float material_clearcoat_roughness, float *out_rgb) {
     float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 1e-12f) { n.x /= len; n.y /= len; n.z /= len; }
     else { n.x = n.y = n.z = 0.0f; }
@@ -723,8 +725,8 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
 
     float amb = vs->ambient.w;
     float visible = shadow_visibility(vs, wp);
-    float coat_factor = fmaxf(0.0f, fminf(it->clearcoat.x, 1.0f));
-    float coat_roughness = fmaxf(0.045f, fminf(it->clearcoat.y, 1.0f));
+    float coat_factor = fmaxf(0.0f, fminf(material_clearcoat, 1.0f));
+    float coat_roughness = fmaxf(0.045f, fminf(material_clearcoat_roughness, 1.0f));
     float coat[3] = {0.0f, 0.0f, 0.0f};
     float base[3] = { it->color.x * vertex_color[0] * tex[0], it->color.y * vertex_color[1] * tex[1], it->color.z * vertex_color[2] * tex[2] };
     float r = base[0] * (vs->ambient.x * amb * ao + vs->light_color.x * diff * visible) + vs->light_color.x * spec * visible;
@@ -1505,6 +1507,7 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             n.z = t->nrm[0][2] * b0 + t->nrm[1][2] * b1 + t->nrm[2][2] * b2;
 
             float rgb[3], tex[4], emissive_tex[4], emission[3], mr[4] = { 1, 1, 1, 1 }, ao = 1.0f;
+            float clearcoat = it->clearcoat.x, clearcoat_roughness = it->clearcoat.y;
             float u, v;
             interpolate_uv(t,it->base_color_uv.texcoord,b0,b1,b2,&u,&v);
             float nl=sqrtf(n.x*n.x+n.y*n.y+n.z*n.z);
@@ -1591,12 +1594,27 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
                 sample_texture(it->specular_color_texture,su,sv,texture_footprint(t,it->specular_color_texture,&it->specular_color_uv,l0,l1,l2,raw_u,raw_v),sample);
                 for (int c=0;c<3;c++) specular_color[c]*=sample[c];
             }
+            if (it->clearcoat_texture >= 0) {
+                float raw_u,raw_v,cu,cv,sample[4];
+                interpolate_uv(t,it->clearcoat_uv.texcoord,b0,b1,b2,&raw_u,&raw_v);
+                transform_uv(&it->clearcoat_uv,raw_u,raw_v,&cu,&cv);
+                sample_texture(it->clearcoat_texture,cu,cv,texture_footprint(t,it->clearcoat_texture,&it->clearcoat_uv,l0,l1,l2,raw_u,raw_v),sample);
+                clearcoat*=sample[0];
+            }
+            if (it->clearcoat_roughness_texture >= 0) {
+                float raw_u,raw_v,cu,cv,sample[4];
+                interpolate_uv(t,it->clearcoat_roughness_uv.texcoord,b0,b1,b2,&raw_u,&raw_v);
+                transform_uv(&it->clearcoat_roughness_uv,raw_u,raw_v,&cu,&cv);
+                sample_texture(it->clearcoat_roughness_texture,cu,cv,texture_footprint(t,it->clearcoat_roughness_texture,&it->clearcoat_roughness_uv,l0,l1,l2,raw_u,raw_v),sample);
+                clearcoat_roughness*=sample[1];
+            }
             float alpha = it->color.w * vertex_color[3] * tex[3];
             if (it->alpha_mode == 1 && alpha < it->alpha_cutoff) continue;
             if (it->double_sided && t->normal_sign < 0.0f) {
                 n.x = -n.x; n.y = -n.y; n.z = -n.z;
             }
-            shade(it, vs, wp, n, tex, vertex_color, mr, ao, emission, specular_strength, specular_color, rgb);
+            shade(it, vs, wp, n, tex, vertex_color, mr, ao, emission, specular_strength, specular_color,
+                  clearcoat, clearcoat_roughness, rgb);
             if (counting) shaded += 1;
             if (vs->params.z > 0.5f) blend_pixel_hdr(hdr_fb + at * 3, rgb, alpha, blended);
             else blend_pixel(fb + at * 3, rgb, alpha, blended);

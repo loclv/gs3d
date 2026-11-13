@@ -875,6 +875,12 @@ fn case_ordinary_texture_removal() {
     let material = g3::material_add();
     g3::material(material).normal_texture = texture;
     testing::check(!g3::texture_remove(handle), "a texture referenced by a live material cannot be removed");
+    g3::material(material).normal_texture = -1;
+    g3::material(material).clearcoat_texture = texture;
+    testing::check(!g3::texture_remove(handle), "a clearcoat strength map keeps its texture alive");
+    g3::material(material).clearcoat_texture = -1;
+    g3::material(material).clearcoat_roughness_texture = texture;
+    testing::check(!g3::texture_remove(handle), "a clearcoat roughness map keeps its texture alive");
     g3::material_remove(material);
     g3::set_environment_map(texture, 1.0);
     testing::check(!g3::texture_remove(handle), "the active environment texture cannot be removed");
@@ -1223,7 +1229,18 @@ fn case_pbr() {
     g3::material(mat).clearcoat_roughness = 0.5;
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 26, 26, 26, 2), "clearcoat adds a GGX top layer and Fresnel attenuates the base");
+    let clearcoat_off: u8[4] = [0, 255, 255, 255];
+    g3::material(mat).clearcoat_texture = g3::texture_create(1, 1, clearcoat_off[..]);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 20, 20, 20, 2), "clearcoat strength map red channel disables the top layer");
+    let clearcoat_on: u8[4] = [255, 0, 0, 255];
+    g3::material(mat).clearcoat_texture = g3::texture_create(1, 1, clearcoat_on[..]);
+    g3::material(mat).clearcoat_roughness_texture = g3::texture_create(1, 1, clearcoat_on[..]);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "clearcoat roughness map green channel sharpens the top highlight");
     g3::material(mat).clearcoat_factor = 0.0;
+    g3::material(mat).clearcoat_texture = -1;
+    g3::material(mat).clearcoat_roughness_texture = -1;
     // At IOR 2.333, dielectric F0 is about 0.16. For roughness 1 the
     // normal-incidence response is 0.5 * (0.84*0.5/pi + 0.16/(4*pi))
     // = 0.0732, or 19/255.

@@ -535,7 +535,7 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
   const material = materialIndex === undefined ? {} : item(doc.materials, materialIndex, 'material');
   if (material.name !== undefined && typeof material.name !== 'string') invalid('Invalid material name');
   let unlit = false, emissiveStrength = 1, ior = 1.5;
-  let clearcoatFactor = 0, clearcoatRoughness = 0;
+  let clearcoatFactor = 0, clearcoatRoughness = 0, clearcoatExtension = null;
   let specularFactor = 1, specularColorFactor = [1, 1, 1], specularExtension = null;
   if (material.extensions !== undefined) {
     if (!material.extensions || typeof material.extensions !== 'object' || Array.isArray(material.extensions)) invalid('Invalid material extensions');
@@ -574,12 +574,12 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
     }
     if (materialExtensions.includes('KHR_materials_clearcoat')) {
       if (!extensionsUsed.includes('KHR_materials_clearcoat')) invalid('KHR_materials_clearcoat must be listed in extensionsUsed');
-      const extension = material.extensions.KHR_materials_clearcoat;
-      if (!extension || typeof extension !== 'object' || Array.isArray(extension)) invalid('Invalid KHR_materials_clearcoat extension');
-      clearcoatFactor = extension.clearcoatFactor ?? 0;
-      clearcoatRoughness = extension.clearcoatRoughnessFactor ?? 0;
+      clearcoatExtension = material.extensions.KHR_materials_clearcoat;
+      if (!clearcoatExtension || typeof clearcoatExtension !== 'object' || Array.isArray(clearcoatExtension)) invalid('Invalid KHR_materials_clearcoat extension');
+      clearcoatFactor = clearcoatExtension.clearcoatFactor ?? 0;
+      clearcoatRoughness = clearcoatExtension.clearcoatRoughnessFactor ?? 0;
       if (![clearcoatFactor, clearcoatRoughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid clearcoat factor');
-      if (extension.clearcoatTexture || extension.clearcoatRoughnessTexture || extension.clearcoatNormalTexture) unsupported('KHR_materials_clearcoat textures are not supported yet');
+      if (clearcoatExtension.clearcoatNormalTexture) unsupported('KHR_materials_clearcoat normal maps are not supported yet');
       if (unlit) invalid('KHR_materials_clearcoat cannot be combined with KHR_materials_unlit');
     }
   }
@@ -597,6 +597,8 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
   const metallicRoughnessUvTransform = pbr.metallicRoughnessTexture ? parseTextureTransform(pbr.metallicRoughnessTexture, extensionsUsed) : identityUvTransform();
   const specularUvTransform = specularExtension?.specularTexture ? parseTextureTransform(specularExtension.specularTexture, extensionsUsed) : identityUvTransform();
   const specularColorUvTransform = specularExtension?.specularColorTexture ? parseTextureTransform(specularExtension.specularColorTexture, extensionsUsed) : identityUvTransform();
+  const clearcoatUvTransform = clearcoatExtension?.clearcoatTexture ? parseTextureTransform(clearcoatExtension.clearcoatTexture, extensionsUsed) : identityUvTransform();
+  const clearcoatRoughnessUvTransform = clearcoatExtension?.clearcoatRoughnessTexture ? parseTextureTransform(clearcoatExtension.clearcoatRoughnessTexture, extensionsUsed) : identityUvTransform();
   let normalTextureIndex = -1;
   const normalScale = material.normalTexture?.scale ?? 1;
   if (material.normalTexture) {
@@ -638,6 +640,17 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
     item(textureSpecs, specularExtension.specularColorTexture.index, 'specular color texture');
     specularColorTextureIndex = specularExtension.specularColorTexture.index;
   }
+  let clearcoatTextureIndex = -1, clearcoatRoughnessTextureIndex = -1;
+  if (clearcoatExtension?.clearcoatTexture) {
+    if (!availableUvSets[clearcoatUvTransform.texcoord]) unsupported('Unsupported clearcoat texture coordinates');
+    item(textureSpecs, clearcoatExtension.clearcoatTexture.index, 'clearcoat texture');
+    clearcoatTextureIndex = clearcoatExtension.clearcoatTexture.index;
+  }
+  if (clearcoatExtension?.clearcoatRoughnessTexture) {
+    if (!availableUvSets[clearcoatRoughnessUvTransform.texcoord]) unsupported('Unsupported clearcoat roughness texture coordinates');
+    item(textureSpecs, clearcoatExtension.clearcoatRoughnessTexture.index, 'clearcoat roughness texture');
+    clearcoatRoughnessTextureIndex = clearcoatExtension.clearcoatRoughnessTexture.index;
+  }
   const metallic = pbr.metallicFactor ?? 1, roughness = pbr.roughnessFactor ?? 1;
   if (![metallic, roughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid metallic or roughness factor');
   const color = pbr.baseColorFactor || [1, 1, 1, 1];
@@ -655,8 +668,10 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
     emissive: emissive.map(value => value * emissiveStrength), emissiveTextureIndex,
     doubleSided: material.doubleSided ?? false, unlit, ior, specularFactor, specularColorFactor,
     specularTextureIndex, specularColorTextureIndex, clearcoatFactor, clearcoatRoughness,
+    clearcoatTextureIndex, clearcoatRoughnessTextureIndex,
     uvTransforms: [baseUvTransform, metallicRoughnessUvTransform, normalUvTransform, occlusionUvTransform,
-      emissiveUvTransform, specularUvTransform, specularColorUvTransform], materialIndex: materialIndex ?? -1 };
+      emissiveUvTransform, specularUvTransform, specularColorUvTransform, clearcoatUvTransform,
+      clearcoatRoughnessUvTransform], materialIndex: materialIndex ?? -1 };
 }
 
 function inspectMaterial(spec) {
@@ -666,6 +681,7 @@ function inspectMaterial(spec) {
     ['normal', spec.normalTextureIndex], ['occlusion', spec.occlusionTextureIndex],
     ['emissive', spec.emissiveTextureIndex], ['specular', spec.specularTextureIndex],
     ['specularColor', spec.specularColorTextureIndex],
+    ['clearcoat', spec.clearcoatTextureIndex], ['clearcoatRoughness', spec.clearcoatRoughnessTextureIndex],
   ].filter(([, index]) => index >= 0).map(([name]) => name);
   return Object.freeze({
     index: spec.materialIndex, name: spec.name,
@@ -1227,7 +1243,8 @@ export async function loadGLTF(engine, url, options = {}) {
         getTexture(spec.specularTextureIndex, false), getTexture(spec.specularColorTextureIndex, true))) {
         throw new AssetError('UPLOAD', 'Could not set material specular properties');
       }
-      if (!engine._g3_asset_material_clearcoat(id, spec.clearcoatFactor, spec.clearcoatRoughness)) {
+      if (!engine._g3_asset_material_clearcoat(id, spec.clearcoatFactor, spec.clearcoatRoughness,
+        getTexture(spec.clearcoatTextureIndex, false), getTexture(spec.clearcoatRoughnessTextureIndex, false))) {
         throw new AssetError('UPLOAD', 'Could not set material clearcoat properties');
       }
       for (let slot = 0; slot < spec.uvTransforms.length; slot++) {

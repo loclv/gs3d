@@ -51,7 +51,7 @@ The procedural checklist lives in
 selected `texcoord` set (0 through 7). The renderer scales the selected UV, rotates
 it, then adds the offset.
 
-### `g3_draw_item` — 445 bytes
+### `g3_draw_item` — 501 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -84,6 +84,9 @@ it, then adds the offset.
 | 381 | `g3_uv_transform` | `specular_uv` | specular-strength UV offset, scale, rotation and set |
 | 405 | `g3_uv_transform` | `specular_color_uv` | specular-colour UV offset, scale, rotation and set |
 | 429 | `g3_vec4` | `clearcoat` | x clearcoat factor, y clearcoat roughness |
+| 445 | `int32_t[2]` | `clearcoat_texture`, `clearcoat_roughness_texture` | linear R strength and G roughness maps; -1 disables |
+| 453 | `g3_uv_transform` | `clearcoat_uv` | clearcoat strength-map transform |
+| 477 | `g3_uv_transform` | `clearcoat_roughness_uv` | clearcoat roughness-map transform |
 
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).

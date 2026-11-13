@@ -59,6 +59,10 @@ struct DrawItem {
     specular_uv: UvTransform,
     specular_color_uv: UvTransform,
     clearcoat: float4, // x factor, y roughness; z/w reserved
+    clearcoat_texture: i32,
+    clearcoat_roughness_texture: i32,
+    clearcoat_uv: UvTransform,
+    clearcoat_roughness_uv: UvTransform,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

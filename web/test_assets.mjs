@@ -546,16 +546,30 @@ assert.equal(specularEngine.calls.filter(call => call[0] === 'texture').length, 
 assert.equal(specularEngine.calls.filter(call => call[0] === 'texture_srgb').length, 1, 'specular color shares its sRGB upload with base color');
 specularModel.dispose();
 const clearcoatDoc = structuredClone(doc);
-clearcoatDoc.extensionsUsed = ['KHR_materials_clearcoat'];
+clearcoatDoc.buffers.push({ byteLength: 24, uri: 'clearcoat-uv.bin' });
+clearcoatDoc.bufferViews.push({ buffer: 1, byteLength: 24 });
+clearcoatDoc.accessors.push({ bufferView: 3, componentType: 5126, count: 3, type: 'VEC2' });
+clearcoatDoc.meshes[0].primitives[0].attributes.TEXCOORD_0 = 3;
+clearcoatDoc.images = [{ uri: 'image.png' }];
+clearcoatDoc.textures = [{ source: 0 }];
+clearcoatDoc.extensionsUsed = ['KHR_materials_clearcoat', 'KHR_texture_transform'];
 clearcoatDoc.extensionsRequired = ['KHR_materials_clearcoat'];
-clearcoatDoc.materials[0].extensions = { KHR_materials_clearcoat: { clearcoatFactor: 0.7, clearcoatRoughnessFactor: 0.25 } };
+clearcoatDoc.materials[0].extensions = { KHR_materials_clearcoat: {
+  clearcoatFactor: 0.7, clearcoatRoughnessFactor: 0.25,
+  clearcoatTexture: { index: 0, extensions: { KHR_texture_transform: { offset: [0.25, 0.5] } } },
+  clearcoatRoughnessTexture: { index: 0, extensions: { KHR_texture_transform: { scale: [2, 3] } } },
+} };
 resources.set('http://localhost/clearcoat.gltf', bytes(clearcoatDoc));
+resources.set('http://localhost/clearcoat-uv.bin', new ArrayBuffer(24));
 const clearcoatEngine = fakeEngine(), clearcoatModel = await loadGLTF(clearcoatEngine, 'http://localhost/clearcoat.gltf');
-assert.deepEqual(clearcoatEngine.calls.find(call => call[0] === 'material_clearcoat'), ['material_clearcoat', 1, 0.7, 0.25]);
+assert.deepEqual(clearcoatEngine.calls.find(call => call[0] === 'material_clearcoat'), ['material_clearcoat', 1, 0.7, 0.25, 5, 5]);
 assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.clearcoatFactor, 0.7);
 assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.clearcoatRoughnessFactor, 0.25);
+assert.deepEqual(clearcoatModel.nodes[0].primitiveMaterials[0].default.textureSlots.slice(-2), ['clearcoat', 'clearcoatRoughness']);
+assert.equal(clearcoatEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 7)[3], 0.25);
+assert.equal(clearcoatEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 8)[5], 2);
 clearcoatModel.dispose();
-clearcoatDoc.materials[0].extensions.KHR_materials_clearcoat.clearcoatTexture = { index: 0 };
+clearcoatDoc.materials[0].extensions.KHR_materials_clearcoat.clearcoatNormalTexture = { index: 0 };
 resources.set('http://localhost/clearcoat-texture.gltf', bytes(clearcoatDoc));
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/clearcoat-texture.gltf'), e => e.code === 'UNSUPPORTED');
 specularDoc.materials[0].extensions.KHR_materials_specular.specularFactor = 1.1;
