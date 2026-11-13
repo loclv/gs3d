@@ -22,12 +22,12 @@ If you find yourself wanting a GL call in Goose, the value belongs in a
 
 ## Recipe: a texture on a material
 
-1. **Vertex.** `src/g3/platform.goose`: add `uv: float2` to `Vertex` (24 → 32
-   bytes). `platform/g3_abi.h`: same field, bump `sizeof(g3_vertex)` assert.
-   Every mesh builder in `src/g3/mesh.goose` must now push uvs — for the
-   primitives, a planar or spherical mapping; `push_vertex(p, n)` gains a uv
-   argument (or a second `push_vertex(p, n, uv)` overload if you prefer to keep
-   the old call sites).
+1. **Vertex.** `Vertex` currently stores position, normal, three UV sets,
+   tangent and colour (80 bytes). Add per-vertex data to both
+   `src/g3/platform.goose` and `platform/g3_abi.h`, update the size/offset
+   asserts, every constructor in `src/g3/mesh.goose`, and both backends' vertex
+   layouts. Built-in geometry uses white vertex colour and zero for unused UV
+   sets; preserve those defaults.
 2. **Texture storage.** Two options, pick one deliberately:
    * *Engine-side arena*: `var g_texels: u8[>..]` plus a `Texture { id, width,
      height, first, count }` record arena, mirroring `mesh.goose`. Uploaded once

@@ -25,8 +25,9 @@ typedef struct { float x, y, z, w; } g3_vec4;
 typedef struct { float m[16]; } g3_mat4;          /* column-major */
 typedef struct { g3_vec2 offset, scale; float rotation; int32_t texcoord; } g3_uv_transform;
 
-/* Tangent.xyz is local direction and w is handedness; zero xyz derives it from UVs. */
-typedef struct { g3_vec3 pos, normal; g3_vec2 uv, uv1, uv2; g3_vec4 tangent; } g3_vertex;
+/* Tangent.xyz is local direction and w is handedness; zero xyz derives it from UVs.
+   Vertex colour is linear RGBA and defaults to white. */
+typedef struct { g3_vec3 pos, normal; g3_vec2 uv, uv1, uv2; g3_vec4 tangent, color; } g3_vertex;
 
 /* One primitive: mesh, matrices, colour, and the shading parameters.
    params.x is 1 for unlit, .y specular strength, .z shininess, .w 1 when
@@ -96,6 +97,7 @@ typedef struct {
     int32_t post_process; /* bit 0 enables FXAA */
     int32_t render_target; /* texture id, -1 renders to surface */
     int32_t target_width, target_height;
+    g3_mat4 view_proj;
 } g3_view_state;
 
 typedef struct { const g3_vertex *data; int64_t len; } g3_vertex_slice;
@@ -107,11 +109,12 @@ typedef struct { const float *data; int64_t len; } g3_f32_slice;
 
 #pragma pack(pop)
 
-_Static_assert(sizeof(g3_vertex) == 64, "g3_vertex must be 64 bytes");
+_Static_assert(sizeof(g3_vertex) == 80, "g3_vertex must be 80 bytes");
 _Static_assert(offsetof(g3_vertex, uv) == 24, "Vertex.uv offset");
 _Static_assert(offsetof(g3_vertex, uv1) == 32, "Vertex.uv1 offset");
 _Static_assert(offsetof(g3_vertex, uv2) == 40, "Vertex.uv2 offset");
 _Static_assert(offsetof(g3_vertex, tangent) == 48, "Vertex.tangent offset");
+_Static_assert(offsetof(g3_vertex, color) == 64, "Vertex.color offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
 _Static_assert(sizeof(g3_draw_item) == 429, "g3_draw_item must be 429 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
@@ -138,7 +141,7 @@ _Static_assert(offsetof(g3_draw_item, specular_color_texture) == 377, "DrawItem.
 _Static_assert(offsetof(g3_draw_item, specular_uv) == 381, "DrawItem.specular_uv offset");
 _Static_assert(offsetof(g3_draw_item, specular_color_uv) == 405, "DrawItem.specular_color_uv offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
-_Static_assert(sizeof(g3_view_state) == 956, "g3_view_state must be 956 bytes");
+_Static_assert(sizeof(g3_view_state) == 1020, "g3_view_state must be 1020 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");
 _Static_assert(offsetof(g3_view_state, light_count) == 308, "ViewState.light_count offset");
 _Static_assert(offsetof(g3_view_state, env_sky) == 312, "ViewState.env_sky offset");
@@ -157,6 +160,7 @@ _Static_assert(offsetof(g3_view_state, post_process) == 940, "ViewState.post_pro
 _Static_assert(offsetof(g3_view_state, render_target) == 944, "ViewState.render_target offset");
 _Static_assert(offsetof(g3_view_state, target_width) == 948, "ViewState.target_width offset");
 _Static_assert(offsetof(g3_view_state, target_height) == 952, "ViewState.target_height offset");
+_Static_assert(offsetof(g3_view_state, view_proj) == 956, "ViewState.view_proj offset");
 _Static_assert(offsetof(g3_draw_item, mvp) == 4, "DrawItem.mvp offset");
 _Static_assert(offsetof(g3_draw_item, color) == 132, "DrawItem.color offset");
 _Static_assert(offsetof(g3_draw_item, params) == 148, "DrawItem.params offset");

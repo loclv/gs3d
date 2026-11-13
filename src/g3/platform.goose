@@ -21,7 +21,8 @@ namespace g3;
 
 // UV (0,0) addresses the first row of the supplied RGBA image. A zero tangent
 // selects the backend's UV-derived frame; otherwise tangent.w is handedness.
-struct Vertex { pos: float3, normal: float3, uv: float2, uv1: float2, uv2: float2, tangent: float4 }
+// Vertex colour is linear RGBA; white leaves the material base colour intact.
+struct Vertex { pos: float3, normal: float3, uv: float2, uv1: float2, uv2: float2, tangent: float4, color: float4 }
 struct UvTransform { offset: float2, scale: float2, rotation: f32, texcoord: i32 }
 
 // One triangle soup to draw with one state: mesh, its matrices, its colour.
@@ -92,6 +93,7 @@ struct ViewState {
     render_target: i32, // texture id to render into, -1 for the surface
     target_width: i32, // render-target size, ignored when render_target is -1
     target_height: i32,
+    view_proj: Mat4, // camera view-projection matrix, used for WebGL instancing
 }
 
 // --- the backend interface

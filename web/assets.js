@@ -566,9 +566,17 @@ async function prepare(url) {
     const uv1 = p.attributes?.TEXCOORD_1 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_1, 'VEC2');
     const uv2 = p.attributes?.TEXCOORD_2 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_2, 'VEC2');
     const tangent = p.attributes?.TANGENT === undefined ? null : accessor(doc, buffers, p.attributes.TANGENT, 'VEC4');
+    const colorIndex = p.attributes?.COLOR_0;
+    const colorType = colorIndex === undefined ? null : item(doc.accessors, colorIndex, 'COLOR_0 accessor').type;
+    if (colorType !== null && colorType !== 'VEC3' && colorType !== 'VEC4') invalid('Invalid COLOR_0 accessor type');
+    const vertexColor = colorType === null ? null : accessor(doc, buffers, colorIndex, colorType);
     if (pos.componentType !== 5126 || normal.componentType !== 5126 || pos.count !== normal.count ||
         [uv, uv1, uv2].some(coord => coord && (coord.count !== pos.count ||
           !((coord.componentType === 5126 && !coord.normalized) || ([5121, 5123].includes(coord.componentType) && coord.normalized)))) ||
+        (vertexColor && (vertexColor.count !== pos.count ||
+          !((vertexColor.componentType === 5126 && !vertexColor.normalized) ||
+            ([5121, 5123].includes(vertexColor.componentType) && vertexColor.normalized)) ||
+          vertexColor.values.some(value => value < 0 || value > 1))) ||
         (tangent && (tangent.componentType !== 5126 || tangent.normalized || tangent.count !== pos.count ||
           tangent.values.some((value, index) => index % 4 === 3 && Math.abs(Math.abs(value) - 1) > 1e-4)))) invalid('Invalid vertex attributes');
     const joints = [], weights = [];
@@ -706,7 +714,9 @@ async function prepare(url) {
       textureIndex = pbr.baseColorTexture.index;
     }
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
-    return { pos: pos.values, normal: normal.values, uv: uv?.values, uv1: uv1?.values, uv2: uv2?.values, tangent: tangent?.values, joints, weights, targets, indices,
+    return { pos: pos.values, normal: normal.values, uv: uv?.values, uv1: uv1?.values, uv2: uv2?.values,
+      vertexColor: vertexColor?.values, colorComponents: colorType === 'VEC3' ? 3 : vertexColor ? 4 : 0,
+      tangent: tangent?.values, joints, weights, targets, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
@@ -1094,7 +1104,9 @@ export async function loadGLTF(engine, url) {
           ...p.pos.slice(i*3, i*3+3), ...p.normal.slice(i*3, i*3+3), ...(p.uv ? p.uv.slice(i*2, i*2+2) : [0, 0]),
           ...(p.uv1 ? p.uv1.slice(i*2, i*2+2) : [0, 0]),
           ...(p.uv2 ? p.uv2.slice(i*2, i*2+2) : [0, 0]),
-          ...(useAuthoredTangents ? p.tangent.slice(i*4, i*4+4) : [0, 0, 0, 0]));
+          ...(useAuthoredTangents ? p.tangent.slice(i*4, i*4+4) : [0, 0, 0, 0]),
+          ...(p.vertexColor ? p.vertexColor.slice(i*p.colorComponents, i*p.colorComponents+p.colorComponents) : [1, 1, 1, 1]),
+          ...(p.vertexColor && p.colorComponents === 3 ? [1] : []));
         for (let i = 0; i < p.indices.length; i += 3) engine._g3_asset_triangle(...p.indices.slice(i, i+3));
         const mesh = engine._g3_asset_mesh_end();
         const meshHandle = makeResourceHandle(engine, mesh, 'mesh');

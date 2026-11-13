@@ -143,8 +143,11 @@ fetches and decodes assets in JavaScript.
 * `.gltf` JSON and `.glb` version 2, with external, data-URI, or GLB binary
   buffers; images may be external, data-URI, or stored in buffer views.
 * The selected scene's hierarchy, matrix or TRS transforms, indexed or
-  non-indexed triangle primitives, float positions and normals, and optional
-  `TEXCOORD_0`, `TEXCOORD_1`, and `TEXCOORD_2`. Positions and normals are required.
+  non-indexed triangle primitives, float positions and normals, optional
+  `TEXCOORD_0`, `TEXCOORD_1`, and `TEXCOORD_2`, and optional `COLOR_0` as float
+  `VEC3`/`VEC4` or normalized unsigned-byte/unsigned-short `VEC3`/`VEC4`.
+  Vertex colours are linear and multiply the base-colour factor and texture;
+  `VEC3` supplies alpha 1. Positions and normals are required.
 * Optional float `VEC4` `TANGENT` attributes with handedness `w` of `-1` or `1`.
   Authored tangents are used on static and skinned, non-morphed meshes. Skinning
   transforms the tangent directions alongside positions and normals. Morphed
@@ -172,6 +175,8 @@ fetches and decodes assets in JavaScript.
   replacements are applied. Decoded accessor data is capped at 8,388,608 scalar
   components per accessor.
 * Opaque, masked and blended base-colour factors and base-colour textures.
+  `COLOR_0` is multiplied into base colour; its alpha also participates in mask
+  and blend alpha, while opaque materials ignore alpha.
   `KHR_materials_unlit` selects unlit shading for a material.
   `KHR_materials_ior` sets the dielectric Fresnel reflectance used by direct
   and environment lighting; its supported range is 1.0 to 2.333, with a

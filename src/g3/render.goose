@@ -361,6 +361,7 @@ fn begin_frame(time: f64, width: i32, height: i32) {
     let h = if rh < 1 { 1 } else { rh };
     g_view = mat4_look_at(g_camera.pos, g_camera.target, g_camera.up);
     g_view_proj = mat4_mul(camera_projection(g_camera, w as f32 / h), g_view);
+    g_view_state.view_proj = g_view_proj;
     g_frustum = frustum_from_view_proj(g_view_proj);
     g_view_state.eye = g_camera.pos;
     // The third row of look-at points from the scene toward the camera.

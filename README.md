@@ -288,7 +288,9 @@ What the API gives you:
   `texture_handle` and `texture_handle_valid` check ordinary and asset textures;
   `texture_remove(handle)` releases an ordinary texture only when no live node,
   material or environment uses it. Asset textures are released by their owner.
-  Built-in meshes have UVs; custom meshes can use `push_vertex_uv`,
+  Built-in meshes have UVs and white vertex colours; custom `Vertex` values can
+  set linear RGBA vertex colours. glTF `COLOR_0` multiplies the material base
+  colour, and custom meshes can use `push_vertex_uv`,
   `push_vertex_uv_sets` for two UV sets, `push_vertex_uv_3sets` for three, or
   `push_vertex_uv_tangent` to provide a tangent and handedness for normal maps.
   Both backends support nearest, linear, and mipmapped filtering via
@@ -298,7 +300,8 @@ What the API gives you:
   browser asset loader. The game demonstrates browser-side decoding. Texture RGB
   multiplies the node colour. `node.alpha_mode` chooses colour-driven blending
   (0), an alpha cutoff (1), or blending (2). Masking and blending multiply
-  texture alpha by node colour alpha; opaque items ignore texture alpha.
+  texture alpha, vertex colour alpha and node colour alpha; opaque items ignore
+  resulting alpha.
   Use `texture_create_srgb` for sRGB colour images; RGB is decoded before
   filtering and alpha stays linear. `set_output_srgb(true)` renders and blends
   in linear space before encoding the finished frame. Output encoding is opt-in
@@ -407,8 +410,10 @@ near, so they are drawn after everything opaque and read the depth they should.
 
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
 `Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings,
-a double-sided flag and seven texture-coordinate transforms, 429 bytes. Its
-`ViewState` is 956 bytes and includes render-target selection and dimensions.
+a double-sided flag and seven texture-coordinate transforms, 429 bytes. A
+`Vertex` is 80 bytes, including three UV sets, tangent and colour. Its
+`ViewState` is 1020 bytes and includes render-target selection, dimensions and
+the shared camera view-projection matrix.
 `g3p_draw_frame` hands the backend a slice
 of them plus the frame's `ViewState`, and `platform/g3_abi.h`
 static-asserts every offset, so the Goose and C sides cannot drift apart

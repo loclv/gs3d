@@ -15,8 +15,8 @@ export fn g3_asset_mesh_begin() {
     asset_vertices.clear();
     asset_indices.clear();
 }
-export fn g3_asset_vertex(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, u: f32, v: f32, u1: f32, v1: f32, u2: f32, v2: f32, tx: f32, ty: f32, tz: f32, tw: f32) {
-    asset_vertices.push(g3::Vertex { pos: float3 { x, y, z }, normal: float3 { nx, ny, nz }, uv: float2 { u, v }, uv1: float2 { u1, v1 }, uv2: float2 { u2, v2 }, tangent: float4 { tx, ty, tz, tw } });
+export fn g3_asset_vertex(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, u: f32, v: f32, u1: f32, v1: f32, u2: f32, v2: f32, tx: f32, ty: f32, tz: f32, tw: f32, cr: f32, cg: f32, cb: f32, ca: f32) {
+    asset_vertices.push(g3::Vertex { pos: float3 { x, y, z }, normal: float3 { nx, ny, nz }, uv: float2 { u, v }, uv1: float2 { u1, v1 }, uv2: float2 { u2, v2 }, tangent: float4 { tx, ty, tz, tw }, color: float4 { cr, cg, cb, ca } });
 }
 export fn g3_asset_triangle(a: u32, b: u32, c: u32) { asset_indices.push(a); asset_indices.push(b); asset_indices.push(c); }
 export fn g3_asset_mesh_end() -> i32 { return g3::mesh_asset_create(asset_vertices[..], asset_indices[..]); }

@@ -158,7 +158,39 @@ for (const [name, expected] of [
   sparseModel.dispose();
 }
 const tangentEngine = fakeEngine(), tangentModel = await loadGLTF(tangentEngine, 'http://localhost/tangent.gltf');
-assert.deepEqual(tangentEngine.calls.find(call => call[0] === 'vertex').slice(-4), [0, 1, 0, -1], 'authored tangent and handedness reach the vertex upload');
+assert.deepEqual(tangentEngine.calls.find(call => call[0] === 'vertex').slice(-8, -4), [0, 1, 0, -1], 'authored tangent and handedness reach the vertex upload');
+const colorBinary = new ArrayBuffer(36), colorView = new DataView(colorBinary);
+[[1,0,0],[0,1,0],[0,0,1]].flat().forEach((value, i) => colorView.setFloat32(i * 4, value, true));
+const colorDoc = structuredClone(doc);
+colorDoc.buffers.push({ byteLength: colorBinary.byteLength, uri: 'colors.bin' });
+const colorBufferView = colorDoc.bufferViews.push({ buffer: 1, byteLength: colorBinary.byteLength }) - 1;
+const colorAccessor = colorDoc.accessors.push({ bufferView: colorBufferView, componentType: 5126, count: 3, type: 'VEC3' }) - 1;
+colorDoc.meshes[0].primitives[0].attributes.COLOR_0 = colorAccessor;
+resources.set('http://localhost/vertex-colors.gltf', bytes(colorDoc));
+resources.set('http://localhost/colors.bin', colorBinary);
+const colorEngine = fakeEngine(), colorModel = await loadGLTF(colorEngine, 'http://localhost/vertex-colors.gltf');
+assert.deepEqual(colorEngine.calls.filter(call => call[0] === 'vertex').map(call => call.slice(-4)),
+  [[1,0,0,1],[0,1,0,1],[0,0,1,1]], 'COLOR_0 VEC3 is uploaded with opaque alpha');
+colorModel.dispose();
+const normalizedColors = new Uint8Array([255,0,0,255, 0,255,0,255, 0,0,255,255]);
+const normalizedColorDoc = structuredClone(doc);
+normalizedColorDoc.buffers.push({ byteLength: normalizedColors.byteLength, uri: 'normalized-colors.bin' });
+const normalizedColorView = normalizedColorDoc.bufferViews.push({ buffer: 1, byteLength: normalizedColors.byteLength }) - 1;
+const normalizedColorAccessor = normalizedColorDoc.accessors.push({ bufferView: normalizedColorView, componentType: 5121,
+  normalized: true, count: 3, type: 'VEC4' }) - 1;
+normalizedColorDoc.meshes[0].primitives[0].attributes.COLOR_0 = normalizedColorAccessor;
+resources.set('http://localhost/normalized-vertex-colors.gltf', bytes(normalizedColorDoc));
+resources.set('http://localhost/normalized-colors.bin', normalizedColors.buffer);
+const normalizedColorEngine = fakeEngine(), normalizedColorModel = await loadGLTF(normalizedColorEngine, 'http://localhost/normalized-vertex-colors.gltf');
+assert.deepEqual(normalizedColorEngine.calls.filter(call => call[0] === 'vertex').map(call => call.slice(-4)),
+  [[1,0,0,1],[0,1,0,1],[0,0,1,1]], 'normalized unsigned-byte COLOR_0 values decode to linear floats');
+normalizedColorModel.dispose();
+const invalidColorDoc = structuredClone(normalizedColorDoc);
+delete invalidColorDoc.accessors[normalizedColorAccessor].normalized;
+resources.set('http://localhost/invalid-vertex-colors.gltf', bytes(invalidColorDoc));
+const invalidColorEngine = fakeEngine();
+await assert.rejects(loadGLTF(invalidColorEngine, 'http://localhost/invalid-vertex-colors.gltf'), error => error.code === 'INVALID_GLTF');
+assert.equal(invalidColorEngine.calls.length, 0, 'invalid COLOR_0 format fails before creating engine resources');
 tangentModel.dispose();
 const badTangentDoc = structuredClone(tangentDoc);
 badTangentDoc.accessors[tangentAccessor].type = 'VEC3';
@@ -408,7 +440,7 @@ transformedTexture.materials[0].pbrMetallicRoughness.baseColorTexture.extensions
 };
 resources.set('http://localhost/transformed-texture.gltf', bytes(transformedTexture));
 const transformedEngine = fakeEngine(), transformedModel = await loadGLTF(transformedEngine, 'http://localhost/transformed-texture.gltf');
-assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'vertex').slice(-10, -8), [-1, -1], 'mesh UVs remain shared and unmodified');
+assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'vertex').slice(-14, -12), [-1, -1], 'mesh UVs remain shared and unmodified');
 assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0), ['material_uv_transform', 1, 0, 0.25, 0.5, 2, 3, Math.PI / 2, 0], 'base-colour texture transform reaches its material slot');
 transformedModel.dispose();
 const perTextureTransforms = structuredClone(transformedTexture);
@@ -431,8 +463,8 @@ uvSet1.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture
 resources.set('http://localhost/uv-set-1.gltf', bytes(uvSet1));
 const uvSet1Engine = fakeEngine(), uvSet1Model = await loadGLTF(uvSet1Engine, 'http://localhost/uv-set-1.gltf');
 const uvSet1Vertex = uvSet1Engine.calls.find(call => call[0] === 'vertex');
-assert.deepEqual(uvSet1Vertex.slice(-10, -8), [-1, -1], 'TEXCOORD_0 remains available independently');
-assert.deepEqual(uvSet1Vertex.slice(-8, -6), [0, 0], 'TEXCOORD_1 reaches the mesh vertex');
+assert.deepEqual(uvSet1Vertex.slice(-14, -12), [-1, -1], 'TEXCOORD_0 remains available independently');
+assert.deepEqual(uvSet1Vertex.slice(-12, -10), [0, 0], 'TEXCOORD_1 reaches the mesh vertex');
 assert.equal(uvSet1Engine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0).at(-1), 1, 'texture transform selects TEXCOORD_1');
 uvSet1Model.dispose();
 const uvSet2 = structuredClone(transformedTexture);
@@ -442,9 +474,9 @@ uvSet2.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture
 resources.set('http://localhost/uv-set-2.gltf', bytes(uvSet2));
 const uvSet2Engine = fakeEngine(), uvSet2Model = await loadGLTF(uvSet2Engine, 'http://localhost/uv-set-2.gltf');
 const uvSet2Vertex = uvSet2Engine.calls.find(call => call[0] === 'vertex');
-assert.deepEqual(uvSet2Vertex.slice(-10, -8), [-1, -1], 'TEXCOORD_0 remains independent with TEXCOORD_2');
-assert.deepEqual(uvSet2Vertex.slice(-8, -6), [0, 0], 'missing TEXCOORD_1 is zero-filled');
-assert.deepEqual(uvSet2Vertex.slice(-6, -4), [-1, -1], 'TEXCOORD_2 reaches the mesh vertex');
+assert.deepEqual(uvSet2Vertex.slice(-14, -12), [-1, -1], 'TEXCOORD_0 remains independent with TEXCOORD_2');
+assert.deepEqual(uvSet2Vertex.slice(-12, -10), [0, 0], 'missing TEXCOORD_1 is zero-filled');
+assert.deepEqual(uvSet2Vertex.slice(-10, -8), [-1, -1], 'TEXCOORD_2 reaches the mesh vertex');
 assert.equal(uvSet2Engine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0).at(-1), 2, 'texture transform selects TEXCOORD_2');
 uvSet2Model.dispose();
 const invalidTextureTransform = structuredClone(transformedTexture);

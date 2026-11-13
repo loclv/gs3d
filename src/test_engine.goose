@@ -246,10 +246,10 @@ fn case_texture() {
     flat_camera();
     let uv1_texture = g3::texture_create(2, 2, pixels[..]);
     let verts: g3::Vertex[4] = [
-        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, .. },
-        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, .. },
-        g3::Vertex { pos: float3 { 1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, .. },
-        g3::Vertex { pos: float3 { -1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, .. },
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, color: float4_1, .. },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, color: float4_1, .. },
+        g3::Vertex { pos: float3 { 1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, color: float4_1, .. },
+        g3::Vertex { pos: float3 { -1.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, uv1: float2 { 1.0, 0.0 }, uv2: float2_0, color: float4_1, .. },
     ];
     let indices: u32[6] = [0, 1, 2, 0, 2, 3];
     let mesh = g3::mesh_asset_create(verts[..], indices[..]);
@@ -284,6 +284,46 @@ fn case_native_hdr_load() {
     g3::set_environment_map(-1, 0.0);
     testing::check(g3::texture_remove(handle) && !g3::texture_handle_valid(handle), "native HDR texture follows ordinary texture removal lifecycle");
     testing::check(g3::texture_load_hdr("testdata/missing.hdr") == -1, "native Radiance HDR loader reports missing files");
+}
+
+fn case_vertex_colors() {
+    g3::scene_clear();
+    flat_camera();
+    let verts: g3::Vertex[3] = [
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, color: float4 { 1.0, 0.0, 0.0, 1.0 }, .. },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, color: float4 { 0.0, 1.0, 0.0, 1.0 }, .. },
+        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, color: float4 { 0.0, 0.0, 1.0, 1.0 }, .. },
+    ];
+    let indices: u32[3] = [0, 1, 2];
+    let mesh = g3::mesh_asset_create(verts[..], indices[..]);
+    let n .= g3::node(g3::node_add(mesh));
+    let material_id = g3::material_add();
+    let surface .= g3::material(material_id);
+    surface.unlit = true;
+    n.material = material_id;
+    g3::frame(1.0 / 60.0);
+    // At screen centre the triangle barycentrics are 1/4, 1/4, 1/2.
+    testing::check(is_color(g3::read_pixel(200, 200), 64, 64, 128, 2),
+        "vertex colours interpolate perspective-correctly and multiply unlit base colour");
+
+    g3::scene_clear();
+    flat_camera();
+    let masked_verts: g3::Vertex[3] = [
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, color: float4 { 1.0, 1.0, 1.0, 0.0 }, .. },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, color: float4 { 1.0, 1.0, 1.0, 0.0 }, .. },
+        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, color: float4 { 1.0, 1.0, 1.0, 0.0 }, .. },
+    ];
+    let masked_mesh = g3::mesh_asset_create(masked_verts[..], indices[..]);
+    let masked_node .= g3::node(g3::node_add(masked_mesh));
+    let masked_material = g3::material_add();
+    let masked_surface .= g3::material(masked_material);
+    masked_surface.unlit = true;
+    masked_surface.alpha_mode = 1;
+    masked_surface.alpha_cutoff = 0.5;
+    masked_node.material = masked_material;
+    g3::frame(1.0 / 60.0);
+    testing::check(g3::read_pixel(200, 200) == MAGENTA,
+        "vertex colour alpha participates in masked material rejection");
 }
 
 fn case_texture_alpha() {
@@ -726,9 +766,9 @@ fn case_asset_reuse() {
     g3::scene_clear();
     flat_camera();
     let vertices: g3::Vertex[3] = [
-        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, .. },
-        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, .. },
-        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, .. }];
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, color: float4_1, .. },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, color: float4_1, .. },
+        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, color: float4_1, .. }];
     let indices: u32[3] = [0, 1, 2];
     let mesh = g3::mesh_asset_create(vertices[..], indices[..]);
     let mesh_handle = g3::mesh_handle(mesh);
@@ -922,7 +962,7 @@ fn case_node_removal() {
 }
 
 fn case_asset_fragmentation() {
-    let v = g3::Vertex { pos: float3 { 1.0, 2.0, 3.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, .. };
+    let v = g3::Vertex { pos: float3 { 1.0, 2.0, 3.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2 { 0.0, 0.0 }, tangent: float4_0, color: float4_1, .. };
     let small: g3::Vertex[6] = [v; 6];
     let large: g3::Vertex[12] = [v; 12];
     let small_i: u32[6] = [0, 1, 2, 3, 4, 5];
@@ -1371,9 +1411,9 @@ fn case_asset_mesh_update() {
     g3::scene_clear();
     flat_camera();
     let verts: g3::Vertex[3] = [
-        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0, .. },
-        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0, .. },
-        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0, .. },
+        g3::Vertex { pos: float3 { -1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0, color: float4_1, .. },
+        g3::Vertex { pos: float3 { 1.0, -1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0, color: float4_1, .. },
+        g3::Vertex { pos: float3 { 0.0, 1.0, 0.0 }, normal: float3 { 0.0, 0.0, 1.0 }, uv: float2_0, tangent: float4_0, color: float4_1, .. },
     ];
     let indices: u32[3] = [0, 1, 2];
     let mesh = g3::mesh_asset_create(verts[..], indices[..]);
@@ -1410,6 +1450,7 @@ fn main() {
     case_culling();
     case_backface();
     case_texture();
+    case_vertex_colors();
     case_native_hdr_load();
     case_texture_alpha();
     case_texture_wrap();

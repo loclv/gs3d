@@ -84,6 +84,7 @@ typedef struct {
     float uv1[3][2];
     float uv2[3][2];
     float tangent[3][4];
+    float color[3][4];
     float derived_tangent[3], derived_bitangent[3];
     float det;              /* twice the signed area in pixels */
     float edge_sense;       /* +1 or -1: the sign l0 has when an edge is 0 */
@@ -680,7 +681,7 @@ static void sample_brdf_lut(float nv, float roughness, float *a, float *b) {
 }
 
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
-                  const g3_vec3 wp, g3_vec3 n, const float tex[3], const float mr[4], float ao,
+                  const g3_vec3 wp, g3_vec3 n, const float tex[3], const float vertex_color[4], const float mr[4], float ao,
                   const float emission[3], float specular_strength, const float specular_color[3], float *out_rgb) {
     float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 1e-12f) { n.x /= len; n.y /= len; n.z /= len; }
@@ -705,10 +706,10 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
 
     float amb = vs->ambient.w;
     float visible = shadow_visibility(vs, wp);
-    float r = it->color.x * tex[0] * (vs->ambient.x * amb * ao + vs->light_color.x * diff * visible) + vs->light_color.x * spec * visible;
-    float g = it->color.y * tex[1] * (vs->ambient.y * amb * ao + vs->light_color.y * diff * visible) + vs->light_color.y * spec * visible;
-    float b = it->color.z * tex[2] * (vs->ambient.z * amb * ao + vs->light_color.z * diff * visible) + vs->light_color.z * spec * visible;
-    float base[3] = { it->color.x * tex[0], it->color.y * tex[1], it->color.z * tex[2] };
+    float base[3] = { it->color.x * vertex_color[0] * tex[0], it->color.y * vertex_color[1] * tex[1], it->color.z * vertex_color[2] * tex[2] };
+    float r = base[0] * (vs->ambient.x * amb * ao + vs->light_color.x * diff * visible) + vs->light_color.x * spec * visible;
+    float g = base[1] * (vs->ambient.y * amb * ao + vs->light_color.y * diff * visible) + vs->light_color.y * spec * visible;
+    float b = base[2] * (vs->ambient.z * amb * ao + vs->light_color.z * diff * visible) + vs->light_color.z * spec * visible;
     float metallic = it->pbr.y * mr[2], roughness = it->pbr.z * mr[1];
     if (it->pbr.x > 0.5f) {
         float brdf[3];
@@ -802,7 +803,7 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
             b += (base[2] * d + s) * light->color.z * falloff;
         }
     }
-    if (it->params.x > 0.5f) { r = it->color.x * tex[0]; g = it->color.y * tex[1]; b = it->color.z * tex[2]; }
+    if (it->params.x > 0.5f) { r = base[0]; g = base[1]; b = base[2]; }
     r += emission[0]; g += emission[1]; b += emission[2];
 
     float fog = 1.0f - expf(-vl * vs->fog.w);
@@ -1088,6 +1089,7 @@ static g3_vertex clip_lerp(g3_vertex a, g3_vertex b, float t) {
     LERP(uv1.x); LERP(uv1.y);
     LERP(uv2.x); LERP(uv2.y);
     LERP(tangent.x); LERP(tangent.y); LERP(tangent.z); LERP(tangent.w);
+    LERP(color.x); LERP(color.y); LERP(color.z); LERP(color.w);
 #undef LERP
     return a;
 }
@@ -1141,6 +1143,10 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
         t->uv1[k][1] = tri[k]->uv1.y;
         t->uv2[k][0] = tri[k]->uv2.x;
         t->uv2[k][1] = tri[k]->uv2.y;
+        t->color[k][0] = tri[k]->color.x;
+        t->color[k][1] = tri[k]->color.y;
+        t->color[k][2] = tri[k]->color.z;
+        t->color[k][3] = tri[k]->color.w;
         ndc[k][0] = cx * w;
         ndc[k][1] = cy * w;
         ndc[k][2] = cz * w;
@@ -1366,7 +1372,8 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs,
                     transform_uv(&source->base_color_uv,u,v,&tu,&tv);
                     float rho = texture_footprint(&t, source->texture, &source->base_color_uv, l0, l1, l2, u, v);
                     sample_texture(source->texture, tu, tv, rho, tex);
-                    if (tex[3] * source->color.w < source->alpha_cutoff) continue;
+                    float vertex_alpha = t.color[0][3] * b0 + t.color[1][3] * b1 + t.color[2][3] * b2;
+                    if (tex[3] * source->color.w * vertex_alpha < source->alpha_cutoff) continue;
                 }
                 float z = l0*t.sz[0] + l1*t.sz[1] + l2*t.sz[2];
                 float *dst = &target_depth[y * size + x];
@@ -1428,6 +1435,8 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             float pw = l0 * t->inv_w[0] + l1 * t->inv_w[1] + l2 * t->inv_w[2];
             if (pw <= 0.0f) continue;
             float b0 = l0 * t->inv_w[0] / pw, b1 = l1 * t->inv_w[1] / pw, b2 = l2 * t->inv_w[2] / pw;
+            float vertex_color[4];
+            for (int c = 0; c < 4; c++) vertex_color[c] = t->color[0][c] * b0 + t->color[1][c] * b1 + t->color[2][c] * b2;
 
             g3_vec3 wp, n;
             wp.x = t->world[0][0] * b0 + t->world[1][0] * b1 + t->world[2][0] * b2;
@@ -1524,12 +1533,12 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
                 sample_texture(it->specular_color_texture,su,sv,texture_footprint(t,it->specular_color_texture,&it->specular_color_uv,l0,l1,l2,raw_u,raw_v),sample);
                 for (int c=0;c<3;c++) specular_color[c]*=sample[c];
             }
-            float alpha = it->color.w * tex[3];
+            float alpha = it->color.w * vertex_color[3] * tex[3];
             if (it->alpha_mode == 1 && alpha < it->alpha_cutoff) continue;
             if (it->double_sided && t->normal_sign < 0.0f) {
                 n.x = -n.x; n.y = -n.y; n.z = -n.z;
             }
-            shade(it, vs, wp, n, tex, mr, ao, emission, specular_strength, specular_color, rgb);
+            shade(it, vs, wp, n, tex, vertex_color, mr, ao, emission, specular_strength, specular_color, rgb);
             if (counting) shaded += 1;
             if (vs->params.z > 0.5f) blend_pixel_hdr(hdr_fb + at * 3, rgb, alpha, blended);
             else blend_pixel(fb + at * 3, rgb, alpha, blended);

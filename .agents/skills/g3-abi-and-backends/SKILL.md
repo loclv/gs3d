@@ -17,10 +17,10 @@ compile time in `platform/g3_abi.h`.
 
 | type | size | layout |
 |---|---|---|
-| `Vertex` | 24 | `pos: float3` @0, `normal: float3` @12 |
+| `Vertex` | 80 | position @0, normal @12, UV0/1/2 @24/32/40, tangent @48, colour @64 |
 | `Mat4` | 64 | column-major `m[col*4 + row]`, i.e. GL's layout with transpose off |
 | `DrawItem` | 168 | `mesh: i32` @0, `mvp: Mat4` @4, `model: Mat4` @68, `color: float4` @132, `params: float4` @148, `key: f32` @164 |
-| `ViewState` | 100 | `eye: float3` @0, `light_dir` @12, `light_color` @24, `ambient: float4` @36, `fog: float4` @52, `clear: float4` @68, `params: float4` @84 |
+| `ViewState` | 1020 | eye @0, primary light and ambient/fog/clear/params @12–99, additional lights @100, shadows/environment/render-target state, camera `view_proj` @956 |
 
 Slices cross as `{ const T *data; int64_t len; }` (`g3_vertex_slice`,
 `g3_u32_slice`, `g3_draw_item_slice`, `g3_u8_slice`). `bool` crosses as
@@ -30,8 +30,8 @@ Field meanings that the comments in `platform.goose` state and the code relies o
 
 * `DrawItem.mesh` — the id the mesh was uploaded with; `-1` means "nothing to
   draw" (group nodes never reach the draw list).
-* `DrawItem.mvp` — `view_proj * model`, already multiplied. Backends never
-  multiply a camera matrix.
+* `DrawItem.mvp` — `view_proj * model` for an ordinary draw. Instanced WebGL
+  runs use `ViewState.view_proj` with the per-instance model transform.
 * `DrawItem.model` — used for world-space normals (`mat3(model)`) and for any
   world-space work such as fog distance or lighting position.
 * `DrawItem.color` — rgb and alpha; `a < 1` marks the item as blended (the
@@ -44,6 +44,8 @@ Field meanings that the comments in `platform.goose` state and the code relies o
 * `ViewState.fog` — rgb, `a` = density (exponential, per world unit; 0 = off).
 * `ViewState.clear` — the colour the frame starts from.
 * `ViewState.params.x` — seconds since start, for animated shaders.
+* `ViewState.view_proj` — the current camera view-projection matrix, used to
+  compose instanced MVP transforms in WebGL.
 
 ## What a backend must implement
 

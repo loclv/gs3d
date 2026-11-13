@@ -24,7 +24,7 @@ The procedural checklist lives in
 
 ## Types
 
-### `g3_vertex` — 64 bytes
+### `g3_vertex` — 80 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -34,6 +34,7 @@ The procedural checklist lives in
 | 32 | `float[2]` | `uv1` | second texture coordinate set; zero when absent |
 | 40 | `float[2]` | `uv2` | third texture coordinate set; zero when absent |
 | 48 | `float[4]` | `tangent` | local tangent direction and handedness; a zero direction selects the derived frame |
+| 64 | `float[4]` | `color` | linear vertex colour multiplied by the material base colour; built-ins and assets use white when absent |
 
 ### `g3_mat4` — 64 bytes
 
@@ -85,7 +86,7 @@ discarded, including in the shadow pass. Blended items read depth but do not
 write it; opaque and surviving mask fragments write depth. Texture alpha is
 ignored for opaque items.
 
-### `g3_view_state` — 956 bytes
+### `g3_view_state` — 1020 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -116,6 +117,7 @@ ignored for opaque items.
 | 944 | `int32_t` | `render_target` | texture id to draw into, or -1 for the window surface |
 | 948 | `int32_t` | `target_width` | selected render-target width, in pixels |
 | 952 | `int32_t` | `target_height` | selected render-target height, in pixels |
+| 956 | `g3_mat4` | `view_proj` | camera view-projection matrix, also used to form instanced MVP matrices |
 
 A selected target is a linear RGBA8 texture with RGB clamped to 0..1 and alpha
 fixed to 1. Its texture-coordinate origin is the lower-left, matching WebGL.
