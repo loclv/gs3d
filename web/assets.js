@@ -266,10 +266,11 @@ function accessor(doc, buffers, index, expected) {
   if (a.sparse || a.bufferView === undefined) unsupported('Sparse or unbacked accessors are not supported');
   if (a.type !== expected) invalid(`Expected ${expected} accessor`);
   const widths = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
-  const formats = { 5121: [1, 'getUint8'], 5123: [2, 'getUint16'], 5125: [4, 'getUint32'], 5126: [4, 'getFloat32'] };
+  const formats = { 5120: [1, 'getInt8'], 5121: [1, 'getUint8'], 5122: [2, 'getInt16'],
+    5123: [2, 'getUint16'], 5125: [4, 'getUint32'], 5126: [4, 'getFloat32'] };
   const format = formats[a.componentType], components = widths[expected];
   if (!format || !Number.isInteger(a.count) || a.count < 1) unsupported('Unsupported accessor component type or count');
-  if (a.normalized && a.componentType !== 5121 && a.componentType !== 5123) unsupported('Unsupported normalized accessor');
+  if (a.normalized && ![5120, 5121, 5122, 5123].includes(a.componentType)) unsupported('Unsupported normalized accessor');
   const bv = item(doc.bufferViews, a.bufferView, 'bufferView');
   const buffer = item(buffers, bv.buffer, 'buffer');
   const viewStart = bv.byteOffset ?? 0, offset = a.byteOffset ?? 0;
@@ -280,11 +281,12 @@ function accessor(doc, buffers, index, expected) {
   const data = new DataView(buffer), values = [];
   for (let i = 0; i < a.count; i++) for (let c = 0; c < components; c++) {
     let value = data[format[1]](start + i * stride + c * format[0], true);
-    if (a.normalized) value /= a.componentType === 5121 ? 255 : 65535;
+    if (a.normalized) value = a.componentType === 5120 ? Math.max(value / 127, -1) :
+      a.componentType === 5122 ? Math.max(value / 32767, -1) : value / (a.componentType === 5121 ? 255 : 65535);
     if (!Number.isFinite(value)) invalid('Non-finite accessor value');
     values.push(value);
   }
-  return { values, count: a.count, componentType: a.componentType };
+  return { values, count: a.count, componentType: a.componentType, normalized: !!a.normalized };
 }
 
 function localMatrix(node) {
@@ -460,8 +462,9 @@ async function prepare(url) {
     return { image: texture.source, wrapU: wrapModes[s], wrapV: wrapModes[t],
       minFilter: sampler.minFilter ?? 9729, magFilter: sampler.magFilter ?? 9729 };
   });
-  const meshes = (doc.meshes || []).map(mesh => (mesh.primitives || []).map(p => {
-    if ((p.mode ?? 4) !== 4 || p.targets?.length) unsupported('Only triangle meshes without morph targets are supported');
+  const meshes = (doc.meshes || []).map((mesh, meshIndex) => {
+    const primitives = (mesh.primitives || []).map(p => {
+    if ((p.mode ?? 4) !== 4) unsupported('Only triangle mesh primitives are supported');
     if (Object.keys(p.attributes || {}).some(name => /^(JOINTS|WEIGHTS)_\d+$/.test(name) && Number(name.slice(name.indexOf('_') + 1)) > 1)) unsupported('At most eight skin influences are supported');
     const pos = accessor(doc, buffers, p.attributes?.POSITION, 'VEC3');
     const normal = accessor(doc, buffers, p.attributes?.NORMAL, 'VEC3');
@@ -481,6 +484,17 @@ async function prepare(url) {
       joints.push(jointAccessor.values);
       weights.push(weightAccessor.values);
     }
+    if (p.targets !== undefined && !Array.isArray(p.targets)) invalid(`Invalid morph targets in mesh ${meshIndex}`);
+    const targets = (p.targets || []).map(target => {
+      if (!target || typeof target !== 'object') invalid('Invalid morph target');
+      if (Object.keys(target).some(name => !['POSITION', 'NORMAL', 'TANGENT'].includes(name))) unsupported('Unsupported morph target attribute');
+      if (target.TANGENT !== undefined) unsupported('Tangent morph targets are not supported');
+      const position = target.POSITION === undefined ? null : accessor(doc, buffers, target.POSITION, 'VEC3');
+      const normalDelta = target.NORMAL === undefined ? null : accessor(doc, buffers, target.NORMAL, 'VEC3');
+      if (!position && !normalDelta) invalid('Morph targets need a POSITION or NORMAL delta');
+      for (const delta of [position, normalDelta]) if (delta && (delta.componentType !== 5126 || delta.count !== pos.count)) invalid('Invalid morph target accessor');
+      return { position: position?.values, normal: normalDelta?.values };
+    });
     const indexAccessor = p.indices === undefined ? null : accessor(doc, buffers, p.indices, 'SCALAR');
     if (indexAccessor && ![5121, 5123, 5125].includes(indexAccessor.componentType)) invalid('Indices must be unsigned integers');
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
@@ -534,20 +548,31 @@ async function prepare(url) {
       textureIndex = pbr.baseColorTexture.index;
     }
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
-    return { pos: pos.values, normal: normal.values, uv: uv?.values, joints, weights, indices,
+    return { pos: pos.values, normal: normal.values, uv: uv?.values, joints, weights, targets, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
       emissive, emissiveTextureIndex, materialIndex: p.material ?? -1 };
-  }));
+    });
+    if (!primitives.length) invalid(`Mesh ${meshIndex} has no primitives`);
+    const targetCount = primitives[0].targets.length;
+    if (primitives.some(primitive => primitive.targets.length !== targetCount)) invalid(`Morph target counts differ in mesh ${meshIndex}`);
+    const weights = mesh.weights ?? Array(targetCount).fill(0);
+    if (!Array.isArray(weights) || weights.length !== targetCount || !weights.every(Number.isFinite)) invalid(`Invalid default morph weights in mesh ${meshIndex}`);
+    return { primitives, targetCount, weights: [...weights] };
+  });
   const nodes = doc.nodes || [], roots = item(doc.scenes, doc.scene ?? 0, 'scene').nodes || [];
   const seen = new Set(), usedSkinIndices = new Set();
   function visit(index, depth) {
     if (depth > 63 || seen.has(index)) invalid('Invalid or overly deep node hierarchy');
     seen.add(index);
     const n = item(nodes, index, 'node');
-    if (n.weights || n.extensions) unsupported('Unsupported node feature');
-    const primitives = n.mesh === undefined ? [] : item(meshes, n.mesh, 'mesh');
+    if (n.extensions) unsupported('Unsupported node feature');
+    const meshData = n.mesh === undefined ? null : item(meshes, n.mesh, 'mesh');
+    const primitives = meshData?.primitives ?? [];
+    const targetCount = meshData?.targetCount ?? 0;
+    const morphWeights = n.weights ?? meshData?.weights ?? [];
+    if (!Array.isArray(morphWeights) || morphWeights.length !== targetCount || !morphWeights.every(Number.isFinite)) invalid('Invalid node morph weights');
     if (n.skin !== undefined && (!Number.isInteger(n.skin) || n.skin < 0)) invalid('Invalid node skin index');
     const skinIndex = n.skin === undefined ? -1 : n.skin;
     if (skinIndex >= 0) {
@@ -566,7 +591,8 @@ async function prepare(url) {
       }
     } else if (primitives.some(primitive => primitive.joints.length)) invalid('Skin attributes require a node skin');
     const transform = localMatrix(n);
-    return { index, skinIndex, ...transform, primitives, children: (n.children || []).map(child => visit(child, depth + 1)) };
+    return { index, skinIndex, weights: [...morphWeights], ...transform, primitives,
+      children: (n.children || []).map(child => visit(child, depth + 1)) };
   }
   const sceneRoots = roots.map(root => visit(root, 0));
   const sceneNodeIndices = new Set(seen);
@@ -592,18 +618,23 @@ async function prepare(url) {
       if (!target || !Number.isInteger(target.node) || target.node < 0 || target.node >= nodes.length) invalid('Invalid animation target');
       if (channel.extensions || target.extensions || sampler.extensions) unsupported('Animation extensions are not supported');
       const path = target.path;
-      if (!['translation', 'rotation', 'scale'].includes(path)) unsupported(`Animation target path ${path} is unsupported`);
+      if (!['translation', 'rotation', 'scale', 'weights'].includes(path)) unsupported(`Animation target path ${path} is unsupported`);
       const sourceNode = item(nodes, target.node, 'animation node');
-      if (sourceNode.matrix) unsupported('Animation channels cannot target nodes using matrix transforms');
+      if (sourceNode.matrix && path !== 'weights') unsupported('Animation channels cannot target nodes using matrix transforms');
+      const targetMesh = sourceNode.mesh === undefined ? null : item(meshes, sourceNode.mesh, 'animation mesh');
+      const components = path === 'rotation' ? 4 : path === 'weights' ? targetMesh?.targetCount ?? 0 : 3;
+      if (path === 'weights' && components < 1) invalid('Morph weight animation target has no morph targets');
       const targetKey = `${target.node}:${path}`;
       if (usedTargets.has(targetKey)) invalid('Animation targets the same node property more than once');
       usedTargets.add(targetKey);
       const interpolation = sampler.interpolation ?? 'LINEAR';
       if (interpolation !== 'LINEAR' && interpolation !== 'STEP' && interpolation !== 'CUBICSPLINE') unsupported(`Animation interpolation ${interpolation} is unsupported`);
       const input = accessor(doc, buffers, sampler.input, 'SCALAR');
-      const output = accessor(doc, buffers, sampler.output, path === 'rotation' ? 'VEC4' : 'VEC3');
-      const expectedOutputCount = interpolation === 'CUBICSPLINE' ? input.count * 3 : input.count;
-      if (input.componentType !== 5126 || output.componentType !== 5126 || input.count < 1 || output.count !== expectedOutputCount ||
+      const output = accessor(doc, buffers, sampler.output, path === 'rotation' ? 'VEC4' : path === 'weights' ? 'SCALAR' : 'VEC3');
+      const expectedOutputCount = input.count * (path === 'weights' ? components : 1) * (interpolation === 'CUBICSPLINE' ? 3 : 1);
+      const validOutputType = path === 'weights' ? output.componentType === 5126 ||
+        ([5120, 5121, 5122, 5123].includes(output.componentType) && output.normalized) : output.componentType === 5126;
+      if (input.componentType !== 5126 || !validOutputType || input.count < 1 || output.count !== expectedOutputCount ||
           (interpolation === 'CUBICSPLINE' && input.count < 2)) invalid('Invalid animation accessor types or counts');
       for (let i = 0; i < input.values.length; i++) {
         const time = input.values[i];
@@ -613,7 +644,7 @@ async function prepare(url) {
         if (!(Math.hypot(output.values[i], output.values[i + 1], output.values[i + 2], output.values[i + 3]) > 0)) invalid('Animation rotations must be non-zero quaternions');
       }
       duration = Math.max(duration, input.values[input.values.length - 1]);
-      return { node: target.node, path, interpolation, times: input.values, values: output.values, components: path === 'rotation' ? 4 : 3,
+      return { node: target.node, path, interpolation, times: input.values, values: output.values, components,
         enabled: sceneNodeIndices.has(target.node) };
     });
     return { name: typeof animation.name === 'string' ? animation.name : `Animation ${animationIndex}`, duration, channels };
@@ -629,75 +660,99 @@ export async function loadGLTF(engine, url) {
     if (error instanceof AssetError) throw error;
     throw new AssetError('INVALID_GLTF', 'Invalid glTF structure or URL', error);
   }
-  const nodes = [], meshes = [], skinnedMeshes = [], materials = new Map(), textures = new Map(), transformNodes = new Map();
+  const nodes = [], meshes = [], deformedMeshes = [], materials = new Map(), textures = new Map(), transformNodes = new Map();
   const sceneEpoch = engine._g3_asset_scene_epoch();
   let disposed = false;
   let activeAnimation = -1, animationTime = 0, animationPlaying = false, animationLoop = true;
   let touchedTransforms = new Set();
   const writeTransform = state => {
-    if (!isNodeHandleValid(engine, state.handle)) return;
+    if (!state.translation || !isNodeHandleValid(engine, state.handle)) return;
     const matrix = localMatrix({ translation: state.translation, rotation: state.rotation, scale: state.scale }).matrix;
     matrix.forEach((value, index) => engine._g3_asset_matrix(state.handle.index, index, value));
   };
   const restoreBase = state => {
-    state.translation = [...state.baseTranslation];
-    state.rotation = [...state.baseRotation];
-    state.scale = [...state.baseScale];
+    if (state.baseTranslation) {
+      state.translation = [...state.baseTranslation];
+      state.rotation = [...state.baseRotation];
+      state.scale = [...state.baseScale];
+    }
+    state.weights = [...state.baseWeights];
   };
-  const updateSkinMeshes = () => {
-    if (!skinnedMeshes.length) return true;
+  const updateDeformedMeshes = () => {
+    if (!deformedMeshes.length) return true;
     const worlds = new Map();
     const visitWorld = (node, parent) => {
       const state = transformNodes.get(node.index);
-      const local = state ? localMatrix(state).matrix : node.matrix;
+      const local = state?.translation ? localMatrix(state).matrix : node.matrix;
       const world = parent ? multiply4(parent, local) : local;
       worlds.set(node.index, world);
       for (const child of node.children) visitWorld(child, world);
     };
     for (const root of data.roots) visitWorld(root, null);
-    for (const skinned of skinnedMeshes) {
-      if (!isMeshHandleValid(engine, skinned.handle)) continue;
-      const meshWorld = worlds.get(skinned.node);
-      if (!meshWorld) invalid('Skinned mesh node is outside the selected scene');
-      const inverseMeshWorld = invert4(meshWorld);
-      const skin = data.skins[skinned.skinIndex];
-      const jointMatrices = skin.joints.map((joint, index) => {
-        const jointWorld = worlds.get(joint);
-        if (!jointWorld) invalid('Skin joint is outside the selected scene');
-        const inverseBind = skin.inverseBindMatrices.slice(index * 16, index * 16 + 16);
-        return multiply4(multiply4(inverseMeshWorld, jointWorld), inverseBind);
-      });
-      const { primitive } = skinned;
+    for (const deformed of deformedMeshes) {
+      if (!isMeshHandleValid(engine, deformed.handle)) continue;
+      let jointMatrices = [];
+      if (deformed.skinIndex >= 0) {
+        const meshWorld = worlds.get(deformed.node);
+        if (!meshWorld) invalid('Skinned mesh node is outside the selected scene');
+        const inverseMeshWorld = invert4(meshWorld);
+        const skin = data.skins[deformed.skinIndex];
+        jointMatrices = skin.joints.map((joint, index) => {
+          const jointWorld = worlds.get(joint);
+          if (!jointWorld) invalid('Skin joint is outside the selected scene');
+          const inverseBind = skin.inverseBindMatrices.slice(index * 16, index * 16 + 16);
+          return multiply4(multiply4(inverseMeshWorld, jointWorld), inverseBind);
+        });
+      }
+      const { primitive } = deformed;
+      const morphWeights = transformNodes.get(deformed.node)?.weights ?? deformed.weights;
       const vertexCount = primitive.pos.length / 3;
       const positions = new Float32Array(primitive.pos.length), normals = new Float32Array(primitive.normal.length);
       for (let vertex = 0; vertex < vertexCount; vertex++) {
         const sourcePosition = primitive.pos.slice(vertex * 3, vertex * 3 + 3);
         const sourceNormal = primitive.normal.slice(vertex * 3, vertex * 3 + 3);
-        const outPosition = [0, 0, 0], outNormal = [0, 0, 0];
-        let totalWeight = 0;
-        for (let set = 0; set < primitive.joints.length; set++) for (let component = 0; component < 4; component++) {
-          const offset = vertex * 4 + component, weight = primitive.weights[set][offset];
+        for (let targetIndex = 0; targetIndex < primitive.targets.length; targetIndex++) {
+          const weight = morphWeights[targetIndex];
           if (weight === 0) continue;
-          const matrix = jointMatrices[primitive.joints[set][offset]];
-          const position = transformPoint4(matrix, sourcePosition), normal = transformDirection4(matrix, sourceNormal);
+          const target = primitive.targets[targetIndex];
           for (let axis = 0; axis < 3; axis++) {
-            outPosition[axis] += position[axis] * weight;
-            outNormal[axis] += normal[axis] * weight;
+            const offset = vertex * 3 + axis;
+            if (target.position) sourcePosition[axis] += target.position[offset] * weight;
+            if (target.normal) sourceNormal[axis] += target.normal[offset] * weight;
           }
-          totalWeight += weight;
         }
-        if (!(totalWeight > 0) || !Number.isFinite(totalWeight)) invalid('Invalid skin weights');
-        const normal = normalize3(outNormal);
+        let outPosition, outNormal;
+        if (deformed.skinIndex >= 0) {
+          outPosition = [0, 0, 0]; outNormal = [0, 0, 0];
+          let totalWeight = 0;
+          for (let set = 0; set < primitive.joints.length; set++) for (let component = 0; component < 4; component++) {
+            const offset = vertex * 4 + component, weight = primitive.weights[set][offset];
+            if (weight === 0) continue;
+            const matrix = jointMatrices[primitive.joints[set][offset]];
+            const position = transformPoint4(matrix, sourcePosition), normal = transformDirection4(matrix, sourceNormal);
+            for (let axis = 0; axis < 3; axis++) {
+              outPosition[axis] += position[axis] * weight;
+              outNormal[axis] += normal[axis] * weight;
+            }
+            totalWeight += weight;
+          }
+          if (!(totalWeight > 0) || !Number.isFinite(totalWeight)) invalid('Invalid skin weights');
+          for (let axis = 0; axis < 3; axis++) outPosition[axis] /= totalWeight;
+        } else {
+          outPosition = sourcePosition;
+          outNormal = sourceNormal;
+        }
+        outNormal = normalize3(outNormal);
         for (let axis = 0; axis < 3; axis++) {
-          positions[vertex * 3 + axis] = outPosition[axis] / totalWeight;
-          normals[vertex * 3 + axis] = normal[axis];
+          positions[vertex * 3 + axis] = outPosition[axis];
+          normals[vertex * 3 + axis] = outNormal[axis];
         }
       }
-      const floatOffset = skinned.ptr >>> 2;
+      const floatOffset = deformed.ptr >>> 2;
       engine.HEAPF32.set(positions, floatOffset);
       engine.HEAPF32.set(normals, floatOffset + positions.length);
-      if (!engine._g3_host_mesh_update(skinned.handle.id, skinned.ptr, skinned.ptr + positions.byteLength, positions.length)) {
-        throw new AssetError('UPLOAD', 'Could not update skinned mesh');
+      if (!engine._g3_host_mesh_update(deformed.handle.id, deformed.ptr, deformed.ptr + positions.byteLength, positions.length)) {
+        throw new AssetError('UPLOAD', 'Could not update deformed mesh');
       }
     }
     return true;
@@ -720,7 +775,7 @@ export async function loadGLTF(engine, url) {
     }
     for (const nodeIndex of nextTouched) writeTransform(transformNodes.get(nodeIndex));
     touchedTransforms = nextTouched;
-    return updateSkinMeshes();
+    return updateDeformedMeshes();
   };
   const dispose = () => {
     if (disposed) return;
@@ -731,13 +786,25 @@ export async function loadGLTF(engine, url) {
     for (const handle of meshes) {
       if (engine._g3_asset_release_mesh(handle.id, handle.generation)) engine._g3_host_release_mesh(handle.id);
     }
-    for (const skinned of skinnedMeshes) if (skinned.ptr) engine._free(skinned.ptr);
-    skinnedMeshes.length = 0;
+    for (const deformed of deformedMeshes) if (deformed.ptr) engine._free(deformed.ptr);
+    deformedMeshes.length = 0;
     for (const handle of textures.values()) releaseTexture(engine, handle);
     for (const animation of data.animations) for (const channel of animation.channels) {
       channel.times.length = 0;
       channel.values.length = 0;
     }
+    const discardNodeData = node => {
+      node.matrix.length = 0;
+      node.weights.length = 0;
+      for (const primitive of node.primitives) {
+        primitive.pos.length = 0; primitive.normal.length = 0; if (primitive.uv) primitive.uv.length = 0; primitive.indices.length = 0;
+        for (const set of [...primitive.joints, ...primitive.weights]) set.length = 0;
+        for (const target of primitive.targets) { target.position && (target.position.length = 0); target.normal && (target.normal.length = 0); }
+      }
+      for (const child of node.children) discardNodeData(child);
+    };
+    for (const root of data.roots) discardNodeData(root);
+    for (const skin of data.skins) { skin.joints.length = 0; skin.inverseBindMatrices.length = 0; }
     transformNodes.clear();
     touchedTransforms.clear();
   };
@@ -759,11 +826,12 @@ export async function loadGLTF(engine, url) {
       if (!groupHandle) throw new AssetError('UPLOAD', 'Could not create node');
       nodes.push(groupHandle);
       node.matrix.forEach((value, index) => engine._g3_asset_matrix(group, index, value));
-      if (node.translation) transformNodes.set(node.index, {
+      if (node.translation || node.weights.length) transformNodes.set(node.index, {
         handle: groupHandle,
-        baseTranslation: [...node.translation], translation: [...node.translation],
-        baseRotation: [...node.rotation], rotation: [...node.rotation],
-        baseScale: [...node.scale], scale: [...node.scale],
+        baseTranslation: node.translation ? [...node.translation] : null, translation: node.translation ? [...node.translation] : null,
+        baseRotation: node.rotation ? [...node.rotation] : null, rotation: node.rotation ? [...node.rotation] : null,
+        baseScale: node.scale ? [...node.scale] : null, scale: node.scale ? [...node.scale] : null,
+        baseWeights: [...node.weights], weights: [...node.weights],
       });
       for (const p of node.primitives) {
         engine._g3_asset_mesh_begin();
@@ -772,11 +840,12 @@ export async function loadGLTF(engine, url) {
         const mesh = engine._g3_asset_mesh_end();
         const meshHandle = makeResourceHandle(engine, mesh, 'mesh');
         meshes.push(meshHandle);
-        if (node.skinIndex >= 0) {
+        if (node.skinIndex >= 0 || p.targets.length) {
           const byteLength = p.pos.length * Float32Array.BYTES_PER_ELEMENT;
           const ptr = engine._malloc(byteLength * 2);
-          if (!ptr) throw new AssetError('MEMORY', 'Could not allocate skin deformation buffer');
-          skinnedMeshes.push({ handle: meshHandle, node: node.index, skinIndex: node.skinIndex, primitive: p, ptr });
+          if (!ptr) throw new AssetError('MEMORY', 'Could not allocate morph deformation buffer');
+          deformedMeshes.push({ handle: meshHandle, node: node.index, skinIndex: node.skinIndex,
+            weights: [...node.weights], primitive: p, ptr });
         }
         const id = engine._g3_asset_node(mesh, group);
         const nodeHandle = makeNodeHandle(engine, id);

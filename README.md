@@ -370,7 +370,7 @@ logical cores, with byte-identical output.
 | [`docs/abi.md`](docs/abi.md) | every byte that crosses to a backend, field by field, plus how to evolve it |
 | [`docs/performance.md`](docs/performance.md) | how the numbers were measured, the ablation tables, and what is left |
 | [`docs/threejs-roadmap.md`](docs/threejs-roadmap.md) | gaps and milestones toward a practical Three.js alternative |
-| [`docs/assets.md`](docs/assets.md) | browser image, glTF/GLB loading, transform and skeletal animation, ownership and supported subset |
+| [`docs/assets.md`](docs/assets.md) | browser image, glTF/GLB loading, transform, skeletal and morph-weight animation, ownership and supported subset |
 | [`docs/ideals.md`](docs/ideals.md) | the principles the project is built on, and the check that would fail if each were violated |
 | [`.agents/skills/goose3d-tour`](.agents/skills/goose3d-tour/SKILL.md) | a map of the repo and the cheapest verification for a change |
 | [`.agents/skills/goose-language-notes`](.agents/skills/goose-language-notes/SKILL.md) | Goose itself as this codebase uses it: arenas, references vs copies, casts, sidecars, and the compiler warnings that catch these mistakes |
@@ -416,8 +416,8 @@ Deliberately out of scope for now, in rough order of how much they would add:
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
 * **CPU skinning.** Browser glTF skins deform and upload full mesh geometry on
-  pose changes. GPU joint palettes, morph targets, and native asset loading
-  remain future work.
+  pose changes. POSITION/NORMAL morph targets also deform on the CPU. GPU joint
+  palettes and native asset loading remain future work.
 * **Limited removal.** Ordinary nodes can be removed and reused. Browser-loaded assets recycle their owned nodes, mesh
   spans, and texture IDs on disposal. Free mesh spans split and coalesce, but
   ordinary meshes remain grow-only and live meshes are not
