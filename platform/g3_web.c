@@ -88,7 +88,8 @@ typedef struct {
     GLint specular, specular_tex, specular_textured, specular_color_tex, specular_color_textured;
     GLint clearcoat;
     GLint clearcoat_tex, clearcoat_textured, clearcoat_roughness_tex, clearcoat_roughness_textured;
-    GLint uv_transform[9], uv_rotation[9], uv_set[9];
+    GLint clearcoat_normal_tex, clearcoat_normal_textured, clearcoat_normal_scale;
+    GLint uv_transform[10], uv_rotation[10], uv_set[10];
     GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
@@ -277,13 +278,16 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_clearcoat_textured;\n"
     "uniform sampler2D u_clearcoat_roughness_tex;\n"
     "uniform bool u_clearcoat_roughness_textured;\n"
+    "uniform sampler2D u_clearcoat_normal_tex;\n"
+    "uniform bool u_clearcoat_normal_textured;\n"
+    "uniform float u_clearcoat_normal_scale;\n"
     "uniform sampler2D u_specular_tex;\n"
     "uniform bool u_specular_textured;\n"
     "uniform sampler2D u_specular_color_tex;\n"
     "uniform bool u_specular_color_textured;\n"
-    "uniform vec4 u_uv_transform[9];\n"
-    "uniform float u_uv_rotation[9];\n"
-    "uniform int u_uv_set[9];\n"
+    "uniform vec4 u_uv_transform[10];\n"
+    "uniform float u_uv_rotation[10];\n"
+    "uniform int u_uv_set[10];\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform bool u_double_sided;\n"
@@ -346,8 +350,10 @@ static const char *FRAGMENT_SRC =
     "    vec2 specular_color_uv = material_uv(6);\n"
     "    vec2 clearcoat_uv = material_uv(7);\n"
     "    vec2 clearcoat_roughness_uv = material_uv(8);\n"
+    "    vec2 clearcoat_normal_uv = material_uv(9);\n"
     "    float normal_length = length(v_normal);\n"
     "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
+    "    vec3 clearcoat_n = n;\n"
     "    if (u_normal_textured && normal_length > 1e-12) {\n"
     "        vec3 t, b; float tangent_length = length(v_tangent.xyz);\n"
     "        bool identity_normal_uv = u_uv_set[2] == 0 && all(equal(u_uv_transform[2], vec4(0.0,0.0,1.0,1.0))) && u_uv_rotation[2] == 0.0;\n"
@@ -376,7 +382,22 @@ static const char *FRAGMENT_SRC =
     "            }\n"
     "        }\n"
     "    }\n"
+    "    if (u_clearcoat_normal_textured && normal_length > 1e-12) {\n"
+    "        vec3 t,b; float tangent_length=length(v_tangent.xyz);\n"
+    "        bool identity_clearcoat_uv=u_uv_set[9]==0&&all(equal(u_uv_transform[9],vec4(0.0,0.0,1.0,1.0)))&&u_uv_rotation[9]==0.0;\n"
+    "        bool authored_clearcoat_tangent=tangent_length>1e-12&&abs(v_tangent.w)>0.5&&identity_clearcoat_uv;\n"
+    "        if(authored_clearcoat_tangent){t=v_tangent.xyz;b=vec3(0.0);}else{\n"
+    "            vec3 dpdx=dFdx(v_world),dpdy=dFdy(v_world);vec2 duvdx=dFdx(clearcoat_normal_uv),duvdy=dFdy(clearcoat_normal_uv);\n"
+    "            float det=duvdx.x*duvdy.y-duvdx.y*duvdy.x;\n"
+    "            if(abs(det)>1e-12){t=(dpdx*duvdy.y-dpdy*duvdx.y)/det;b=(-dpdx*duvdy.x+dpdy*duvdx.x)/det;}else{t=vec3(0.0);b=vec3(0.0);}\n"
+    "        }\n"
+    "        if(length(t)>1e-12){t-=clearcoat_n*dot(clearcoat_n,t);float tl=length(t);if(tl>1e-12){t/=tl;\n"
+    "            if(authored_clearcoat_tangent)b=normalize(cross(clearcoat_n,t))*(v_tangent.w<0.0?-1.0:1.0);else b-=clearcoat_n*dot(clearcoat_n,b)+t*dot(t,b);\n"
+    "            float bl=length(b);if(bl>1e-12){b/=bl;vec3 map_n=texture(u_clearcoat_normal_tex,clearcoat_normal_uv).xyz*2.0-1.0;map_n.xy*=u_clearcoat_normal_scale;float ml=length(map_n);if(ml>1e-12)clearcoat_n=normalize(t*map_n.x+b*map_n.y+clearcoat_n*map_n.z);}\n"
+    "        }}\n"
+    "    }\n"
     "    if (u_double_sided && !gl_FrontFacing) n = -n;\n"
+    "    if (u_double_sided && !gl_FrontFacing) clearcoat_n = -clearcoat_n;\n"
     "    vec3 l = -u_light_dir;\n"
     "    float diff = max(dot(n, l), 0.0);\n"
     "    vec3 v = normalize(u_view_direction.w > 0.5 ? u_view_direction.xyz : u_eye - v_world);\n"
@@ -398,7 +419,7 @@ static const char *FRAGMENT_SRC =
     "    float specular_weight = mix(clamp(specular_strength,0.0,1.0),1.0,metal);\n"
     "    float coat_factor = clamp(u_clearcoat.x*(u_clearcoat_textured?texture(u_clearcoat_tex,clearcoat_uv).r:1.0),0.0,1.0);\n"
     "    float coat_roughness = clamp(u_clearcoat.y*(u_clearcoat_roughness_textured?texture(u_clearcoat_roughness_tex,clearcoat_roughness_uv).g:1.0),0.045,1.0);\n"
-    "    float coat_fresnel = 0.04 + 0.96*pow(1.0-max(dot(n,v),0.0),5.0);\n"
+    "    float coat_fresnel = 0.04 + 0.96*pow(1.0-max(dot(clearcoat_n,v),0.0),5.0);\n"
     "    float visibility = 1.0;\n"
     "    if (u_shadow_params.x > 0.5) {\n"
     "        vec4 light_pos = u_shadow_matrix * vec4(v_world, 1.0);\n"
@@ -412,7 +433,7 @@ static const char *FRAGMENT_SRC =
     "            visibility = sum / max(count,1.0);\n"
     "        }\n"
     "    }\n"
-    "    vec3 coat = pbr_light(n,v,l,vec3(0.0),0.0,coat_roughness,1.5,1.0,vec3(1.0))*u_light_color*visibility*coat_factor;\n"
+    "    vec3 coat = pbr_light(clearcoat_n,v,l,vec3(0.0),0.0,coat_roughness,1.5,1.0,vec3(1.0))*u_light_color*visibility*coat_factor;\n"
     "    vec3 col = base * (u_ambient.rgb * u_ambient.a * ao + u_light_color * diff * visibility)\n"
     "             + u_light_color * spec * visibility;\n"
     "    float env_scale = u_pbr.x > 0.5 ? 1.0-metal : 1.0;\n"
@@ -428,8 +449,10 @@ static const char *FRAGMENT_SRC =
     "            float rough = clamp(mr.y, 0.045, 1.0);\n"
     "            vec2 brdf = texture(u_brdf_lut, vec2(max(dot(n,v),0.0),rough)).rg;\n"
     "            col += textureLod(u_env_map, spec_uv, rough*u_env_map_max_lod).rgb * (f0*brdf.x+vec3(brdf.y)) * specular_weight * u_env_map_intensity * ao;\n"
-    "            vec2 coat_brdf = texture(u_brdf_lut, vec2(max(dot(n,v),0.0),coat_roughness)).rg;\n"
-    "            coat += textureLod(u_env_map, spec_uv, coat_roughness*u_env_map_max_lod).rgb * (vec3(0.04*coat_brdf.x+coat_brdf.y)) * u_env_map_intensity * ao * coat_factor;\n"
+    "            vec3 coat_reflected = reflect(-v, clearcoat_n);\n"
+    "            vec2 coat_uv = vec2(atan(coat_reflected.z,coat_reflected.x)/6.28318530718+0.5,acos(clamp(coat_reflected.y,-1.0,1.0))/3.14159265359);\n"
+    "            vec2 coat_brdf = texture(u_brdf_lut, vec2(max(dot(clearcoat_n,v),0.0),coat_roughness)).rg;\n"
+    "            coat += textureLod(u_env_map, coat_uv, coat_roughness*u_env_map_max_lod).rgb * (vec3(0.04*coat_brdf.x+coat_brdf.y)) * u_env_map_intensity * ao * coat_factor;\n"
     "        }\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
@@ -478,7 +501,7 @@ static const char *FRAGMENT_SRC =
     "        vec3 halfdir = normalize(ld + v);\n"
     "        float s = pow(max(dot(n, halfdir), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
     "        col += (u_pbr.x > 0.5 ? pbr_light(n,v,ld,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
-    "        if (u_pbr.x > 0.5 && coat_factor > 0.0) coat += pbr_light(n,v,ld,vec3(0.0),0.0,coat_roughness,1.5,1.0,vec3(1.0))*light.color.rgb*falloff*coat_factor;\n"
+    "        if (u_pbr.x > 0.5 && coat_factor > 0.0) coat += pbr_light(clearcoat_n,v,ld,vec3(0.0),0.0,coat_roughness,1.5,1.0,vec3(1.0))*light.color.rgb*falloff*coat_factor;\n"
     "    }\n"
     "    if (u_params.x > 0.5) col = base;\n"
     "    vec3 emissive_texel = u_emissive_textured ? texture(u_emissive_tex, emissive_uv).rgb : vec3(1.0);\n"
@@ -563,7 +586,10 @@ static void find_uniforms(void) {
     shader.clearcoat_textured = glGetUniformLocation(shader.program, "u_clearcoat_textured");
     shader.clearcoat_roughness_tex = glGetUniformLocation(shader.program, "u_clearcoat_roughness_tex");
     shader.clearcoat_roughness_textured = glGetUniformLocation(shader.program, "u_clearcoat_roughness_textured");
-    for (int i = 0; i < 9; i++) {
+    shader.clearcoat_normal_tex = glGetUniformLocation(shader.program, "u_clearcoat_normal_tex");
+    shader.clearcoat_normal_textured = glGetUniformLocation(shader.program, "u_clearcoat_normal_textured");
+    shader.clearcoat_normal_scale = glGetUniformLocation(shader.program, "u_clearcoat_normal_scale");
+    for (int i = 0; i < 10; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_uv_transform[%d]", i); shader.uv_transform[i] = glGetUniformLocation(shader.program, name);
         snprintf(name, sizeof(name), "u_uv_rotation[%d]", i); shader.uv_rotation[i] = glGetUniformLocation(shader.program, name);
@@ -1088,6 +1114,8 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            a->clearcoat.x == b->clearcoat.x && a->clearcoat.y == b->clearcoat.y &&
            a->clearcoat_texture == b->clearcoat_texture &&
            a->clearcoat_roughness_texture == b->clearcoat_roughness_texture &&
+           a->clearcoat_normal_texture == b->clearcoat_normal_texture &&
+           a->clearcoat_normal_scale == b->clearcoat_normal_scale &&
            a->double_sided == b->double_sided &&
            same_uv_transform(a->base_color_uv, b->base_color_uv) &&
            same_uv_transform(a->metallic_roughness_uv, b->metallic_roughness_uv) &&
@@ -1097,7 +1125,8 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            same_uv_transform(a->specular_uv, b->specular_uv) &&
            same_uv_transform(a->specular_color_uv, b->specular_color_uv) &&
            same_uv_transform(a->clearcoat_uv, b->clearcoat_uv) &&
-           same_uv_transform(a->clearcoat_roughness_uv, b->clearcoat_roughness_uv);
+           same_uv_transform(a->clearcoat_roughness_uv, b->clearcoat_roughness_uv) &&
+           same_uv_transform(a->clearcoat_normal_uv, b->clearcoat_normal_uv);
 }
 
 EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_calls; }
@@ -1414,7 +1443,7 @@ static int item_samples_texture(const g3_draw_item *it, int32_t id) {
     return it->texture == id || it->metallic_roughness_texture == id || it->normal_texture == id ||
            it->occlusion_texture == id || it->emissive_texture == id || it->specular_texture == id ||
            it->specular_color_texture == id || it->clearcoat_texture == id ||
-           it->clearcoat_roughness_texture == id;
+           it->clearcoat_roughness_texture == id || it->clearcoat_normal_texture == id;
 }
 
 /* --- a frame --- */
@@ -1703,10 +1732,10 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
     glUniform4f(shader.pbr, it->pbr.x, it->pbr.y, it->pbr.z, it->pbr.w);
-    const g3_uv_transform *uv_transforms[9] = { &it->base_color_uv, &it->metallic_roughness_uv,
+    const g3_uv_transform *uv_transforms[10] = { &it->base_color_uv, &it->metallic_roughness_uv,
         &it->normal_uv, &it->occlusion_uv, &it->emissive_uv, &it->specular_uv, &it->specular_color_uv,
-        &it->clearcoat_uv, &it->clearcoat_roughness_uv };
-    for (int uv = 0; uv < 9; uv++) {
+        &it->clearcoat_uv, &it->clearcoat_roughness_uv, &it->clearcoat_normal_uv };
+    for (int uv = 0; uv < 10; uv++) {
         glUniform4f(shader.uv_transform[uv], uv_transforms[uv]->offset.x, uv_transforms[uv]->offset.y,
                     uv_transforms[uv]->scale.x, uv_transforms[uv]->scale.y);
         glUniform1f(shader.uv_rotation[uv], uv_transforms[uv]->rotation);
@@ -1731,7 +1760,8 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
        shadow 2, metallic-roughness 3, normal 4, occlusion 5, emissive 6,
        point shadow 7, spot shadow 8, BRDF 9, joint matrices 10,
        morph textures 11-13, specular strength 14, specular color 15,
-       morph tangents 16, clearcoat 17, clearcoat roughness 18. */
+       morph tangents 16, clearcoat 17, clearcoat roughness 18,
+       clearcoat normal 19. */
     int normal_textured = it->normal_texture >= 0 && it->normal_texture < texture_count && textures[it->normal_texture];
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, normal_textured ? textures[it->normal_texture] : 0);
@@ -1765,6 +1795,12 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glBindTexture(GL_TEXTURE_2D, clearcoat_roughness_textured ? textures[it->clearcoat_roughness_texture] : 0);
     glUniform1i(shader.clearcoat_roughness_tex, 18);
     glUniform1i(shader.clearcoat_roughness_textured, clearcoat_roughness_textured);
+    int clearcoat_normal_textured = it->clearcoat_normal_texture >= 0 && it->clearcoat_normal_texture < texture_count && textures[it->clearcoat_normal_texture];
+    glActiveTexture(GL_TEXTURE19);
+    glBindTexture(GL_TEXTURE_2D, clearcoat_normal_textured ? textures[it->clearcoat_normal_texture] : 0);
+    glUniform1i(shader.clearcoat_normal_tex, 19);
+    glUniform1i(shader.clearcoat_normal_textured, clearcoat_normal_textured);
+    glUniform1f(shader.clearcoat_normal_scale, it->clearcoat_normal_scale);
     int specular_textured = it->specular_texture >= 0 && it->specular_texture < texture_count && textures[it->specular_texture];
     glActiveTexture(GL_TEXTURE14);
     glBindTexture(GL_TEXTURE_2D, specular_textured ? textures[it->specular_texture] : 0);

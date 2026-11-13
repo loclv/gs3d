@@ -881,6 +881,9 @@ fn case_ordinary_texture_removal() {
     g3::material(material).clearcoat_texture = -1;
     g3::material(material).clearcoat_roughness_texture = texture;
     testing::check(!g3::texture_remove(handle), "a clearcoat roughness map keeps its texture alive");
+    g3::material(material).clearcoat_roughness_texture = -1;
+    g3::material(material).clearcoat_normal_texture = texture;
+    testing::check(!g3::texture_remove(handle), "a clearcoat normal map keeps its texture alive");
     g3::material_remove(material);
     g3::set_environment_map(texture, 1.0);
     testing::check(!g3::texture_remove(handle), "the active environment texture cannot be removed");
@@ -1238,6 +1241,11 @@ fn case_pbr() {
     g3::material(mat).clearcoat_roughness_texture = g3::texture_create(1, 1, clearcoat_on[..]);
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 255, 255, 255, 2), "clearcoat roughness map green channel sharpens the top highlight");
+    let clearcoat_normal: u8[4] = [255, 128, 128, 255];
+    g3::material(mat).clearcoat_roughness_texture = -1;
+    g3::material(mat).clearcoat_normal_texture = g3::texture_create(1, 1, clearcoat_normal[..]);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 0, 0, 0, 2), "clearcoat normal map changes only the coat lighting frame");
     g3::material(mat).clearcoat_factor = 0.0;
     g3::material(mat).clearcoat_texture = -1;
     g3::material(mat).clearcoat_roughness_texture = -1;

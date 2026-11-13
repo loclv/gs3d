@@ -61,8 +61,11 @@ struct DrawItem {
     clearcoat: float4, // x factor, y roughness; z/w reserved
     clearcoat_texture: i32,
     clearcoat_roughness_texture: i32,
+    clearcoat_normal_texture: i32,
+    clearcoat_normal_scale: f32,
     clearcoat_uv: UvTransform,
     clearcoat_roughness_uv: UvTransform,
+    clearcoat_normal_uv: UvTransform,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

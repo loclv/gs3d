@@ -71,14 +71,17 @@ export fn g3_asset_material_specular(id: i32, factor: f32, color_r: f32, color_g
     m.specular_color_texture = color_texture;
     return true;
 }
-export fn g3_asset_material_clearcoat(id: i32, factor: f32, roughness: f32, texture: i32, roughness_texture: i32) -> bool {
+export fn g3_asset_material_clearcoat(id: i32, factor: f32, roughness: f32, texture: i32, roughness_texture: i32, normal_texture: i32, normal_scale: f32) -> bool {
     guard g3::material_valid(id) && factor >= 0.0 && factor <= 1.0 && roughness >= 0.0 && roughness <= 1.0
     else { return false; }
+    guard normal_scale >= -3.4e38 && normal_scale <= 3.4e38 else { return false; }
     let m .= g3::material(id);
     m.clearcoat_factor = factor;
     m.clearcoat_roughness = roughness;
     m.clearcoat_texture = texture;
     m.clearcoat_roughness_texture = roughness_texture;
+    m.clearcoat_normal_texture = normal_texture;
+    m.clearcoat_normal_scale = normal_scale;
     return true;
 }
 export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offset_y: f32, scale_x: f32, scale_y: f32, rotation: f32, texcoord: i32) -> bool {
@@ -93,6 +96,7 @@ export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offs
     else if slot == 6 { g3::material(id).specular_color_uv = transform; }
     else if slot == 7 { g3::material(id).clearcoat_uv = transform; }
     else if slot == 8 { g3::material(id).clearcoat_roughness_uv = transform; }
+    else if slot == 9 { g3::material(id).clearcoat_normal_uv = transform; }
     else { return false; }
     return true;
 }
