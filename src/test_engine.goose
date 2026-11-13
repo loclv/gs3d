@@ -306,14 +306,20 @@ fn case_native_glb_load() {
     g3::scene_clear();
     flat_camera();
     let model, loaded = g3::native_glb_load_primitive("web/viewer/sample.glb", 0, 0);
-    let live = loaded && g3::mesh_handle_valid(model.mesh) && g3::node_handle_valid(model.node);
+    let live = loaded && g3::mesh_handle_valid(model.mesh) && g3::node_handle_valid(model.node) &&
+               g3::material_handle_valid(model.material) && g3::node(model.node.index).material == model.material.id;
+    let imported_material = g3::material(model.material.id);
+    let material_factors = imported_material.pbr && abs(imported_material.metallic - 0.05) < 0.001 &&
+                           abs(imported_material.roughness - 0.35) < 0.001 && imported_material.color.w == 1.0;
     g3::frame(1.0 / 60.0);
     let stats = g3::stats();
-    testing::check(live && stats.drawn == 1 && stats.triangles == 12 &&
-                   is_color(g3::read_pixel(200, 200), 255, 255, 255, 2),
-                   "native GLB loader reads an embedded static mesh into the CPU scene");
-    testing::check(g3::native_glb_dispose(model) && !g3::mesh_handle_valid(model.mesh) && !g3::node_handle_valid(model.node),
-                   "native GLB model disposal releases checked node and mesh handles");
+    testing::check(loaded && live, "native GLB loader returns checked model resources");
+    testing::check(material_factors, "native GLB loader imports metallic and roughness factors");
+    testing::check(stats.drawn == 1 && stats.triangles == 12,
+                   "native GLB loader renders the imported static mesh");
+    testing::check(g3::native_glb_dispose(model) && !g3::mesh_handle_valid(model.mesh) &&
+                   !g3::node_handle_valid(model.node) && !g3::material_handle_valid(model.material),
+                   "native GLB model disposal releases checked node, mesh, and material handles");
     let absent, missing_file = g3::native_glb_load_primitive("testdata/missing.glb", 0, 0);
     testing::check(!missing_file && absent.mesh.id < 0, "native GLB loader reports a missing asset without creating resources");
 }

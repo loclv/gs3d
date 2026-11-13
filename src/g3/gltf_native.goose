@@ -13,7 +13,7 @@ import g3.platform;
 
 namespace g3;
 
-struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle }
+struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle }
 struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64 }
 
 fn glb_u32(bytes: const u8[:], at: i64) -> i64 {
@@ -51,6 +51,65 @@ fn glb_json_index(node: json::Node?) -> i64, bool { return json::as_i64(node); }
 fn glb_optional_index(node: json::Node?, fallback: i64) -> i64, bool {
     if !node { return fallback, true; }
     return glb_json_index(node);
+}
+
+fn glb_number(node: json::Node?, fallback: f64) -> f64, bool {
+    if !node { return fallback, true; }
+    return json::as_f64(node);
+}
+
+fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bool {
+    let material_node = json::member(primitive, "material");
+    if !material_node { return MaterialHandle { .. }, true; }
+    let material_index, index_ok = glb_json_index(material_node);
+    let materials = json::member(root, "materials");
+    let source = glb_json_element(materials, material_index);
+    guard index_ok && source else { return MaterialHandle { .. }, false; }
+
+    var color = float4_1;
+    var metallic: f64 = 1.0; var roughness: f64 = 1.0;
+    let pbr = json::member(source, "pbrMetallicRoughness");
+    let color_node = json::member(pbr, "baseColorFactor");
+    if color_node {
+        guard glb_array_count(color_node) == 4 else { return MaterialHandle { .. }, false; }
+        let r, a = json::as_f64(glb_json_element(color_node, 0)); let g, b = json::as_f64(glb_json_element(color_node, 1));
+        let blue, c = json::as_f64(glb_json_element(color_node, 2)); let alpha, d = json::as_f64(glb_json_element(color_node, 3));
+        guard a && b && c && d && r >= 0.0 && r <= 1.0 && g >= 0.0 && g <= 1.0 && blue >= 0.0 && blue <= 1.0 && alpha >= 0.0 && alpha <= 1.0 else { return MaterialHandle { .. }, false; }
+        color = float4 { r as f32, g as f32, blue as f32, alpha as f32 };
+    }
+    let metallic_value, metallic_ok = glb_number(json::member(pbr, "metallicFactor"), 1.0);
+    let roughness_value, roughness_ok = glb_number(json::member(pbr, "roughnessFactor"), 1.0);
+    guard metallic_ok && roughness_ok && metallic_value >= 0.0 && metallic_value <= 1.0 && roughness_value >= 0.0 && roughness_value <= 1.0 else { return MaterialHandle { .. }, false; }
+    let emissive_node = json::member(source, "emissiveFactor");
+    var emissive = float3_0;
+    if emissive_node {
+        guard glb_array_count(emissive_node) == 3 else { return MaterialHandle { .. }, false; }
+        let r, a = json::as_f64(glb_json_element(emissive_node, 0)); let g, b = json::as_f64(glb_json_element(emissive_node, 1)); let blue, c = json::as_f64(glb_json_element(emissive_node, 2));
+        guard a && b && c && r >= 0.0 && r <= 3.4e38 && g >= 0.0 && g <= 3.4e38 && blue >= 0.0 && blue <= 3.4e38 else { return MaterialHandle { .. }, false; }
+        emissive = float3 { r as f32, g as f32, blue as f32 };
+    }
+    var alpha_mode: i32 = 0;
+    let mode_node = json::member(source, "alphaMode");
+    if mode_node {
+        let mode, mode_ok = json::as_string(mode_node);
+        guard mode_ok else { return MaterialHandle { .. }, false; }
+        if mode == "MASK" { alpha_mode = 1; }
+        else if mode == "BLEND" { alpha_mode = 2; }
+        else { guard mode == "OPAQUE" else { return MaterialHandle { .. }, false; } }
+    }
+    let cutoff, cutoff_ok = glb_number(json::member(source, "alphaCutoff"), 0.5);
+    guard cutoff_ok && cutoff >= 0.0 && cutoff <= 3.4e38 else { return MaterialHandle { .. }, false; }
+    let sided_node = json::member(source, "doubleSided");
+    var double_sided = false;
+    if sided_node { let value, valid = json::as_bool(sided_node); guard valid else { return MaterialHandle { .. }, false; } double_sided = value; }
+
+    let id = material_asset_add();
+    let m .= material(id);
+    m.color = if alpha_mode == 0 { float4 { color.x, color.y, color.z, 1.0 } } else { color };
+    m.alpha_mode = alpha_mode; m.alpha_cutoff = cutoff as f32; m.pbr = true;
+    m.metallic = metallic_value as f32; m.roughness = roughness_value as f32;
+    m.emissive = emissive; m.double_sided = double_sided;
+    return material_handle(id), true;
 }
 
 fn glb_array_count(node: json::Node?) -> i64 {
@@ -162,8 +221,9 @@ fn glb_matrix(node: json::Node?) -> Mat4, bool {
 
 // Load one selected static primitive from an embedded-binary glTF 2.0 GLB.
 // Supports float32 POSITION/NORMAL/TEXCOORD_0, TRIANGLES, and u8/u16/u32
-// indices; materials, skins, animation, sparse accessors, and external buffers
-// are outside this native subset. It applies the first node instance transform.
+// indices and scalar/factor materials; skins, animation, sparse accessors,
+// textures, and external buffers are outside this native subset. It applies
+// the first node instance transform.
 fn native_glb_load_primitive(path: const u8[:], mesh_index: i64, primitive_index: i64) -> NativeGlbModel, bool {
     var bytes: u8[>..] = [];
     guard path.len > 0 && read_file(path, bytes) && bytes.len <= 268435456 else { return NativeGlbModel { .. }, false; }
@@ -245,21 +305,26 @@ fn native_glb_load_primitive(path: const u8[:], mesh_index: i64, primitive_index
             if ok && id == mesh_index { let matrix, valid = glb_matrix(candidate); guard valid else { return NativeGlbModel { .. }, false; } transform = matrix; break; }
         }
     }
+    let imported_material, material_ok = glb_material(root, primitive);
+    guard material_ok else { return NativeGlbModel { .. }, false; }
     let mesh_id = mesh_asset_create(vertices[..], out_indices[..]);
-    guard mesh_id >= 0 else { return NativeGlbModel { .. }, false; }
+    if mesh_id < 0 { if material_handle_valid(imported_material) { material_asset_release(imported_material); } return NativeGlbModel { .. }, false; }
     let node_id = node_asset_add(mesh_id);
-    if node_id < 0 { mesh_asset_release(mesh_id); return NativeGlbModel { .. }, false; }
+    if node_id < 0 { mesh_asset_release(mesh_id); if material_handle_valid(imported_material) { material_asset_release(imported_material); } return NativeGlbModel { .. }, false; }
+    if material_handle_valid(imported_material) { node(node_id).material = imported_material.id; }
     node(node_id).local_matrix = transform;
     node(node_id).use_local_matrix = true;
-    return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id) }, true;
+    return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id), material: imported_material }, true;
 }
 
-// Release the one imported node and mesh. Mesh storage is released even if a
-// scene reset has already invalidated the node handle.
+// Release the one imported node, material, and mesh. Mesh and material storage
+// is released even if a scene reset has already invalidated the node handle.
 fn native_glb_dispose(model: NativeGlbModel&) -> bool {
     if node_handle_valid(model.node) { node_asset_release_handle(model.node); }
+    if material_handle_valid(model.material) { material_asset_release(model.material); }
     let released = mesh_asset_release_handle(model.mesh);
     model.node = NodeHandle { .. };
     model.mesh = MeshHandle { .. };
+    model.material = MaterialHandle { .. };
     return released;
 }
