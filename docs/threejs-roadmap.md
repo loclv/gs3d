@@ -22,7 +22,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and shrinking arena backing arrays |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection | Browser integration tests |
 | Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters | Render targets, post-processing, custom shaders and colour management; CPU reference renderer still processes draw items individually |
-| Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
+| Developer experience | Goose API, custom browser host, typed browser asset helpers and a package manifest | Publish the package, examples, and automated browser rendering tests |
 
 Three.js's [fundamentals](https://threejs.org/manual/pages/fundamentals.html),
 [glTF loader](https://threejs.org/docs/pages/GLTFLoader.html), and

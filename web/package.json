@@ -1,0 +1,18 @@
+{
+  "name": "goose-3d-browser-assets",
+  "version": "0.1.0",
+  "description": "Browser asset helpers and TypeScript declarations for Goose 3D",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./assets.d.ts",
+      "import": "./assets.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "assets.js",
+    "assets.d.ts"
+  ],
+  "sideEffects": false
+}

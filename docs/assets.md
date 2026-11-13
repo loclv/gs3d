@@ -5,6 +5,12 @@ animation, into either browser build after `g3_host_start` has succeeded. It
 uses browser fetch and image decoding; it is not a native Goose or CPU-backend
 loader.
 
+The ES module API has TypeScript declarations in `web/assets.d.ts`. The
+`web/package.json` manifest exports this helper module as
+`goose-3d-browser-assets`; the package contains only the browser helpers and
+their declarations. Applications still build and initialize their own Goose
+WebAssembly engine before calling the helpers.
+
 ```js
 import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setToneMapping, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
 
