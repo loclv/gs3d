@@ -533,6 +533,7 @@ function parseTextureTransform(info, extensionsUsed) {
 
 function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extensionsUsed) {
   const material = materialIndex === undefined ? {} : item(doc.materials, materialIndex, 'material');
+  if (material.name !== undefined && typeof material.name !== 'string') invalid('Invalid material name');
   let unlit = false, emissiveStrength = 1, ior = 1.5;
   let specularFactor = 1, specularColorFactor = [1, 1, 1], specularExtension = null;
   if (material.extensions !== undefined) {
@@ -636,7 +637,8 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
     item(textureSpecs, pbr.baseColorTexture.index, 'texture');
     textureIndex = pbr.baseColorTexture.index;
   }
-  return { color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
+  return { name: material.name ?? null, baseColorFactor: [...color],
+    color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
     alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
     normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
     emissive: emissive.map(value => value * emissiveStrength), emissiveTextureIndex,
@@ -644,6 +646,26 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
     specularTextureIndex, specularColorTextureIndex,
     uvTransforms: [baseUvTransform, metallicRoughnessUvTransform, normalUvTransform, occlusionUvTransform,
       emissiveUvTransform, specularUvTransform, specularColorUvTransform], materialIndex: materialIndex ?? -1 };
+}
+
+function inspectMaterial(spec) {
+  const alphaModes = ['OPAQUE', 'MASK', 'BLEND'];
+  const textureSlots = [
+    ['baseColor', spec.textureIndex], ['metallicRoughness', spec.metallicRoughnessTextureIndex],
+    ['normal', spec.normalTextureIndex], ['occlusion', spec.occlusionTextureIndex],
+    ['emissive', spec.emissiveTextureIndex], ['specular', spec.specularTextureIndex],
+    ['specularColor', spec.specularColorTextureIndex],
+  ].filter(([, index]) => index >= 0).map(([name]) => name);
+  return Object.freeze({
+    index: spec.materialIndex, name: spec.name,
+    baseColorFactor: Object.freeze([...spec.baseColorFactor]),
+    metallicFactor: spec.metallic, roughnessFactor: spec.roughness,
+    alphaMode: alphaModes[spec.alphaMode], alphaCutoff: spec.alphaCutoff,
+    emissiveFactor: Object.freeze([...spec.emissive]), doubleSided: spec.doubleSided,
+    unlit: spec.unlit, ior: spec.ior, specularFactor: spec.specularFactor,
+    specularColorFactor: Object.freeze([...spec.specularColorFactor]),
+    textureSlots: Object.freeze(textureSlots),
+  });
 }
 
 function validateMeshAttributeEncoding(attribute, semantic, morph, extensionsUsed, extensionsRequired) {
@@ -1272,6 +1294,7 @@ export async function loadGLTF(engine, url, options = {}) {
       if (!groupHandle) throw new AssetError('UPLOAD', 'Could not create node');
       nodes.push(groupHandle);
       const primitiveHandles = [];
+      const primitiveMaterials = [];
       node.matrix.forEach((value, index) => engine._g3_asset_matrix(group, index, value));
       if (node.translation || node.weights.length) transformNodes.set(node.index, {
         handle: groupHandle,
@@ -1331,6 +1354,12 @@ export async function loadGLTF(engine, url, options = {}) {
         primitiveHandles.push(nodeHandle);
         const material = getMaterial(p);
         engine._g3_asset_node_material(id, material.id);
+        primitiveMaterials.push(Object.freeze({
+          default: inspectMaterial(p),
+          variants: Object.freeze([...p.variantMaterials].map(([index, spec]) => Object.freeze({
+            index, name: data.variantNames[index], material: inspectMaterial(spec),
+          }))),
+        }));
         if (p.variantMaterials.size) variantBindings.push({ handle: nodeHandle, defaultMaterial: material.id,
           materials: new Map([...p.variantMaterials].map(([variantIndex, spec]) => [variantIndex, getMaterial(spec).id])) });
       }
@@ -1339,6 +1368,7 @@ export async function loadGLTF(engine, url, options = {}) {
         children: Object.freeze(node.children.map(child => child.index)),
         mesh: node.meshIndex, skin: node.skinIndex < 0 ? null : node.skinIndex,
         handle: groupHandle, primitives: Object.freeze(primitiveHandles),
+        primitiveMaterials: Object.freeze(primitiveMaterials),
       }));
       for (const child of node.children) createNode(child, group, node.index);
       return groupHandle;

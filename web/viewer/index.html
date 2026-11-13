@@ -11,7 +11,9 @@
   h1 { margin: 0 0 4px; font-size: 21px; }
   p { margin: 8px 0; color: #c6d5d5; }
   button { padding: 8px 12px; border: 0; border-radius: 4px; cursor: pointer; }
+  select { width: 100%; padding: 7px; border-radius: 4px; }
   #status { color: #ffe6a5; }
+  #inspection { white-space: pre-wrap; font: 12px/1.55 ui-monospace, monospace; color: #c6d5d5; }
 </style>
 </head>
 <body>
@@ -20,7 +22,9 @@
   <h1>Model viewer</h1>
   <p>The sample plays its turntable clip. Drag to orbit, right-drag or Shift+drag to pan, scroll or pinch to zoom, and click or tap a mesh to see its glTF node name and primitive. Focus the canvas for arrow-key orbit, WASD pan, and +/- zoom.</p>
   <button id="reload" type="button">Reload model</button>
+  <p><label for="variant">Material variant</label><br><select id="variant" disabled><option value="-1">Default materials</option></select></p>
   <p id="status" role="status">Loading…</p>
+  <p id="inspection" aria-live="polite">Click a mesh to inspect its material.</p>
 </section>
 <script type="module" src="./viewer.js"></script>
 </body>

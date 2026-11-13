@@ -6,7 +6,34 @@ import { createOrbitControls } from '../orbit-controls.js';
 const canvas = document.getElementById('canvas');
 const status = document.getElementById('status');
 const reload = document.getElementById('reload');
+const inspection = document.getElementById('inspection');
+const variantSelect = document.getElementById('variant');
 let engine, model, last = 0;
+let selectedPrimitive = null;
+
+function updateInspection() {
+  if (!model || !selectedPrimitive) {
+    inspection.textContent = 'Click a mesh to inspect its material.';
+    return;
+  }
+  const { owner, primitive } = selectedPrimitive;
+  const choice = owner.primitiveMaterials[primitive];
+  const selectedVariant = choice.variants.find(variant => variant.index === model.activeVariant);
+  const material = selectedVariant?.material ?? choice.default;
+  const color = material.baseColorFactor.map(value => value.toFixed(2)).join(', ');
+  const emission = material.emissiveFactor.map(value => value.toFixed(2)).join(', ');
+  inspection.textContent = [
+    `Node: ${owner.name || `glTF node ${owner.index}`}`,
+    `Primitive: ${primitive + 1}`,
+    `Material: ${material.name || (material.index < 0 ? 'Default material' : `Material ${material.index}`)}${selectedVariant ? ` (${selectedVariant.name})` : ''}`,
+    `Base color: ${color}`,
+    `Metallic: ${material.metallicFactor.toFixed(2)}   Roughness: ${material.roughnessFactor.toFixed(2)}`,
+    `Alpha: ${material.alphaMode}${material.alphaMode === 'MASK' ? ` at ${material.alphaCutoff.toFixed(2)}` : ''}`,
+    `Emission: ${emission}`,
+    `Maps: ${material.textureSlots.length ? material.textureSlots.join(', ') : 'none'}`,
+    `${material.unlit ? 'Unlit' : 'Lit'}${material.doubleSided ? ', double-sided' : ''}`,
+  ].join('\n');
+}
 
 window.gooseError = message => { status.textContent = message; };
 window.gooseSurfaceFailed = () => window.gooseError('WebGL2 could not be started.');
@@ -18,6 +45,11 @@ async function loadModel() {
     const next = await loadGLTF(engine, './sample.glb');
     if (model) model.dispose();
     model = next;
+    selectedPrimitive = null;
+    updateInspection();
+    variantSelect.replaceChildren(new Option('Default materials', '-1'));
+    for (const [index, name] of model.variants.entries()) variantSelect.add(new Option(name, String(index)));
+    variantSelect.disabled = model.variants.length === 0;
     if (model.animations.length) {
       model.playAnimation(0);
       status.textContent = `Playing ${model.animations[0].name}. Click a face to select it.`;
@@ -37,6 +69,11 @@ async function start() {
       engine._g3_input_resize(next.width, next.height);
     });
     reload.addEventListener('click', loadModel);
+    variantSelect.addEventListener('change', () => {
+      if (!model) return;
+      const variant = Number(variantSelect.value);
+      if (model.setVariant(variant < 0 ? null : variant)) updateInspection();
+    });
     createOrbitControls(canvas, {
       onOrbit: (yaw, pitch) => engine._g3_viewer_orbit(yaw, pitch),
       onZoom: factor => engine._g3_viewer_zoom(factor),
@@ -45,15 +82,23 @@ async function start() {
         if (!model) return;
         const hit = model.pick(canvas, x, y);
         if (hit === null) {
+          selectedPrimitive = null;
+          updateInspection();
           status.textContent = 'No mesh selected.';
           return;
         }
         const owner = model.nodes.find(node => node.primitives.some(handle =>
           handle.index === hit.index && handle.generation === hit.generation && handle.epoch === hit.epoch));
-        if (!owner) status.textContent = `Selected mesh node ${hit.index}.`;
+        if (!owner) {
+          selectedPrimitive = null;
+          updateInspection();
+          status.textContent = `Selected mesh node ${hit.index}.`;
+        }
         else {
           const primitive = owner.primitives.findIndex(handle => handle.index === hit.index && handle.generation === hit.generation);
           status.textContent = `Selected ${owner.name || `glTF node ${owner.index}`}, primitive ${primitive + 1}.`;
+          selectedPrimitive = { owner, primitive };
+          updateInspection();
         }
       },
     });

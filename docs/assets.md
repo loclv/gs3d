@@ -92,8 +92,13 @@ generation, and scene epoch, and are bound to the engine that created them.
 `model.nodes` is a read-only, depth-first view of the selected glTF scene's node
 hierarchy. Each entry keeps the original glTF node index, optional name, parent
 and child indices, optional mesh and skin indices, the checked engine handle for
-that node's transform group, and checked handles for its primitive nodes. Nodes
-in unselected scenes are not included.
+that node's transform group, checked handles for its primitive nodes, and
+`primitiveMaterials` summaries in matching order. Material summaries include
+names, factors, alpha mode, sidedness, shading model, IOR, specular factors and
+the texture slots in use. Each primitive summary includes its default material
+and the materials assigned by `KHR_materials_variants`; choosing a variant with
+`model.setVariant()` does not mutate the inspection data. Nodes in unselected
+scenes are not included.
 Use `isNodeHandleValid` before retaining or using a handle: it becomes invalid
 after disposal or `scene_clear()`, even if the same index is reused. Disposal
 after `scene_clear()` still releases the model's GPU resources without touching

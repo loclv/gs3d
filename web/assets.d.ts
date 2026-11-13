@@ -45,6 +45,28 @@ export interface AnimationInfo {
   readonly duration: number;
 }
 
+export interface MaterialInspection {
+  readonly index: number;
+  readonly name: string | null;
+  readonly baseColorFactor: readonly [number, number, number, number];
+  readonly metallicFactor: number;
+  readonly roughnessFactor: number;
+  readonly alphaMode: 'OPAQUE' | 'MASK' | 'BLEND';
+  readonly alphaCutoff: number;
+  readonly emissiveFactor: readonly [number, number, number];
+  readonly doubleSided: boolean;
+  readonly unlit: boolean;
+  readonly ior: number;
+  readonly specularFactor: number;
+  readonly specularColorFactor: readonly [number, number, number];
+  readonly textureSlots: readonly string[];
+}
+
+export interface PrimitiveMaterialInspection {
+  readonly default: MaterialInspection;
+  readonly variants: readonly { readonly index: number; readonly name: string; readonly material: MaterialInspection }[];
+}
+
 /** Read-only glTF node metadata for a node in the selected scene. */
 export interface ModelNodeInfo {
   /** Original node index in the glTF document. */
@@ -60,6 +82,8 @@ export interface ModelNodeInfo {
   readonly handle: NodeHandle;
   /** Checked handles for the engine nodes created from this glTF mesh's primitives. */
   readonly primitives: readonly NodeHandle[];
+  /** Material factors and variant choices for each primitive, in primitive order. */
+  readonly primitiveMaterials: readonly PrimitiveMaterialInspection[];
 }
 
 export interface LoadedModel {

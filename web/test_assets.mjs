@@ -38,7 +38,8 @@ const variantDoc = structuredClone(doc);
 variantDoc.extensionsUsed = ['KHR_materials_variants'];
 variantDoc.extensionsRequired = ['KHR_materials_variants'];
 variantDoc.extensions = { KHR_materials_variants: { variants: [{ name: 'Blue' }, { name: 'Red' }] } };
-variantDoc.materials.push({ pbrMetallicRoughness: { baseColorFactor: [1, 0, 0, 1] } });
+variantDoc.materials[0].name = 'Default paint';
+variantDoc.materials.push({ name: 'Blue paint', pbrMetallicRoughness: { baseColorFactor: [0, 0, 1, 1], metallicFactor: 0.4, roughnessFactor: 0.2 } });
 variantDoc.meshes[0].primitives[0].extensions = { KHR_materials_variants: { mappings: [{ material: 1, variants: [0] }] } };
 resources.set('http://localhost/variants.gltf', bytes(variantDoc));
 resources.set('http://localhost/oversized-glb-padding.glb', glb(glbDoc, new ArrayBuffer(84)));
@@ -433,6 +434,17 @@ assert.equal(invalidSceneEngine.calls.length, 0, 'invalid scene indices fail bef
 const variantEngine = fakeEngine();
 const variantModel = await loadGLTF(variantEngine, 'http://localhost/variants.gltf');
 assert.deepEqual(variantModel.variants, ['Blue', 'Red']);
+const inspectedPrimitive = variantModel.nodes[0].primitiveMaterials[0];
+assert.equal(inspectedPrimitive.default.name, 'Default paint');
+assert.deepEqual(inspectedPrimitive.default.baseColorFactor, [0.25, 0.5, 1, 0.5]);
+assert.equal(inspectedPrimitive.default.alphaMode, 'OPAQUE');
+assert.deepEqual(inspectedPrimitive.variants, [{
+  index: 0, name: 'Blue', material: {
+    index: 1, name: 'Blue paint', baseColorFactor: [0, 0, 1, 1], metallicFactor: 0.4,
+    roughnessFactor: 0.2, alphaMode: 'OPAQUE', alphaCutoff: 0.5, emissiveFactor: [0, 0, 0],
+    doubleSided: false, unlit: false, ior: 1.5, specularFactor: 1, specularColorFactor: [1, 1, 1], textureSlots: [],
+  },
+}], 'primitive inspection includes default factors and mapped variant material metadata');
 assert.equal(variantModel.activeVariant, -1);
 assert.equal(variantModel.materials.length, 2);
 assert.equal(variantModel.setVariant('Blue'), true);
