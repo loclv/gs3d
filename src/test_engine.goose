@@ -1298,6 +1298,31 @@ fn case_pbr() {
     let anisotropic = g3::read_pixel(200, 200);
     testing::check(channel(anisotropic, 16) + 1 < channel(isotropic, 16),
         "full anisotropy redistributes the normal-incidence metallic highlight");
+    let zero_strength_pixels: u8[4] = [255, 128, 0, 255];
+    let zero_strength_map = g3::texture_create(1, 1, zero_strength_pixels[..]);
+    g3::material(mat).anisotropy_texture = zero_strength_map;
+    g3::frame(1.0 / 60.0);
+    let map_off = g3::read_pixel(200, 200);
+    testing::check(abs(channel(map_off, 16) - channel(isotropic, 16)) <= 1,
+        "anisotropy texture blue channel scales the strength to zero");
+    let direction_x_pixels: u8[4] = [255, 128, 255, 255];
+    let direction_y_pixels: u8[4] = [128, 255, 255, 255];
+    let direction_x_map = g3::texture_create(1, 1, direction_x_pixels[..]);
+    let direction_y_map = g3::texture_create(1, 1, direction_y_pixels[..]);
+    g3::set_light(float3 { -0.6, 0.0, -0.8 }, float3_1);
+    g3::material(mat).anisotropy_texture = direction_x_map;
+    g3::frame(1.0 / 60.0);
+    let direction_x = g3::read_pixel(200, 200);
+    g3::material(mat).anisotropy_texture = direction_y_map;
+    g3::frame(1.0 / 60.0);
+    let direction_y = g3::read_pixel(200, 200);
+    testing::check(abs(channel(direction_x, 16) - channel(direction_y, 16)) > 2,
+        "anisotropy texture red and green channels rotate the stretched highlight");
+    g3::material(mat).anisotropy_texture = -1;
+    g3::texture_remove(g3::texture_handle(zero_strength_map));
+    g3::texture_remove(g3::texture_handle(direction_x_map));
+    g3::texture_remove(g3::texture_handle(direction_y_map));
+    g3::set_light(float3 { 0.0, 0.0, -1.0 }, float3 { 0.5, 0.5, 0.5 });
     g3::material(mat).anisotropy_strength = 0.0;
     g3::material(mat).metallic = 0.0;
     g3::material(mat).roughness = 1.0;
