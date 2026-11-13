@@ -215,7 +215,7 @@ These exist for a host, not for the engine:
 | web | `g3_host_start(int w, int h)` | **the page's entry point**: `goose_init` + `g3_app_init`; exported with `EMSCRIPTEN_KEEPALIVE` |
 | web | `g3_input_key/mouse/resize` | same three, exported to JS by `g3_input.h`'s `G3_HOST_API` |
 | web | `g3_host_scene_draw_calls()` | WebGL scene-pass draw calls for the current frame; shadow and presentation passes are excluded |
-| web | `g3_host_mesh_morph`, `g3_host_morph_weights`, `g3_host_mesh_morph_release` | upload per-mesh glTF morph deltas, update animated weights, and release the optional GPU morph path |
+| web | `g3_host_mesh_morph`, `g3_host_morph_weights`, `g3_host_mesh_morph_release` | upload per-mesh glTF position, normal and tangent deltas, update animated weights, and release the optional GPU morph path |
 | web | `g3_host_mesh_skin`, `g3_host_joint_palette`, `g3_host_mesh_update_cpu` | upload per-mesh skin attributes and joint matrices while keeping retained picking geometry updated |
 | web | exported Goose: `g3_app_init`, `g3_app_frame`, `g3_app_shutdown`, `g3_app_drawn/culled/triangles/meshes/nodes` | what `web/shell.js` calls |
 

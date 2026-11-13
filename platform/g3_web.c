@@ -71,7 +71,7 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_update_cpu(int32_t id, uint32_t positi
 typedef struct {
     GLuint vao, vbo, ebo;
     GLuint skin_vbo, joint_texture;
-    GLuint morph_position_texture, morph_normal_texture, morph_weight_texture;
+    GLuint morph_position_texture, morph_normal_texture, morph_tangent_texture, morph_weight_texture;
     GLsizei count, vertex_count;
     GLsizei joint_count;
     GLsizei morph_target_count;
@@ -95,7 +95,7 @@ typedef struct {
     GLint alpha_mode, alpha_cutoff;
     GLint double_sided;
     GLint skin_enabled, joint_palette, joint_count;
-    GLint morph_enabled, morph_positions, morph_normals, morph_weights, morph_target_count;
+    GLint morph_enabled, morph_positions, morph_normals, morph_tangents, morph_weights, morph_target_count;
     GLint instanced;
 } web_shader;
 
@@ -173,6 +173,7 @@ static const char *VERTEX_SRC =
     "uniform bool u_morph_enabled;\n"
     "uniform sampler2D u_morph_positions;\n"
     "uniform sampler2D u_morph_normals;\n"
+    "uniform sampler2D u_morph_tangents;\n"
     "uniform sampler2D u_morph_weights;\n"
     "uniform int u_morph_target_count;\n"
     "out vec3 v_normal;\n"
@@ -197,13 +198,14 @@ static const char *VERTEX_SRC =
     "                             vec4(a_instance_model_row0.w,a_instance_model_row1.w,a_instance_model_row2.w,1.0));\n"
     "    mat4 model = u_instanced ? instance_model : u_model;\n"
     "    mat4 mvp = u_instanced ? u_view_proj * instance_model : u_mvp;\n"
-    "    vec4 position = vec4(a_pos, 1.0); vec3 normal = a_normal;\n"
+    "    vec4 position = vec4(a_pos, 1.0); vec3 normal = a_normal; vec3 tangent = a_tangent.xyz;\n"
     "    if (u_morph_enabled) {\n"
     "        for (int target = 0; target < u_morph_target_count; target++) {\n"
     "            float weight = texelFetch(u_morph_weights, ivec2(target, 0), 0).r;\n"
     "            if (weight != 0.0) {\n"
     "                position.xyz += texelFetch(u_morph_positions, ivec2(gl_VertexID, target), 0).rgb * weight;\n"
     "                normal += texelFetch(u_morph_normals, ivec2(gl_VertexID, target), 0).rgb * weight;\n"
+    "                tangent += texelFetch(u_morph_tangents, ivec2(gl_VertexID, target), 0).rgb * weight;\n"
     "            }\n"
     "        }\n"
     "    }\n"
@@ -225,11 +227,10 @@ static const char *VERTEX_SRC =
     "    v_color = a_color;\n"
     "    v_normal = u_instanced ? transpose(inverse(mat3(model))) * normal : u_normal_matrix * normal;\n"
     "    float model_sign = determinant(mat3(model)) < 0.0 ? -1.0 : 1.0;\n"
-    "    if (u_morph_enabled) v_tangent = vec4(0.0);\n"
-    "    else if (u_skin_enabled && skin_total > 0.0) {\n"
-    "        vec3 tangent = mat3(skin_matrix) * a_tangent.xyz; float tangent_length = length(tangent);\n"
-    "        v_tangent = tangent_length > 1e-12 ? vec4(mat3(model) * (tangent / tangent_length), a_tangent.w * model_sign) : vec4(0.0);\n"
-    "    } else v_tangent = vec4(mat3(model) * a_tangent.xyz, a_tangent.w * model_sign);\n"
+    "    if (u_skin_enabled && skin_total > 0.0) {\n"
+    "        vec3 skinned_tangent = mat3(skin_matrix) * tangent; float tangent_length = length(skinned_tangent);\n"
+    "        v_tangent = tangent_length > 1e-12 ? vec4(mat3(model) * (skinned_tangent / tangent_length), a_tangent.w * model_sign) : vec4(0.0);\n"
+    "    } else { if (u_morph_enabled) { float tangent_length = length(tangent); tangent = tangent_length > 1e-12 ? tangent / tangent_length : vec3(0.0); } v_tangent = vec4(mat3(model) * tangent, a_tangent.w * model_sign); }\n"
     "    gl_Position = mvp * position;\n"
     "}\n";
 
@@ -580,6 +581,7 @@ static void find_uniforms(void) {
     shader.morph_enabled = glGetUniformLocation(shader.program, "u_morph_enabled");
     shader.morph_positions = glGetUniformLocation(shader.program, "u_morph_positions");
     shader.morph_normals = glGetUniformLocation(shader.program, "u_morph_normals");
+    shader.morph_tangents = glGetUniformLocation(shader.program, "u_morph_tangents");
     shader.morph_weights = glGetUniformLocation(shader.program, "u_morph_weights");
     shader.morph_target_count = glGetUniformLocation(shader.program, "u_morph_target_count");
     shader.instanced = glGetUniformLocation(shader.program, "u_instanced");
@@ -733,6 +735,7 @@ void g3p_shutdown(void) {
         glDeleteTextures(1, &meshes[i].joint_texture);
         glDeleteTextures(1, &meshes[i].morph_position_texture);
         glDeleteTextures(1, &meshes[i].morph_normal_texture);
+        glDeleteTextures(1, &meshes[i].morph_tangent_texture);
         glDeleteTextures(1, &meshes[i].morph_weight_texture);
     }
     free(meshes);
@@ -877,37 +880,41 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_joint_palette(int32_t id, uint32_t data_ptr
 }
 
 EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_morph(int32_t id, uint32_t positions_ptr,
-                                                 uint32_t normals_ptr, int32_t vertex_count,
+                                                 uint32_t normals_ptr, uint32_t tangents_ptr, int32_t vertex_count,
                                                  int32_t target_count) {
-    if (id < 0 || id >= mesh_count || !positions_ptr || !normals_ptr ||
-        positions_ptr % 4 || normals_ptr % 4 || vertex_count <= 0 ||
+    if (id < 0 || id >= mesh_count || !positions_ptr || !normals_ptr || !tangents_ptr ||
+        positions_ptr % 4 || normals_ptr % 4 || tangents_ptr % 4 || vertex_count <= 0 ||
         target_count <= 0 || target_count > G3_MAX_GPU_MORPH_TARGETS ||
         vertex_count > gpu_max_texture_size || target_count > gpu_max_texture_size) return 0;
     web_mesh *m = &meshes[id];
     if (!m->vao || vertex_count != m->vertex_count || m->morph_position_texture ||
-        m->morph_normal_texture || m->morph_weight_texture) return 0;
+        m->morph_normal_texture || m->morph_tangent_texture || m->morph_weight_texture) return 0;
     uint64_t float_count = (uint64_t)vertex_count * (uint64_t)target_count * 3;
     uint64_t bytes = float_count * sizeof(float), heap_size = emscripten_get_heap_size();
-    if (bytes > G3_MAX_GPU_MORPH_BYTES / 2) return 0;
-    if ((uint64_t)positions_ptr + bytes > heap_size || (uint64_t)normals_ptr + bytes > heap_size) return 0;
+    if (bytes > G3_MAX_GPU_MORPH_BYTES / 3) return 0;
+    if ((uint64_t)positions_ptr + bytes > heap_size || (uint64_t)normals_ptr + bytes > heap_size ||
+        (uint64_t)tangents_ptr + bytes > heap_size) return 0;
     const float *positions = (const float *)(uintptr_t)positions_ptr;
     const float *normals = (const float *)(uintptr_t)normals_ptr;
+    const float *tangents = (const float *)(uintptr_t)tangents_ptr;
     for (uint64_t i = 0; i < float_count; i++)
-        if (!isfinite(positions[i]) || !isfinite(normals[i])) return 0;
+        if (!isfinite(positions[i]) || !isfinite(normals[i]) || !isfinite(tangents[i])) return 0;
 
     for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; i++) { }
     glGenTextures(1, &m->morph_position_texture);
     glGenTextures(1, &m->morph_normal_texture);
+    glGenTextures(1, &m->morph_tangent_texture);
     glGenTextures(1, &m->morph_weight_texture);
-    if (!m->morph_position_texture || !m->morph_normal_texture || !m->morph_weight_texture) {
+    if (!m->morph_position_texture || !m->morph_normal_texture || !m->morph_tangent_texture || !m->morph_weight_texture) {
         glDeleteTextures(1, &m->morph_position_texture);
         glDeleteTextures(1, &m->morph_normal_texture);
+        glDeleteTextures(1, &m->morph_tangent_texture);
         glDeleteTextures(1, &m->morph_weight_texture);
-        m->morph_position_texture = m->morph_normal_texture = m->morph_weight_texture = 0;
+        m->morph_position_texture = m->morph_normal_texture = m->morph_tangent_texture = m->morph_weight_texture = 0;
         return 0;
     }
-    GLuint ids[3] = { m->morph_position_texture, m->morph_normal_texture, m->morph_weight_texture };
-    for (int i = 0; i < 3; i++) {
+    GLuint ids[4] = { m->morph_position_texture, m->morph_normal_texture, m->morph_tangent_texture, m->morph_weight_texture };
+    for (int i = 0; i < 4; i++) {
         glBindTexture(GL_TEXTURE_2D, ids[i]);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -918,6 +925,8 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_morph(int32_t id, uint32_t positions_p
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, vertex_count, target_count, 0, GL_RGB, GL_FLOAT, positions);
     glBindTexture(GL_TEXTURE_2D, m->morph_normal_texture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, vertex_count, target_count, 0, GL_RGB, GL_FLOAT, normals);
+    glBindTexture(GL_TEXTURE_2D, m->morph_tangent_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, vertex_count, target_count, 0, GL_RGB, GL_FLOAT, tangents);
     glBindTexture(GL_TEXTURE_2D, m->morph_weight_texture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, target_count, 1, 0, GL_RED, GL_FLOAT, NULL);
     GLenum error = glGetError();
@@ -925,8 +934,9 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_morph(int32_t id, uint32_t positions_p
         while (glGetError() != GL_NO_ERROR) { }
         glDeleteTextures(1, &m->morph_position_texture);
         glDeleteTextures(1, &m->morph_normal_texture);
+        glDeleteTextures(1, &m->morph_tangent_texture);
         glDeleteTextures(1, &m->morph_weight_texture);
-        m->morph_position_texture = m->morph_normal_texture = m->morph_weight_texture = 0;
+        m->morph_position_texture = m->morph_normal_texture = m->morph_tangent_texture = m->morph_weight_texture = 0;
         return 0;
     }
     m->morph_target_count = target_count;
@@ -951,8 +961,9 @@ EMSCRIPTEN_KEEPALIVE void g3_host_mesh_morph_release(int32_t id) {
     web_mesh *m = &meshes[id];
     glDeleteTextures(1, &m->morph_position_texture);
     glDeleteTextures(1, &m->morph_normal_texture);
+    glDeleteTextures(1, &m->morph_tangent_texture);
     glDeleteTextures(1, &m->morph_weight_texture);
-    m->morph_position_texture = m->morph_normal_texture = m->morph_weight_texture = 0;
+    m->morph_position_texture = m->morph_normal_texture = m->morph_tangent_texture = m->morph_weight_texture = 0;
     m->morph_target_count = 0;
 }
 
@@ -1725,7 +1736,7 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glBindTexture(GL_TEXTURE_2D, m->joint_texture);
 
     int morph_enabled = m->morph_target_count > 0 && m->morph_position_texture &&
-                        m->morph_normal_texture && m->morph_weight_texture;
+                        m->morph_normal_texture && m->morph_tangent_texture && m->morph_weight_texture;
     glUniform1i(shader.morph_enabled, morph_enabled);
     glUniform1i(shader.morph_target_count, morph_enabled ? m->morph_target_count : 0);
     glUniform1i(shader.morph_positions, 11);
@@ -1734,6 +1745,9 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform1i(shader.morph_normals, 12);
     glActiveTexture(GL_TEXTURE12);
     glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_normal_texture : 0);
+    glUniform1i(shader.morph_tangents, 16);
+    glActiveTexture(GL_TEXTURE16);
+    glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_tangent_texture : 0);
     glUniform1i(shader.morph_weights, 13);
     glActiveTexture(GL_TEXTURE13);
     glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_weight_texture : 0);

@@ -86,6 +86,7 @@ const inverseBind = addSkinAccessor([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1], 5126, 
 const skinTimes = addSkinAccessor([0,1], 5126, 'SCALAR', (d, o, x) => d.setFloat32(o, x, true), 4);
 const skinTranslation = addSkinAccessor([0,0,0, 1,0,0], 5126, 'VEC3', (d, o, x) => d.setFloat32(o, x, true), 4);
 const skinTangent = addSkinAccessor([0,1,0,-1, 0,1,0,-1, 0,1,0,-1], 5126, 'VEC4', (d, o, x) => d.setFloat32(o, x, true), 4);
+const skinTangentDelta = addSkinAccessor([1,0,0, 1,0,0, 1,0,0], 5126, 'VEC3', (d, o, x) => d.setFloat32(o, x, true), 4);
 const skinRotation = addSkinAccessor([0,0,0,1, 0,0,Math.SQRT1_2,Math.SQRT1_2], 5126, 'VEC4', (d, o, x) => d.setFloat32(o, x, true), 4);
 const skinBinary = new ArrayBuffer(skinByteLength), skinBytes = new Uint8Array(skinBinary);
 for (const chunk of skinChunks) skinBytes.set(chunk.bytes, chunk.offset);
@@ -103,8 +104,8 @@ const skinDoc = {
 resources.set('http://localhost/skinned.gltf', bytes(skinDoc));
 resources.set('http://localhost/skin.bin', skinBinary);
 const morphDoc = structuredClone(skinDoc);
-morphDoc.meshes[0].primitives[0].attributes = { POSITION: skinPosition, NORMAL: skinNormal };
-morphDoc.meshes[0].primitives[0].targets = [{ POSITION: skinPosition, NORMAL: skinNormal }];
+morphDoc.meshes[0].primitives[0].attributes = { POSITION: skinPosition, NORMAL: skinNormal, TANGENT: skinTangent };
+morphDoc.meshes[0].primitives[0].targets = [{ POSITION: skinPosition, NORMAL: skinNormal, TANGENT: skinTangentDelta }];
 delete morphDoc.skins;
 morphDoc.nodes = [{ mesh: 0 }];
 morphDoc.scenes = [{ nodes: [0] }];
@@ -276,11 +277,12 @@ function fakeEngine() {
 }
 
 function enableFakeGpuMorph(engine, { upload = true, skin = true } = {}) {
-  engine._g3_host_mesh_morph = (id, positionsPtr, normalsPtr, vertexCount, targetCount) => {
+  engine._g3_host_mesh_morph = (id, positionsPtr, normalsPtr, tangentsPtr, vertexCount, targetCount) => {
     const length = vertexCount * targetCount * 3;
     engine.calls.push(['mesh_morph', id, vertexCount, targetCount,
       [...engine.HEAPF32.slice(positionsPtr >>> 2, (positionsPtr >>> 2) + length)],
-      [...engine.HEAPF32.slice(normalsPtr >>> 2, (normalsPtr >>> 2) + length)]]);
+      [...engine.HEAPF32.slice(normalsPtr >>> 2, (normalsPtr >>> 2) + length)],
+      [...engine.HEAPF32.slice(tangentsPtr >>> 2, (tangentsPtr >>> 2) + length)]]);
     return upload ? 1 : 0;
   };
   engine._g3_host_morph_weights = (id, ptr, targetCount) => {
@@ -750,6 +752,9 @@ assert.equal(morphModel.playAnimation(0, { loop: false }), true);
 assert.equal(morphModel.seekAnimation(1), true);
 const morphedVertices = morphEngine.calls.filter(x => x[0] === 'mesh_update').at(-1)[2];
 assert.deepEqual(morphedVertices, [-2,-2,0, 2,-2,0, 0,2,0]);
+const morphedTangents = morphEngine.calls.filter(x => x[0] === 'mesh_update').at(-1)[4];
+assert.deepEqual(morphedTangents.map(value => Math.round(value * 1e6) / 1e6),
+  [0.707107,0.707107,0,-1, 0.707107,0.707107,0,-1, 0.707107,0.707107,0,-1]);
 morphModel.dispose();
 const gpuMorphEngine = enableFakeGpuMorph(fakeEngine());
 const gpuMorphModel = await loadGLTF(gpuMorphEngine, 'http://localhost/morph.gltf');
@@ -758,6 +763,7 @@ assert.equal(gpuMorphModel.seekAnimation(1), true);
 assert.deepEqual(gpuMorphEngine.calls.find(x => x[0] === 'mesh_morph').slice(1, 4), [7, 3, 1]);
 assert.deepEqual(gpuMorphEngine.calls.find(x => x[0] === 'mesh_morph')[4], positions);
 assert.deepEqual(gpuMorphEngine.calls.find(x => x[0] === 'mesh_morph')[5], normals);
+assert.deepEqual(gpuMorphEngine.calls.find(x => x[0] === 'mesh_morph')[6], [1,0,0, 1,0,0, 1,0,0]);
 assert.deepEqual(gpuMorphEngine.calls.filter(x => x[0] === 'morph_weights').at(-1)[2], [1]);
 assert.equal(gpuMorphEngine.calls.filter(x => x[0] === 'mesh_update').length, 0);
 assert.deepEqual(gpuMorphEngine.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[2], [-2,-2,0, 2,-2,0, 0,2,0]);

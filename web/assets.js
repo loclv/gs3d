@@ -632,12 +632,13 @@ async function prepare(url) {
     const targets = (p.targets || []).map(target => {
       if (!target || typeof target !== 'object') invalid('Invalid morph target');
       if (Object.keys(target).some(name => !['POSITION', 'NORMAL', 'TANGENT'].includes(name))) unsupported('Unsupported morph target attribute');
-      if (target.TANGENT !== undefined) unsupported('Tangent morph targets are not supported');
       const position = target.POSITION === undefined ? null : accessor(doc, buffers, target.POSITION, 'VEC3');
       const normalDelta = target.NORMAL === undefined ? null : accessor(doc, buffers, target.NORMAL, 'VEC3');
-      if (!position && !normalDelta) invalid('Morph targets need a POSITION or NORMAL delta');
-      for (const delta of [position, normalDelta]) if (delta && (delta.componentType !== 5126 || delta.count !== pos.count)) invalid('Invalid morph target accessor');
-      return { position: position?.values, normal: normalDelta?.values };
+      const tangentDelta = target.TANGENT === undefined ? null : accessor(doc, buffers, target.TANGENT, 'VEC3');
+      if (!position && !normalDelta && !tangentDelta) invalid('Morph targets need a POSITION, NORMAL or TANGENT delta');
+      for (const delta of [position, normalDelta, tangentDelta]) if (delta && (delta.componentType !== 5126 || delta.count !== pos.count)) invalid('Invalid morph target accessor');
+      if (tangentDelta && !tangent) invalid('Tangent morph targets require a base TANGENT attribute');
+      return { position: position?.values, normal: normalDelta?.values, tangent: tangentDelta?.values };
     });
     const indexAccessor = p.indices === undefined ? null : accessor(doc, buffers, p.indices, 'SCALAR');
     if (indexAccessor && ![5121, 5123, 5125].includes(indexAccessor.componentType)) invalid('Indices must be unsigned integers');
@@ -941,6 +942,7 @@ export async function loadGLTF(engine, url) {
             const offset = vertex * 3 + axis;
             if (target.position) sourcePosition[axis] += target.position[offset] * weight;
             if (target.normal) sourceNormal[axis] += target.normal[offset] * weight;
+            if (target.tangent) sourceTangent[axis] += target.tangent[offset] * weight;
           }
         }
         let outPosition, outNormal, outTangent = [0, 0, 0];
@@ -952,7 +954,7 @@ export async function loadGLTF(engine, url) {
             if (weight === 0) continue;
             const matrix = jointMatrices[primitive.joints[set][offset]];
             const position = transformPoint4(matrix, sourcePosition), normal = transformDirection4(matrix, sourceNormal);
-            const tangent = primitive.tangent && !primitive.targets.length ? transformDirection4(matrix, sourceTangent) : null;
+            const tangent = primitive.tangent ? transformDirection4(matrix, sourceTangent) : null;
             for (let axis = 0; axis < 3; axis++) {
               outPosition[axis] += position[axis] * weight;
               outNormal[axis] += normal[axis] * weight;
@@ -971,15 +973,19 @@ export async function loadGLTF(engine, url) {
         } else {
           outPosition = sourcePosition;
           outNormal = sourceNormal;
-          if (primitive.tangent && !primitive.targets.length) outTangent = sourceTangent.slice(0, 3);
+          if (primitive.tangent) outTangent = sourceTangent.slice(0, 3);
         }
         outNormal = normalize3(outNormal);
+        if (primitive.tangent && primitive.targets.length) {
+          const tangentLength = Math.hypot(...outTangent);
+          outTangent = tangentLength > 0 && Number.isFinite(tangentLength) ? outTangent.map(value => value / tangentLength) : [0, 0, 0];
+        }
         for (let axis = 0; axis < 3; axis++) {
           positions[vertex * 3 + axis] = outPosition[axis];
           normals[vertex * 3 + axis] = outNormal[axis];
           tangents[vertex * 4 + axis] = outTangent[axis];
         }
-        tangents[vertex * 4 + 3] = primitive.tangent && !primitive.targets.length ? sourceTangent[3] : 0;
+        tangents[vertex * 4 + 3] = primitive.tangent ? sourceTangent[3] : 0;
       }
       const floatOffset = deformed.ptr >>> 2;
       engine.HEAPF32.set(positions, floatOffset);
@@ -1039,7 +1045,7 @@ export async function loadGLTF(engine, url) {
       for (const primitive of node.primitives) {
         primitive.pos.length = 0; primitive.normal.length = 0; if (primitive.uv) primitive.uv.length = 0; if (primitive.tangent) primitive.tangent.length = 0; primitive.indices.length = 0;
         for (const set of [...primitive.joints, ...primitive.weights]) set.length = 0;
-        for (const target of primitive.targets) { target.position && (target.position.length = 0); target.normal && (target.normal.length = 0); }
+        for (const target of primitive.targets) { target.position && (target.position.length = 0); target.normal && (target.normal.length = 0); target.tangent && (target.tangent.length = 0); }
       }
       for (const child of node.children) discardNodeData(child);
     };
@@ -1063,34 +1069,38 @@ export async function loadGLTF(engine, url) {
     function uploadMorphTargets(meshId, primitive, weights) {
       const targetCount = primitive.targets.length, vertexCount = primitive.pos.length / 3;
       if (!targetCount || targetCount > 64 ||
-          primitive.pos.length * targetCount * 2 * Float32Array.BYTES_PER_ELEMENT > MAX_GPU_MORPH_BYTES ||
+          primitive.pos.length * targetCount * 3 * Float32Array.BYTES_PER_ELEMENT > MAX_GPU_MORPH_BYTES ||
           typeof engine._g3_host_mesh_morph !== 'function' ||
           typeof engine._g3_host_morph_weights !== 'function' ||
           typeof engine._g3_host_mesh_morph_release !== 'function' ||
           typeof engine._g3_host_mesh_update_cpu !== 'function') return { enabled: false, weightsPtr: 0 };
-      let positionsPtr = 0, normalsPtr = 0, weightsPtr = 0, uploaded = false;
+      let positionsPtr = 0, normalsPtr = 0, tangentsPtr = 0, weightsPtr = 0, uploaded = false;
       try {
         const length = primitive.pos.length * targetCount;
-        const positions = new Float32Array(length), normals = new Float32Array(length);
+        const positions = new Float32Array(length), normals = new Float32Array(length), tangents = new Float32Array(length);
         for (let targetIndex = 0; targetIndex < targetCount; targetIndex++) {
           const target = primitive.targets[targetIndex], offset = targetIndex * primitive.pos.length;
           if (target.position) positions.set(target.position, offset);
           if (target.normal) normals.set(target.normal, offset);
+          if (target.tangent) tangents.set(target.tangent, offset);
         }
         positionsPtr = engine._malloc(positions.byteLength);
         normalsPtr = engine._malloc(normals.byteLength);
+        tangentsPtr = engine._malloc(tangents.byteLength);
         weightsPtr = engine._malloc(targetCount * Float32Array.BYTES_PER_ELEMENT);
-        if (!positionsPtr || !normalsPtr || !weightsPtr) return { enabled: false, weightsPtr: 0 };
+        if (!positionsPtr || !normalsPtr || !tangentsPtr || !weightsPtr) return { enabled: false, weightsPtr: 0 };
         engine.HEAPF32.set(positions, positionsPtr >>> 2);
         engine.HEAPF32.set(normals, normalsPtr >>> 2);
+        engine.HEAPF32.set(tangents, tangentsPtr >>> 2);
         engine.HEAPF32.set(weights, weightsPtr >>> 2);
-        uploaded = !!engine._g3_host_mesh_morph(meshId, positionsPtr, normalsPtr, vertexCount, targetCount);
+        uploaded = !!engine._g3_host_mesh_morph(meshId, positionsPtr, normalsPtr, tangentsPtr, vertexCount, targetCount);
         return { enabled: uploaded, weightsPtr: uploaded ? weightsPtr : 0 };
       } catch {
         return { enabled: false, weightsPtr: 0 };
       } finally {
         if (positionsPtr) engine._free(positionsPtr);
         if (normalsPtr) engine._free(normalsPtr);
+        if (tangentsPtr) engine._free(tangentsPtr);
         if (!uploaded && weightsPtr) engine._free(weightsPtr);
         if (!uploaded && engine._g3_host_mesh_morph_release) engine._g3_host_mesh_morph_release(meshId);
       }
@@ -1136,7 +1146,7 @@ export async function loadGLTF(engine, url) {
       });
       for (const p of node.primitives) {
         engine._g3_asset_mesh_begin();
-        const useAuthoredTangents = !!p.tangent && !p.targets.length;
+        const useAuthoredTangents = !!p.tangent;
         for (let i = 0; i < p.pos.length / 3; i++) engine._g3_asset_vertex(
           ...p.pos.slice(i*3, i*3+3), ...p.normal.slice(i*3, i*3+3), ...(p.uv ? p.uv.slice(i*2, i*2+2) : [0, 0]),
           ...(p.uv1 ? p.uv1.slice(i*2, i*2+2) : [0, 0]),

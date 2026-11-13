@@ -152,13 +152,12 @@ fetches and decodes assets in JavaScript.
   `VEC3` supplies alpha 1. Missing normals are generated as area-weighted
   vertex normals from triangle faces.
 * Optional float `VEC4` `TANGENT` attributes with handedness `w` of `-1` or `1`.
-  Authored tangents are used on static and skinned, non-morphed meshes. Skinning
-  transforms the tangent directions alongside positions and normals. Morphed
-  meshes derive a frame from the deformed positions and UVs because tangent
-  morph targets are unsupported.
-* Morph targets with `POSITION` and `NORMAL` deltas, default mesh/node weights,
-  and animated `weights` channels. Deltas apply before skinning; tangent morph
-  targets are unsupported.
+  Authored tangents are used on static, skinned and morphed meshes. Skinning
+  transforms tangent directions alongside positions and normals; tangent morph
+  deltas update tangent xyz while preserving the base handedness.
+* Morph targets with `POSITION`, `NORMAL` and `TANGENT` deltas, default
+  mesh/node weights, and animated `weights` channels. Deltas apply before
+  skinning. A tangent delta requires a base `TANGENT` attribute.
 * Skeletal glTF skins with `JOINTS_0`/`WEIGHTS_0` and optional second influence
   sets, unsigned-byte or unsigned-short joint indices, float or normalized
   unsigned weights, and optional float inverse-bind matrices. Skin joints must
@@ -166,10 +165,10 @@ fetches and decodes assets in JavaScript.
   retained CPU vertices current for picking. WebGL skin meshes upload static
   joint/weight attributes and a per-mesh joint palette texture, avoiding a full
   mesh-buffer upload for each pose; the same palette deforms shadow casters.
-  WebGL morph meshes upload POSITION/NORMAL delta textures and update a weight
+  WebGL morph meshes upload POSITION/NORMAL/TANGENT delta textures and update a weight
   texture per pose. Up to 64 targets are supported when the vertex and target
-  texture dimensions fit the device and the two delta textures together use no
-  more than 64 MiB; unsupported sizes or failed GPU uploads fall back to CPU
+  texture dimensions fit the device and the three delta textures together use
+  no more than 64 MiB; unsupported sizes or failed GPU uploads fall back to CPU
   deformation. GPU skinning and morphing combine when both paths upload
   successfully. The CPU backend always deforms both features on the CPU.
 * Dense and sparse accessors for the supported scalar and vector data types.
@@ -218,11 +217,12 @@ fetches and decodes assets in JavaScript.
   images are decoded from sRGB before filtering; factors and alpha are linear.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
-more than eight skin influences, tangent morph targets, non-triangle modes and
+more than eight skin influences, non-triangle modes and
 advanced texture/sampler extensions. Authored glTF `TANGENT` attributes are
-used for static and skinned, non-morphed meshes. Morphed meshes derive tangent
-frames for normal maps from positions and the selected texture-coordinate set,
-so mirrored UV seams can differ from MikkTSpace results. Direct PBR
+used for static and skinned meshes. Morphed meshes without authored tangents
+derive tangent frames for normal maps from positions and the selected
+texture-coordinate set, so mirrored UV seams can differ from MikkTSpace
+results. Direct PBR
 lighting uses GGX; environment reflections use the documented prefiltered
 mip/Fresnel approximation. Roughness is clamped to at least 0.045.
 Unsupported optional data may be
