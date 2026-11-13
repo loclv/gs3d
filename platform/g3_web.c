@@ -78,6 +78,7 @@ typedef struct {
     GLint tone_map_inline, exposure_inline;
     GLint alpha_mode, alpha_cutoff;
     GLint skin_enabled, joint_palette, joint_count;
+    GLint instanced;
 } web_shader;
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
@@ -87,6 +88,10 @@ static int32_t surf_w = 1280, surf_h = 720;
 static int32_t max_joint_texture_height = 0;
 static web_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
+static GLuint instance_vbo;
+static float *instance_data;
+static size_t instance_capacity;
+static int32_t scene_draw_calls;
 static GLuint *textures;
 static int32_t *texture_widths, *texture_heights, *texture_is_hdr;
 static int32_t texture_count;
@@ -100,7 +105,7 @@ static int checked_gl;
 static GLuint shadow_program, shadow_fbo, shadow_texture;
 static GLuint point_shadow_texture;
 static GLuint spot_shadow_texture;
-static GLint shadow_light_matrix, shadow_model_matrix;
+static GLint shadow_light_matrix, shadow_model_matrix, shadow_instanced;
 static GLint shadow_mask, shadow_cutoff, shadow_alpha, shadow_tex, shadow_textured;
 static GLint shadow_skin_enabled, shadow_joint_palette, shadow_joint_count;
 static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
@@ -119,9 +124,12 @@ static const char *VERTEX_SRC =
     "layout(location = 4) in vec4 a_weights0;\n"
     "layout(location = 5) in vec4 a_joints1;\n"
     "layout(location = 6) in vec4 a_weights1;\n"
+    "layout(location = 7) in mat4 a_instance_mvp;\n"
+    "layout(location = 11) in mat4 a_instance_model;\n"
     "uniform mat4 u_mvp;\n"
     "uniform mat4 u_model;\n"
     "uniform mat3 u_normal_matrix;\n"
+    "uniform bool u_instanced;\n"
     "uniform bool u_skin_enabled;\n"
     "uniform sampler2D u_joint_palette;\n"
     "uniform int u_joint_count;\n"
@@ -134,6 +142,8 @@ static const char *VERTEX_SRC =
     "                texelFetch(u_joint_palette, ivec2(2,index), 0), texelFetch(u_joint_palette, ivec2(3,index), 0));\n"
     "}\n"
     "void main() {\n"
+    "    mat4 model = u_instanced ? a_instance_model : u_model;\n"
+    "    mat4 mvp = u_instanced ? a_instance_mvp : u_mvp;\n"
     "    vec4 position = vec4(a_pos, 1.0); vec3 normal = a_normal;\n"
     "    if (u_skin_enabled && u_joint_count > 0) {\n"
     "        mat4 skin = mat4(0.0); float total = 0.0;\n"
@@ -141,11 +151,11 @@ static const char *VERTEX_SRC =
     "        for (int i=0;i<4;i++) { float w=a_weights1[i]; if(w>0.0){skin+=joint_matrix(a_joints1[i])*w;total+=w;} }\n"
     "        if(total>0.0){position=(skin*position)/total;normal=normalize(mat3(skin)*normal);}\n"
     "    }\n"
-    "    vec4 world = u_model * position;\n"
+    "    vec4 world = model * position;\n"
     "    v_world = world.xyz;\n"
     "    v_uv = a_uv;\n"
-    "    v_normal = u_normal_matrix * normal;\n"
-    "    gl_Position = u_mvp * position;\n"
+    "    v_normal = u_instanced ? transpose(inverse(mat3(model))) * normal : u_normal_matrix * normal;\n"
+    "    gl_Position = mvp * position;\n"
     "}\n";
 
 /* Keep this in step with shade() in g3_soft.c. */
@@ -435,6 +445,7 @@ static void find_uniforms(void) {
     shader.skin_enabled = glGetUniformLocation(shader.program, "u_skin_enabled");
     shader.joint_palette = glGetUniformLocation(shader.program, "u_joint_palette");
     shader.joint_count = glGetUniformLocation(shader.program, "u_joint_count");
+    shader.instanced = glGetUniformLocation(shader.program, "u_instanced");
     for (int i = 0; i < 4; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_lights[%d].position", i); shader.light_position[i] = glGetUniformLocation(shader.program, name);
@@ -544,6 +555,9 @@ void g3p_shutdown(void) {
     if (shadow_texture) glDeleteTextures(1, &shadow_texture);
     if (point_shadow_texture) glDeleteTextures(1, &point_shadow_texture);
     if (spot_shadow_texture) glDeleteTextures(1, &spot_shadow_texture);
+    if (instance_vbo) glDeleteBuffers(1, &instance_vbo);
+    free(instance_data); instance_data = NULL; instance_capacity = 0;
+    instance_vbo = 0; scene_draw_calls = 0;
     if (brdf_lut_texture) glDeleteTextures(1,&brdf_lut_texture);
     shadow_program = shadow_fbo = shadow_texture = 0;
     point_shadow_texture = 0;
@@ -708,6 +722,77 @@ void g3p_release_mesh(int32_t id) {
     glDeleteTextures(1, &m->joint_texture);
     memset(m, 0, sizeof(*m));
 }
+
+static int upload_instance_data(g3_draw_item_slice items, int64_t first, int32_t count) {
+    if (count < 2 || first < 0 || first + count > items.len ||
+        (size_t)count > SIZE_MAX / (32 * sizeof(float))) return 0;
+    size_t float_count = (size_t)count * 32;
+    if (float_count > instance_capacity) {
+        float *grown = realloc(instance_data, float_count * sizeof(float));
+        if (!grown) return 0;
+        instance_data = grown;
+        instance_capacity = float_count;
+    }
+    for (int32_t i = 0; i < count; i++) {
+        float *dst = instance_data + (size_t)i * 32;
+        memcpy(dst, items.data[first + i].mvp.m, 16 * sizeof(float));
+        memcpy(dst + 16, items.data[first + i].model.m, 16 * sizeof(float));
+    }
+    if (!instance_vbo) glGenBuffers(1, &instance_vbo);
+    if (!instance_vbo) return 0;
+    glBindBuffer(GL_ARRAY_BUFFER, instance_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(float_count * sizeof(float)), instance_data, GL_STREAM_DRAW);
+    return glGetError() == GL_NO_ERROR;
+}
+
+/* Locations 7-10 carry MVP columns; 11-14 carry model columns. */
+static void bind_instance_attributes(void) {
+    glBindBuffer(GL_ARRAY_BUFFER, instance_vbo);
+    for (GLuint column = 0; column < 4; column++) {
+        GLuint locations[2] = { 7 + column, 11 + column };
+        uintptr_t offsets[2] = { (uintptr_t)column * 4 * sizeof(float),
+                                 (uintptr_t)(16 + column * 4) * sizeof(float) };
+        for (int matrix = 0; matrix < 2; matrix++) {
+            glEnableVertexAttribArray(locations[matrix]);
+            glVertexAttribPointer(locations[matrix], 4, GL_FLOAT, GL_FALSE,
+                                  32 * (GLsizei)sizeof(float), (const void *)offsets[matrix]);
+            glVertexAttribDivisor(locations[matrix], 1);
+        }
+    }
+}
+
+static void clear_instance_attributes(const web_mesh *mesh) {
+    glBindVertexArray(mesh->vao);
+    for (GLuint location = 7; location <= 14; location++) {
+        glVertexAttribDivisor(location, 0);
+        glDisableVertexAttribArray(location);
+    }
+}
+
+static int same_vec4(g3_vec4 a, g3_vec4 b) {
+    return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
+}
+
+static int shadow_compatible(const g3_draw_item *a, const g3_draw_item *b) {
+    return a->mesh == b->mesh && a->params.w <= 0.5f && b->params.w <= 0.5f &&
+           a->texture == b->texture && a->alpha_mode == b->alpha_mode &&
+           a->color.w == b->color.w && a->alpha_cutoff == b->alpha_cutoff;
+}
+
+static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
+    return a->mesh == b->mesh && a->params.w <= 0.5f && b->params.w <= 0.5f &&
+           same_vec4(a->color, b->color) && same_vec4(a->params, b->params) &&
+           a->texture == b->texture && a->alpha_mode == b->alpha_mode &&
+           a->alpha_cutoff == b->alpha_cutoff && same_vec4(a->pbr, b->pbr) &&
+           a->metallic_roughness_texture == b->metallic_roughness_texture &&
+           a->normal_texture == b->normal_texture && a->normal_scale == b->normal_scale &&
+           a->occlusion_texture == b->occlusion_texture &&
+           a->occlusion_strength == b->occlusion_strength &&
+           same_vec4(a->emissive, b->emissive) &&
+           a->emissive_texture == b->emissive_texture;
+}
+
+EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_calls; }
 
 static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int srgb) {
     if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
@@ -1002,7 +1087,8 @@ static int ensure_shadow_map(void) {
         "layout(location=0) in vec3 a_pos; layout(location=2) in vec2 a_uv;\n"
         "layout(location=3) in vec4 a_joints0; layout(location=4) in vec4 a_weights0;\n"
         "layout(location=5) in vec4 a_joints1; layout(location=6) in vec4 a_weights1;\n"
-        "uniform mat4 u_light; uniform mat4 u_model; uniform bool u_skin_enabled;\n"
+        "layout(location=11) in mat4 a_instance_model;\n"
+        "uniform mat4 u_light; uniform mat4 u_model; uniform bool u_instanced; uniform bool u_skin_enabled;\n"
         "uniform sampler2D u_joint_palette; uniform int u_joint_count; out vec2 v_uv;\n"
         "mat4 joint_matrix(float j) { int i=clamp(int(j+0.5),0,u_joint_count-1);\n"
         "return mat4(texelFetch(u_joint_palette,ivec2(0,i),0),texelFetch(u_joint_palette,ivec2(1,i),0),\n"
@@ -1011,7 +1097,7 @@ static int ensure_shadow_map(void) {
         "mat4 s=mat4(0.0); float t=0.0;\n"
         "for(int i=0;i<4;i++){float w=a_weights0[i];if(w>0.0){s+=joint_matrix(a_joints0[i])*w;t+=w;}}\n"
         "for(int i=0;i<4;i++){float w=a_weights1[i];if(w>0.0){s+=joint_matrix(a_joints1[i])*w;t+=w;}}\n"
-        "if(t>0.0)p=s*p/t;} v_uv=a_uv; gl_Position=u_light*u_model*p; }\n";
+        "if(t>0.0)p=s*p/t;} v_uv=a_uv; gl_Position=u_light*(u_instanced?a_instance_model:u_model)*p; }\n";
     const char *fs_src = "#version 300 es\nprecision highp float;\nin vec2 v_uv;\nuniform bool u_mask;\nuniform bool u_textured;\nuniform sampler2D u_tex;\nuniform float u_alpha;\nuniform float u_cutoff;\nvoid main(){if(u_mask && u_alpha*(u_textured ? texture(u_tex,v_uv).a : 1.0)<u_cutoff) discard;}\n";
     GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "shadow vertex");
     GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "shadow fragment");
@@ -1043,6 +1129,7 @@ static int ensure_shadow_map(void) {
     shadow_program = program;
     shadow_light_matrix = glGetUniformLocation(program, "u_light");
     shadow_model_matrix = glGetUniformLocation(program, "u_model");
+    shadow_instanced = glGetUniformLocation(program, "u_instanced");
     shadow_mask = glGetUniformLocation(program, "u_mask");
     shadow_cutoff = glGetUniformLocation(program, "u_cutoff");
     shadow_alpha = glGetUniformLocation(program, "u_alpha");
@@ -1061,6 +1148,40 @@ static void bind_shadow_skin(const web_mesh *m) {
     glUniform1i(shadow_joint_palette, 10);
     glActiveTexture(GL_TEXTURE10);
     glBindTexture(GL_TEXTURE_2D, m->joint_texture);
+}
+
+static int shadow_run_length(g3_draw_item_slice items, int64_t first) {
+    const g3_draw_item *head = &items.data[first];
+    int32_t count = 1;
+    while (first + count < items.len &&
+           shadow_compatible(head, &items.data[first + count])) count++;
+    return count;
+}
+
+static void draw_shadow_run(g3_draw_item_slice items, int64_t first, int32_t count) {
+    const g3_draw_item *it = &items.data[first];
+    const web_mesh *m = &meshes[it->mesh];
+    glUniform1i(shadow_instanced, count > 1);
+    if (count == 1) glUniformMatrix4fv(shadow_model_matrix, 1, GL_FALSE, it->model.m);
+    int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textured ? textures[it->texture] : 0);
+    glUniform1i(shadow_tex, 0);
+    glUniform1i(shadow_textured, textured);
+    glUniform1i(shadow_mask, it->alpha_mode == 1);
+    glUniform1f(shadow_alpha, it->color.w);
+    glUniform1f(shadow_cutoff, it->alpha_cutoff);
+    bind_shadow_skin(m);
+    glBindVertexArray(m->vao);
+    if (count > 1 && upload_instance_data(items, first, count)) {
+        bind_instance_attributes();
+        glDrawElementsInstanced(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, 0, count);
+        clear_instance_attributes(m);
+    } else {
+        glUniform1i(shadow_instanced, 0);
+        if (count > 1) glUniformMatrix4fv(shadow_model_matrix, 1, GL_FALSE, it->model.m);
+        glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, 0);
+    }
 }
 
 static int ensure_point_shadow_map(void) {
@@ -1104,23 +1225,14 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vie
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glClear(GL_DEPTH_BUFFER_BIT);
     glUseProgram(shadow_program);
     glUniformMatrix4fv(shadow_light_matrix, 1, GL_FALSE, light_matrix->m);
-    for (int64_t i = 0; i < items.len; i++) {
+    for (int64_t i = 0; i < items.len;) {
         const g3_draw_item *it = &items.data[i];
-        if (it->params.w > 0.5f || it->mesh < 0 || it->mesh >= mesh_count) continue;
+        if (it->params.w > 0.5f || it->mesh < 0 || it->mesh >= mesh_count) { i++; continue; }
         const web_mesh *m = &meshes[it->mesh];
-        if (!m->vao || !m->count) continue;
-        glUniformMatrix4fv(shadow_model_matrix, 1, GL_FALSE, it->model.m);
-        int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, textured ? textures[it->texture] : 0);
-        glUniform1i(shadow_tex, 0);
-        glUniform1i(shadow_textured, textured);
-        glUniform1i(shadow_mask, it->alpha_mode == 1);
-        glUniform1f(shadow_alpha, it->color.w);
-        glUniform1f(shadow_cutoff, it->alpha_cutoff);
-        bind_shadow_skin(m);
-        glBindVertexArray(m->vao);
-        glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, 0);
+        if (!m->vao || !m->count) { i++; continue; }
+        int32_t count = shadow_run_length(items, i);
+        draw_shadow_run(items, i, count);
+        i += count;
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
@@ -1133,24 +1245,21 @@ static void render_point_shadow_maps(g3_draw_item_slice items, const g3_view_sta
         glFramebufferTexture2D(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_TEXTURE_CUBE_MAP_POSITIVE_X+face,point_shadow_texture,0);
         glClear(GL_DEPTH_BUFFER_BIT);
         glUniformMatrix4fv(shadow_light_matrix,1,GL_FALSE,view->point_shadow_view_proj[face].m);
-        for (int64_t i=0; i<items.len; i++) {
+        for (int64_t i=0; i<items.len;) {
             const g3_draw_item *it=&items.data[i];
-            if (it->params.w>0.5f || it->mesh<0 || it->mesh>=mesh_count) continue;
-            const web_mesh *m=&meshes[it->mesh]; if (!m->vao || !m->count) continue;
-            glUniformMatrix4fv(shadow_model_matrix,1,GL_FALSE,it->model.m);
-            int textured=it->texture>=0 && it->texture<texture_count && textures[it->texture];
-            glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,textured?textures[it->texture]:0);
-            glUniform1i(shadow_tex,0); glUniform1i(shadow_textured,textured);
-            glUniform1i(shadow_mask,it->alpha_mode==1); glUniform1f(shadow_alpha,it->color.w); glUniform1f(shadow_cutoff,it->alpha_cutoff);
-            bind_shadow_skin(m);
-            glBindVertexArray(m->vao); glDrawElements(GL_TRIANGLES,m->count,GL_UNSIGNED_INT,0);
+            if (it->params.w>0.5f || it->mesh<0 || it->mesh>=mesh_count) { i++; continue; }
+            const web_mesh *m=&meshes[it->mesh]; if (!m->vao || !m->count) { i++; continue; }
+            int32_t count=shadow_run_length(items,i);
+            draw_shadow_run(items,i,count);
+            i+=count;
         }
     }
     glBindFramebuffer(GL_FRAMEBUFFER,0);
 }
 
-/* One item: the state its transparency needs, its uniforms, its draw call. */
-static void draw_item(const g3_draw_item *it) {
+/* Draw one compatible run, or one item when ordering/state prevents batching. */
+static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
+    const g3_draw_item *it = &items.data[first];
     if (it->mesh < 0 || it->mesh >= mesh_count) return;
     const web_mesh *m = &meshes[it->mesh];
     if (!m->vao || m->count == 0) return;
@@ -1215,7 +1324,16 @@ static void draw_item(const g3_draw_item *it) {
     glBindTexture(GL_TEXTURE_2D, m->joint_texture);
 
     glBindVertexArray(m->vao);
-    glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0);
+    if (count > 1 && upload_instance_data(items, first, count)) {
+        glUniform1i(shader.instanced, 1);
+        bind_instance_attributes();
+        glDrawElementsInstanced(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0, count);
+        clear_instance_attributes(m);
+    } else {
+        glUniform1i(shader.instanced, 0);
+        glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0);
+    }
+    scene_draw_calls++;
 }
 
 /* Once, after the first frame: a backend that draws nothing because of a
@@ -1292,6 +1410,7 @@ static void present_output(const g3_view_state *view) {
 
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (!ctx || !shader.program) return;
+    scene_draw_calls = 0;
     int requested = view->shadow_resolution == 256 || view->shadow_resolution == 512 || view->shadow_resolution == 1024 ? view->shadow_resolution : 512;
     if (allocated_shadow_size && allocated_shadow_size != requested) {
         if (shadow_program) glDeleteProgram(shadow_program);
@@ -1330,7 +1449,14 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
 
     glUseProgram(shader.program);
     bind_view(view);
-    for (int64_t i = 0; i < items.len; i++) draw_item(&items.data[i]);
+    for (int64_t i = 0; i < items.len;) {
+        int32_t count = 1;
+        if (items.data[i].params.w <= 0.5f && items.data[i].mesh >= 0 && items.data[i].mesh < mesh_count) {
+            while (i + count < items.len && scene_compatible(&items.data[i], &items.data[i + count])) count++;
+        }
+        draw_item(items, i, count);
+        i += count;
+    }
     glBindVertexArray(0);
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);

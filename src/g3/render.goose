@@ -26,7 +26,7 @@ struct Stats {
     drawn: i64,         // items that went to the backend
     culled: i64,        // left out by the frustum
     triangles: i64,
-    draws: i64,         // one per item: no instancing yet
+    draws: i64,         // draw items submitted to the backend, before backend batching
 }
 
 var g_draws: DrawItem[>..];

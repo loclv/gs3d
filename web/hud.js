@@ -43,9 +43,12 @@ export function createStatsLine(element, engine) {
 
   function draw() {
     const rate = fps > 0 ? `${fps.toFixed(0)} fps` : '— fps';
+    const sceneCalls = typeof engine._g3_host_scene_draw_calls === 'function'
+      ? ` · ${engine._g3_host_scene_draw_calls()} GPU calls`
+      : '';
     element.textContent =
       `${rate} · ${engine._g3_app_nodes()} nodes · ` +
-      `${engine._g3_app_drawn()} drawn · ${engine._g3_app_culled()} culled · ` +
+      `${engine._g3_app_drawn()} drawn${sceneCalls} · ${engine._g3_app_culled()} culled · ` +
       `${engine._g3_app_triangles()} tris · ${engine._g3_app_meshes()} meshes`;
   }
 

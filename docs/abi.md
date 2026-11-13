@@ -169,6 +169,7 @@ These exist for a host, not for the engine:
 | native | `g3_input_key(int, int)`, `g3_input_mouse(float, float)`, `g3_input_resize(int, int)` | feed input from a test or script |
 | web | `g3_host_start(int w, int h)` | **the page's entry point**: `goose_init` + `g3_app_init`; exported with `EMSCRIPTEN_KEEPALIVE` |
 | web | `g3_input_key/mouse/resize` | same three, exported to JS by `g3_input.h`'s `G3_HOST_API` |
+| web | `g3_host_scene_draw_calls()` | WebGL scene-pass draw calls for the current frame; shadow and presentation passes are excluded |
 | web | exported Goose: `g3_app_init`, `g3_app_frame`, `g3_app_shutdown`, `g3_app_drawn/culled/triangles/meshes/nodes` | what `web/shell.js` calls |
 
 A `--standalone` Emscripten module does not run `main`, so `g3_host_start` is how

@@ -21,7 +21,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning for skin-only meshes; CPU geometry retained for picking | GPU morph targets, browser rendering validation, and deformation benchmarks |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and shrinking arena backing arrays |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection | Browser integration tests |
-| Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
+| Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters | Render targets, post-processing, custom shaders and colour management; CPU reference renderer still processes draw items individually |
 | Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
 
 Three.js's [fundamentals](https://threejs.org/manual/pages/fundamentals.html),
@@ -102,8 +102,13 @@ Tests cover animation interpolation, skinning, and camera projection.
 
 ### 4. Larger scenes and integration
 
-* Add instancing and measure scene-update, culling, and draw-call costs on
-  representative scenes before selecting further optimisations.
+* **Partly implemented:** the WebGL backend batches adjacent opaque items when
+  mesh and complete material state match, and uses the same instance matrices
+  for directional, point and spot shadow passes. Blended items retain their
+  sorted order and draw individually. The CPU backend remains the reference
+  path and does not instance. The viewer reports actual WebGL scene-pass draw
+  calls; add representative benchmarks for scene update, culling and draw
+  submission before selecting further optimisations.
 * Add render targets, post-processing, and a supported custom-shader interface.
 * Package and document the browser API, including lifecycle and errors; add
   examples and continuous browser tests. Add native asset loading when native
