@@ -18,7 +18,10 @@ async function loadModel() {
     const next = await loadGLTF(engine, './sample.glb');
     if (model) model.dispose();
     model = next;
-    status.textContent = 'Model loaded. Click a face to select it.';
+    if (model.animations.length) {
+      model.playAnimation(0);
+      status.textContent = `Playing ${model.animations[0].name}. Click a face to select it.`;
+    } else status.textContent = 'Model loaded. Click a face to select it.';
   } catch (error) { status.textContent = `Could not load model: ${error.message}`; }
   finally { reload.disabled = false; }
 }
@@ -51,6 +54,7 @@ async function start() {
 function frame(now) {
   const dt = last ? Math.min((now - last) / 1000, 0.1) : 1 / 60;
   last = now;
+  if (model) model.update(dt);
   engine._g3_app_frame(dt);
   requestAnimationFrame(frame);
 }

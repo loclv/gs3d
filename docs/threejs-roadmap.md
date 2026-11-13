@@ -15,10 +15,10 @@ and pixel tests provide a useful reference for rendering changes.
 
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
-| Assets | Built-in primitives, custom geometry, and a browser loader for static glTF/GLB with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
+| Assets | Built-in primitives, custom geometry, and a browser loader for glTF/GLB meshes, materials and transform animations with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
 | Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and ACES tone mapping with exposure | Browser reference validation, native HDR image decoding |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Native HDR environment decoding |
-| Animation | Manual per-frame transforms | Keyframes, skeletal animation, skinning, morph targets |
+| Animation | glTF translation, rotation and scale clips with LINEAR/STEP sampling | Cubic spline, skeletal animation and skinning, morph targets |
 | Scene management | Parent hierarchy, checked node removal, and selectable perspective or orthographic cameras | General mesh and texture removal, reusable resources, camera lifecycle |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit and pinch controls, viewer selection | Additional touch gestures, panning, keyboard camera controls, browser integration tests |
 | Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
@@ -36,7 +36,7 @@ make model loading reliable; materials and light transport build on those
 foundations. Each milestone should include automated checks on the CPU backend
 and a browser integration check for behavior exposed through WebGL.
 
-### 1. Reliable static model viewer
+### 1. Reliable model viewer
 
 * **Implemented:** view-volume clipping and inverse-transpose normals for
   non-uniform scale. Continue expanding CPU and browser rendering checks.
@@ -82,7 +82,9 @@ shadow behavior and browser reference images for the GPU path.
 
 ### 3. Animated assets and richer scenes
 
-* Add keyframe playback, skeletal animation and skinning; follow with morph
+* **Partly implemented:** glTF translation, rotation and scale keyframe clips
+  support LINEAR and STEP sampling with play, pause, seek, stop and loop controls.
+  Add cubic spline interpolation, skeletal animation and skinning, then morph
   targets. Extend glTF loading to populate those features.
 * Expand camera controls and touch input. Selectable perspective and orthographic
   cameras and reusable orbit and pinch controls are available; validate both

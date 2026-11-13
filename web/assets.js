@@ -265,7 +265,7 @@ function accessor(doc, buffers, index, expected) {
   const a = item(doc.accessors, index, 'accessor');
   if (a.sparse || a.bufferView === undefined) unsupported('Sparse or unbacked accessors are not supported');
   if (a.type !== expected) invalid(`Expected ${expected} accessor`);
-  const widths = { SCALAR: 1, VEC2: 2, VEC3: 3 };
+  const widths = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
   const formats = { 5121: [1, 'getUint8'], 5123: [2, 'getUint16'], 5125: [4, 'getUint32'], 5126: [4, 'getFloat32'] };
   const format = formats[a.componentType], components = widths[expected];
   if (!format || !Number.isInteger(a.count) || a.count < 1) unsupported('Unsupported accessor component type or count');
@@ -290,16 +290,54 @@ function accessor(doc, buffers, index, expected) {
 function localMatrix(node) {
   if (node.matrix) {
     if (node.translation || node.rotation || node.scale || node.matrix.length !== 16 || !node.matrix.every(Number.isFinite)) invalid('Invalid node matrix');
-    return node.matrix;
+    return { matrix: node.matrix, translation: null, rotation: null, scale: null };
   }
-  const [x, y, z, w] = node.rotation || [0, 0, 0, 1];
-  const [sx, sy, sz] = node.scale || [1, 1, 1];
-  const [tx, ty, tz] = node.translation || [0, 0, 0];
+  const translation = node.translation ?? [0, 0, 0];
+  const rotation = node.rotation ?? [0, 0, 0, 1];
+  const scale = node.scale ?? [1, 1, 1];
+  if (!Array.isArray(translation) || translation.length !== 3 || !translation.every(Number.isFinite) ||
+      !Array.isArray(rotation) || rotation.length !== 4 || !rotation.every(Number.isFinite) ||
+      !Array.isArray(scale) || scale.length !== 3 || !scale.every(Number.isFinite)) invalid('Invalid node transform');
+  const qLength = Math.hypot(...rotation);
+  if (!(qLength > 0) || !Number.isFinite(qLength)) invalid('Invalid node rotation');
+  const normalizedRotation = rotation.map(value => value / qLength);
+  const [x, y, z, w] = normalizedRotation;
+  const [tx, ty, tz] = translation;
+  const [sx, sy, sz] = scale;
   const m = [(1-2*y*y-2*z*z)*sx, (2*x*y+2*z*w)*sx, (2*x*z-2*y*w)*sx, 0,
     (2*x*y-2*z*w)*sy, (1-2*x*x-2*z*z)*sy, (2*y*z+2*x*w)*sy, 0,
     (2*x*z+2*y*w)*sz, (2*y*z-2*x*w)*sz, (1-2*x*x-2*y*y)*sz, 0, tx, ty, tz, 1];
   if (!m.every(Number.isFinite)) invalid('Invalid node transform');
-  return m;
+  return { matrix: m, translation: [...translation], rotation: normalizedRotation, scale: [...scale] };
+}
+
+function normalizedQuaternion(q) {
+  const length = Math.hypot(...q);
+  if (!(length > 0) || !Number.isFinite(length)) invalid('Invalid animation rotation');
+  return q.map(value => value / length);
+}
+
+function sampleChannel(channel, time) {
+  const times = channel.times;
+  let low = 0, high = times.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (times[middle] <= time) low = middle + 1;
+    else high = middle;
+  }
+  const a = Math.max(0, low - 1), b = Math.min(times.length - 1, low);
+  const valueAt = index => channel.values.slice(index * channel.components, (index + 1) * channel.components);
+  const from = valueAt(a);
+  if (a === b || channel.interpolation === 'STEP') return channel.path === 'rotation' ? normalizedQuaternion(from) : from;
+  const to = valueAt(b), t = Math.max(0, Math.min(1, (time - times[a]) / (times[b] - times[a])));
+  if (channel.path !== 'rotation') return from.map((value, i) => value + (to[i] - value) * t);
+  const q1 = normalizedQuaternion(from), q2 = normalizedQuaternion(to);
+  let cosine = q1.reduce((sum, value, i) => sum + value * q2[i], 0);
+  if (cosine < 0) { cosine = -cosine; for (let i = 0; i < 4; i++) q2[i] = -q2[i]; }
+  if (cosine > 0.9995) return normalizedQuaternion(q1.map((value, i) => value + (q2[i] - value) * t));
+  const angle = Math.acos(Math.max(-1, Math.min(1, cosine))), sine = Math.sin(angle);
+  const weightA = Math.sin((1 - t) * angle) / sine, weightB = Math.sin(t * angle) / sine;
+  return normalizedQuaternion(q1.map((value, i) => value * weightA + q2[i] * weightB));
 }
 
 async function prepare(url) {
@@ -309,7 +347,7 @@ async function prepare(url) {
   try { doc = JSON.parse(new TextDecoder().decode(json)); }
   catch (error) { throw new AssetError('INVALID_GLTF', 'Invalid glTF JSON', error); }
   if (doc.asset?.version !== '2.0') unsupported('Only glTF 2.0 is supported');
-  if (doc.extensionsRequired?.length || doc.skins?.length || doc.animations?.length) unsupported('Required extensions, skins and animations are not supported');
+  if (doc.extensionsRequired?.length || doc.skins?.length) unsupported('Required extensions and skins are not supported');
   const buffers = await Promise.all((doc.buffers || []).map(async (buffer, i) => {
     const data = buffer.uri !== undefined ? await fetchBytes(new URL(buffer.uri, absolute)) : i === 0 ? bin : undefined;
     if (!data || !Number.isInteger(buffer.byteLength) || buffer.byteLength < 0 || data.byteLength < buffer.byteLength) invalid('Missing or truncated buffer');
@@ -408,9 +446,47 @@ async function prepare(url) {
     const n = item(nodes, index, 'node');
     if (n.skin !== undefined || n.weights || n.extensions) unsupported('Unsupported node feature');
     const primitives = n.mesh === undefined ? [] : item(meshes, n.mesh, 'mesh');
-    return { matrix: localMatrix(n), primitives, children: (n.children || []).map(child => visit(child, depth + 1)) };
+    const transform = localMatrix(n);
+    return { index, ...transform, primitives, children: (n.children || []).map(child => visit(child, depth + 1)) };
   }
-  return { images, textureSpecs, roots: roots.map(root => visit(root, 0)) };
+  const sceneRoots = roots.map(root => visit(root, 0));
+  const sceneNodeIndices = new Set(seen);
+  const animations = (doc.animations || []).map((animation, animationIndex) => {
+    if (!Array.isArray(animation.channels) || !animation.channels.length || !Array.isArray(animation.samplers)) invalid(`Invalid animation ${animationIndex}`);
+    if (animation.extensions) unsupported('Animation extensions are not supported');
+    const usedTargets = new Set();
+    let duration = 0;
+    const channels = animation.channels.map(channel => {
+      const sampler = item(animation.samplers, channel.sampler, 'animation sampler');
+      const target = channel.target;
+      if (!target || !Number.isInteger(target.node) || target.node < 0 || target.node >= nodes.length) invalid('Invalid animation target');
+      if (channel.extensions || target.extensions || sampler.extensions) unsupported('Animation extensions are not supported');
+      const path = target.path;
+      if (!['translation', 'rotation', 'scale'].includes(path)) unsupported(`Animation target path ${path} is unsupported`);
+      const sourceNode = item(nodes, target.node, 'animation node');
+      if (sourceNode.matrix) unsupported('Animation channels cannot target nodes using matrix transforms');
+      const targetKey = `${target.node}:${path}`;
+      if (usedTargets.has(targetKey)) invalid('Animation targets the same node property more than once');
+      usedTargets.add(targetKey);
+      const interpolation = sampler.interpolation ?? 'LINEAR';
+      if (interpolation !== 'LINEAR' && interpolation !== 'STEP') unsupported(`Animation interpolation ${interpolation} is unsupported`);
+      const input = accessor(doc, buffers, sampler.input, 'SCALAR');
+      const output = accessor(doc, buffers, sampler.output, path === 'rotation' ? 'VEC4' : 'VEC3');
+      if (input.componentType !== 5126 || output.componentType !== 5126 || input.count !== output.count) invalid('Invalid animation accessor types or counts');
+      for (let i = 0; i < input.values.length; i++) {
+        const time = input.values[i];
+        if (time < 0 || (i > 0 && time <= input.values[i - 1])) invalid('Animation input times must be non-negative and strictly increasing');
+      }
+      if (path === 'rotation') for (let i = 0; i < output.values.length; i += 4) {
+        if (!(Math.hypot(output.values[i], output.values[i + 1], output.values[i + 2], output.values[i + 3]) > 0)) invalid('Animation rotations must be non-zero quaternions');
+      }
+      duration = Math.max(duration, input.values[input.values.length - 1]);
+      return { node: target.node, path, interpolation, times: input.values, values: output.values, components: path === 'rotation' ? 4 : 3,
+        enabled: sceneNodeIndices.has(target.node) };
+    });
+    return { name: typeof animation.name === 'string' ? animation.name : `Animation ${animationIndex}`, duration, channels };
+  });
+  return { images, textureSpecs, roots: sceneRoots, animations };
 }
 
 // Model disposal is idempotent. GPU objects are released; arena records remain.
@@ -421,18 +497,57 @@ export async function loadGLTF(engine, url) {
     if (error instanceof AssetError) throw error;
     throw new AssetError('INVALID_GLTF', 'Invalid glTF structure or URL', error);
   }
-  const nodes = [], meshes = [], materials = new Map(), textures = new Map();
+  const nodes = [], meshes = [], materials = new Map(), textures = new Map(), transformNodes = new Map();
   const sceneEpoch = engine._g3_asset_scene_epoch();
   let disposed = false;
+  let activeAnimation = -1, animationTime = 0, animationPlaying = false, animationLoop = true;
+  let touchedTransforms = new Set();
+  const writeTransform = state => {
+    if (!isNodeHandleValid(engine, state.handle)) return;
+    const matrix = localMatrix({ translation: state.translation, rotation: state.rotation, scale: state.scale }).matrix;
+    matrix.forEach((value, index) => engine._g3_asset_matrix(state.handle.index, index, value));
+  };
+  const restoreBase = state => {
+    state.translation = [...state.baseTranslation];
+    state.rotation = [...state.baseRotation];
+    state.scale = [...state.baseScale];
+  };
+  const applyAnimation = (index, time) => {
+    if (sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
+    const animation = index < 0 ? null : data.animations[index];
+    const nextTouched = new Set();
+    for (const channel of animation?.channels ?? []) if (channel.enabled && transformNodes.has(channel.node)) nextTouched.add(channel.node);
+    for (const nodeIndex of touchedTransforms) if (!nextTouched.has(nodeIndex)) {
+      const state = transformNodes.get(nodeIndex);
+      restoreBase(state);
+      writeTransform(state);
+    }
+    for (const nodeIndex of nextTouched) restoreBase(transformNodes.get(nodeIndex));
+    for (const channel of animation?.channels ?? []) {
+      const state = transformNodes.get(channel.node);
+      if (!channel.enabled || !state || !isNodeHandleValid(engine, state.handle)) continue;
+      state[channel.path] = sampleChannel(channel, time);
+    }
+    for (const nodeIndex of nextTouched) writeTransform(transformNodes.get(nodeIndex));
+    touchedTransforms = nextTouched;
+    return true;
+  };
   const dispose = () => {
     if (disposed) return;
     disposed = true;
+    animationPlaying = false;
     for (const node of nodes) engine._g3_asset_node_release(node.index, node.generation, node.epoch);
     for (const handle of materials.values()) engine._g3_asset_release_material(handle.id, handle.generation);
     for (const handle of meshes) {
       if (engine._g3_asset_release_mesh(handle.id, handle.generation)) engine._g3_host_release_mesh(handle.id);
     }
     for (const handle of textures.values()) releaseTexture(engine, handle);
+    for (const animation of data.animations) for (const channel of animation.channels) {
+      channel.times.length = 0;
+      channel.values.length = 0;
+    }
+    transformNodes.clear();
+    touchedTransforms.clear();
   };
   try {
     function getTexture(index, srgb) {
@@ -452,6 +567,12 @@ export async function loadGLTF(engine, url) {
       if (!groupHandle) throw new AssetError('UPLOAD', 'Could not create node');
       nodes.push(groupHandle);
       node.matrix.forEach((value, index) => engine._g3_asset_matrix(group, index, value));
+      if (node.translation) transformNodes.set(node.index, {
+        handle: groupHandle,
+        baseTranslation: [...node.translation], translation: [...node.translation],
+        baseRotation: [...node.rotation], rotation: [...node.rotation],
+        baseScale: [...node.scale], scale: [...node.scale],
+      });
       for (const p of node.primitives) {
         engine._g3_asset_mesh_begin();
         for (let i = 0; i < p.pos.length / 3; i++) engine._g3_asset_vertex(...p.pos.slice(i*3, i*3+3), ...p.normal.slice(i*3, i*3+3), ...(p.uv ? p.uv.slice(i*2, i*2+2) : [0, 0]));
@@ -479,9 +600,50 @@ export async function loadGLTF(engine, url) {
     const roots = data.roots.map(root => createNode(root, -1));
     return {
       roots: Object.freeze(roots),
+      animations: Object.freeze(data.animations.map(({ name, duration }, index) => Object.freeze({ index, name, duration }))),
       meshes: Object.freeze([...meshes]),
       materials: Object.freeze([...materials.values()]),
       textures: Object.freeze([...textures.values()]),
+      playAnimation(index = 0, { loop = true } = {}) {
+        if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch() || !Number.isInteger(index) || index < 0 || index >= data.animations.length) return false;
+        activeAnimation = index; animationTime = 0; animationLoop = !!loop; animationPlaying = data.animations[index].duration > 0;
+        return applyAnimation(activeAnimation, animationTime);
+      },
+      pauseAnimation() {
+        if (disposed || activeAnimation < 0) return false;
+        animationPlaying = false;
+        return true;
+      },
+      resumeAnimation() {
+        if (disposed || activeAnimation < 0) return false;
+        const duration = data.animations[activeAnimation].duration;
+        if (duration <= 0 || (!animationLoop && animationTime >= duration)) return false;
+        animationPlaying = true;
+        return true;
+      },
+      stopAnimation() {
+        if (disposed) return false;
+        animationPlaying = false; activeAnimation = -1; animationTime = 0;
+        return applyAnimation(-1, 0);
+      },
+      seekAnimation(time) {
+        if (disposed || activeAnimation < 0 || !Number.isFinite(time) || time < 0) return false;
+        const duration = data.animations[activeAnimation].duration;
+        animationTime = Math.min(time, duration);
+        if (!animationLoop && animationTime >= duration) animationPlaying = false;
+        return applyAnimation(activeAnimation, animationTime);
+      },
+      update(dt) {
+        if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch() || !Number.isFinite(dt) || dt < 0) return false;
+        if (!animationPlaying || activeAnimation < 0) return true;
+        const duration = data.animations[activeAnimation].duration;
+        animationTime += dt;
+        if (animationLoop && duration > 0) animationTime %= duration;
+        else if (animationTime >= duration) { animationTime = duration; animationPlaying = false; }
+        return applyAnimation(activeAnimation, animationTime);
+      },
+      get activeAnimation() { return activeAnimation; },
+      get animationTime() { return animationTime; },
       // A nearer object belonging to another model occludes this model.
       pick(canvas, clientX, clientY) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return null;

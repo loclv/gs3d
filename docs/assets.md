@@ -1,8 +1,9 @@
 # Browser assets
 
-`web/assets.js` loads a limited static glTF 2.0 subset into either browser
-build after `g3_host_start` has succeeded. It uses browser fetch and image
-decoding; it is not a native Goose or CPU-backend loader.
+`web/assets.js` loads a limited glTF 2.0 subset, including node transform
+animation, into either browser build after `g3_host_start` has succeeded. It
+uses browser fetch and image decoding; it is not a native Goose or CPU-backend
+loader.
 
 ```js
 import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setToneMapping, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
@@ -10,6 +11,11 @@ import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setToneMapping, s
 try {
   setOutputColorSpace(engine, 'srgb'); // after engine startup
   const model = await loadGLTF(engine, './model.glb');
+  if (model.animations.length) {
+    model.playAnimation(0, { loop: true });
+    model.update(1 / 60); // call from the frame loop with elapsed seconds
+    // model.pauseAnimation(); model.seekAnimation(0.5); model.stopAnimation();
+  }
   // model.roots contains checked node handles for the loaded scene.
   // model.pick(canvas, event.clientX, event.clientY) returns a handle or null.
   // pickNode(engine, canvas, clientX, clientY) can pick any visible mesh.
@@ -134,7 +140,7 @@ mechanism.
   images are decoded from sRGB before filtering; factors and alpha are linear.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
-skins, animations, morph targets, sparse accessors, non-triangle modes,
+skins, morph targets, cubic-spline animation, sparse accessors, non-triangle modes,
 double-sided materials and advanced
 texture/sampler extensions. Tangent frames for normal maps are derived per
 triangle from positions and `TEXCOORD_0`; explicit glTF tangent attributes are
@@ -156,6 +162,15 @@ fog, and material RGB values must be supplied in linear space in sRGB output
   is available; otherwise rough reflections use
   the unfiltered HDR source map. The display intermediate is not multisampled,
   so antialiasing differs from the default path.
+
+glTF animation clips expose `name` and `duration` in `model.animations`.
+`playAnimation(index, { loop })`, `pauseAnimation()`, `resumeAnimation()`,
+`seekAnimation(seconds)`, and `stopAnimation()` control translation, rotation,
+and scale channels. Call
+`model.update(dt)` from the frame loop. LINEAR and STEP interpolation are
+supported; rotations use quaternion spherical interpolation. Clips can target
+only nodes in the selected glTF scene. Skinning, morph weights, cubic spline,
+and matrix-form animated nodes are unsupported.
 
 Run the browser-loader logic tests with `node web/test_assets.mjs`. These use a
 mock engine and image decoder; they do not replace a browser/WebGL integration

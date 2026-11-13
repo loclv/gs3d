@@ -370,7 +370,7 @@ logical cores, with byte-identical output.
 | [`docs/abi.md`](docs/abi.md) | every byte that crosses to a backend, field by field, plus how to evolve it |
 | [`docs/performance.md`](docs/performance.md) | how the numbers were measured, the ablation tables, and what is left |
 | [`docs/threejs-roadmap.md`](docs/threejs-roadmap.md) | gaps and milestones toward a practical Three.js alternative |
-| [`docs/assets.md`](docs/assets.md) | browser image and static glTF/GLB loading, ownership and supported subset |
+| [`docs/assets.md`](docs/assets.md) | browser image, glTF/GLB loading, transform animation, ownership and supported subset |
 | [`docs/ideals.md`](docs/ideals.md) | the principles the project is built on, and the check that would fail if each were violated |
 | [`.agents/skills/goose3d-tour`](.agents/skills/goose3d-tour/SKILL.md) | a map of the repo and the cheapest verification for a change |
 | [`.agents/skills/goose-language-notes`](.agents/skills/goose-language-notes/SKILL.md) | Goose itself as this codebase uses it: arenas, references vs copies, casts, sidecars, and the compiler warnings that catch these mistakes |
