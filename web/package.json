@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Browser asset helpers and TypeScript declarations for Goose 3D",
   "type": "module",
+  "scripts": {
+    "test": "node ./test_assets.mjs"
+  },
   "exports": {
     ".": {
       "types": "./assets.d.ts",
@@ -12,7 +15,8 @@
   "files": [
     "README.md",
     "assets.js",
-    "assets.d.ts"
+    "assets.d.ts",
+    "test_assets.mjs"
   ],
   "sideEffects": false
 }

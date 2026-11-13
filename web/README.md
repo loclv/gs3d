@@ -27,3 +27,6 @@ The repository's `docs/assets.md` describes supported glTF features, asset
 ownership, errors, texture colour spaces and animation.
 The declarations in `assets.d.ts` cover loaders, checked handles, model
 lifecycle, animation controls and rendering options.
+
+Run `npm test` in this directory to exercise the asset parser and lifecycle
+against a fake engine. These tests do not compile shaders or verify WebGL output.

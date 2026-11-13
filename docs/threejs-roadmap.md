@@ -143,9 +143,11 @@ Tests cover animation interpolation, skinning, and camera projection.
 * **Partly implemented:** user render targets have explicit creation, selection, resizing, checked handles, and disposal; the texture can be sampled by later frames. Both backends render linear RGBA8 clamped to 0..1 with opaque alpha, use target dimensions for camera projection, and bypass screen tone mapping, sRGB encoding, and FXAA. Resizing clears target contents. Sampling the active target is suppressed to avoid framebuffer feedback, and `Stats.feedback_items_suppressed` plus the browser HUD report how many draw items were skipped. Validate target rendering in a browser.
 * **Partly implemented:** `post_process_run(source, destination, effect)` provides copy, grayscale, invert, and FXAA passes over explicit texture inputs and render-target outputs; the fixed eight-entry queue executes built-in or custom passes in order. Add browser shader validation before expanding the shader interface. Keep the existing FXAA convenience switch as a built-in pass.
 * **Partly implemented:** WebGL2 supports a bounded fragment-body post-process with one source texture, UVs, and a colour value; shader creation, execution, and disposal are explicit, with fixed input/output resources and no custom vertex stage or uniforms. The CPU backend returns unsupported. Validate shader compile diagnostics in a browser and define a pass-list integration before expanding uniforms or stages.
-* Package and document the browser API, including lifecycle and errors; add
-  examples and continuous browser tests. Add native asset loading when native
-  interactive applications are a target.
+* **Partly implemented:** the browser asset package documents loading, ownership,
+  and errors, and `npm test` runs parser and lifecycle checks against a fake
+  engine. Publish the package, add more runnable examples, and add continuous
+  browser rendering tests. Add native asset loading when native interactive
+  applications are a target.
 
 **Done when:** a documented benchmark demonstrates instancing and resource
 reuse, and published examples build and run through the supported API.
