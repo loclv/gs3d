@@ -82,12 +82,19 @@ specific instance when a glTF mesh appears in multiple nodes. To load every
 primitive of that node instance, use the mesh owner API:
 
 ```goose
+import vec;
+import g3.scene;
+import g3.gltf_native;
+
 let loaded_mesh, mesh_ok = g3::native_glb_load_node_mesh("model.glb", 0);
 guard mesh_ok else { print("could not load GLB node 0"); return; }
 var model_mesh = loaded_mesh;
+let root = g3::native_glb_mesh_root(model_mesh);
+g3::node(root.index).use_local_matrix = false;
+g3::node(root.index).pos = float3 { 0.0, 1.0, 0.0 }; // move every primitive together
 for i in 0..g3::native_glb_mesh_primitive_count(model_mesh) {
   let node = g3::native_glb_mesh_primitive_node(model_mesh, i);
-  // Use the checked node handle with the scene APIs.
+  // Use each checked primitive handle for per-part scene operations.
 }
 g3::native_glb_mesh_dispose(model_mesh);
 ```

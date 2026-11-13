@@ -15,7 +15,7 @@ namespace g3;
 
 struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle }
 struct NativeGlbMeshHandle { id: i32 = -1, generation: i32 }
-struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, active: bool }
+struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
 struct NativeGlbPartSlot { owner_id: i32, owner_generation: i32, primitive_index: i32, model: NativeGlbModel, active: bool }
 struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64 }
 
@@ -486,15 +486,30 @@ fn native_glb_mesh_valid(handle: NativeGlbMeshHandle) -> bool {
            g_native_glb_meshes[handle.id].generation == handle.generation;
 }
 
-// Load every static primitive of the selected node instance. Primitive nodes
-// remain independent engine nodes but share the source instance's world matrix.
+// Load every static primitive of the selected node instance beneath one group
+// node. The source's composed world matrix is placed on that checked root.
 fn native_glb_load_node_mesh(path: const u8[:], node_index: i64) -> NativeGlbMeshHandle, bool {
     let count, count_ok = glb_node_primitive_count(path, node_index);
     guard count_ok else { return NativeGlbMeshHandle { .. }, false; }
     let handle = native_glb_mesh_slot_add(count);
+    let root_id = node_asset_add(-1);
+    if root_id < 0 {
+        g_native_glb_meshes[handle.id].active = false;
+        g_native_glb_meshes[handle.id].primitive_count = 0;
+        return NativeGlbMeshHandle { .. }, false;
+    }
+    let root_handle = node_handle(root_id);
+    g_native_glb_meshes[handle.id].root = root_handle;
     for primitive_index in 0..count {
         let model, loaded = native_glb_load_node_primitive(path, node_index, primitive_index);
         if !loaded { native_glb_mesh_dispose(handle); return NativeGlbMeshHandle { .. }, false; }
+        if primitive_index == 0 {
+            node(root_id).local_matrix = node(model.node.index).local_matrix;
+            node(root_id).use_local_matrix = true;
+        }
+        node(model.node.index).parent = root_id as i32;
+        node(model.node.index).local_matrix = mat4_identity();
+        node(model.node.index).use_local_matrix = true;
         var slot: i64 = -1;
         for i in 0..g_native_glb_parts.len { if !g_native_glb_parts[i].active { slot = i; break; } }
         if slot < 0 {
@@ -509,6 +524,11 @@ fn native_glb_load_node_mesh(path: const u8[:], node_index: i64) -> NativeGlbMes
 fn native_glb_mesh_primitive_count(handle: NativeGlbMeshHandle) -> i32 {
     guard native_glb_mesh_valid(handle) else { return 0; }
     return g_native_glb_meshes[handle.id].primitive_count;
+}
+
+fn native_glb_mesh_root(handle: NativeGlbMeshHandle) -> NodeHandle {
+    guard native_glb_mesh_valid(handle) && node_handle_valid(g_native_glb_meshes[handle.id].root) else { return NodeHandle { .. }; }
+    return g_native_glb_meshes[handle.id].root;
 }
 
 fn native_glb_mesh_primitive_node(handle: NativeGlbMeshHandle, primitive_index: i32) -> NodeHandle {
@@ -546,7 +566,11 @@ fn native_glb_mesh_dispose(handle: NativeGlbMeshHandle) -> bool {
             g_native_glb_parts[i].active = false;
         }
     }
+    if node_handle_valid(g_native_glb_meshes[handle.id].root) {
+        node_asset_release_handle(g_native_glb_meshes[handle.id].root);
+    }
     g_native_glb_meshes[handle.id].active = false;
     g_native_glb_meshes[handle.id].primitive_count = 0;
+    g_native_glb_meshes[handle.id].root = NodeHandle { .. };
     return true;
 }

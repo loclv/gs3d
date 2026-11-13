@@ -76,7 +76,7 @@ and a browser integration check for behavior exposed through WebGL.
 * **Implemented:** `EXT_texture_webp` loads its WebP source when decodable and
   falls back to the core source when fetching or decoding WebP fails.
 * **Partly implemented:** native Goose programs can load and dispose every
-  static primitive on one selected GLB node as individually checked meshes,
+  static primitive on one selected GLB node beneath a checked group root,
   including float vertex attributes, triangle indices, the node instance's
   world transform composed through its ancestors, scalar material factors and
   flags, plus declared `KHR_materials_unlit`,

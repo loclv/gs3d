@@ -379,16 +379,27 @@ fn case_native_glb_load() {
                    "native GLB model disposal releases checked node, mesh, and material handles");
     let mesh_model, mesh_loaded = g3::native_glb_load_node_mesh("testdata/native-two-primitives.glb", 0);
     let primitive_count = g3::native_glb_mesh_primitive_count(mesh_model);
+    let mesh_root = g3::native_glb_mesh_root(mesh_model);
     let primitive_a = g3::native_glb_mesh_primitive_node(mesh_model, 0);
     let primitive_b = g3::native_glb_mesh_primitive_node(mesh_model, 1);
+    let grouped = g3::node_handle_valid(mesh_root) && g3::node_handle_valid(primitive_a) && g3::node_handle_valid(primitive_b) &&
+                  g3::node(primitive_a.index).parent == mesh_root.index && g3::node(primitive_b.index).parent == mesh_root.index;
+    if g3::node_handle_valid(mesh_root) {
+        g3::node(mesh_root.index).use_local_matrix = false;
+        g3::node(mesh_root.index).pos = float3 { 0.25, 0.0, 0.0 };
+        g3::node_update_worlds();
+    }
+    let moved_together = g3::node_handle_valid(primitive_a) && g3::node_handle_valid(primitive_b) &&
+                         abs(g3::node(primitive_a.index).world.m[12] - 0.25) < 0.001 &&
+                         abs(g3::node(primitive_b.index).world.m[12] - 0.25) < 0.001;
     g3::frame(1.0 / 60.0);
     let batch_stats = g3::stats();
-    testing::check(mesh_loaded && primitive_count == 2 && g3::node_handle_valid(primitive_a) &&
-                   g3::node_handle_valid(primitive_b) && batch_stats.drawn == 2 && batch_stats.triangles == 24,
-                   "native GLB mesh loader creates every primitive in the selected node");
+    testing::check(mesh_loaded && primitive_count == 2 && grouped && moved_together &&
+                   batch_stats.drawn == 2 && batch_stats.triangles == 24,
+                   "native GLB mesh loader groups and transforms all selected-node primitives");
     testing::check(g3::native_glb_mesh_dispose(mesh_model) && !g3::native_glb_mesh_valid(mesh_model) &&
-                   !g3::node_handle_valid(primitive_a) && !g3::node_handle_valid(primitive_b),
-                   "native GLB mesh disposal releases all primitive resources");
+                   !g3::node_handle_valid(mesh_root) && !g3::node_handle_valid(primitive_a) && !g3::node_handle_valid(primitive_b),
+                   "native GLB mesh disposal releases its group and all primitive resources");
     let reused_mesh, reused_loaded = g3::native_glb_load_node_mesh("testdata/native-two-primitives.glb", 0);
     let reused_slot = reused_loaded && reused_mesh.id == mesh_model.id && reused_mesh.generation != mesh_model.generation &&
                       g3::native_glb_mesh_primitive_count(reused_mesh) == 2;
