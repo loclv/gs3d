@@ -50,6 +50,10 @@ export interface LoadedModel {
   readonly sceneIndex: number;
   readonly roots: readonly NodeHandle[];
   readonly animations: readonly AnimationInfo[];
+  /** Material variant names declared by KHR_materials_variants. */
+  readonly variants: readonly string[];
+  /** Index of the selected material variant, or -1 for the glTF default materials. */
+  readonly activeVariant: number;
   readonly meshes: readonly ResourceHandle[];
   readonly materials: readonly ResourceHandle[];
   readonly textures: readonly ResourceHandle[];
@@ -63,6 +67,8 @@ export interface LoadedModel {
   seekAnimation(seconds: number): boolean;
   /** Advance an active animation by seconds. Call once from the app frame loop. */
   update(deltaSeconds: number): boolean;
+  /** Select a material variant by index or name; pass null to restore default materials. */
+  setVariant(variant: number | string | null): boolean;
   /** Pick a node only when it belongs to this model. */
   pick(canvas: HTMLCanvasElement, clientX: number, clientY: number): NodeHandle | null;
   /** Release all model-owned nodes, meshes, materials, and textures. Idempotent. */

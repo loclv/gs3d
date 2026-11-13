@@ -25,6 +25,8 @@ try {
     // model.pauseAnimation(); model.seekAnimation(0.5); model.stopAnimation();
   }
   // model.sceneIndex identifies the loaded scene; roots contains its checked node handles.
+  // model.variants lists KHR_materials_variants names; model.setVariant('Damaged') switches materials.
+  // model.setVariant(null) restores each primitive's default material.
   // model.pick(canvas, event.clientX, event.clientY) returns a handle or null.
   // pickNode(engine, canvas, clientX, clientY) can pick any visible mesh.
   // isNodeHandleValid(engine, handle) detects disposal or a scene reset.
@@ -192,6 +194,9 @@ fetches and decodes assets in JavaScript.
   texture slots support independent `KHR_texture_transform` settings.
   `KHR_materials_emissive_strength` scales `emissiveFactor`, including values
   above 1 for HDR emission.
+  `KHR_materials_variants` exposes its names on the loaded model. Call
+  `setVariant(indexOrName)` to switch mapped primitives, or `setVariant(null)`
+  to restore their default materials.
   `KHR_texture_transform` applies an independent offset, rotation and scale to
   each texture slot. `TEXCOORD_0` through `TEXCOORD_5` are supported.
   Double-sided materials disable back-face culling in colour and shadow passes;

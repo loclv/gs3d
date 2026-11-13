@@ -528,6 +528,121 @@ function parseTextureTransform(info, extensionsUsed) {
   return { offset, scale, rotation, texcoord: texCoord };
 }
 
+function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extensionsUsed) {
+  const material = materialIndex === undefined ? {} : item(doc.materials, materialIndex, 'material');
+  let unlit = false, emissiveStrength = 1, ior = 1.5;
+  let specularFactor = 1, specularColorFactor = [1, 1, 1], specularExtension = null;
+  if (material.extensions !== undefined) {
+    if (!material.extensions || typeof material.extensions !== 'object' || Array.isArray(material.extensions)) invalid('Invalid material extensions');
+    const materialExtensions = Object.keys(material.extensions);
+    if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular'].includes(extension))) unsupported('Unsupported material feature');
+    if (materialExtensions.includes('KHR_materials_unlit')) {
+      if (!extensionsUsed.includes('KHR_materials_unlit')) invalid('KHR_materials_unlit must be listed in extensionsUsed');
+      const extension = material.extensions.KHR_materials_unlit;
+      if (!extension || typeof extension !== 'object' || Array.isArray(extension)) invalid('Invalid KHR_materials_unlit extension');
+      unlit = true;
+    }
+    if (materialExtensions.includes('KHR_materials_emissive_strength')) {
+      if (!extensionsUsed.includes('KHR_materials_emissive_strength')) invalid('KHR_materials_emissive_strength must be listed in extensionsUsed');
+      const extension = material.extensions.KHR_materials_emissive_strength;
+      if (!extension || typeof extension !== 'object' || Array.isArray(extension)) invalid('Invalid KHR_materials_emissive_strength extension');
+      emissiveStrength = extension.emissiveStrength ?? 1;
+      if (!Number.isFinite(emissiveStrength) || emissiveStrength < 0) invalid('Invalid emissive strength');
+    }
+    if (materialExtensions.includes('KHR_materials_ior')) {
+      if (!extensionsUsed.includes('KHR_materials_ior')) invalid('KHR_materials_ior must be listed in extensionsUsed');
+      const extension = material.extensions.KHR_materials_ior;
+      if (!extension || typeof extension !== 'object' || Array.isArray(extension)) invalid('Invalid KHR_materials_ior extension');
+      ior = extension.ior ?? 1.5;
+      if (!Number.isFinite(ior) || ior < 1 || ior > 2.333) invalid('Invalid index of refraction');
+    }
+    if (materialExtensions.includes('KHR_materials_specular')) {
+      if (!extensionsUsed.includes('KHR_materials_specular')) invalid('KHR_materials_specular must be listed in extensionsUsed');
+      specularExtension = material.extensions.KHR_materials_specular;
+      if (!specularExtension || typeof specularExtension !== 'object' || Array.isArray(specularExtension)) invalid('Invalid KHR_materials_specular extension');
+      specularFactor = specularExtension.specularFactor ?? 1;
+      specularColorFactor = specularExtension.specularColorFactor ?? [1, 1, 1];
+      if (!Number.isFinite(specularFactor) || specularFactor < 0 || specularFactor > 1) invalid('Invalid specular factor');
+      if (!Array.isArray(specularColorFactor) || specularColorFactor.length !== 3 ||
+          !specularColorFactor.every(value => Number.isFinite(value) && value >= 0)) invalid('Invalid specular color factor');
+      if (unlit) invalid('KHR_materials_specular cannot be combined with KHR_materials_unlit');
+    }
+  }
+  if (material.doubleSided !== undefined && typeof material.doubleSided !== 'boolean') invalid('Invalid doubleSided material flag');
+  const alphaModes = { OPAQUE: 0, MASK: 1, BLEND: 2 };
+  const mode = material.alphaMode ?? 'OPAQUE';
+  if (!Object.hasOwn(alphaModes, mode)) invalid('Invalid alpha mode');
+  const cutoff = material.alphaCutoff ?? 0.5;
+  if (!Number.isFinite(cutoff) || cutoff < 0) invalid('Invalid alpha cutoff');
+  const pbr = material.pbrMetallicRoughness || {};
+  const baseUvTransform = pbr.baseColorTexture ? parseTextureTransform(pbr.baseColorTexture, extensionsUsed) : identityUvTransform();
+  const normalUvTransform = material.normalTexture ? parseTextureTransform(material.normalTexture, extensionsUsed) : identityUvTransform();
+  const occlusionUvTransform = material.occlusionTexture ? parseTextureTransform(material.occlusionTexture, extensionsUsed) : identityUvTransform();
+  const emissiveUvTransform = material.emissiveTexture ? parseTextureTransform(material.emissiveTexture, extensionsUsed) : identityUvTransform();
+  const metallicRoughnessUvTransform = pbr.metallicRoughnessTexture ? parseTextureTransform(pbr.metallicRoughnessTexture, extensionsUsed) : identityUvTransform();
+  const specularUvTransform = specularExtension?.specularTexture ? parseTextureTransform(specularExtension.specularTexture, extensionsUsed) : identityUvTransform();
+  const specularColorUvTransform = specularExtension?.specularColorTexture ? parseTextureTransform(specularExtension.specularColorTexture, extensionsUsed) : identityUvTransform();
+  let normalTextureIndex = -1;
+  const normalScale = material.normalTexture?.scale ?? 1;
+  if (material.normalTexture) {
+    if (!availableUvSets[normalUvTransform.texcoord]) unsupported('Unsupported normal texture coordinates');
+    item(textureSpecs, material.normalTexture.index, 'normal texture');
+    if (!Number.isFinite(normalScale)) invalid('Invalid normal scale');
+    normalTextureIndex = material.normalTexture.index;
+  }
+  let occlusionTextureIndex = -1;
+  const occlusionStrength = material.occlusionTexture?.strength ?? 1;
+  if (material.occlusionTexture) {
+    if (!availableUvSets[occlusionUvTransform.texcoord]) unsupported('Unsupported occlusion texture coordinates');
+    item(textureSpecs, material.occlusionTexture.index, 'occlusion texture');
+    if (!Number.isFinite(occlusionStrength) || occlusionStrength < 0 || occlusionStrength > 1) invalid('Invalid occlusion strength');
+    occlusionTextureIndex = material.occlusionTexture.index;
+  }
+  const emissive = material.emissiveFactor ?? [0, 0, 0];
+  if (!Array.isArray(emissive) || emissive.length !== 3 || !emissive.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid emissive factor');
+  let emissiveTextureIndex = -1;
+  if (material.emissiveTexture) {
+    if (!availableUvSets[emissiveUvTransform.texcoord]) unsupported('Unsupported emissive texture coordinates');
+    item(textureSpecs, material.emissiveTexture.index, 'emissive texture');
+    emissiveTextureIndex = material.emissiveTexture.index;
+  }
+  let metallicRoughnessTextureIndex = -1;
+  if (pbr.metallicRoughnessTexture) {
+    if (!availableUvSets[metallicRoughnessUvTransform.texcoord]) unsupported('Unsupported metallic-roughness texture coordinates');
+    item(textureSpecs, pbr.metallicRoughnessTexture.index, 'metallic-roughness texture');
+    metallicRoughnessTextureIndex = pbr.metallicRoughnessTexture.index;
+  }
+  let specularTextureIndex = -1, specularColorTextureIndex = -1;
+  if (specularExtension?.specularTexture) {
+    if (!availableUvSets[specularUvTransform.texcoord]) unsupported('Unsupported specular texture coordinates');
+    item(textureSpecs, specularExtension.specularTexture.index, 'specular texture');
+    specularTextureIndex = specularExtension.specularTexture.index;
+  }
+  if (specularExtension?.specularColorTexture) {
+    if (!availableUvSets[specularColorUvTransform.texcoord]) unsupported('Unsupported specular color texture coordinates');
+    item(textureSpecs, specularExtension.specularColorTexture.index, 'specular color texture');
+    specularColorTextureIndex = specularExtension.specularColorTexture.index;
+  }
+  const metallic = pbr.metallicFactor ?? 1, roughness = pbr.roughnessFactor ?? 1;
+  if (![metallic, roughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid metallic or roughness factor');
+  const color = pbr.baseColorFactor || [1, 1, 1, 1];
+  if (!Array.isArray(color) || color.length !== 4 || !color.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid base color');
+  let textureIndex = -1;
+  if (pbr.baseColorTexture) {
+    if (!availableUvSets[baseUvTransform.texcoord]) unsupported('Unsupported texture coordinates');
+    item(textureSpecs, pbr.baseColorTexture.index, 'texture');
+    textureIndex = pbr.baseColorTexture.index;
+  }
+  return { color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
+    alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
+    normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
+    emissive: emissive.map(value => value * emissiveStrength), emissiveTextureIndex,
+    doubleSided: material.doubleSided ?? false, unlit, ior, specularFactor, specularColorFactor,
+    specularTextureIndex, specularColorTextureIndex,
+    uvTransforms: [baseUvTransform, metallicRoughnessUvTransform, normalUvTransform, occlusionUvTransform,
+      emissiveUvTransform, specularUvTransform, specularColorUvTransform], materialIndex: materialIndex ?? -1 };
+}
+
 async function prepare(url, requestedScene) {
   const absolute = new URL(url, globalThis.location?.href || 'http://localhost/');
   const { json, bin, glb } = unpack(await fetchBytes(absolute));
@@ -539,8 +654,16 @@ async function prepare(url, requestedScene) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_texture_transform'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_texture_transform', 'KHR_materials_variants'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
+  if (doc.extensions !== undefined && (!doc.extensions || typeof doc.extensions !== 'object' || Array.isArray(doc.extensions))) invalid('Invalid glTF extensions');
+  const variantExtension = doc.extensions?.KHR_materials_variants;
+  if (extensionsUsed.includes('KHR_materials_variants') !== (variantExtension !== undefined)) invalid('KHR_materials_variants declaration does not match its extension data');
+  if (variantExtension !== undefined && (!variantExtension || typeof variantExtension !== 'object' || Array.isArray(variantExtension) || !Array.isArray(variantExtension.variants))) invalid('Invalid KHR_materials_variants extension');
+  const variantNames = (variantExtension?.variants ?? []).map((variant, index) => {
+    if (!variant || typeof variant !== 'object' || Array.isArray(variant) || (variant.name !== undefined && typeof variant.name !== 'string')) invalid('Invalid material variant');
+    return variant.name ?? `Variant ${index}`;
+  });
   const bufferDefinitions = doc.buffers ?? [];
   if (!Array.isArray(bufferDefinitions)) invalid('Invalid glTF buffers');
   if (glb && bin !== undefined) {
@@ -645,122 +768,36 @@ async function prepare(url, requestedScene) {
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
     const normalValues = normal ? normal.values : generateVertexNormals(pos.values, indices);
-    const material = p.material === undefined ? {} : item(doc.materials, p.material, 'material');
-    let unlit = false, emissiveStrength = 1, ior = 1.5;
-    let specularFactor = 1, specularColorFactor = [1, 1, 1], specularExtension = null;
-    if (material.extensions !== undefined) {
-      if (!material.extensions || typeof material.extensions !== 'object' || Array.isArray(material.extensions)) invalid('Invalid material extensions');
-      const materialExtensions = Object.keys(material.extensions);
-      if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular'].includes(extension))) unsupported('Unsupported material feature');
-      if (materialExtensions.includes('KHR_materials_unlit')) {
-        if (!extensionsUsed.includes('KHR_materials_unlit')) invalid('KHR_materials_unlit must be listed in extensionsUsed');
-        const unlitExtension = material.extensions.KHR_materials_unlit;
-        if (!unlitExtension || typeof unlitExtension !== 'object' || Array.isArray(unlitExtension)) invalid('Invalid KHR_materials_unlit extension');
-        unlit = true;
-      }
-      if (materialExtensions.includes('KHR_materials_emissive_strength')) {
-        if (!extensionsUsed.includes('KHR_materials_emissive_strength')) invalid('KHR_materials_emissive_strength must be listed in extensionsUsed');
-        const emissiveExtension = material.extensions.KHR_materials_emissive_strength;
-        if (!emissiveExtension || typeof emissiveExtension !== 'object' || Array.isArray(emissiveExtension)) invalid('Invalid KHR_materials_emissive_strength extension');
-        emissiveStrength = emissiveExtension.emissiveStrength ?? 1;
-        if (!Number.isFinite(emissiveStrength) || emissiveStrength < 0) invalid('Invalid emissive strength');
-      }
-      if (materialExtensions.includes('KHR_materials_ior')) {
-        if (!extensionsUsed.includes('KHR_materials_ior')) invalid('KHR_materials_ior must be listed in extensionsUsed');
-        const iorExtension = material.extensions.KHR_materials_ior;
-        if (!iorExtension || typeof iorExtension !== 'object' || Array.isArray(iorExtension)) invalid('Invalid KHR_materials_ior extension');
-        ior = iorExtension.ior ?? 1.5;
-        if (!Number.isFinite(ior) || ior < 1 || ior > 2.333) invalid('Invalid index of refraction');
-      }
-      if (materialExtensions.includes('KHR_materials_specular')) {
-        if (!extensionsUsed.includes('KHR_materials_specular')) invalid('KHR_materials_specular must be listed in extensionsUsed');
-        specularExtension = material.extensions.KHR_materials_specular;
-        if (!specularExtension || typeof specularExtension !== 'object' || Array.isArray(specularExtension)) invalid('Invalid KHR_materials_specular extension');
-        specularFactor = specularExtension.specularFactor ?? 1;
-        specularColorFactor = specularExtension.specularColorFactor ?? [1, 1, 1];
-        if (!Number.isFinite(specularFactor) || specularFactor < 0 || specularFactor > 1) invalid('Invalid specular factor');
-        if (!Array.isArray(specularColorFactor) || specularColorFactor.length !== 3 ||
-            !specularColorFactor.every(value => Number.isFinite(value) && value >= 0)) invalid('Invalid specular color factor');
-        if (unlit) invalid('KHR_materials_specular cannot be combined with KHR_materials_unlit');
-      }
-    }
-    if (material.doubleSided !== undefined && typeof material.doubleSided !== 'boolean') invalid('Invalid doubleSided material flag');
-    const alphaModes = { OPAQUE: 0, MASK: 1, BLEND: 2 };
-    const mode = material.alphaMode ?? 'OPAQUE';
-    if (!Object.hasOwn(alphaModes, mode)) invalid('Invalid alpha mode');
-    const cutoff = material.alphaCutoff ?? 0.5;
-    if (!Number.isFinite(cutoff) || cutoff < 0) invalid('Invalid alpha cutoff');
-    const pbr = material.pbrMetallicRoughness || {};
-    const baseUvTransform = pbr.baseColorTexture ? parseTextureTransform(pbr.baseColorTexture, extensionsUsed) : identityUvTransform();
-    const normalUvTransform = material.normalTexture ? parseTextureTransform(material.normalTexture, extensionsUsed) : identityUvTransform();
-    const occlusionUvTransform = material.occlusionTexture ? parseTextureTransform(material.occlusionTexture, extensionsUsed) : identityUvTransform();
-    const emissiveUvTransform = material.emissiveTexture ? parseTextureTransform(material.emissiveTexture, extensionsUsed) : identityUvTransform();
-    const metallicRoughnessUvTransform = pbr.metallicRoughnessTexture ? parseTextureTransform(pbr.metallicRoughnessTexture, extensionsUsed) : identityUvTransform();
-    const specularUvTransform = specularExtension?.specularTexture ? parseTextureTransform(specularExtension.specularTexture, extensionsUsed) : identityUvTransform();
-    const specularColorUvTransform = specularExtension?.specularColorTexture ? parseTextureTransform(specularExtension.specularColorTexture, extensionsUsed) : identityUvTransform();
     const availableUvSets = [uv, uv1, uv2, uv3, uv4, uv5];
-    let normalTextureIndex = -1;
-    const normalScale = material.normalTexture?.scale ?? 1;
-    if (material.normalTexture) {
-      if (!availableUvSets[normalUvTransform.texcoord]) unsupported('Unsupported normal texture coordinates');
-      item(textureSpecs, material.normalTexture.index, 'normal texture');
-      if (!Number.isFinite(normalScale)) invalid('Invalid normal scale');
-      normalTextureIndex = material.normalTexture.index;
+    const variantMaterials = new Map();
+    if (p.extensions !== undefined) {
+      if (!p.extensions || typeof p.extensions !== 'object' || Array.isArray(p.extensions)) invalid('Invalid primitive extensions');
+      const primitiveExtensions = Object.keys(p.extensions);
+      if (primitiveExtensions.some(name => name !== 'KHR_materials_variants')) unsupported('Unsupported primitive extension');
+      if (primitiveExtensions.includes('KHR_materials_variants')) {
+        if (!variantExtension || !extensionsUsed.includes('KHR_materials_variants')) invalid('KHR_materials_variants must be declared and defined');
+        const variantMappings = p.extensions.KHR_materials_variants;
+        if (!variantMappings || typeof variantMappings !== 'object' || Array.isArray(variantMappings)) invalid('Invalid material variant mappings');
+        const mappings = variantMappings.mappings;
+        if (!Array.isArray(mappings)) invalid('Invalid material variant mappings');
+        for (const mapping of mappings) {
+          if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping) || !Array.isArray(mapping.variants) ||
+              !mapping.variants.length || !Number.isInteger(mapping.material) || mapping.material < 0) invalid('Invalid material variant mapping');
+          item(doc.materials, mapping.material, 'variant material');
+          const uniqueVariants = new Set();
+          for (const variantIndex of mapping.variants) {
+            if (!Number.isInteger(variantIndex) || variantIndex < 0 || variantIndex >= variantNames.length || uniqueVariants.has(variantIndex) || variantMaterials.has(variantIndex)) invalid('Invalid or duplicate material variant index');
+            uniqueVariants.add(variantIndex);
+            variantMaterials.set(variantIndex, parseMaterial(doc, textureSpecs, mapping.material, availableUvSets, extensionsUsed));
+          }
+        }
+      }
     }
-    let occlusionTextureIndex = -1;
-    const occlusionStrength = material.occlusionTexture?.strength ?? 1;
-    if (material.occlusionTexture) {
-      if (!availableUvSets[occlusionUvTransform.texcoord]) unsupported('Unsupported occlusion texture coordinates');
-      item(textureSpecs, material.occlusionTexture.index, 'occlusion texture');
-      if (!Number.isFinite(occlusionStrength) || occlusionStrength < 0 || occlusionStrength > 1) invalid('Invalid occlusion strength');
-      occlusionTextureIndex = material.occlusionTexture.index;
-    }
-    const emissive = material.emissiveFactor ?? [0, 0, 0];
-    if (!Array.isArray(emissive) || emissive.length !== 3 || !emissive.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid emissive factor');
-    let emissiveTextureIndex = -1;
-    if (material.emissiveTexture) {
-      if (!availableUvSets[emissiveUvTransform.texcoord]) unsupported('Unsupported emissive texture coordinates');
-      item(textureSpecs, material.emissiveTexture.index, 'emissive texture');
-      emissiveTextureIndex = material.emissiveTexture.index;
-    }
-    let metallicRoughnessTextureIndex = -1;
-    if (pbr.metallicRoughnessTexture) {
-      if (!availableUvSets[metallicRoughnessUvTransform.texcoord]) unsupported('Unsupported metallic-roughness texture coordinates');
-      item(textureSpecs, pbr.metallicRoughnessTexture.index, 'metallic-roughness texture');
-      metallicRoughnessTextureIndex = pbr.metallicRoughnessTexture.index;
-    }
-    let specularTextureIndex = -1, specularColorTextureIndex = -1;
-    if (specularExtension?.specularTexture) {
-      if (!availableUvSets[specularUvTransform.texcoord]) unsupported('Unsupported specular texture coordinates');
-      item(textureSpecs, specularExtension.specularTexture.index, 'specular texture');
-      specularTextureIndex = specularExtension.specularTexture.index;
-    }
-    if (specularExtension?.specularColorTexture) {
-      if (!availableUvSets[specularColorUvTransform.texcoord]) unsupported('Unsupported specular color texture coordinates');
-      item(textureSpecs, specularExtension.specularColorTexture.index, 'specular color texture');
-      specularColorTextureIndex = specularExtension.specularColorTexture.index;
-    }
-    const metallic = pbr.metallicFactor ?? 1, roughness = pbr.roughnessFactor ?? 1;
-    if (![metallic, roughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid metallic or roughness factor');
-    const color = pbr.baseColorFactor || [1, 1, 1, 1];
-    if (color.length !== 4 || !color.every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid base color');
-    let textureIndex = -1;
-    if (pbr.baseColorTexture) {
-      if (!availableUvSets[baseUvTransform.texcoord]) unsupported('Unsupported texture coordinates');
-      item(textureSpecs, pbr.baseColorTexture.index, 'texture');
-      textureIndex = pbr.baseColorTexture.index;
-    }
-    // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
+    const materialSpec = parseMaterial(doc, textureSpecs, p.material, availableUvSets, extensionsUsed);
     return { pos: pos.values, normal: normalValues, uv: uv?.values, uv1: uv1?.values, uv2: uv2?.values,
       uv3: uv3?.values, uv4: uv4?.values, uv5: uv5?.values,
       vertexColor: vertexColor?.values, colorComponents: colorType === 'VEC3' ? 3 : vertexColor ? 4 : 0,
-      tangent: tangent?.values, joints, weights, targets, indices,
-      color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
-      alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
-      normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
-      emissive: emissive.map(value => value * emissiveStrength), emissiveTextureIndex, doubleSided: material.doubleSided ?? false, unlit, ior,
-      specularFactor, specularColorFactor, specularTextureIndex, specularColorTextureIndex,
-      uvTransforms: [baseUvTransform, metallicRoughnessUvTransform, normalUvTransform, occlusionUvTransform, emissiveUvTransform, specularUvTransform, specularColorUvTransform], materialIndex: p.material ?? -1 };
+      tangent: tangent?.values, joints, weights, targets, indices, ...materialSpec, variantMaterials };
     });
     if (!primitives.length) invalid(`Mesh ${meshIndex} has no primitives`);
     const targetCount = primitives[0].targets.length;
@@ -862,7 +899,7 @@ async function prepare(url, requestedScene) {
     });
     return { name: typeof animation.name === 'string' ? animation.name : `Animation ${animationIndex}`, duration, channels };
   });
-  return { images, textureSpecs, roots: sceneRoots, skins, animations, sceneIndex };
+  return { images, textureSpecs, roots: sceneRoots, skins, animations, sceneIndex, variantNames };
 }
 
 // Model disposal is idempotent. GPU objects are released; arena records remain.
@@ -876,9 +913,11 @@ export async function loadGLTF(engine, url, options = {}) {
     throw new AssetError('INVALID_GLTF', 'Invalid glTF structure or URL', error);
   }
   const nodes = [], meshes = [], deformedMeshes = [], materials = new Map(), textures = new Map(), transformNodes = new Map();
+  const variantBindings = [];
   const sceneEpoch = engine._g3_asset_scene_epoch();
   let disposed = false;
   let activeAnimation = -1, animationTime = 0, animationPlaying = false, animationLoop = true;
+  let activeVariant = -1;
   let touchedTransforms = new Set();
   const writeTransform = state => {
     if (!state.translation || !isNodeHandleValid(engine, state.handle)) return;
@@ -1073,6 +1112,27 @@ export async function loadGLTF(engine, url, options = {}) {
       }
       return handle.id;
     }
+    function getMaterial(spec) {
+      let handle = materials.get(spec.materialIndex);
+      if (handle) return handle;
+      const id = engine._g3_asset_material(...spec.color, getTexture(spec.textureIndex, true), spec.alphaMode, spec.alphaCutoff,
+        spec.metallic, spec.roughness, getTexture(spec.metallicRoughnessTextureIndex, false), getTexture(spec.normalTextureIndex, false), spec.normalScale,
+        getTexture(spec.occlusionTextureIndex, false), spec.occlusionStrength, ...spec.emissive,
+        getTexture(spec.emissiveTextureIndex, true), spec.doubleSided ? 1 : 0, spec.unlit ? 1 : 0, spec.ior);
+      if (!engine._g3_asset_material_specular(id, spec.specularFactor, ...spec.specularColorFactor,
+        getTexture(spec.specularTextureIndex, false), getTexture(spec.specularColorTextureIndex, true))) {
+        throw new AssetError('UPLOAD', 'Could not set material specular properties');
+      }
+      for (let slot = 0; slot < spec.uvTransforms.length; slot++) {
+        const transform = spec.uvTransforms[slot];
+        if (!engine._g3_asset_material_uv_transform(id, slot, ...transform.offset, ...transform.scale, transform.rotation, transform.texcoord)) {
+          throw new AssetError('UPLOAD', 'Could not set material texture transform');
+        }
+      }
+      handle = makeResourceHandle(engine, id, 'material');
+      materials.set(spec.materialIndex, handle);
+      return handle;
+    }
     function uploadMorphTargets(meshId, primitive, weights) {
       const targetCount = primitive.targets.length, vertexCount = primitive.pos.length / 3;
       if (!targetCount || targetCount > 64 ||
@@ -1199,26 +1259,10 @@ export async function loadGLTF(engine, url, options = {}) {
         const nodeHandle = makeNodeHandle(engine, id);
         if (!nodeHandle) throw new AssetError('UPLOAD', 'Could not create node');
         nodes.push(nodeHandle);
-        let material = materials.get(p.materialIndex);
-        if (!material) {
-          const materialId = engine._g3_asset_material(...p.color, getTexture(p.textureIndex, true), p.alphaMode, p.alphaCutoff,
-            p.metallic, p.roughness, getTexture(p.metallicRoughnessTextureIndex, false), getTexture(p.normalTextureIndex, false), p.normalScale,
-            getTexture(p.occlusionTextureIndex, false), p.occlusionStrength, ...p.emissive,
-            getTexture(p.emissiveTextureIndex, true), p.doubleSided ? 1 : 0, p.unlit ? 1 : 0, p.ior);
-          if (!engine._g3_asset_material_specular(materialId, p.specularFactor, ...p.specularColorFactor,
-            getTexture(p.specularTextureIndex, false), getTexture(p.specularColorTextureIndex, true))) {
-            throw new AssetError('UPLOAD', 'Could not set material specular properties');
-          }
-          for (let slot = 0; slot < p.uvTransforms.length; slot++) {
-            const transform = p.uvTransforms[slot];
-            if (!engine._g3_asset_material_uv_transform(materialId, slot, ...transform.offset, ...transform.scale, transform.rotation, transform.texcoord)) {
-              throw new AssetError('UPLOAD', 'Could not set material texture transform');
-            }
-          }
-          material = makeResourceHandle(engine, materialId, 'material');
-          materials.set(p.materialIndex, material);
-        }
+        const material = getMaterial(p);
         engine._g3_asset_node_material(id, material.id);
+        if (p.variantMaterials.size) variantBindings.push({ handle: nodeHandle, defaultMaterial: material.id,
+          materials: new Map([...p.variantMaterials].map(([variantIndex, spec]) => [variantIndex, getMaterial(spec).id])) });
       }
       for (const child of node.children) createNode(child, group);
       return groupHandle;
@@ -1229,9 +1273,22 @@ export async function loadGLTF(engine, url, options = {}) {
       sceneIndex: data.sceneIndex,
       roots: Object.freeze(roots),
       animations: Object.freeze(data.animations.map(({ name, duration }, index) => Object.freeze({ index, name, duration }))),
+      variants: Object.freeze([...data.variantNames]),
       meshes: Object.freeze([...meshes]),
       materials: Object.freeze([...materials.values()]),
       textures: Object.freeze([...textures.values()]),
+      setVariant(variant) {
+        if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
+        const index = variant === null ? -1 : typeof variant === 'string' ? data.variantNames.indexOf(variant) : variant;
+        if (variant !== null && (!Number.isInteger(index) || index < 0 || index >= data.variantNames.length)) return false;
+        for (const binding of variantBindings) {
+          if (!isNodeHandleValid(engine, binding.handle)) return false;
+          engine._g3_asset_node_material(binding.handle.index, index < 0 ? binding.defaultMaterial : binding.materials.get(index) ?? binding.defaultMaterial);
+        }
+        activeVariant = index;
+        return true;
+      },
+      get activeVariant() { return activeVariant; },
       playAnimation(index = 0, { loop = true } = {}) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch() || !Number.isInteger(index) || index < 0 || index >= data.animations.length) return false;
         activeAnimation = index; animationTime = 0; animationLoop = !!loop; animationPlaying = data.animations[index].duration > 0;
