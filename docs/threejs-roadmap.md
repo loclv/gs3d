@@ -19,7 +19,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and ACES tone mapping with exposure | Browser reference validation, native HDR image decoding |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Native HDR environment decoding |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; CPU-deformed skins and morphs | GPU joint palettes and deformation performance |
-| Scene management | Parent hierarchy, checked node removal, and selectable perspective or orthographic cameras | General mesh and texture removal, reusable resources, camera lifecycle |
+| Scene management | Parent hierarchy, checked node removal, selectable perspective or orthographic cameras with stable removable IDs | General mesh and texture removal, reusable resources |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit and pinch controls, viewer selection | Additional touch gestures, panning, keyboard camera controls, browser integration tests |
 | Rendering | WebGL2, view-volume clipping, one draw call per visible node | Instancing, render targets, post-processing, custom shaders and colour management |
 | Developer experience | Goose API and a custom browser host | JavaScript/TypeScript integration, package distribution, examples, documentation and automated browser rendering tests |
@@ -87,9 +87,10 @@ shadow behavior and browser reference images for the GPU path.
   loop controls. POSITION/NORMAL morphs and skins support up to eight influences
   and update retained CPU geometry on pose changes. Add GPU joint palettes and
   measure CPU deformation cost on representative characters.
-* Expand camera controls and touch input. Selectable perspective and orthographic
-  cameras and reusable orbit and pinch controls are available; validate both
-  features in a real browser and add camera removal.
+* **Partly implemented:** selectable perspective and orthographic cameras have
+  stable IDs, active-camera fallback, and removal. Reusable orbit and pinch
+  controls are available; validate camera switching and touch controls in a
+  real browser, then expand camera controls and touch input.
 
 **Done when:** an imported animated character plays, pauses, and switches
 clips, and a scene can switch between perspective and orthographic cameras.

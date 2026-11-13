@@ -288,8 +288,12 @@ What the API gives you:
   the viewport aspect ratio. Picking uses the selected projection.
   `camera_add()` saves a copy of the current camera and returns its ID;
   `camera_select(id)` saves the active camera's edits and restores that copy,
-  including orbit state. The first added camera becomes active. Configure an
-  inactive camera by selecting it first. Cameras persist across `scene_clear()`;
+  including orbit state. `camera_remove(id)` invalidates the saved camera
+  without changing other IDs; removing the active camera selects the first
+  remaining camera, and removing the last leaves no active saved camera.
+  `camera_count()` counts live cameras. IDs are append-only. The first added
+  camera becomes active. Configure an inactive camera by selecting it first.
+  Cameras persist across `scene_clear()`;
   `camera_active()` returns `-1` until the first is added. A reference returned
   by `camera()` refers to the active camera storage and should not be retained
   across a switch.

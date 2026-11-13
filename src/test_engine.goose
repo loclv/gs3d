@@ -754,6 +754,15 @@ fn case_multiple_cameras() {
         "switching restores orthographic and its orbit state");
     g3::scene_clear();
     testing::check(g3::camera_select(perspective) && g3::camera_active() == perspective, "cameras persist across scene reset");
+    testing::check(g3::camera_remove(orthographic) && g3::camera_count() == 1 && g3::camera_active() == perspective,
+        "removing the active camera selects a remaining camera");
+    testing::check(!g3::camera_select(orthographic) && !g3::camera_remove(orthographic),
+        "removed camera IDs cannot be selected or removed twice");
+    testing::check(g3::camera_remove(perspective) && g3::camera_count() == 0 && g3::camera_active() == -1,
+        "removing the final camera leaves no active saved camera");
+    let replacement = g3::camera_add();
+    testing::check(replacement > orthographic && g3::camera_count() == 1 && g3::camera_active() == replacement,
+        "new cameras get stable IDs after removed slots");
 }
 
 fn case_shared_material() {

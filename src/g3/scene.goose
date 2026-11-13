@@ -88,6 +88,7 @@ struct CameraState {
     camera: Camera,
     yaw: f32, pitch: f32, distance: f32,
     orbit_target: float3,
+    removed: bool,
 }
 
 var g_nodes: Node[>..];
@@ -270,7 +271,8 @@ fn camera() -> Camera& { return g_camera }
 
 fn camera_state() -> CameraState {
     return CameraState { camera: g_camera, yaw: g_camera_yaw, pitch: g_camera_pitch,
-                         distance: g_camera_distance, orbit_target: g_camera_target };
+                         distance: g_camera_distance, orbit_target: g_camera_target,
+                         removed: false };
 }
 
 // Save a copy of the current view. The first saved camera becomes active.
@@ -282,12 +284,30 @@ fn camera_add() -> i64 {
 }
 
 fn camera_active() -> i64 { return g_active_camera }
-fn camera_count() -> i64 { return g_cameras.len }
+fn camera_count() -> i64 {
+    var count: i64 = 0;
+    for i in 0..g_cameras.len { if !g_cameras[i].removed { count += 1; } }
+    return count;
+}
+
+// Camera IDs are stable append-only slots. Removal invalidates the ID without
+// shifting later cameras, so callers can safely retain IDs for other cameras.
+fn camera_remove(id: i64) -> bool {
+    guard id >= 0 && id < g_cameras.len && !g_cameras[id].removed else { return false; }
+    g_cameras[id].removed = true;
+    if g_active_camera == id {
+        g_active_camera = -1;
+        for i in 0..g_cameras.len {
+            if !g_cameras[i].removed { camera_select(i); break; }
+        }
+    }
+    return true;
+}
 
 // Switching saves direct camera() edits as well as orbit state. Cameras persist
 // across scene_clear(); invalid IDs leave the current view untouched.
 fn camera_select(id: i64) -> bool {
-    guard id >= 0 && id < g_cameras.len else { return false; }
+    guard id >= 0 && id < g_cameras.len && !g_cameras[id].removed else { return false; }
     if g_active_camera >= 0 { g_cameras[g_active_camera] = camera_state(); }
     let state = g_cameras[id];
     g_camera = state.camera;
