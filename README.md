@@ -269,6 +269,13 @@ What the API gives you:
   `POST_PROCESS_FXAA` pass to a distinct render target. Chain calls to control
   pass order. These passes keep linear RGBA8 values and do not tone map or
   encode sRGB; use `set_fxaa` for the existing screen-output convenience pass.
+  WebGL projects can create a fragment-body pass with
+  `post_process_shader_create(body)`, run it with
+  `post_process_shader_run(shader, source, destination)`, and release it with
+  `post_process_shader_remove(shader)`. The GLSL ES 3.00 body can read `vec2 uv`,
+  `vec4 color`, and `sampler2D g3_source`, then assign the output to `color`.
+  Bodies are limited to 16 KiB and 64 shader IDs per engine lifetime; custom
+  passes do not run on the CPU backend, which returns -1 at creation.
   `texture_handle` and `texture_handle_valid` check ordinary and asset textures;
   `texture_remove(handle)` releases an ordinary texture only when no live node,
   material or environment uses it. Asset textures are released by their owner.

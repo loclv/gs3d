@@ -537,6 +537,9 @@ fn case_render_target() {
 
     let processed = g3::render_target_create(40, 80);
     testing::check(processed >= 0, "secondary render target allocates");
+    let custom_shader = g3::post_process_shader_create("color.rgb = vec3(1.0) - color.rgb;");
+    testing::check(custom_shader == -1 && !g3::post_process_shader_run(custom_shader, target, processed),
+                   "CPU backend reports custom fragment shaders as unsupported");
     let red_pixels: u8[4] = [255, 0, 0, 255];
     let red_texture = g3::texture_create(1, 1, red_pixels[..]);
     testing::check(g3::post_process_run(target, processed, g3::POST_PROCESS_COPY) &&

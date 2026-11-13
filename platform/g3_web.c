@@ -106,6 +106,9 @@ static int32_t texture_count;
 typedef struct { int32_t id; GLuint fbo, depth; int mipmapped; } web_render_target;
 static web_render_target *render_targets;
 static int32_t render_target_count, render_target_cap;
+typedef struct { GLuint program; GLint source; } web_custom_post_shader;
+static web_custom_post_shader custom_post_shaders[64];
+static GLuint custom_post_vertex, custom_post_vao;
 static GLuint env_sampler;
 static GLuint env_source_sampler;
 static GLuint brdf_lut_texture;
@@ -641,6 +644,10 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
 
 void g3p_shutdown(void) {
     if (output_program) glDeleteProgram(output_program);
+    for (int i = 0; i < 64; i++) if (custom_post_shaders[i].program) glDeleteProgram(custom_post_shaders[i].program);
+    if (custom_post_vertex) glDeleteShader(custom_post_vertex);
+    if (custom_post_vao) glDeleteVertexArrays(1, &custom_post_vao);
+    memset(custom_post_shaders, 0, sizeof(custom_post_shaders)); custom_post_vertex = custom_post_vao = 0;
     if (output_fbo) glDeleteFramebuffers(1, &output_fbo);
     if (output_color) glDeleteTextures(1, &output_color);
     if (output_depth) glDeleteRenderbuffers(1, &output_depth);
@@ -1809,6 +1816,65 @@ uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect) {
         glGenerateMipmap(GL_TEXTURE_2D);
     }
     glViewport(0, 0, surf_w, surf_h);
+    glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
+    return glGetError() == GL_NO_ERROR;
+}
+
+uint8_t g3p_post_process_shader_create(int32_t id, g3_u8_slice body) {
+    static const char prefix[] = "#version 300 es\nprecision highp float;in vec2 g3_uv;uniform sampler2D g3_source;out vec4 g3_color;void main(){vec2 uv=g3_uv;vec4 color=texture(g3_source,uv);\n";
+    static const char suffix[] = "\ng3_color=vec4(color.rgb,1.0);}\n";
+    if (!ctx || id < 0 || id >= 64 || !body.data || body.len <= 0 || body.len > 16384 || custom_post_shaders[id].program) return 0;
+    for (int64_t i = 0; i < body.len; i++) if (body.data[i] == 0) return 0;
+    size_t length = sizeof(prefix)-1 + (size_t)body.len + sizeof(suffix);
+    char *fragment = malloc(length);
+    if (!fragment) return 0;
+    size_t at = 0;
+    memcpy(fragment+at,prefix,sizeof(prefix)-1); at += sizeof(prefix)-1;
+    memcpy(fragment+at,body.data,(size_t)body.len); at += (size_t)body.len;
+    memcpy(fragment+at,suffix,sizeof(suffix));
+    if (!custom_post_vertex) {
+        const char *vs = "#version 300 es\nout vec2 g3_uv;void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);g3_uv=p;gl_Position=vec4(p*2.0-1.0,0.0,1.0);}\n";
+        custom_post_vertex = compile_shader(GL_VERTEX_SHADER, vs, "custom post-process vertex");
+        if (!custom_post_vertex) { free(fragment); return 0; }
+    }
+    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fragment, "custom post-process fragment");
+    free(fragment);
+    if (!fs) return 0;
+    GLuint program = glCreateProgram();
+    glAttachShader(program,custom_post_vertex); glAttachShader(program,fs); glLinkProgram(program); glDeleteShader(fs);
+    GLint linked = 0; glGetProgramiv(program,GL_LINK_STATUS,&linked);
+    if (!linked) {
+        char log[2048]; glGetProgramInfoLog(program,(GLsizei)sizeof(log)-1,NULL,log);
+        fprintf(stderr,"g3_web: custom post-process program did not link:\n%s\n",log);
+        report(log); glDeleteProgram(program); return 0;
+    }
+    custom_post_shaders[id].program = program;
+    custom_post_shaders[id].source = glGetUniformLocation(program,"g3_source");
+    if (!custom_post_vao) glGenVertexArrays(1, &custom_post_vao);
+    return 1;
+}
+
+void g3p_post_process_shader_release(int32_t id) {
+    if (id < 0 || id >= 64 || !custom_post_shaders[id].program) return;
+    glDeleteProgram(custom_post_shaders[id].program);
+    custom_post_shaders[id] = (web_custom_post_shader){0};
+}
+
+uint8_t g3p_post_process_shader_run(int32_t shader_id, int32_t source, int32_t destination) {
+    web_render_target *target = NULL;
+    for (int32_t i = 0; i < render_target_count; i++) if (render_targets[i].id == destination) { target = &render_targets[i]; break; }
+    if (!ctx || shader_id < 0 || shader_id >= 64 || !custom_post_shaders[shader_id].program ||
+        source < 0 || source >= texture_count || !textures[source] || source == destination || !target || !custom_post_vao) return 0;
+    glBindFramebuffer(GL_FRAMEBUFFER,target->fbo);
+    glViewport(0,0,texture_widths[destination],texture_heights[destination]);
+    glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_BLEND);
+    glUseProgram(custom_post_shaders[shader_id].program);
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,textures[source]);
+    glUniform1i(custom_post_shaders[shader_id].source,0);
+    glBindVertexArray(custom_post_vao); glDrawArrays(GL_TRIANGLES,0,3); glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER,0);
+    if (target->mipmapped) { glBindTexture(GL_TEXTURE_2D,textures[destination]); glGenerateMipmap(GL_TEXTURE_2D); }
+    glViewport(0,0,surf_w,surf_h);
     glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
     return glGetError() == GL_NO_ERROR;
 }

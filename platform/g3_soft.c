@@ -958,6 +958,12 @@ uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect) {
     return 1;
 }
 
+uint8_t g3p_post_process_shader_create(int32_t id, g3_u8_slice body) { (void)id; (void)body; return 0; }
+void g3p_post_process_shader_release(int32_t id) { (void)id; }
+uint8_t g3p_post_process_shader_run(int32_t shader, int32_t source, int32_t destination) {
+    (void)shader; (void)source; (void)destination; return 0;
+}
+
 /* Explicit trilinear LOD for roughness-filtered environment radiance. */
 static void sample_texture_lod_from(const soft_texture *t, float u, float v, float lod, float out[4]) {
     out[0] = out[1] = out[2] = out[3] = 1.0f;

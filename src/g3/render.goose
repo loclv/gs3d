@@ -43,6 +43,8 @@ var g_shadow_center: float3;
 var g_shadow_extent: f32;
 var g_shadow_bias: f32;
 var g_shadow_filter_radius: i32;
+var g_post_process_shader_count: i32;
+var g_post_process_shader_live: bool[>..];
 
 let POST_PROCESS_COPY = 0;
 let POST_PROCESS_GRAYSCALE = 1;
@@ -263,6 +265,33 @@ fn post_process_run(source: i32, destination: i32, effect: i32) -> bool {
     guard source != destination && texture_slot_live(source) && texture_slot_live(destination) &&
           g_texture_slots[destination].render_target && effect >= POST_PROCESS_COPY && effect <= POST_PROCESS_FXAA else { return false; }
     return g3p_post_process(source, destination, effect);
+}
+
+// Compile a fragment-body-only WebGL2 pass. The body receives `vec2 uv`,
+// `vec4 color`, and `sampler2D g3_source`; assign the transformed value to
+// `color`. The CPU backend reports unsupported by returning -1.
+fn post_process_shader_create(body: const u8[:]) -> i32 {
+    guard body.len > 0 && body.len <= 16384 && g_post_process_shader_count < 64 else { return -1; }
+    let id = g_post_process_shader_count;
+    g_post_process_shader_count += 1;
+    g_post_process_shader_live.push(false);
+    if !g3p_post_process_shader_create(id, body) { return -1; }
+    g_post_process_shader_live[id] = true;
+    return id;
+}
+
+fn post_process_shader_run(shader: i32, source: i32, destination: i32) -> bool {
+    guard shader >= 0 && shader < g_post_process_shader_live.len && g_post_process_shader_live[shader] &&
+          source != destination && texture_slot_live(source) && texture_slot_live(destination) &&
+          g_texture_slots[destination].render_target else { return false; }
+    return g3p_post_process_shader_run(shader, source, destination);
+}
+
+fn post_process_shader_remove(shader: i32) -> bool {
+    guard shader >= 0 && shader < g_post_process_shader_live.len && g_post_process_shader_live[shader] else { return false; }
+    g3p_post_process_shader_release(shader);
+    g_post_process_shader_live[shader] = false;
+    return true;
 }
 
 // Linear exposure multiplier applied before tone mapping.
