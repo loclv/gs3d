@@ -869,6 +869,23 @@ fn case_multiple_cameras() {
         "new cameras get stable IDs after removed slots");
 }
 
+fn case_camera_pan() {
+    g3::camera_orbit(0.0, 0.0, 10.0, float3_0);
+    let perspective_scale = 2.0 * 10.0 * tan(0.45) / 400.0;
+    testing::check(g3::camera_pan(100.0, 50.0, 400) &&
+        abs(g3::camera().target.x + 100.0 * perspective_scale) < 0.0001 &&
+        abs(g3::camera().target.y - 50.0 * perspective_scale) < 0.0001 &&
+        length((g3::camera().pos - g3::camera().target) - float3 { 0.0, 0.0, 10.0 }) < 0.0001,
+        "perspective panning follows drag direction and scales with distance");
+    g3::camera_orbit(0.0, 0.0, 10.0, float3_0);
+    g3::camera().orthographic = true;
+    g3::camera().ortho_height = 8.0;
+    testing::check(g3::camera_pan(50.0, 100.0, 400) &&
+        abs(g3::camera().target.x + 1.0) < 0.0001 && abs(g3::camera().target.y - 2.0) < 0.0001,
+        "orthographic panning scales with the visible world height");
+    testing::check(!g3::camera_pan(1.0, 1.0, 0), "camera panning rejects a zero-height viewport");
+}
+
 fn case_shared_material() {
     g3::scene_clear();
     flat_camera();
@@ -1154,6 +1171,7 @@ fn main() {
     case_picking();
     case_orthographic_camera();
     case_multiple_cameras();
+    case_camera_pan();
     case_shared_material();
     case_pbr();
     case_normal_map();

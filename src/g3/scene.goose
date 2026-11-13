@@ -376,3 +376,26 @@ fn camera_zoom(factor: f32) {
     if d > 300.0 { d = 300.0; }
     camera_orbit(g_camera_yaw, g_camera_pitch, d, g_camera_target);
 }
+
+// Pan the active view in screen space. Positive drag moves the view with the
+// pointer; perspective scale follows orbit distance, while orthographic scale
+// follows its visible vertical extent.
+fn camera_pan(dx: f32, dy: f32, viewport_height: i32) -> bool {
+    guard viewport_height > 0 && abs(dx) <= 3.4e38 && abs(dy) <= 3.4e38 else { return false; }
+    let offset = g_camera.target - g_camera.pos;
+    let distance = length(offset);
+    guard distance > 1.0e-6 else { return false; }
+    let forward = offset / distance;
+    let right_raw = cross(forward, g_camera.up);
+    let right_length = length(right_raw);
+    guard right_length > 1.0e-6 else { return false; }
+    let right = right_raw / right_length;
+    let up = cross(right, forward);
+    let world_height = if g_camera.orthographic { g_camera.ortho_height } else { 2.0 * distance * tan(g_camera.fov * 0.5) };
+    guard world_height > 0.0 && abs(world_height) <= 3.4e38 else { return false; }
+    let delta = right * (-dx * world_height / viewport_height) + up * (dy * world_height / viewport_height);
+    g_camera.pos += delta;
+    g_camera.target += delta;
+    g_camera_target = g_camera.target;
+    return true;
+}

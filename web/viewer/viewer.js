@@ -40,6 +40,7 @@ async function start() {
     createOrbitControls(canvas, {
       onOrbit: (yaw, pitch) => engine._g3_viewer_orbit(yaw, pitch),
       onZoom: factor => engine._g3_viewer_zoom(factor),
+      onPan: (dx, dy) => engine._g3_viewer_pan(dx, dy, canvas.clientHeight),
       onSelect: (x, y) => {
         if (!model) return;
         const hit = model.pick(canvas, x, y);

@@ -34,7 +34,7 @@ if [ "${1:-}" = "--game" ]; then
 elif [ "${1:-}" = "--viewer" ]; then
   root=src/viewer_web.goose
   output=web/viewer/app.js
-  exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_viewer_orbit","_g3_viewer_zoom","_g3_input_resize","_malloc","_free"]'
+  exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_viewer_orbit","_g3_viewer_zoom","_g3_viewer_pan","_g3_input_resize","_malloc","_free"]'
 fi
 
 # The asset bridge is available to either browser entry point.

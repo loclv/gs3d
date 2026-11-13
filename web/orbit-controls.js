@@ -1,5 +1,5 @@
 // Input-only orbit controls. Callbacks apply deltas to the application's camera.
-export function createOrbitControls(canvas, { onOrbit, onZoom, onSelect = () => {}, rotateSpeedX = 0.006, rotateSpeedY = 0.005, wheelSpeed = 0.001, clickTolerance = 4 } = {}) {
+export function createOrbitControls(canvas, { onOrbit, onZoom, onPan = () => {}, onSelect = () => {}, rotateSpeedX = 0.006, rotateSpeedY = 0.005, panSpeed = 1, wheelSpeed = 0.001, clickTolerance = 4 } = {}) {
   if (typeof onOrbit !== 'function' || typeof onZoom !== 'function') throw new TypeError('onOrbit and onZoom are required');
   const pointers = new Map();
   const previousTouchAction = canvas.style.touchAction;
@@ -7,9 +7,10 @@ export function createOrbitControls(canvas, { onOrbit, onZoom, onSelect = () => 
   let candidate = null, disposed = false;
 
   function down(event) {
-    if (event.pointerType !== 'touch' && event.button !== 0) return;
-    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (pointers.size === 1) candidate = { id: event.pointerId, x: event.clientX, y: event.clientY, travel: 0 };
+    const pan = event.pointerType !== 'touch' && (event.button === 2 || (event.button === 0 && event.shiftKey));
+    if (event.pointerType !== 'touch' && event.button !== 0 && !pan) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, pan });
+    if (pointers.size === 1 && !pan) candidate = { id: event.pointerId, x: event.clientX, y: event.clientY, travel: 0 };
     else candidate = null;
     canvas.setPointerCapture(event.pointerId);
   }
@@ -19,12 +20,16 @@ export function createOrbitControls(canvas, { onOrbit, onZoom, onSelect = () => 
     const dx = event.clientX - point.x, dy = event.clientY - point.y;
     if (candidate && candidate.id === event.pointerId) candidate.travel += Math.abs(dx) + Math.abs(dy);
     if (pointers.size === 1) {
-      if (dx || dy) onOrbit(-dx * rotateSpeedX, dy * rotateSpeedY);
+      if (dx || dy) {
+        if (point.pan) onPan(dx * panSpeed, dy * panSpeed);
+        else onOrbit(-dx * rotateSpeedX, dy * rotateSpeedY);
+      }
     } else if (pointers.size === 2) {
       const other = [...pointers.entries()].find(([id]) => id !== event.pointerId)[1];
       const before = Math.hypot(point.x - other.x, point.y - other.y);
       const after = Math.hypot(event.clientX - other.x, event.clientY - other.y);
       if (before > 0 && after > 0) onZoom(before / after);
+      if (dx || dy) onPan(dx * 0.5 * panSpeed, dy * 0.5 * panSpeed);
     }
     point.x = event.clientX; point.y = event.clientY;
   }
@@ -44,7 +49,8 @@ export function createOrbitControls(canvas, { onOrbit, onZoom, onSelect = () => 
     const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1;
     onZoom(Math.exp(Math.max(-1, Math.min(1, event.deltaY * units * wheelSpeed))));
   }
-  const listeners = [['pointerdown', down], ['pointermove', move], ['pointerup', up], ['pointercancel', cancel], ['lostpointercapture', cancel], ['wheel', wheel, { passive: false }]];
+  function contextMenu(event) { event.preventDefault(); }
+  const listeners = [['pointerdown', down], ['pointermove', move], ['pointerup', up], ['pointercancel', cancel], ['lostpointercapture', cancel], ['wheel', wheel, { passive: false }], ['contextmenu', contextMenu]];
   for (const [name, listener, options] of listeners) canvas.addEventListener(name, listener, options);
   return { dispose() {
     if (disposed) return;

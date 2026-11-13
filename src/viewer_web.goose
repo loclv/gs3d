@@ -15,3 +15,4 @@ export fn g3_app_frame(dt: f32) { g3::frame(dt); }
 export fn g3_app_shutdown() { g3::shutdown(); }
 export fn g3_viewer_orbit(yaw: f32, pitch: f32) { g3::camera_orbit_nudge(yaw, pitch); }
 export fn g3_viewer_zoom(factor: f32) { g3::camera_zoom(factor); }
+export fn g3_viewer_pan(dx: f32, dy: f32, viewport_height: i32) { g3::camera_pan(dx, dy, viewport_height); }

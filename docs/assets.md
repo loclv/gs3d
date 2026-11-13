@@ -50,6 +50,7 @@ import { createOrbitControls } from './orbit-controls.js';
 const controls = createOrbitControls(canvas, {
   onOrbit: (yawDelta, pitchDelta) => engine._g3_viewer_orbit(yawDelta, pitchDelta),
   onZoom: factor => engine._g3_viewer_zoom(factor),
+  onPan: (dx, dy) => engine._g3_viewer_pan(dx, dy, canvas.clientHeight),
   onSelect: (clientX, clientY) => model.pick(canvas, clientX, clientY),
 });
 // When the canvas is no longer in use:
@@ -57,12 +58,13 @@ controls.dispose();
 ```
 
 The callbacks can target any camera implementation; the example's exported
-`_g3_viewer_*` functions belong to the viewer build. Mouse drag and one-finger
-touch orbit, the wheel and a two-finger pinch zoom, and a click or tap invokes
+`_g3_viewer_*` functions belong to the viewer build. Left drag and one-finger
+touch orbit, right drag or Shift+left drag pans, and two-finger movement pans
+while pinch distance zooms. The wheel also zooms, and a click or tap invokes
 `onSelect` when movement stays below the threshold. Options `rotateSpeedX`,
-`rotateSpeedY`, `wheelSpeed`, and `clickTolerance` adjust input sensitivity.
-Disposal removes listeners and restores the canvas's previous `touch-action`.
-The controls do not provide panning or keyboard navigation.
+`rotateSpeedY`, `panSpeed`, `wheelSpeed`, and `clickTolerance` adjust input
+sensitivity. Disposal removes listeners and restores the canvas's previous
+`touch-action`. Keyboard camera controls are not included.
 
 `loadImage` decodes images into RGBA8; `loadHDRImage` decodes Radiance RGBE
 `.hdr` images into linear floating-point radiance. HDR loading supports the
