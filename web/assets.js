@@ -1,6 +1,7 @@
 // Browser asset loading for the WebAssembly host. All parsing precedes uploads.
 const MAX_GPU_MORPH_BYTES = 64 * 1024 * 1024;
 const MAX_ACCESSOR_VALUES = 8 * 1024 * 1024;
+const isFiniteF32 = value => Number.isFinite(value) && Number.isFinite(Math.fround(value));
 
 export class AssetError extends Error {
   constructor(code, message, cause) {
@@ -357,15 +358,15 @@ function accessor(doc, buffers, index, expected, vertexAttribute = false) {
 
 function localMatrix(node) {
   if (node.matrix) {
-    if (node.translation || node.rotation || node.scale || node.matrix.length !== 16 || !node.matrix.every(Number.isFinite)) invalid('Invalid node matrix');
+    if (node.translation || node.rotation || node.scale || node.matrix.length !== 16 || !node.matrix.every(isFiniteF32)) invalid('Invalid node matrix');
     return { matrix: node.matrix, translation: null, rotation: null, scale: null };
   }
   const translation = node.translation ?? [0, 0, 0];
   const rotation = node.rotation ?? [0, 0, 0, 1];
   const scale = node.scale ?? [1, 1, 1];
-  if (!Array.isArray(translation) || translation.length !== 3 || !translation.every(Number.isFinite) ||
-      !Array.isArray(rotation) || rotation.length !== 4 || !rotation.every(Number.isFinite) ||
-      !Array.isArray(scale) || scale.length !== 3 || !scale.every(Number.isFinite)) invalid('Invalid node transform');
+  if (!Array.isArray(translation) || translation.length !== 3 || !translation.every(isFiniteF32) ||
+      !Array.isArray(rotation) || rotation.length !== 4 || !rotation.every(isFiniteF32) ||
+      !Array.isArray(scale) || scale.length !== 3 || !scale.every(isFiniteF32)) invalid('Invalid node transform');
   const qLength = Math.hypot(...rotation);
   if (!(qLength > 0) || !Number.isFinite(qLength)) invalid('Invalid node rotation');
   const normalizedRotation = rotation.map(value => value / qLength);
@@ -375,7 +376,7 @@ function localMatrix(node) {
   const m = [(1-2*y*y-2*z*z)*sx, (2*x*y+2*z*w)*sx, (2*x*z-2*y*w)*sx, 0,
     (2*x*y-2*z*w)*sy, (1-2*x*x-2*z*z)*sy, (2*y*z+2*x*w)*sy, 0,
     (2*x*z+2*y*w)*sz, (2*y*z-2*x*w)*sz, (1-2*x*x-2*y*y)*sz, 0, tx, ty, tz, 1];
-  if (!m.every(Number.isFinite)) invalid('Invalid node transform');
+  if (!m.every(isFiniteF32)) invalid('Invalid node transform');
   return { matrix: m, translation: [...translation], rotation: normalizedRotation, scale: [...scale] };
 }
 
@@ -390,6 +391,7 @@ function multiply4(a, b) {
   for (let column = 0; column < 4; column++) for (let row = 0; row < 4; row++) {
     for (let k = 0; k < 4; k++) out[column * 4 + row] += a[k * 4 + row] * b[column * 4 + k];
   }
+  if (!out.every(isFiniteF32)) invalid('Composed node transform exceeds engine float range');
   return out;
 }
 
@@ -527,8 +529,8 @@ function parseTextureTransform(info, extensionsUsed) {
   const offset = extension.offset === undefined ? [0, 0] : extension.offset;
   const scale = extension.scale === undefined ? [1, 1] : extension.scale;
   const rotation = extension.rotation === undefined ? 0 : extension.rotation;
-  if (!Array.isArray(offset) || offset.length !== 2 || !offset.every(Number.isFinite) ||
-      !Array.isArray(scale) || scale.length !== 2 || !scale.every(Number.isFinite) || !Number.isFinite(rotation)) invalid('Invalid texture transform');
+  if (!Array.isArray(offset) || offset.length !== 2 || !offset.every(isFiniteF32) ||
+      !Array.isArray(scale) || scale.length !== 2 || !scale.every(isFiniteF32) || !isFiniteF32(rotation)) invalid('Invalid texture transform');
   return { offset, scale, rotation, texcoord: texCoord };
 }
 
@@ -554,7 +556,7 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
       const extension = material.extensions.KHR_materials_emissive_strength;
       if (!extension || typeof extension !== 'object' || Array.isArray(extension)) invalid('Invalid KHR_materials_emissive_strength extension');
       emissiveStrength = extension.emissiveStrength ?? 1;
-      if (!Number.isFinite(emissiveStrength) || emissiveStrength < 0) invalid('Invalid emissive strength');
+      if (!isFiniteF32(emissiveStrength) || emissiveStrength < 0) invalid('Invalid emissive strength');
     }
     if (materialExtensions.includes('KHR_materials_ior')) {
       if (!extensionsUsed.includes('KHR_materials_ior')) invalid('KHR_materials_ior must be listed in extensionsUsed');
@@ -571,7 +573,7 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
       specularColorFactor = specularExtension.specularColorFactor ?? [1, 1, 1];
       if (!Number.isFinite(specularFactor) || specularFactor < 0 || specularFactor > 1) invalid('Invalid specular factor');
       if (!Array.isArray(specularColorFactor) || specularColorFactor.length !== 3 ||
-          !specularColorFactor.every(value => Number.isFinite(value) && value >= 0)) invalid('Invalid specular color factor');
+          !specularColorFactor.every(value => isFiniteF32(value) && value >= 0)) invalid('Invalid specular color factor');
       if (unlit) invalid('KHR_materials_specular cannot be combined with KHR_materials_unlit');
     }
     if (materialExtensions.includes('KHR_materials_clearcoat')) {
@@ -599,7 +601,7 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
   const mode = material.alphaMode ?? 'OPAQUE';
   if (!Object.hasOwn(alphaModes, mode)) invalid('Invalid alpha mode');
   const cutoff = material.alphaCutoff ?? 0.5;
-  if (!Number.isFinite(cutoff) || cutoff < 0) invalid('Invalid alpha cutoff');
+  if (!isFiniteF32(cutoff) || cutoff < 0) invalid('Invalid alpha cutoff');
   const pbr = material.pbrMetallicRoughness || {};
   const baseUvTransform = pbr.baseColorTexture ? parseTextureTransform(pbr.baseColorTexture, extensionsUsed) : identityUvTransform();
   const normalUvTransform = material.normalTexture ? parseTextureTransform(material.normalTexture, extensionsUsed) : identityUvTransform();
@@ -614,13 +616,13 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
   const sheenColorUvTransform = sheenExtension?.sheenColorTexture ? parseTextureTransform(sheenExtension.sheenColorTexture, extensionsUsed) : identityUvTransform();
   const sheenRoughnessUvTransform = sheenExtension?.sheenRoughnessTexture ? parseTextureTransform(sheenExtension.sheenRoughnessTexture, extensionsUsed) : identityUvTransform();
   const clearcoatNormalScale = clearcoatExtension?.clearcoatNormalTexture?.scale ?? 1;
-  if (!Number.isFinite(clearcoatNormalScale)) invalid('Invalid clearcoat normal scale');
+  if (!isFiniteF32(clearcoatNormalScale)) invalid('Invalid clearcoat normal scale');
   let normalTextureIndex = -1;
   const normalScale = material.normalTexture?.scale ?? 1;
   if (material.normalTexture) {
     if (!availableUvSets[normalUvTransform.texcoord]) unsupported('Unsupported normal texture coordinates');
     item(textureSpecs, material.normalTexture.index, 'normal texture');
-    if (!Number.isFinite(normalScale)) invalid('Invalid normal scale');
+    if (!isFiniteF32(normalScale)) invalid('Invalid normal scale');
     normalTextureIndex = material.normalTexture.index;
   }
   let occlusionTextureIndex = -1;

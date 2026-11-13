@@ -610,6 +610,29 @@ assert.equal(instancingEngine.calls.filter(call => call[0] === 'recycle_mesh').l
 const invalidSceneEngine = fakeEngine();
 await assert.rejects(loadGLTF(invalidSceneEngine, 'http://localhost/multi-scene.gltf', { scene: 2 }), error => error.code === 'INVALID_GLTF');
 assert.equal(invalidSceneEngine.calls.length, 0, 'invalid scene indices fail before creating engine resources');
+for (const [label, mutate] of [
+  ['translation', value => { value.nodes[0].translation = [3.5e38, 0, 0]; }],
+  ['matrix', value => { value.nodes[0].matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 3.5e38]; delete value.nodes[0].translation; }],
+  ['alpha cutoff', value => { value.materials[0].alphaCutoff = 3.5e38; }],
+  ['emissive strength', value => {
+    value.extensionsUsed = ['KHR_materials_emissive_strength'];
+    value.materials[0].extensions = { KHR_materials_emissive_strength: { emissiveStrength: 3.5e38 } };
+  }],
+  ['texture transform', value => {
+    value.images = [{ uri: 'image.png' }]; value.textures = [{ source: 0 }];
+    value.extensionsUsed = ['KHR_texture_transform'];
+    value.materials[0].pbrMetallicRoughness.baseColorTexture = { index: 0,
+      extensions: { KHR_texture_transform: { scale: [3.5e38, 1] } } };
+  }],
+]) {
+  const invalidFloatDoc = structuredClone(doc);
+  mutate(invalidFloatDoc);
+  const path = `invalid-float-${label.replaceAll(' ', '-')}.gltf`;
+  resources.set(`http://localhost/${path}`, bytes(invalidFloatDoc));
+  const engine = fakeEngine();
+  await assert.rejects(loadGLTF(engine, `http://localhost/${path}`), error => error.code === 'INVALID_GLTF');
+  assert.equal(engine.calls.length, 0, `${label} overflow is rejected before creating engine resources`);
+}
 const variantEngine = fakeEngine();
 const variantModel = await loadGLTF(variantEngine, 'http://localhost/variants.gltf');
 assert.deepEqual(variantModel.variants, ['Blue', 'Red']);
