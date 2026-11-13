@@ -161,8 +161,8 @@ fn set_environment(sky: float3, ground: float3, intensity: f32) {
 
 // Equirectangular environment: diffuse lookup stays on the surface normal;
 // metallic-roughness materials sample GGX-prefiltered mips along the reflection
-// direction. Longitude wraps and latitude clamps. The split-sum BRDF LUT is
-// not implemented yet.
+// direction. Longitude wraps and latitude clamps. Specular IBL uses a
+// split-sum BRDF integration LUT.
 fn set_environment_map(texture: i32, intensity: f32) {
     g_view_state.environment_texture = texture;
     g_view_state.environment_intensity = intensity;

@@ -291,8 +291,8 @@ What the API gives you:
   fill (`set_ambient`, `set_environment`) or an equirectangular RGB texture
   (`set_environment_map`), plus fog and background colour. The texture is
   sampled along the surface normal for diffuse fill. Metallic-roughness
-  materials reflect it using a GGX importance-sampled mip chain and a Fresnel
-  approximation. The split-sum BRDF integration LUT and a skybox are not
+  materials reflect it using a GGX importance-sampled mip chain and a
+  split-sum BRDF integration LUT. HDR environment input and a skybox are not
   implemented.
   Add functions return false when parameters are invalid or the limit is reached.
   Point and spot lights use squared linear range falloff; spot angles are

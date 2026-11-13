@@ -113,8 +113,8 @@ mechanism.
   base colour and metallic-roughness, the loader keeps separate sRGB and linear
   uploads.
   Equirectangular environment maps add diffuse fill and a roughness-selected
-  specular reflection from a GGX importance-sampled mip chain, with a Fresnel
-  approximation. A split-sum BRDF integration LUT is not implemented.
+  specular reflection from a GGX importance-sampled mip chain and the
+  split-sum BRDF integration LUT.
   Sampling wraps longitude and clamps latitude; selecting the environment map
   generates the prefiltered chain for roughness filtering.
   Nearest, linear and mipmapped filters are supported,

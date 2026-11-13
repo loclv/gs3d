@@ -140,6 +140,51 @@ static inline void g3_normal_matrix(const g3_mat4 *model, float out[9]) {
     out[6]=C*inv; out[7]=(b*g-a*h)*inv; out[8]=(a*e-b*d)*inv;
 }
 
+#define G3_BRDF_LUT_SIZE 128
+static inline uint32_t g3_radical_inverse_vdc(uint32_t bits) {
+    bits=(bits<<16)|(bits>>16);
+    bits=((bits&0x55555555u)<<1)|((bits&0xAAAAAAAAu)>>1);
+    bits=((bits&0x33333333u)<<2)|((bits&0xCCCCCCCCu)>>2);
+    bits=((bits&0x0F0F0F0Fu)<<4)|((bits&0xF0F0F0F0u)>>4);
+    bits=((bits&0x00FF00FFu)<<8)|((bits&0xFF00FF00u)>>8);
+    return bits;
+}
+
+/* Integrate the split-sum GGX specular BRDF for each NdotV/roughness pair.
+   RG store the scale and bias terms used as F0*A+B. */
+static inline void g3_brdf_lut_generate(uint8_t *pixels) {
+    const int samples=128, size=G3_BRDF_LUT_SIZE;
+    for (int y=0;y<size;y++) for (int x=0;x<size;x++) {
+        float nv=((float)x+0.5f)/(float)size;
+        float rough=fmaxf(0.045f,((float)y+0.5f)/(float)size);
+        float vx=sqrtf(fmaxf(0.0f,1.0f-nv*nv)), vy=0.0f, vz=nv;
+        float k=rough*rough*0.5f, a_sum=0.0f, b_sum=0.0f;
+        for (uint32_t i=0;i<(uint32_t)samples;i++) {
+            float xi1=((float)i+0.5f)/(float)samples;
+            float xi2=(float)g3_radical_inverse_vdc(i)*2.3283064365386963e-10f;
+            float phi=6.28318530718f*xi1, alpha=rough*rough, alpha2=alpha*alpha;
+            float cos_theta=sqrtf((1.0f-xi2)/(1.0f+(alpha2-1.0f)*xi2));
+            float sin_theta=sqrtf(fmaxf(0.0f,1.0f-cos_theta*cos_theta));
+            float hx=cosf(phi)*sin_theta, hy=sinf(phi)*sin_theta, hz=cos_theta;
+            float vh=fmaxf(vx*hx+vy*hy+vz*hz,0.0f);
+            float lx=2.0f*vh*hx-vx, ly=2.0f*vh*hy-vy, lz=2.0f*vh*hz-vz;
+            float nl=fmaxf(lz,0.0f), nh=fmaxf(hz,0.0f);
+            if (nl<=0.0f || nh<=0.0f || vh<=0.0f) continue;
+            float gv=nv/(nv*(1.0f-k)+k), gl=nl/(nl*(1.0f-k)+k);
+            float visibility=(gv*gl*vh)/fmaxf(nh*nv,1e-6f);
+            float fc=powf(1.0f-vh,5.0f);
+            a_sum+=(1.0f-fc)*visibility;
+            b_sum+=fc*visibility;
+        }
+        size_t offset=((size_t)y*size+x)*4;
+        float a=fmaxf(0.0f,fminf(a_sum/(float)samples,1.0f));
+        float b=fmaxf(0.0f,fminf(b_sum/(float)samples,1.0f));
+        pixels[offset]=(uint8_t)(a*255.0f+0.5f);
+        pixels[offset+1]=(uint8_t)(b*255.0f+0.5f);
+        pixels[offset+2]=0; pixels[offset+3]=255;
+    }
+}
+
 /* --- what a backend implements (see src/g3/platform.goose) --- */
 
 uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title);

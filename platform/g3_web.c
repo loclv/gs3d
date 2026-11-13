@@ -41,7 +41,7 @@ typedef struct {
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
-    GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod;
+    GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
     GLint spot_shadow_map, spot_shadow_matrix, spot_shadow_index, spot_shadow_params;
@@ -59,6 +59,7 @@ static int32_t *texture_widths, *texture_heights;
 static int32_t texture_count;
 static GLuint env_sampler;
 static GLuint env_source_sampler;
+static GLuint brdf_lut_texture;
 static GLuint env_prefilter_program, env_prefilter_fbo, env_prefilter_texture, env_prefilter_vao;
 static GLint env_prefilter_source, env_prefilter_roughness, env_prefilter_resolution;
 static int env_prefilter_source_id = -1, env_prefilter_max_lod;
@@ -131,6 +132,7 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_env_map_enabled;\n"
     "uniform float u_env_map_intensity;\n"
     "uniform float u_env_map_max_lod;\n"
+    "uniform sampler2D u_brdf_lut;\n"
     "uniform sampler2D u_shadow_map;\n"
     "uniform mat4 u_shadow_matrix;\n"
     "uniform vec4 u_shadow_params;\n"
@@ -220,8 +222,8 @@ static const char *FRAGMENT_SRC =
     "            vec2 spec_uv = vec2(atan(reflected.z, reflected.x) / 6.28318530718 + 0.5, acos(clamp(reflected.y, -1.0, 1.0)) / 3.14159265359);\n"
     "            float rough = clamp(mr.y, 0.045, 1.0);\n"
     "            vec3 f0 = mix(vec3(0.04), base, clamp(mr.x, 0.0, 1.0));\n"
-    "            vec3 fresnel = f0 + (max(vec3(1.0-rough), f0)-f0)*pow(1.0-max(dot(n,v),0.0),5.0);\n"
-    "            col += textureLod(u_env_map, spec_uv, rough*u_env_map_max_lod).rgb * fresnel * u_env_map_intensity * ao;\n"
+    "            vec2 brdf = texture(u_brdf_lut, vec2(max(dot(n,v),0.0),rough)).rg;\n"
+    "            col += textureLod(u_env_map, spec_uv, rough*u_env_map_max_lod).rgb * (f0*brdf.x+brdf.y) * u_env_map_intensity * ao;\n"
     "        }\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
@@ -356,6 +358,7 @@ static void find_uniforms(void) {
     shader.env_map_enabled = glGetUniformLocation(shader.program, "u_env_map_enabled");
     shader.env_map_intensity = glGetUniformLocation(shader.program, "u_env_map_intensity");
     shader.env_map_max_lod = glGetUniformLocation(shader.program, "u_env_map_max_lod");
+    shader.brdf_lut = glGetUniformLocation(shader.program, "u_brdf_lut");
     shader.shadow_map = glGetUniformLocation(shader.program, "u_shadow_map");
     shader.shadow_matrix = glGetUniformLocation(shader.program, "u_shadow_matrix");
     shader.shadow_params = glGetUniformLocation(shader.program, "u_shadow_params");
@@ -397,6 +400,24 @@ static int build_program(void) {
     return 1;
 }
 
+static int ensure_brdf_lut(void) {
+    if (brdf_lut_texture) return 1;
+    uint8_t pixels[G3_BRDF_LUT_SIZE*G3_BRDF_LUT_SIZE*4];
+    g3_brdf_lut_generate(pixels);
+    glGenTextures(1,&brdf_lut_texture);
+    glBindTexture(GL_TEXTURE_2D,brdf_lut_texture);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,G3_BRDF_LUT_SIZE,G3_BRDF_LUT_SIZE,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels);
+    if (glGetError()!=GL_NO_ERROR) {
+        glDeleteTextures(1,&brdf_lut_texture);brdf_lut_texture=0;
+        report("Could not create GGX BRDF lookup texture.");return 0;
+    }
+    return 1;
+}
+
 /* --- the surface --- */
 
 static void set_surface_size(int32_t width, int32_t height) {
@@ -428,7 +449,7 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     emscripten_webgl_make_context_current(ctx);
     set_surface_size(width, height);
 
-    if (!build_program()) return 0;
+    if (!build_program() || !ensure_brdf_lut()) return 0;
 
     /* The state the CPU backend also sets: depth LESS, back faces culled,
        counterclockwise front, and a blend that is switched on per item. */
@@ -454,9 +475,11 @@ void g3p_shutdown(void) {
     if (shadow_texture) glDeleteTextures(1, &shadow_texture);
     if (point_shadow_texture) glDeleteTextures(1, &point_shadow_texture);
     if (spot_shadow_texture) glDeleteTextures(1, &spot_shadow_texture);
+    if (brdf_lut_texture) glDeleteTextures(1,&brdf_lut_texture);
     shadow_program = shadow_fbo = shadow_texture = 0;
     point_shadow_texture = 0;
     spot_shadow_texture = 0;
+    brdf_lut_texture=0;
     if (env_prefilter_texture) glDeleteTextures(1,&env_prefilter_texture);
     if (env_prefilter_program) glDeleteProgram(env_prefilter_program);
     if (env_prefilter_fbo) glDeleteFramebuffers(1,&env_prefilter_fbo);
@@ -767,6 +790,9 @@ static void bind_view(const g3_view_state *view) {
     glUniformMatrix4fv(shader.spot_shadow_matrix, 1, GL_FALSE, view->spot_shadow_view_proj.m);
     glUniform1i(shader.spot_shadow_index, view->spot_shadow_light_index);
     glUniform4f(shader.spot_shadow_params, spot_shadow_texture ? view->spot_shadow_params.x : 0.0f, view->spot_shadow_params.y, view->spot_shadow_params.z, 0.0f);
+    glActiveTexture(GL_TEXTURE9);
+    glBindTexture(GL_TEXTURE_2D,brdf_lut_texture);
+    glUniform1i(shader.brdf_lut,9);
     int count = view->light_count < 0 ? 0 : view->light_count > 4 ? 4 : view->light_count;
     glUniform1i(shader.light_count, count);
     for (int i = 0; i < count; i++) {

@@ -56,6 +56,7 @@ static int32_t texture_count;
 static float shadow_depth[SHADOW_MAX_SIZE * SHADOW_MAX_SIZE];
 static float point_shadow_depth[6][SHADOW_MAX_SIZE * SHADOW_MAX_SIZE];
 static float spot_shadow_depth[SHADOW_MAX_SIZE * SHADOW_MAX_SIZE];
+static uint8_t brdf_lut[G3_BRDF_LUT_SIZE * G3_BRDF_LUT_SIZE * 4];
 
 /* --- the frame's scratch
 
@@ -145,6 +146,7 @@ static int default_bands(void) {
 
 uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     (void)title;   /* a headless surface has no title to show */
+    g3_brdf_lut_generate(brdf_lut);
     fb_w = width > 0 ? width : 1;
     fb_h = height > 0 ? height : 1;
     size_t pixels = (size_t)fb_w * (size_t)fb_h;
@@ -394,6 +396,31 @@ static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
     }
 }
 
+static void sample_brdf_lut(float nv, float roughness, float *a, float *b) {
+    int size=G3_BRDF_LUT_SIZE;
+    float x=fmaxf(0.0f,fminf(nv,1.0f))*size-0.5f;
+    float y=fmaxf(0.0f,fminf(roughness,1.0f))*size-0.5f;
+    int x0=(int)floorf(x),y0=(int)floorf(y);float fx=x-x0,fy=y-y0;
+    int x1=x0+1,y1=y0+1;
+    if(x0<0)x0=0;
+    if(x1<0)x1=0;
+    if(y0<0)y0=0;
+    if(y1<0)y1=0;
+    if(x0>=size)x0=size-1;
+    if(x1>=size)x1=size-1;
+    if(y0>=size)y0=size-1;
+    if(y1>=size)y1=size-1;
+    float values[2]={0.0f,0.0f};
+    for(int c=0;c<2;c++){
+        float p00=brdf_lut[((size_t)y0*size+x0)*4+c]/255.0f;
+        float p10=brdf_lut[((size_t)y0*size+x1)*4+c]/255.0f;
+        float p01=brdf_lut[((size_t)y1*size+x0)*4+c]/255.0f;
+        float p11=brdf_lut[((size_t)y1*size+x1)*4+c]/255.0f;
+        values[c]=(p00+(p10-p00)*fx)*(1.0f-fy)+(p01+(p11-p01)*fx)*fy;
+    }
+    *a=values[0];*b=values[1];
+}
+
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
                   const g3_vec3 wp, g3_vec3 n, const float tex[3], const float mr[4], float ao,
                   const float emission[3], float *out_rgb) {
@@ -460,13 +487,12 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
             sample_environment_lod(vs->environment_texture,atan2f(rz,rx)/6.28318530718f+0.5f,
                                    acosf(ryc)/3.14159265359f,lod,reflected);
             float nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f);
-            float fresnel_weight=powf(1.0f-nv,5.0f);
+            float brdf_a,brdf_b;
+            sample_brdf_lut(nv,rough,&brdf_a,&brdf_b);
             for (int c=0;c<3;c++) {
                 float metal=fmaxf(0.0f,fminf(metallic,1.0f));
                 float f0=0.04f*(1.0f-metal)+base[c]*metal;
-                float edge=fmaxf(1.0f-rough,f0);
-                float fresnel=f0+(edge-f0)*fresnel_weight;
-                float specular=reflected[c]*fresnel*vs->environment_intensity*ao;
+                float specular=reflected[c]*(f0*brdf_a+brdf_b)*vs->environment_intensity*ao;
                 if (c==0) r+=specular; else if (c==1) g+=specular; else b+=specular;
             }
         }
