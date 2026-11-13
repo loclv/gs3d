@@ -38,7 +38,7 @@ export fn g3_asset_node(mesh: i32, parent: i32) -> i32 {
     return id as i32;
 }
 export fn g3_asset_matrix(id: i32, index: i32, value: f32) { g3::node(id).local_matrix.m[index] = value; }
-export fn g3_asset_material(r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_mode: i32, alpha_cutoff: f32, metallic: f32, roughness: f32, metallic_roughness_texture: i32, normal_texture: i32, normal_scale: f32, occlusion_texture: i32, occlusion_strength: f32, emissive_r: f32, emissive_g: f32, emissive_b: f32, emissive_texture: i32, double_sided: bool, unlit: bool) -> i32 {
+export fn g3_asset_material(r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_mode: i32, alpha_cutoff: f32, metallic: f32, roughness: f32, metallic_roughness_texture: i32, normal_texture: i32, normal_scale: f32, occlusion_texture: i32, occlusion_strength: f32, emissive_r: f32, emissive_g: f32, emissive_b: f32, emissive_texture: i32, double_sided: bool, unlit: bool, ior: f32) -> i32 {
     let id = g3::material_asset_add();
     let m .= g3::material(id);
     m.color = float4 { r, g, b, a };
@@ -48,6 +48,7 @@ export fn g3_asset_material(r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_
     m.pbr = true;
     m.metallic = metallic;
     m.roughness = roughness;
+    m.ior = ior;
     m.metallic_roughness_texture = metallic_roughness_texture;
     m.normal_texture = normal_texture;
     m.normal_scale = normal_scale;

@@ -113,7 +113,7 @@ if an upload fails it releases the resources already created. Browser graphics
 driver failures may still be reported separately through the backend's error
 mechanism.
 
-The glTF loader supports `KHR_materials_unlit`,
+The glTF loader supports `KHR_materials_unlit`, `KHR_materials_ior`,
 `KHR_materials_emissive_strength`, and per-texture
 `KHR_texture_transform` on `TEXCOORD_0` or `TEXCOORD_1`. Unlit selects the engine's unlit material path;
 emissive strength multiplies the material's `emissiveFactor` before the
@@ -163,6 +163,9 @@ fetches and decodes assets in JavaScript.
   components per accessor.
 * Opaque, masked and blended base-colour factors and base-colour textures.
   `KHR_materials_unlit` selects unlit shading for a material.
+  `KHR_materials_ior` sets the dielectric Fresnel reflectance used by direct
+  and environment lighting; its supported range is 1.0 to 2.333, with a
+  default index of refraction of 1.5.
   `KHR_materials_emissive_strength` scales `emissiveFactor`, including values
   above 1 for HDR emission.
   `KHR_texture_transform` applies an independent offset, rotation and scale to

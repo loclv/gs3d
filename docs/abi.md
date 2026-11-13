@@ -57,7 +57,7 @@ it, then adds the offset.
 | 168 | `int32_t` | `texture` | texture id, or -1 for no texture |
 | 172 | `int32_t` | `alpha_mode` | 0 opaque, 1 mask, 2 blend |
 | 176 | `float` | `alpha_cutoff` | alpha threshold for mask mode |
-| 180 | `g3_vec4` | `pbr` | x enables metallic-roughness shading, y metallic, z roughness |
+| 180 | `g3_vec4` | `pbr` | x enables metallic-roughness shading, y metallic, z roughness, w index of refraction |
 | 196 | `int32_t` | `metallic_roughness_texture` | linear data texture: G roughness, B metallic; -1 disables |
 | 200 | `int32_t` | `normal_texture` | linear tangent-space normal texture; -1 disables |
 | 204 | `float` | `normal_scale` | glTF normal scale applied to tangent-space X/Y |

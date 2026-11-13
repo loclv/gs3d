@@ -290,8 +290,10 @@ What the API gives you:
 * **Materials** — `material_add()` creates a shared surface, and
   `material(id)` exposes its colour, texture, alpha, unlit and specular fields.
   Set `pbr = true` to use metallic-roughness direct lighting with `metallic`
-  and `roughness` factors in [0, 1]; assign a linear data texture to
-  `metallic_roughness_texture` to modulate them from its B and G channels.
+  and `roughness` factors in [0, 1]; set `ior` (default 1.5) to adjust
+  dielectric Fresnel reflectance. Assign a linear data texture to
+  `metallic_roughness_texture` to modulate metallic and roughness from its B
+  and G channels.
   Otherwise the legacy specular model applies.
   Assign the ID to `node.material` to use it on any number of nodes; edits
   affect each of them on the next frame. With `node.material = -1`, the node's

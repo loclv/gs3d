@@ -38,7 +38,7 @@ struct DrawItem {
     texture: i32,       // -1 means untextured
     alpha_mode: i32,    // 0 opaque, 1 mask, 2 blend
     alpha_cutoff: f32,
-    pbr: float4,        // x enabled, y metallic, z roughness
+    pbr: float4,        // x enabled, y metallic, z roughness, w index of refraction
     metallic_roughness_texture: i32, // linear texture: G roughness, B metallic
     normal_texture: i32, // linear tangent-space normal texture, -1 disables
     normal_scale: f32,

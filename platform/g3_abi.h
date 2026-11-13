@@ -46,7 +46,7 @@ typedef struct {
     int32_t texture;
     int32_t alpha_mode;
     float alpha_cutoff;
-    g3_vec4 pbr;
+    g3_vec4 pbr; /* x enabled, y metallic, z roughness, w index of refraction */
     int32_t metallic_roughness_texture;
     int32_t normal_texture;
     float normal_scale;

@@ -1009,6 +1009,13 @@ fn case_pbr() {
     g3::material(mat).color = float4 { 0.5, 0.5, 0.5, 1.0 };
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 20, 20, 20, 2), "PBR dielectric matches normal-incidence GGX calculation");
+    // At IOR 2.333, dielectric F0 is about 0.16. For roughness 1 the
+    // normal-incidence response is 0.5 * (0.84*0.5/pi + 0.16/(4*pi))
+    // = 0.0732, or 19/255.
+    g3::material(mat).ior = 2.333;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 19, 19, 19, 0), "IOR controls dielectric reflectance in direct lighting");
+    g3::material(mat).ior = 1.5;
     g3::material(mat).metallic = 1.0;
     g3::material(mat).color = float4 { 0.8, 0.4, 0.2, 1.0 };
     g3::frame(1.0 / 60.0);
@@ -1127,6 +1134,19 @@ fn case_environment_specular() {
     testing::check(channel(rough, 16) > 0 && channel(rough, 16) * 4 < channel(sharp, 16) &&
                    abs(channel(rough, 16) - channel(rough, 8)) <= 1 && abs(channel(rough, 8) - channel(rough, 0)) <= 1,
                    "rough metal gets a dim, neutral response from the averaged environment mip");
+    // Keep diffuse environment light fixed and dim so the Fresnel reflection
+    // remains below clipping; changing IOR must strengthen the environment lobe.
+    g3::material(mat).metallic = 0.0;
+    g3::material(mat).roughness = 0.045;
+    g3::material(mat).ior = 1.5;
+    g3::set_environment_map(env, 0.1);
+    g3::frame(1.0 / 60.0);
+    let dielectric_low_ior = g3::read_pixel(200, 200);
+    g3::material(mat).ior = 2.333;
+    g3::frame(1.0 / 60.0);
+    let dielectric_high_ior = g3::read_pixel(200, 200);
+    testing::check(channel(dielectric_high_ior, 16) > channel(dielectric_low_ior, 16) + 2,
+                   "IOR controls dielectric environment reflection");
 }
 
 // glTF occlusion reduces indirect ambient light according to strength, while

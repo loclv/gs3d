@@ -57,6 +57,7 @@ struct Material {
     pbr: bool,
     metallic: f32 = 1.0,
     roughness: f32 = 1.0,
+    ior: f32 = 1.5,
     metallic_roughness_texture: i32 = -1,
     normal_texture: i32 = -1,
     normal_scale: f32 = 1.0,

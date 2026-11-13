@@ -503,7 +503,7 @@ async function prepare(url) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_texture_transform'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_texture_transform'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   const buffers = await Promise.all((doc.buffers || []).map(async (buffer, i) => {
     const data = buffer.uri !== undefined ? await fetchBytes(new URL(buffer.uri, absolute)) : i === 0 ? bin : undefined;
@@ -589,11 +589,11 @@ async function prepare(url) {
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
     const material = p.material === undefined ? {} : item(doc.materials, p.material, 'material');
-    let unlit = false, emissiveStrength = 1;
+    let unlit = false, emissiveStrength = 1, ior = 1.5;
     if (material.extensions !== undefined) {
       if (!material.extensions || typeof material.extensions !== 'object' || Array.isArray(material.extensions)) invalid('Invalid material extensions');
       const materialExtensions = Object.keys(material.extensions);
-      if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength'].includes(extension))) unsupported('Unsupported material feature');
+      if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior'].includes(extension))) unsupported('Unsupported material feature');
       if (materialExtensions.includes('KHR_materials_unlit')) {
         if (!extensionsUsed.includes('KHR_materials_unlit')) invalid('KHR_materials_unlit must be listed in extensionsUsed');
         const unlitExtension = material.extensions.KHR_materials_unlit;
@@ -606,6 +606,13 @@ async function prepare(url) {
         if (!emissiveExtension || typeof emissiveExtension !== 'object' || Array.isArray(emissiveExtension)) invalid('Invalid KHR_materials_emissive_strength extension');
         emissiveStrength = emissiveExtension.emissiveStrength ?? 1;
         if (!Number.isFinite(emissiveStrength) || emissiveStrength < 0) invalid('Invalid emissive strength');
+      }
+      if (materialExtensions.includes('KHR_materials_ior')) {
+        if (!extensionsUsed.includes('KHR_materials_ior')) invalid('KHR_materials_ior must be listed in extensionsUsed');
+        const iorExtension = material.extensions.KHR_materials_ior;
+        if (!iorExtension || typeof iorExtension !== 'object' || Array.isArray(iorExtension)) invalid('Invalid KHR_materials_ior extension');
+        ior = iorExtension.ior ?? 1.5;
+        if (!Number.isFinite(ior) || ior < 1 || ior > 2.333) invalid('Invalid index of refraction');
       }
     }
     if (material.doubleSided !== undefined && typeof material.doubleSided !== 'boolean') invalid('Invalid doubleSided material flag');
@@ -666,7 +673,7 @@ async function prepare(url) {
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
-      emissive: emissive.map(value => value * emissiveStrength), emissiveTextureIndex, doubleSided: material.doubleSided ?? false, unlit,
+      emissive: emissive.map(value => value * emissiveStrength), emissiveTextureIndex, doubleSided: material.doubleSided ?? false, unlit, ior,
       uvTransforms: [baseUvTransform, metallicRoughnessUvTransform, normalUvTransform, occlusionUvTransform, emissiveUvTransform], materialIndex: p.material ?? -1 };
     });
     if (!primitives.length) invalid(`Mesh ${meshIndex} has no primitives`);
@@ -1073,7 +1080,7 @@ export async function loadGLTF(engine, url) {
           const materialId = engine._g3_asset_material(...p.color, getTexture(p.textureIndex, true), p.alphaMode, p.alphaCutoff,
             p.metallic, p.roughness, getTexture(p.metallicRoughnessTextureIndex, false), getTexture(p.normalTextureIndex, false), p.normalScale,
             getTexture(p.occlusionTextureIndex, false), p.occlusionStrength, ...p.emissive,
-            getTexture(p.emissiveTextureIndex, true), p.doubleSided ? 1 : 0, p.unlit ? 1 : 0);
+            getTexture(p.emissiveTextureIndex, true), p.doubleSided ? 1 : 0, p.unlit ? 1 : 0, p.ior);
           for (let slot = 0; slot < p.uvTransforms.length; slot++) {
             const transform = p.uvTransforms[slot];
             if (!engine._g3_asset_material_uv_transform(materialId, slot, ...transform.offset, ...transform.scale, transform.rotation, transform.texcoord)) {

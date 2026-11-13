@@ -540,8 +540,14 @@ static float shadow_depth_visibility(const float *map, int size, int px, int py,
 }
 
 /* glTF metallic-roughness direct BRDF: GGX, correlated Smith, Schlick. */
+static float dielectric_f0(float ior) {
+    float bounded = fmaxf(1.0f, fminf(ior, 2.333f));
+    float ratio = (bounded - 1.0f) / (bounded + 1.0f);
+    return ratio * ratio;
+}
+
 static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
-                      float metallic, float roughness, float out[3]) {
+                      float metallic, float roughness, float ior, float out[3]) {
     float nl = fmaxf(n.x*l.x + n.y*l.y + n.z*l.z, 0.0f);
     float nv = fmaxf(n.x*v.x + n.y*v.y + n.z*v.z, 0.0f);
     if (nl <= 0.0f || nv <= 0.0f) { out[0] = out[1] = out[2] = 0.0f; return; }
@@ -559,9 +565,10 @@ static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
     float gl = nv * sqrtf(nl*nl*(1.0f-a2)+a2);
     float visibility = 0.5f / fmaxf(gv + gl, 1e-6f);
     float m = fmaxf(0.0f, fminf(metallic, 1.0f));
+    float dielectric = dielectric_f0(ior);
     float fresnel_weight = powf(1.0f - fminf(vh, 1.0f), 5.0f);
     for (int i = 0; i < 3; i++) {
-        float f0 = 0.04f*(1.0f-m) + base[i]*m;
+        float f0 = dielectric*(1.0f-m) + base[i]*m;
         float f = f0 + (1.0f-f0)*fresnel_weight;
         out[i] = ((1.0f-f)*(1.0f-m)*base[i]/3.14159265359f + distribution*visibility*f)*nl;
     }
@@ -625,7 +632,7 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     float metallic = it->pbr.y * mr[2], roughness = it->pbr.z * mr[1];
     if (it->pbr.x > 0.5f) {
         float brdf[3];
-        pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, metallic, roughness, brdf);
+        pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, metallic, roughness, it->pbr.w, brdf);
         float diffuse = 1.0f - fmaxf(0.0f, fminf(metallic, 1.0f));
         r = base[0]*vs->ambient.x*amb*diffuse*ao + brdf[0]*vs->light_color.x*visible;
         g = base[1]*vs->ambient.y*amb*diffuse*ao + brdf[1]*vs->light_color.y*visible;
@@ -663,7 +670,7 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
             sample_brdf_lut(nv,rough,&brdf_a,&brdf_b);
             for (int c=0;c<3;c++) {
                 float metal=fmaxf(0.0f,fminf(metallic,1.0f));
-                float f0=0.04f*(1.0f-metal)+base[c]*metal;
+                float f0=dielectric_f0(it->pbr.w)*(1.0f-metal)+base[c]*metal;
                 float specular=reflected[c]*(f0*brdf_a+brdf_b)*vs->environment_intensity*ao;
                 if (c==0) r+=specular; else if (c==1) g+=specular; else b+=specular;
             }
@@ -704,7 +711,7 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
         float s = powf(nh2, shine) * it->params.y;
         if (it->pbr.x > 0.5f) {
             float brdf[3];
-            pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){ex,ey,ez}, base, metallic, roughness, brdf);
+            pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){ex,ey,ez}, base, metallic, roughness, it->pbr.w, brdf);
             r += brdf[0]*light->color.x*falloff; g += brdf[1]*light->color.y*falloff; b += brdf[2]*light->color.z*falloff;
         } else {
             r += (base[0] * d + s) * light->color.x * falloff;
