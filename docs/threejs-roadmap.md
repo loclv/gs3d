@@ -57,8 +57,8 @@ and a browser integration check for behavior exposed through WebGL.
   the glTF loader's material and sampler support.
 * **Implemented:** dense and sparse accessors, including zero-initialized
   sparse-only data and validated sparse indices, ranges, component alignment,
-  byte strides and normalized flags. Continue expanding validation for the rest
-  of the glTF specification.
+  vertex-only byte strides and normalized flags. Continue expanding validation
+  for the rest of the glTF specification.
 * **Implemented:** `KHR_mesh_quantization` decodes quantized base and morph
   position, normal, tangent and texture-coordinate accessors into engine floats.
   Quantized assets must declare the extension as required.

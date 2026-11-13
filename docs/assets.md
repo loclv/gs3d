@@ -177,7 +177,9 @@ fetches and decodes assets in JavaScript.
   `VEC3`/`VEC4` or normalized unsigned-byte/unsigned-short `VEC3`/`VEC4`.
   Vertex colours are linear and multiply the base-colour factor and texture;
   `VEC3` supplies alpha 1. Missing normals are generated as area-weighted
-  vertex normals from triangle faces.
+  vertex normals from triangle faces. Interleaved byte strides are accepted for
+  vertex attributes only; strided indices, animation data, and inverse-bind
+  matrices are rejected.
   Repeated nodes referencing the same static primitive share one uploaded mesh;
   skinned and morphed primitives keep per-node geometry for deformation.
 * `EXT_mesh_gpu_instancing` translation, rotation and scale attributes on

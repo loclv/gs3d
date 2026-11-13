@@ -273,7 +273,7 @@ function unpack(bytes) {
   return { json: bytes, bin: undefined, glb: false };
 }
 
-function accessor(doc, buffers, index, expected) {
+function accessor(doc, buffers, index, expected, vertexAttribute = false) {
   const a = item(doc.accessors, index, 'accessor');
   if (a.type !== expected) invalid(`Expected ${expected} accessor`);
   if (a.normalized !== undefined && typeof a.normalized !== 'boolean') invalid('Invalid accessor normalized flag');
@@ -305,6 +305,7 @@ function accessor(doc, buffers, index, expected) {
   if (a.bufferView !== undefined) {
     const base = readView(a.bufferView, 'accessor'), offset = a.byteOffset ?? 0;
     const stride = base.byteStride ?? size;
+    if (base.byteStride !== undefined && !vertexAttribute) invalid('byteStride is only valid for vertex attributes');
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(stride) || stride < size ||
         stride % format[0] !== 0 || base.start % format[0] !== 0 || offset % format[0] !== 0 ||
         (base.byteStride !== undefined && (stride < 4 || stride > 252 || stride % 4 !== 0))) invalid('Invalid accessor alignment or stride');
@@ -889,21 +890,21 @@ async function prepare(url, requestedScene) {
     if ((p.mode ?? 4) !== 4) unsupported('Only triangle mesh primitives are supported');
     if (Object.keys(p.attributes || {}).some(name => /^(JOINTS|WEIGHTS)_\d+$/.test(name) && Number(name.slice(name.indexOf('_') + 1)) > 1)) unsupported('At most eight skin influences are supported');
     if (Object.keys(p.attributes || {}).some(name => /^TEXCOORD_\d+$/.test(name) && Number(name.slice(9)) > 7)) unsupported('Only TEXCOORD_0 through TEXCOORD_7 are supported');
-    const pos = accessor(doc, buffers, p.attributes?.POSITION, 'VEC3');
-    const normal = p.attributes?.NORMAL === undefined ? null : accessor(doc, buffers, p.attributes.NORMAL, 'VEC3');
-    const uv = p.attributes?.TEXCOORD_0 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_0, 'VEC2');
-    const uv1 = p.attributes?.TEXCOORD_1 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_1, 'VEC2');
-    const uv2 = p.attributes?.TEXCOORD_2 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_2, 'VEC2');
-    const uv3 = p.attributes?.TEXCOORD_3 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_3, 'VEC2');
-    const uv4 = p.attributes?.TEXCOORD_4 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_4, 'VEC2');
-    const uv5 = p.attributes?.TEXCOORD_5 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_5, 'VEC2');
-    const uv6 = p.attributes?.TEXCOORD_6 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_6, 'VEC2');
-    const uv7 = p.attributes?.TEXCOORD_7 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_7, 'VEC2');
-    const tangent = p.attributes?.TANGENT === undefined ? null : accessor(doc, buffers, p.attributes.TANGENT, 'VEC4');
+    const pos = accessor(doc, buffers, p.attributes?.POSITION, 'VEC3', true);
+    const normal = p.attributes?.NORMAL === undefined ? null : accessor(doc, buffers, p.attributes.NORMAL, 'VEC3', true);
+    const uv = p.attributes?.TEXCOORD_0 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_0, 'VEC2', true);
+    const uv1 = p.attributes?.TEXCOORD_1 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_1, 'VEC2', true);
+    const uv2 = p.attributes?.TEXCOORD_2 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_2, 'VEC2', true);
+    const uv3 = p.attributes?.TEXCOORD_3 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_3, 'VEC2', true);
+    const uv4 = p.attributes?.TEXCOORD_4 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_4, 'VEC2', true);
+    const uv5 = p.attributes?.TEXCOORD_5 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_5, 'VEC2', true);
+    const uv6 = p.attributes?.TEXCOORD_6 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_6, 'VEC2', true);
+    const uv7 = p.attributes?.TEXCOORD_7 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_7, 'VEC2', true);
+    const tangent = p.attributes?.TANGENT === undefined ? null : accessor(doc, buffers, p.attributes.TANGENT, 'VEC4', true);
     const colorIndex = p.attributes?.COLOR_0;
     const colorType = colorIndex === undefined ? null : item(doc.accessors, colorIndex, 'COLOR_0 accessor').type;
     if (colorType !== null && colorType !== 'VEC3' && colorType !== 'VEC4') invalid('Invalid COLOR_0 accessor type');
-    const vertexColor = colorType === null ? null : accessor(doc, buffers, colorIndex, colorType);
+    const vertexColor = colorType === null ? null : accessor(doc, buffers, colorIndex, colorType, true);
     validateMeshAttributeEncoding(pos, 'POSITION', false, extensionsUsed, extensionsRequired);
     validateMeshAttributeEncoding(normal, 'NORMAL', false, extensionsUsed, extensionsRequired);
     validateMeshAttributeEncoding(tangent, 'TANGENT', false, extensionsUsed, extensionsRequired);
@@ -924,8 +925,8 @@ async function prepare(url, requestedScene) {
       if ((jointIndex === undefined) !== (weightIndex === undefined)) invalid(`Incomplete skin attributes in set ${set}`);
       if (jointIndex === undefined) continue;
       if (set === 1 && joints.length === 0) invalid('Skin influence set 1 requires set 0');
-      const jointAccessor = accessor(doc, buffers, jointIndex, 'VEC4');
-      const weightAccessor = accessor(doc, buffers, weightIndex, 'VEC4');
+      const jointAccessor = accessor(doc, buffers, jointIndex, 'VEC4', true);
+      const weightAccessor = accessor(doc, buffers, weightIndex, 'VEC4', true);
       if (![5121, 5123].includes(jointAccessor.componentType) || jointAccessor.normalized ||
           (weightAccessor.componentType !== 5126 && !([5121, 5123].includes(weightAccessor.componentType) && weightAccessor.normalized)) ||
           jointAccessor.count !== pos.count || weightAccessor.count !== pos.count) invalid(`Invalid skin attributes in set ${set}`);
@@ -936,9 +937,9 @@ async function prepare(url, requestedScene) {
     const targets = (p.targets || []).map(target => {
       if (!target || typeof target !== 'object') invalid('Invalid morph target');
       if (Object.keys(target).some(name => !['POSITION', 'NORMAL', 'TANGENT'].includes(name))) unsupported('Unsupported morph target attribute');
-      const position = target.POSITION === undefined ? null : accessor(doc, buffers, target.POSITION, 'VEC3');
-      const normalDelta = target.NORMAL === undefined ? null : accessor(doc, buffers, target.NORMAL, 'VEC3');
-      const tangentDelta = target.TANGENT === undefined ? null : accessor(doc, buffers, target.TANGENT, 'VEC3');
+      const position = target.POSITION === undefined ? null : accessor(doc, buffers, target.POSITION, 'VEC3', true);
+      const normalDelta = target.NORMAL === undefined ? null : accessor(doc, buffers, target.NORMAL, 'VEC3', true);
+      const tangentDelta = target.TANGENT === undefined ? null : accessor(doc, buffers, target.TANGENT, 'VEC3', true);
       if (!position && !normalDelta && !tangentDelta) invalid('Morph targets need a POSITION, NORMAL or TANGENT delta');
       for (const [semantic, delta] of [['POSITION', position], ['NORMAL', normalDelta], ['TANGENT', tangentDelta]]) {
         validateMeshAttributeEncoding(delta, semantic, true, extensionsUsed, extensionsRequired);
@@ -1039,7 +1040,7 @@ async function prepare(url, requestedScene) {
         let instanceCount = -1;
         for (const [semantic, type] of [['TRANSLATION', 'VEC3'], ['ROTATION', 'VEC4'], ['SCALE', 'VEC3']]) {
           if (attributes[semantic] === undefined) continue;
-          const source = accessor(doc, buffers, attributes[semantic], type);
+          const source = accessor(doc, buffers, attributes[semantic], type, true);
           if (source.componentType !== 5126 || source.normalized || !source.values.every(Number.isFinite)) invalid(`Invalid instancing ${semantic} accessor`);
           if (instanceCount < 0) instanceCount = source.count;
           else if (source.count !== instanceCount) invalid('Instancing transform accessor counts must match');

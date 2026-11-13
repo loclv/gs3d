@@ -166,6 +166,13 @@ const skinDoc = {
 };
 resources.set('http://localhost/skinned.gltf', bytes(skinDoc));
 resources.set('http://localhost/skin.bin', skinBinary);
+for (const [name, accessorIndex, stride] of [
+  ['strided-inverse-bind', inverseBind, 64], ['strided-animation-input', skinTimes, 4],
+]) {
+  const malformed = structuredClone(skinDoc);
+  malformed.bufferViews[malformed.accessors[accessorIndex].bufferView].byteStride = stride;
+  resources.set(`http://localhost/${name}.gltf`, bytes(malformed));
+}
 const morphDoc = structuredClone(skinDoc);
 morphDoc.meshes[0].primitives[0].attributes = { POSITION: skinPosition, NORMAL: skinNormal, TANGENT: skinTangent };
 morphDoc.meshes[0].primitives[0].targets = [{ POSITION: skinPosition, NORMAL: skinNormal, TANGENT: skinTangentDelta }];
@@ -1119,6 +1126,7 @@ assert.equal(untouched.calls.length, 0);
 for (const [name, mutate] of [
   ['bad-stride-alignment', document => { document.bufferViews[0].byteStride = 13; }],
   ['bad-stride-limit', document => { document.bufferViews[0].byteStride = 256; }],
+  ['strided-index-buffer', document => { document.bufferViews[2].byteOffset = 68; document.bufferViews[2].byteLength = 10; document.bufferViews[2].byteStride = 4; }],
   ['bad-normalized-flag', document => { document.accessors[0].normalized = 'false'; }],
 ]) {
   const malformed = structuredClone(doc);
@@ -1131,6 +1139,11 @@ for (const [name, mutate] of [
 const skinEngine = fakeEngine(), skinnedModel = await loadGLTF(skinEngine, 'http://localhost/skinned.gltf');
 assert.equal(skinnedModel.animations.length, 1);
 assert.equal(skinnedModel.playAnimation(0, { loop: false }), true);
+for (const name of ['strided-inverse-bind', 'strided-animation-input']) {
+  const untouchedEngine = fakeEngine();
+  await assert.rejects(loadGLTF(untouchedEngine, `http://localhost/${name}.gltf`), error => error.code === 'INVALID_GLTF');
+  assert.equal(untouchedEngine.calls.length, 0, `${name} is rejected before engine resource creation`);
+}
 assert.equal(skinnedModel.seekAnimation(1), true);
 const skinnedVertices = skinEngine.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[2];
 assert.ok(skinnedVertices.every((value, index) => Math.abs(value - [2,-1,0, 2,1,0, 0,0,0][index]) < 1e-6),
