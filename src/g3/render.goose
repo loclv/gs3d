@@ -63,7 +63,7 @@ struct SavedLightSet {
     previous: i32,
     removed: bool,
     children: i32,
-    lights: Light[4],
+    lights: Light[8],
     count: i32,
     point_view_proj: Mat4[6], point_index: i32, point_params: float4,
     spot_view_proj: Mat4, spot_index: i32, spot_params: float4,
@@ -82,7 +82,7 @@ fn set_light(dir: float3, color: float3) {
     }
 }
 
-// The original directional light is independent of these four extra lights.
+// The original directional light is independent of these eight extra lights.
 fn clear_lights() { g_view_state.light_count = 0; clear_point_light_shadows(); clear_spot_light_shadows(); }
 
 fn asset_light_set_begin() -> i32 {
@@ -124,7 +124,7 @@ fn asset_light_set_release(id: i32) -> bool {
     while !done {
         let saved = g_saved_light_sets[releasing];
         g_view_state.light_count = saved.count;
-        for i in 0..4 { g_view_state.lights[i] = saved.lights[i]; }
+        for i in 0..8 { g_view_state.lights[i] = saved.lights[i]; }
         for i in 0..6 { g_view_state.point_shadow_view_proj[i] = saved.point_view_proj[i]; }
         g_view_state.point_shadow_light_index = saved.point_index;
         g_view_state.point_shadow_params = saved.point_params;
@@ -140,7 +140,7 @@ fn asset_light_set_release(id: i32) -> bool {
 }
 
 fn add_directional_light(dir: float3, color: float3) -> bool {
-    guard length(dir) > 0.0 && g_view_state.light_count < 4 else { return false; }
+    guard length(dir) > 0.0 && g_view_state.light_count < 8 else { return false; }
     let d = normalize(dir);
     let i = g_view_state.light_count;
     g_view_state.lights[i] = Light { position: float4 { 0.0, 0.0, 0.0, 0.0 },
@@ -151,7 +151,7 @@ fn add_directional_light(dir: float3, color: float3) -> bool {
 
 // Point and spot lights use squared linear range falloff by default.
 fn add_point_light_mode(pos: float3, color: float3, range: f32, attenuation: f32) -> bool {
-    guard range >= 0.0 && (range > 0.0 || attenuation > 0.5) && g_view_state.light_count < 4 else { return false; }
+    guard range >= 0.0 && (range > 0.0 || attenuation > 0.5) && g_view_state.light_count < 8 else { return false; }
     let i = g_view_state.light_count;
     g_view_state.lights[i] = Light { position: float4 { pos.x, pos.y, pos.z, 1.0 },
         direction: float4 { 0.0, 0.0, 0.0, range }, color: float4 { color.x, color.y, color.z, 0.0 }, inner: 0.0, attenuation: attenuation };
@@ -242,7 +242,7 @@ fn set_shadow_resolution(resolution: i32) -> bool {
 
 // Angles are half-angles in radians, with a smooth falloff between them.
 fn add_spot_light_mode(pos: float3, dir: float3, color: float3, range: f32, inner: f32, outer: f32, attenuation: f32) -> bool {
-    guard range >= 0.0 && (range > 0.0 || attenuation > 0.5) && length(dir) > 0.0 && inner >= 0.0 && inner < outer && outer <= PI && cos(inner) > cos(outer) && g_view_state.light_count < 4 else { return false; }
+    guard range >= 0.0 && (range > 0.0 || attenuation > 0.5) && length(dir) > 0.0 && inner >= 0.0 && inner < outer && outer <= PI && cos(inner) > cos(outer) && g_view_state.light_count < 8 else { return false; }
     let d = normalize(dir);
     let i = g_view_state.light_count;
     g_view_state.lights[i] = Light { position: float4 { pos.x, pos.y, pos.z, 2.0 },

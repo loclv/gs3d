@@ -1172,7 +1172,7 @@ async function prepare(url, requestedScene) {
   }
   const sceneRoots = roots.map(root => visit(root, 0));
   if (doc.scenes === undefined && seen.size !== nodes.length) invalid('Node hierarchy without a scene must have acyclic roots');
-  if (lightInstances.length > 4) unsupported('The engine supports at most four extra glTF lights in one scene');
+  if (lightInstances.length > 8) unsupported('The engine supports at most eight extra glTF lights in one scene');
   const sceneNodeIndices = new Set(seen);
   for (const skinIndex of usedSkinIndices) {
     const skin = skins[skinIndex];
@@ -1814,7 +1814,7 @@ export async function loadGLTF(engine, url, options = {}) {
       },
       get activeCamera() { return selectedCamera < 0 ? -1 : data.cameraInstances[selectedCamera].cameraIndex; },
       get activeCameraNode() { return selectedCamera < 0 ? null : data.cameraInstances[selectedCamera].node; },
-      /** Replace the engine's four extra lights and optionally select one point and spot shadow caster by model.lights index. */
+      /** Replace the engine's eight extra lights and optionally select one point and spot shadow caster by model.lights index. */
       applyLights(options = {}) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
         const shadows = parseLightShadowOptions(options);

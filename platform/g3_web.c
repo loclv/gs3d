@@ -81,7 +81,7 @@ typedef struct {
 typedef struct {
     GLuint program;
     GLint mvp, view_proj, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
-    GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4], light_attenuation[4];
+    GLint light_count, light_position[8], light_direction[8], light_color_extra[8], light_inner[8], light_attenuation[8];
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
@@ -307,7 +307,7 @@ static const char *FRAGMENT_SRC =
     "uniform vec3 u_light_dir;\n"
     "uniform vec3 u_light_color;\n"
     "struct Light { vec4 position; vec4 direction; vec4 color; float inner; float attenuation; };\n"
-    "uniform Light u_lights[4];\n"
+    "uniform Light u_lights[8];\n"
     "uniform int u_light_count;\n"
     "uniform vec4 u_env_sky;\n"
     "uniform vec4 u_env_ground;\n"
@@ -675,7 +675,7 @@ static void find_uniforms(void) {
     shader.morph_weights = glGetUniformLocation(shader.program, "u_morph_weights");
     shader.morph_target_count = glGetUniformLocation(shader.program, "u_morph_target_count");
     shader.instanced = glGetUniformLocation(shader.program, "u_instanced");
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 8; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_lights[%d].position", i); shader.light_position[i] = glGetUniformLocation(shader.program, name);
         snprintf(name, sizeof(name), "u_lights[%d].direction", i); shader.light_direction[i] = glGetUniformLocation(shader.program, name);
@@ -1548,7 +1548,7 @@ static void bind_view(const g3_view_state *view) {
     glActiveTexture(GL_TEXTURE9);
     glBindTexture(GL_TEXTURE_2D,brdf_lut_texture);
     glUniform1i(shader.brdf_lut,9);
-    int count = view->light_count < 0 ? 0 : view->light_count > 4 ? 4 : view->light_count;
+    int count = view->light_count < 0 ? 0 : view->light_count > 8 ? 8 : view->light_count;
     glUniform1i(shader.light_count, count);
     for (int i = 0; i < count; i++) {
         const g3_light *l = &view->lights[i];

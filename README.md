@@ -360,7 +360,7 @@ What the API gives you:
   `camera_active()` returns `-1` until the first is added. A reference returned
   by `camera()` refers to the active camera storage and should not be retained
   across a switch.
-* **Lighting** — a primary directional light (`set_light`), up to four extra
+* **Lighting** — a primary directional light (`set_light`), up to eight extra
   directional, point or spot lights (`add_directional_light`, `add_point_light`,
   `add_spot_light`, `clear_lights`), ambient light and a hemispherical sky/ground
   fill (`set_ambient`, `set_environment`) or an equirectangular map uploaded
@@ -421,7 +421,7 @@ near, so they are drawn after everything opaque and read the depth they should.
 `Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings,
 a double-sided flag, twelve texture-coordinate transforms, clearcoat and sheen factors and maps, 605 bytes. A
 `Vertex` is 120 bytes, including eight UV sets, tangent and colour. Its
-`ViewState` is 1036 bytes and includes render-target selection, dimensions and
+`ViewState` is 1260 bytes and includes eight extra lights, render-target selection, dimensions and
 the shared camera view-projection matrix.
 `g3p_draw_frame` hands the backend a slice
 of them plus the frame's `ViewState`, and `platform/g3_abi.h`

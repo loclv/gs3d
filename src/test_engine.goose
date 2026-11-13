@@ -659,6 +659,22 @@ fn case_lights() {
     g3::frame(1.0 / 60.0);
     testing::check(a && b && is_color(g3::read_pixel(200, 200), 64, 128, 0, 2), "directional lights add their contributions");
     g3::clear_lights();
+    var all_eight_added = true;
+    for i in 8 {
+        all_eight_added = all_eight_added && g3::add_directional_light(float3 { 0.0, 0.0, -1.0 }, float3 { 0.0625, 0.0625, 0.0625 });
+    }
+    let ninth_rejected = !g3::add_directional_light(float3 { 0.0, 0.0, -1.0 }, float3_1);
+    g3::frame(1.0 / 60.0);
+    testing::check(all_eight_added && ninth_rejected && g3::g_view_state.light_count == 8,
+                   "the engine accepts eight extra directional lights and rejects the ninth");
+    testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 2), "all eight extra lights contribute to shading");
+    let eight_light_lease = g3::asset_light_set_begin();
+    let overlay_added = g3::add_point_light(float3_0, float3_1, 5.0);
+    let eight_restored = g3::asset_light_set_release(eight_light_lease);
+    testing::check(overlay_added && eight_restored && g3::g_view_state.light_count == 8 &&
+                   g3::g_view_state.lights[7].color.x == 0.0625,
+                   "asset light overlays restore all eight saved light slots");
+    g3::clear_lights();
     // The front face is two units from a light of range four, giving
     // (1 - 2/4)^2 = 0.25 of the light's colour.
     let point = g3::add_point_light(float3 { 0.0, 0.0, 3.0 }, float3 { 1.0, 0.0, 0.0 }, 4.0);

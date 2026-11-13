@@ -173,7 +173,7 @@ shadow behavior and browser reference images for the GPU path.
   keyboard controls are available; validate camera switching and input in a
   real browser.
 * **Partly implemented:** the browser loader reads `KHR_lights_punctual` and
-  can apply four scene lights with nested, out-of-order-safe restoration and
+  can apply eight scene lights with nested, out-of-order-safe restoration and
   animated node transforms. Imported point and spot lights use inverse-square
   attenuation and omit the lighting cutoff when `range` is absent. Shadows
   remain opt-in through `model.applyLights({ pointShadow, spotShadow, bias })`;

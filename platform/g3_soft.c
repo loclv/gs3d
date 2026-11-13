@@ -860,7 +860,7 @@ g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *ou
             b+=sheen_color[2]*sheen_reflected[2]*vs->environment_intensity*ao*sheen_fresnel;
         }
     }
-    int count = vs->light_count < 0 ? 0 : vs->light_count > 4 ? 4 : vs->light_count;
+    int count = vs->light_count < 0 ? 0 : vs->light_count > 8 ? 8 : vs->light_count;
     for (int i = 0; i < count; i++) {
         const g3_light *light = &vs->lights[i];
         float dx = light->position.x - wp.x, dy = light->position.y - wp.y, dz = light->position.z - wp.z;

@@ -88,9 +88,15 @@ punctualDoc.nodes = [
 ];
 punctualDoc.scenes = [{ nodes: [0, 1, 2] }];
 resources.set('http://localhost/punctual.gltf', bytes(punctualDoc));
-const tooManyLightsDoc = structuredClone(punctualDoc);
-tooManyLightsDoc.nodes.push({ extensions: { KHR_lights_punctual: { light: 0 } } }, { extensions: { KHR_lights_punctual: { light: 1 } } });
-tooManyLightsDoc.scenes[0].nodes.push(3, 4);
+const eightLightsDoc = structuredClone(punctualDoc);
+for (let i = 3; i < 8; i++) {
+  eightLightsDoc.nodes.push({ extensions: { KHR_lights_punctual: { light: i % 3 } } });
+  eightLightsDoc.scenes[0].nodes.push(i);
+}
+resources.set('http://localhost/eight-lights.gltf', bytes(eightLightsDoc));
+const tooManyLightsDoc = structuredClone(eightLightsDoc);
+tooManyLightsDoc.nodes.push({ extensions: { KHR_lights_punctual: { light: 2 } } });
+tooManyLightsDoc.scenes[0].nodes.push(8);
 resources.set('http://localhost/too-many-lights.gltf', bytes(tooManyLightsDoc));
 const variantDoc = structuredClone(doc);
 variantDoc.extensionsUsed = ['KHR_materials_variants'];
@@ -515,6 +521,12 @@ assert.equal(punctualModel.applyLights({ pointShadow: 2 }), false, 'a spot canno
 assert.equal(punctualModel.applyLights({ bias: 3.5e38 }), false, 'shadow bias must fit the engine float range');
 punctualModel.dispose();
 assert.equal(punctualEngine.activeLightSet, -1, 'disposing an applied light set restores the previous engine state');
+const eightLightEngine = fakeEngine(), eightLightModel = await loadGLTF(eightLightEngine, 'http://localhost/eight-lights.gltf');
+assert.equal(eightLightModel.lights.length, 8, 'the selected glTF scene can contain eight light instances');
+assert.equal(eightLightModel.applyLights(), true, 'all eight glTF light instances can be applied');
+assert.equal(eightLightEngine.calls.filter(call => ['light_directional', 'light_point', 'light_spot'].includes(call[0])).length, 8,
+  'applying eight glTF lights submits all eight to the engine');
+eightLightModel.dispose();
 const laterLightEngine = fakeEngine();
 const earlierLightModel = await loadGLTF(laterLightEngine, 'http://localhost/punctual.gltf');
 const laterLightModel = await loadGLTF(laterLightEngine, 'http://localhost/punctual.gltf');

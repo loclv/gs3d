@@ -103,7 +103,7 @@ Half a day of work, in this order — do not start with the shader.
 
 `ViewState` currently carries one directional light. For N lights:
 
-1. Fixed-size arrays only (no heap): `lights: Light[4]`, `light_count: i32`,
+1. Fixed-size arrays only (no heap): `lights: Light[8]`, `light_count: i32`,
    in `ViewState` — the ABI is packed, so this changes its size; update the
    asserts and README.
 2. `render.goose`: `add_light(...)` appending to the frame's array; keep

@@ -211,7 +211,7 @@ fetches and decodes assets in JavaScript.
   canvas. Orthographic `xmag` and `ymag` both set the authored view extent.
 * `KHR_lights_punctual` directional, point and spot light instances in the
   selected scene. Loading only exposes metadata; call `model.applyLights()` to
-  replace the engine's four extra lights, and `model.clearLights()` or
+  replace the engine's eight extra lights, and `model.clearLights()` or
   `model.dispose()` to restore the previous set. Active imported lights follow
   animated node transforms when `model.update()` advances an animation. The
   engine applies inverse-square distance attenuation and a smooth squared
