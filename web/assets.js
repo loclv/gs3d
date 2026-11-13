@@ -1034,12 +1034,30 @@ async function prepare(url, requestedScene) {
     }
     invalid(`Invalid camera type in camera ${cameraIndex}`);
   });
-  const nodes = doc.nodes || [];
-  const sceneIndex = requestedScene ?? doc.scene ?? 0;
-  if (!Number.isInteger(sceneIndex) || sceneIndex < 0) invalid('Invalid scene index');
-  const scene = item(doc.scenes, sceneIndex, 'scene');
-  if (scene.nodes !== undefined && !Array.isArray(scene.nodes)) invalid('Invalid scene roots');
-  const roots = scene.nodes || [];
+  const nodes = doc.nodes ?? [];
+  if (!Array.isArray(nodes)) invalid('Invalid glTF nodes');
+  let sceneIndex, roots;
+  if (doc.scenes === undefined) {
+    if (requestedScene !== undefined || doc.scene !== undefined) invalid('Scene selection requires a glTF scenes array');
+    const parents = new Array(nodes.length).fill(-1);
+    for (let parent = 0; parent < nodes.length; parent++) {
+      const node = nodes[parent];
+      if (!node || typeof node !== 'object' || Array.isArray(node) ||
+          (node.children !== undefined && !Array.isArray(node.children))) invalid(`Invalid node ${parent}`);
+      for (const child of node.children ?? []) {
+        if (!Number.isInteger(child) || child < 0 || child >= nodes.length || parents[child] !== -1) invalid('Invalid node hierarchy');
+        parents[child] = parent;
+      }
+    }
+    roots = parents.flatMap((parent, index) => parent === -1 ? [index] : []);
+    sceneIndex = -1;
+  } else {
+    sceneIndex = requestedScene ?? doc.scene ?? 0;
+    if (!Number.isInteger(sceneIndex) || sceneIndex < 0) invalid('Invalid scene index');
+    const scene = item(doc.scenes, sceneIndex, 'scene');
+    if (scene.nodes !== undefined && !Array.isArray(scene.nodes)) invalid('Invalid scene roots');
+    roots = scene.nodes ?? [];
+  }
   const seen = new Set(), usedSkinIndices = new Set(), lightInstances = [], cameraInstances = [];
   function visit(index, depth) {
     if (depth > 63 || seen.has(index)) invalid('Invalid or overly deep node hierarchy');
@@ -1121,6 +1139,7 @@ async function prepare(url, requestedScene) {
       children: (n.children || []).map(child => visit(child, depth + 1)) };
   }
   const sceneRoots = roots.map(root => visit(root, 0));
+  if (doc.scenes === undefined && seen.size !== nodes.length) invalid('Node hierarchy without a scene must have acyclic roots');
   if (lightInstances.length > 4) unsupported('The engine supports at most four extra glTF lights in one scene');
   const sceneNodeIndices = new Set(seen);
   for (const skinIndex of usedSkinIndices) {

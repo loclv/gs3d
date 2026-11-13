@@ -171,8 +171,9 @@ fetches and decodes assets in JavaScript.
   `EXT_texture_webp` selects its WebP image and falls back to the core image
   source if WebP fetching or decoding fails; WebP-only textures must declare
   the extension as required.
-* The selected scene's hierarchy (the glTF default scene, or the optional
-  `loadGLTF` `{ scene: index }` choice), matrix or TRS transforms, indexed or
+* The selected scene's hierarchy (the glTF default scene, an optional
+  `loadGLTF` `{ scene: index }` choice, or an implicit scene from unparented
+  nodes when `scenes` is omitted), matrix or TRS transforms, indexed or
   non-indexed triangle primitives, float or `KHR_mesh_quantization` positions,
   and unnormalized unsigned integer triangle indices,
   optional float or quantized normals and tangents,

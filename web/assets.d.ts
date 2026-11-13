@@ -126,7 +126,7 @@ export interface ModelNodeInfo {
 }
 
 export interface LoadedModel {
-  /** Index of the glTF scene loaded into this model. */
+  /** Index of the loaded glTF scene, or -1 when an implicit root scene is used. */
   readonly sceneIndex: number;
   readonly roots: readonly NodeHandle[];
   /** glTF node hierarchy and references for the selected scene, in depth-first order. */

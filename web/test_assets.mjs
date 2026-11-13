@@ -34,6 +34,13 @@ const multiSceneDoc = structuredClone(doc);
 multiSceneDoc.nodes.push({ translation: [9, 8, 7], mesh: 0 });
 multiSceneDoc.scenes = [{ nodes: [0] }, { nodes: [1] }];
 resources.set('http://localhost/multi-scene.gltf', bytes(multiSceneDoc));
+const implicitSceneDoc = structuredClone(doc);
+delete implicitSceneDoc.scenes; delete implicitSceneDoc.scene;
+implicitSceneDoc.nodes = [{ children: [1] }, { mesh: 0 }];
+resources.set('http://localhost/implicit-scene.gltf', bytes(implicitSceneDoc));
+const cyclicImplicitSceneDoc = structuredClone(implicitSceneDoc);
+cyclicImplicitSceneDoc.nodes = [{ children: [1] }, { children: [0] }];
+resources.set('http://localhost/cyclic-implicit-scene.gltf', bytes(cyclicImplicitSceneDoc));
 const repeatedMeshDoc = structuredClone(doc);
 repeatedMeshDoc.nodes = [{ name: 'First copy', mesh: 0 }, { name: 'Second copy', mesh: 0 }];
 repeatedMeshDoc.scenes = [{ nodes: [0, 1] }];
@@ -562,6 +569,20 @@ assert.deepEqual(selectedSceneModel.roots, [{ index: 0, generation: 1, epoch: 0 
 assert.equal(selectedSceneEngine.calls.some(call => call[0] === 'matrix' && call[2] === 12 && call[3] === 9), true,
   'the requested scene supplies the loaded node hierarchy');
 selectedSceneModel.dispose();
+const implicitSceneEngine = fakeEngine();
+const implicitSceneModel = await loadGLTF(implicitSceneEngine, 'http://localhost/implicit-scene.gltf');
+assert.equal(implicitSceneModel.sceneIndex, -1, 'implicit scenes use scene index -1');
+assert.deepEqual(implicitSceneModel.roots, [{ index: 0, generation: 1, epoch: 0 }]);
+assert.deepEqual(implicitSceneModel.nodes.map(node => node.index), [0, 1]);
+implicitSceneModel.dispose();
+const explicitImplicitSceneEngine = fakeEngine();
+await assert.rejects(loadGLTF(explicitImplicitSceneEngine, 'http://localhost/implicit-scene.gltf', { scene: 0 }),
+  error => error.code === 'INVALID_GLTF');
+assert.equal(explicitImplicitSceneEngine.calls.length, 0);
+const cyclicImplicitSceneEngine = fakeEngine();
+await assert.rejects(loadGLTF(cyclicImplicitSceneEngine, 'http://localhost/cyclic-implicit-scene.gltf'),
+  error => error.code === 'INVALID_GLTF');
+assert.equal(cyclicImplicitSceneEngine.calls.length, 0);
 const repeatedMeshEngine = fakeEngine(), repeatedMeshModel = await loadGLTF(repeatedMeshEngine, 'http://localhost/repeated-mesh.gltf');
 assert.equal(repeatedMeshEngine.calls.filter(call => call[0] === 'mesh_end').length, 1,
   'nodes that reference one static glTF primitive upload its geometry once');
