@@ -136,12 +136,15 @@ fetches and decodes assets in JavaScript.
   sets, unsigned-byte or unsigned-short joint indices, float or normalized
   unsigned weights, and optional float inverse-bind matrices. Skin joints must
   belong to the selected scene. The loader normalizes skin weights and keeps
-  retained CPU vertices current for picking. WebGL skin-only meshes also upload
-  static joint/weight attributes and a per-mesh joint palette texture, avoiding
-  a full mesh-buffer upload for each pose; the same palette deforms shadow
-  casters. Morph targets and meshes combining skinning with morph targets keep
-  the CPU deformation and upload path. If a skin exceeds the device's maximum
-  texture height, it falls back to CPU deformation.
+  retained CPU vertices current for picking. WebGL skin meshes upload static
+  joint/weight attributes and a per-mesh joint palette texture, avoiding a full
+  mesh-buffer upload for each pose; the same palette deforms shadow casters.
+  WebGL morph meshes upload POSITION/NORMAL delta textures and update a weight
+  texture per pose. Up to 64 targets are supported when the vertex and target
+  texture dimensions fit the device and the two delta textures together use no
+  more than 64 MiB; unsupported sizes or failed GPU uploads fall back to CPU
+  deformation. GPU skinning and morphing combine when both paths upload
+  successfully. The CPU backend always deforms both features on the CPU.
 * Opaque, masked and blended base-colour factors and base-colour textures.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
   Emission adds the linear `emissiveFactor`, multiplied by an sRGB-decoded
@@ -198,9 +201,10 @@ interpolation are supported. LINEAR rotations use quaternion spherical
 interpolation. CUBICSPLINE uses glTF's in-tangent, value, out-tangent key layout
 and normalizes interpolated rotation quaternions. Clips can target only nodes in
 the selected glTF scene and animate ordinary transforms, morph weights, and skin
-joints. Skinning and morphs are evaluated on the CPU and reupload affected mesh
-vertices when their pose or weights change; GPU-side joint palettes are not
-implemented. Matrix-form TRS animation is unsupported.
+joints. The CPU keeps deformed vertices current for picking. WebGL uses GPU
+joint palettes and morph textures when the target count and device limits allow
+it; the CPU reference backend and WebGL fallbacks upload deformed vertices.
+Matrix-form TRS animation is unsupported.
 
 Run the browser-loader logic tests with `node web/test_assets.mjs`. These use a
 mock engine and image decoder; they do not replace a browser/WebGL integration

@@ -59,8 +59,10 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_update_cpu(int32_t id, uint32_t positi
 typedef struct {
     GLuint vao, vbo, ebo;
     GLuint skin_vbo, joint_texture;
+    GLuint morph_position_texture, morph_normal_texture, morph_weight_texture;
     GLsizei count, vertex_count;
     GLsizei joint_count;
+    GLsizei morph_target_count;
 } web_mesh;
 
 /* The one program every item draws with, and where its uniforms live. */
@@ -78,6 +80,7 @@ typedef struct {
     GLint tone_map_inline, exposure_inline;
     GLint alpha_mode, alpha_cutoff;
     GLint skin_enabled, joint_palette, joint_count;
+    GLint morph_enabled, morph_positions, morph_normals, morph_weights, morph_target_count;
     GLint instanced;
 } web_shader;
 
@@ -85,7 +88,9 @@ static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
 static web_shader shader;
 
 static int32_t surf_w = 1280, surf_h = 720;
-static int32_t max_joint_texture_height = 0;
+static int32_t gpu_max_texture_size = 0;
+#define G3_MAX_GPU_MORPH_TARGETS 64
+#define G3_MAX_GPU_MORPH_BYTES (64ull * 1024ull * 1024ull)
 static web_mesh *meshes;
 static int32_t mesh_count, mesh_cap;
 static GLuint instance_vbo;
@@ -108,6 +113,8 @@ static GLuint spot_shadow_texture;
 static GLint shadow_light_matrix, shadow_model_matrix, shadow_instanced;
 static GLint shadow_mask, shadow_cutoff, shadow_alpha, shadow_tex, shadow_textured;
 static GLint shadow_skin_enabled, shadow_joint_palette, shadow_joint_count;
+static GLint shadow_morph_enabled, shadow_morph_positions;
+static GLint shadow_morph_weights, shadow_morph_target_count;
 static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
 static GLint output_sampler, output_tone_map, output_exposure, output_encode_srgb;
 static int output_width, output_height;
@@ -133,6 +140,11 @@ static const char *VERTEX_SRC =
     "uniform bool u_skin_enabled;\n"
     "uniform sampler2D u_joint_palette;\n"
     "uniform int u_joint_count;\n"
+    "uniform bool u_morph_enabled;\n"
+    "uniform sampler2D u_morph_positions;\n"
+    "uniform sampler2D u_morph_normals;\n"
+    "uniform sampler2D u_morph_weights;\n"
+    "uniform int u_morph_target_count;\n"
     "out vec3 v_normal;\n"
     "out vec3 v_world;\n"
     "out vec2 v_uv;\n"
@@ -145,6 +157,15 @@ static const char *VERTEX_SRC =
     "    mat4 model = u_instanced ? a_instance_model : u_model;\n"
     "    mat4 mvp = u_instanced ? a_instance_mvp : u_mvp;\n"
     "    vec4 position = vec4(a_pos, 1.0); vec3 normal = a_normal;\n"
+    "    if (u_morph_enabled) {\n"
+    "        for (int target = 0; target < u_morph_target_count; target++) {\n"
+    "            float weight = texelFetch(u_morph_weights, ivec2(target, 0), 0).r;\n"
+    "            if (weight != 0.0) {\n"
+    "                position.xyz += texelFetch(u_morph_positions, ivec2(gl_VertexID, target), 0).rgb * weight;\n"
+    "                normal += texelFetch(u_morph_normals, ivec2(gl_VertexID, target), 0).rgb * weight;\n"
+    "            }\n"
+    "        }\n"
+    "    }\n"
     "    if (u_skin_enabled && u_joint_count > 0) {\n"
     "        mat4 skin = mat4(0.0); float total = 0.0;\n"
     "        for (int i=0;i<4;i++) { float w=a_weights0[i]; if(w>0.0){skin+=joint_matrix(a_joints0[i])*w;total+=w;} }\n"
@@ -445,6 +466,11 @@ static void find_uniforms(void) {
     shader.skin_enabled = glGetUniformLocation(shader.program, "u_skin_enabled");
     shader.joint_palette = glGetUniformLocation(shader.program, "u_joint_palette");
     shader.joint_count = glGetUniformLocation(shader.program, "u_joint_count");
+    shader.morph_enabled = glGetUniformLocation(shader.program, "u_morph_enabled");
+    shader.morph_positions = glGetUniformLocation(shader.program, "u_morph_positions");
+    shader.morph_normals = glGetUniformLocation(shader.program, "u_morph_normals");
+    shader.morph_weights = glGetUniformLocation(shader.program, "u_morph_weights");
+    shader.morph_target_count = glGetUniformLocation(shader.program, "u_morph_target_count");
     shader.instanced = glGetUniformLocation(shader.program, "u_instanced");
     for (int i = 0; i < 4; i++) {
         char name[64];
@@ -522,7 +548,7 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     emscripten_webgl_make_context_current(ctx);
     GLint max_texture_size = 0;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_texture_size);
-    max_joint_texture_height = max_texture_size;
+    gpu_max_texture_size = max_texture_size;
     float_color_buffer_supported=emscripten_webgl_enable_extension(ctx,"EXT_color_buffer_float");
     /* RGBA16F targets are blendable without EXT_float_blend, which is needed
        for 32-bit floating-point draw buffers. */
@@ -585,6 +611,9 @@ void g3p_shutdown(void) {
         glDeleteBuffers(1, &meshes[i].ebo);
         glDeleteBuffers(1, &meshes[i].skin_vbo);
         glDeleteTextures(1, &meshes[i].joint_texture);
+        glDeleteTextures(1, &meshes[i].morph_position_texture);
+        glDeleteTextures(1, &meshes[i].morph_normal_texture);
+        glDeleteTextures(1, &meshes[i].morph_weight_texture);
     }
     free(meshes);
     meshes = NULL;
@@ -657,7 +686,7 @@ void g3p_upload_mesh(int32_t id, g3_vertex_slice verts, g3_u32_slice indices) {
 EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_skin(int32_t id, uint32_t data_ptr,
                                                 int32_t float_count, int32_t joint_count) {
     if (id < 0 || id >= mesh_count || !data_ptr || data_ptr % 4 || float_count <= 0 ||
-        float_count % 16 || joint_count <= 0 || joint_count > max_joint_texture_height) return 0;
+        float_count % 16 || joint_count <= 0 || joint_count > gpu_max_texture_size) return 0;
     web_mesh *m = &meshes[id];
     int32_t vertex_count = float_count / 16;
     if (!m->vao || vertex_count <= 0 || vertex_count != m->vertex_count) return 0;
@@ -712,6 +741,86 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_joint_palette(int32_t id, uint32_t data_ptr
     return glGetError() == GL_NO_ERROR;
 }
 
+EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_morph(int32_t id, uint32_t positions_ptr,
+                                                 uint32_t normals_ptr, int32_t vertex_count,
+                                                 int32_t target_count) {
+    if (id < 0 || id >= mesh_count || !positions_ptr || !normals_ptr ||
+        positions_ptr % 4 || normals_ptr % 4 || vertex_count <= 0 ||
+        target_count <= 0 || target_count > G3_MAX_GPU_MORPH_TARGETS ||
+        vertex_count > gpu_max_texture_size || target_count > gpu_max_texture_size) return 0;
+    web_mesh *m = &meshes[id];
+    if (!m->vao || vertex_count != m->vertex_count || m->morph_position_texture ||
+        m->morph_normal_texture || m->morph_weight_texture) return 0;
+    uint64_t float_count = (uint64_t)vertex_count * (uint64_t)target_count * 3;
+    uint64_t bytes = float_count * sizeof(float), heap_size = emscripten_get_heap_size();
+    if (bytes > G3_MAX_GPU_MORPH_BYTES / 2) return 0;
+    if ((uint64_t)positions_ptr + bytes > heap_size || (uint64_t)normals_ptr + bytes > heap_size) return 0;
+    const float *positions = (const float *)(uintptr_t)positions_ptr;
+    const float *normals = (const float *)(uintptr_t)normals_ptr;
+    for (uint64_t i = 0; i < float_count; i++)
+        if (!isfinite(positions[i]) || !isfinite(normals[i])) return 0;
+
+    while (glGetError() != GL_NO_ERROR) { }
+    glGenTextures(1, &m->morph_position_texture);
+    glGenTextures(1, &m->morph_normal_texture);
+    glGenTextures(1, &m->morph_weight_texture);
+    if (!m->morph_position_texture || !m->morph_normal_texture || !m->morph_weight_texture) {
+        glDeleteTextures(1, &m->morph_position_texture);
+        glDeleteTextures(1, &m->morph_normal_texture);
+        glDeleteTextures(1, &m->morph_weight_texture);
+        m->morph_position_texture = m->morph_normal_texture = m->morph_weight_texture = 0;
+        return 0;
+    }
+    GLuint ids[3] = { m->morph_position_texture, m->morph_normal_texture, m->morph_weight_texture };
+    for (int i = 0; i < 3; i++) {
+        glBindTexture(GL_TEXTURE_2D, ids[i]);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glBindTexture(GL_TEXTURE_2D, m->morph_position_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, vertex_count, target_count, 0, GL_RGB, GL_FLOAT, positions);
+    glBindTexture(GL_TEXTURE_2D, m->morph_normal_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, vertex_count, target_count, 0, GL_RGB, GL_FLOAT, normals);
+    glBindTexture(GL_TEXTURE_2D, m->morph_weight_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, target_count, 1, 0, GL_RED, GL_FLOAT, NULL);
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        while (glGetError() != GL_NO_ERROR) { }
+        glDeleteTextures(1, &m->morph_position_texture);
+        glDeleteTextures(1, &m->morph_normal_texture);
+        glDeleteTextures(1, &m->morph_weight_texture);
+        m->morph_position_texture = m->morph_normal_texture = m->morph_weight_texture = 0;
+        return 0;
+    }
+    m->morph_target_count = target_count;
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE uint8_t g3_host_morph_weights(int32_t id, uint32_t data_ptr, int32_t target_count) {
+    if (id < 0 || id >= mesh_count || !data_ptr || data_ptr % 4 || target_count <= 0) return 0;
+    web_mesh *m = &meshes[id];
+    if (!m->morph_weight_texture || m->morph_target_count != target_count) return 0;
+    uint64_t bytes = (uint64_t)target_count * sizeof(float);
+    if ((uint64_t)data_ptr + bytes > emscripten_get_heap_size()) return 0;
+    const float *weights = (const float *)(uintptr_t)data_ptr;
+    for (int32_t i = 0; i < target_count; i++) if (!isfinite(weights[i])) return 0;
+    glBindTexture(GL_TEXTURE_2D, m->morph_weight_texture);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, target_count, 1, GL_RED, GL_FLOAT, weights);
+    return glGetError() == GL_NO_ERROR;
+}
+
+EMSCRIPTEN_KEEPALIVE void g3_host_mesh_morph_release(int32_t id) {
+    if (id < 0 || id >= mesh_count) return;
+    web_mesh *m = &meshes[id];
+    glDeleteTextures(1, &m->morph_position_texture);
+    glDeleteTextures(1, &m->morph_normal_texture);
+    glDeleteTextures(1, &m->morph_weight_texture);
+    m->morph_position_texture = m->morph_normal_texture = m->morph_weight_texture = 0;
+    m->morph_target_count = 0;
+}
+
 void g3p_release_mesh(int32_t id) {
     if (id < 0 || id >= mesh_count) return;
     web_mesh *m = &meshes[id];
@@ -720,6 +829,9 @@ void g3p_release_mesh(int32_t id) {
     glDeleteBuffers(1, &m->ebo);
     glDeleteBuffers(1, &m->skin_vbo);
     glDeleteTextures(1, &m->joint_texture);
+    glDeleteTextures(1, &m->morph_position_texture);
+    glDeleteTextures(1, &m->morph_normal_texture);
+    glDeleteTextures(1, &m->morph_weight_texture);
     memset(m, 0, sizeof(*m));
 }
 
@@ -1089,11 +1201,12 @@ static int ensure_shadow_map(void) {
         "layout(location=5) in vec4 a_joints1; layout(location=6) in vec4 a_weights1;\n"
         "layout(location=11) in mat4 a_instance_model;\n"
         "uniform mat4 u_light; uniform mat4 u_model; uniform bool u_instanced; uniform bool u_skin_enabled;\n"
+        "uniform bool u_morph_enabled; uniform sampler2D u_morph_positions; uniform sampler2D u_morph_weights; uniform int u_morph_target_count;\n"
         "uniform sampler2D u_joint_palette; uniform int u_joint_count; out vec2 v_uv;\n"
         "mat4 joint_matrix(float j) { int i=clamp(int(j+0.5),0,u_joint_count-1);\n"
         "return mat4(texelFetch(u_joint_palette,ivec2(0,i),0),texelFetch(u_joint_palette,ivec2(1,i),0),\n"
         "texelFetch(u_joint_palette,ivec2(2,i),0),texelFetch(u_joint_palette,ivec2(3,i),0)); }\n"
-        "void main() { vec4 p=vec4(a_pos,1.0); if(u_skin_enabled&&u_joint_count>0) {\n"
+        "void main() { vec4 p=vec4(a_pos,1.0); if(u_morph_enabled) { for(int i=0;i<u_morph_target_count;i++){float w=texelFetch(u_morph_weights,ivec2(i,0),0).r;if(w!=0.0)p.xyz+=texelFetch(u_morph_positions,ivec2(gl_VertexID,i),0).rgb*w;} } if(u_skin_enabled&&u_joint_count>0) {\n"
         "mat4 s=mat4(0.0); float t=0.0;\n"
         "for(int i=0;i<4;i++){float w=a_weights0[i];if(w>0.0){s+=joint_matrix(a_joints0[i])*w;t+=w;}}\n"
         "for(int i=0;i<4;i++){float w=a_weights1[i];if(w>0.0){s+=joint_matrix(a_joints1[i])*w;t+=w;}}\n"
@@ -1138,6 +1251,10 @@ static int ensure_shadow_map(void) {
     shadow_skin_enabled = glGetUniformLocation(program, "u_skin_enabled");
     shadow_joint_palette = glGetUniformLocation(program, "u_joint_palette");
     shadow_joint_count = glGetUniformLocation(program, "u_joint_count");
+    shadow_morph_enabled = glGetUniformLocation(program, "u_morph_enabled");
+    shadow_morph_positions = glGetUniformLocation(program, "u_morph_positions");
+    shadow_morph_weights = glGetUniformLocation(program, "u_morph_weights");
+    shadow_morph_target_count = glGetUniformLocation(program, "u_morph_target_count");
     allocated_shadow_size = shadow_map_size;
     return 1;
 }
@@ -1148,6 +1265,18 @@ static void bind_shadow_skin(const web_mesh *m) {
     glUniform1i(shadow_joint_palette, 10);
     glActiveTexture(GL_TEXTURE10);
     glBindTexture(GL_TEXTURE_2D, m->joint_texture);
+}
+
+static void bind_shadow_morph(const web_mesh *m) {
+    int enabled = m->morph_target_count > 0 && m->morph_position_texture && m->morph_weight_texture;
+    glUniform1i(shadow_morph_enabled, enabled);
+    glUniform1i(shadow_morph_target_count, enabled ? m->morph_target_count : 0);
+    glUniform1i(shadow_morph_positions, 11);
+    glActiveTexture(GL_TEXTURE11);
+    glBindTexture(GL_TEXTURE_2D, enabled ? m->morph_position_texture : 0);
+    glUniform1i(shadow_morph_weights, 13);
+    glActiveTexture(GL_TEXTURE13);
+    glBindTexture(GL_TEXTURE_2D, enabled ? m->morph_weight_texture : 0);
 }
 
 static int shadow_run_length(g3_draw_item_slice items, int64_t first) {
@@ -1172,6 +1301,7 @@ static void draw_shadow_run(g3_draw_item_slice items, int64_t first, int32_t cou
     glUniform1f(shadow_alpha, it->color.w);
     glUniform1f(shadow_cutoff, it->alpha_cutoff);
     bind_shadow_skin(m);
+    bind_shadow_morph(m);
     glBindVertexArray(m->vao);
     if (count > 1 && upload_instance_data(items, first, count)) {
         bind_instance_attributes();
@@ -1322,6 +1452,20 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform1i(shader.joint_palette, 10);
     glActiveTexture(GL_TEXTURE10);
     glBindTexture(GL_TEXTURE_2D, m->joint_texture);
+
+    int morph_enabled = m->morph_target_count > 0 && m->morph_position_texture &&
+                        m->morph_normal_texture && m->morph_weight_texture;
+    glUniform1i(shader.morph_enabled, morph_enabled);
+    glUniform1i(shader.morph_target_count, morph_enabled ? m->morph_target_count : 0);
+    glUniform1i(shader.morph_positions, 11);
+    glActiveTexture(GL_TEXTURE11);
+    glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_position_texture : 0);
+    glUniform1i(shader.morph_normals, 12);
+    glActiveTexture(GL_TEXTURE12);
+    glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_normal_texture : 0);
+    glUniform1i(shader.morph_weights, 13);
+    glActiveTexture(GL_TEXTURE13);
+    glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_weight_texture : 0);
 
     glBindVertexArray(m->vao);
     if (count > 1 && upload_instance_data(items, first, count)) {

@@ -42,7 +42,7 @@ same scene renders identically in a tab and on disk.
 | `src/testing.goose` | the `check`/`finish` harness both test roots report through |
 | `platform/g3_abi.h` | the C side of the contract, with static asserts on the layout |
 | `platform/g3_input.{h,c}` | the key and mouse queue both backends share; each supplies only `g3_backend_resize` |
-| `platform/g3_web.c` | the WebGL2 backend (Emscripten), one shader, one draw call per item |
+| `platform/g3_web.c` | the WebGL2 backend (Emscripten), scene and shadow shaders, opaque instancing, GPU skin and morph deformation |
 | `platform/g3_soft.c` | the CPU backend: a z-buffered reference rasterizer, threaded over row blocks |
 | `docs/` | `architecture.md`, `abi.md`, `performance.md` — the reference detail |
 | `.agents/skills/` | five `SKILL.md` guides for working in this repo (map, language, ABI, features, testing) |
@@ -437,13 +437,11 @@ Deliberately out of scope for now, in rough order of how much they would add:
   Environment textures provide diffuse fill and GGX-prefiltered reflections.
   Browser and native Radiance RGBE loaders preserve HDR radiance; a skybox is
   not available.
-* **One draw call per node.** The draw list is batched by mesh but not
-  instanced; instancing wants a per-instance buffer on the seam.
-* **Partial GPU skinning.** WebGL skin-only glTF meshes use joint palettes and
-  avoid per-pose geometry uploads, while CPU geometry remains synchronized for
-  picking. Morph targets and combined skin+morph meshes still deform on the CPU;
-  benchmark pose updates and validate the GPU result in a browser. Native glTF
-  loading remains future work.
+* **WebGL deformation limits.** WebGL morph targets support up to 64 targets
+  per primitive and a 64 MiB delta-texture budget; larger or unsupported meshes
+  fall back to CPU deformation. GPU skin palettes and GPU morph weights can
+  combine, and CPU geometry remains synchronized for picking. The CPU reference
+  backend always deforms on the CPU. Native glTF loading remains future work.
 * **Limited removal.** Ordinary nodes can be removed and reused. Unreferenced
   ordinary meshes and textures can be removed; mesh backend allocations are
   freed and their arena spans can be reused by ordinary meshes and asset loads.

@@ -65,7 +65,7 @@ resources.set('http://localhost/skinned.gltf', bytes(skinDoc));
 resources.set('http://localhost/skin.bin', skinBinary);
 const morphDoc = structuredClone(skinDoc);
 morphDoc.meshes[0].primitives[0].attributes = { POSITION: skinPosition, NORMAL: skinNormal };
-morphDoc.meshes[0].primitives[0].targets = [{ POSITION: skinPosition }];
+morphDoc.meshes[0].primitives[0].targets = [{ POSITION: skinPosition, NORMAL: skinNormal }];
 delete morphDoc.skins;
 morphDoc.nodes = [{ mesh: 0 }];
 morphDoc.scenes = [{ nodes: [0] }];
@@ -73,6 +73,14 @@ morphDoc.animations[0].channels[0].target = { node: 0, path: 'weights' };
 morphDoc.animations[0].samplers[0].output = skinTimes;
 resources.set('http://localhost/morph.gltf', bytes(morphDoc));
 resources.set('http://localhost/morph.bin', skinBinary);
+const combinedMorphSkinDoc = structuredClone(skinDoc);
+combinedMorphSkinDoc.meshes[0].primitives[0].targets = [{ POSITION: skinPosition, NORMAL: skinNormal }];
+combinedMorphSkinDoc.meshes[0].weights = [0];
+combinedMorphSkinDoc.nodes[0].weights = [0];
+combinedMorphSkinDoc.animations[0].samplers.push({ input: skinTimes, output: skinTimes });
+combinedMorphSkinDoc.animations[0].channels.push({ sampler: 1, target: { node: 0, path: 'weights' } });
+resources.set('http://localhost/combined-morph-skin.gltf', bytes(combinedMorphSkinDoc));
+resources.set('http://localhost/combined-morph-skin.bin', skinBinary);
 const cubicMorphDoc = structuredClone(morphDoc), cubicWeights = new ArrayBuffer(24), cubicWeightView = new DataView(cubicWeights);
 [0,0,2, 0,1,0].forEach((value, i) => cubicWeightView.setFloat32(i * 4, value, true));
 cubicMorphDoc.buffers.push({ byteLength: cubicWeights.byteLength, uri: 'cubic-weights.bin' });
@@ -88,6 +96,12 @@ defaultMorphDoc.nodes[0].weights = [0.5];
 defaultMorphDoc.animations = [];
 resources.set('http://localhost/default-morph.gltf', bytes(defaultMorphDoc));
 resources.set('http://localhost/default-morph.bin', skinBinary);
+const largeMorphDoc = structuredClone(morphDoc);
+largeMorphDoc.meshes[0].primitives[0].targets = Array.from({ length: 65 }, () => ({ POSITION: skinPosition }));
+largeMorphDoc.meshes[0].weights = Array(65).fill(0);
+largeMorphDoc.animations = [];
+resources.set('http://localhost/large-morph.gltf', bytes(largeMorphDoc));
+resources.set('http://localhost/large-morph.bin', skinBinary);
 const quantizedMorphDoc = structuredClone(morphDoc), quantizedWeights = new ArrayBuffer(2), quantizedView = new DataView(quantizedWeights);
 quantizedView.setInt8(0, 0); quantizedView.setInt8(1, 127);
 quantizedMorphDoc.buffers.push({ byteLength: quantizedWeights.byteLength, uri: 'quantized-weights.bin' });
@@ -155,6 +169,23 @@ function fakeEngine() {
   let heapCursor = 16;
   engine._malloc = size => { const ptr = heapCursor; heapCursor = (heapCursor + size + 7) & ~7; return ptr; };
   engine._free = () => {};
+  return engine;
+}
+
+function enableFakeGpuMorph(engine, { upload = true, skin = true } = {}) {
+  engine._g3_host_mesh_morph = (id, positionsPtr, normalsPtr, vertexCount, targetCount) => {
+    const length = vertexCount * targetCount * 3;
+    engine.calls.push(['mesh_morph', id, vertexCount, targetCount,
+      [...engine.HEAPF32.slice(positionsPtr >>> 2, (positionsPtr >>> 2) + length)],
+      [...engine.HEAPF32.slice(normalsPtr >>> 2, (normalsPtr >>> 2) + length)]]);
+    return upload ? 1 : 0;
+  };
+  engine._g3_host_morph_weights = (id, ptr, targetCount) => {
+    engine.calls.push(['morph_weights', id, [...engine.HEAPF32.slice(ptr >>> 2, (ptr >>> 2) + targetCount)]]);
+    return 1;
+  };
+  engine._g3_host_mesh_morph_release = id => engine.calls.push(['morph_release', id]);
+  if (!skin) engine._g3_host_mesh_skin = () => 0;
   return engine;
 }
 
@@ -413,6 +444,41 @@ assert.equal(morphModel.seekAnimation(1), true);
 const morphedVertices = morphEngine.calls.filter(x => x[0] === 'mesh_update').at(-1)[2];
 assert.deepEqual(morphedVertices, [-2,-2,0, 2,-2,0, 0,2,0]);
 morphModel.dispose();
+const gpuMorphEngine = enableFakeGpuMorph(fakeEngine());
+const gpuMorphModel = await loadGLTF(gpuMorphEngine, 'http://localhost/morph.gltf');
+assert.equal(gpuMorphModel.playAnimation(0, { loop: false }), true);
+assert.equal(gpuMorphModel.seekAnimation(1), true);
+assert.deepEqual(gpuMorphEngine.calls.find(x => x[0] === 'mesh_morph').slice(1, 4), [7, 3, 1]);
+assert.deepEqual(gpuMorphEngine.calls.find(x => x[0] === 'mesh_morph')[4], positions);
+assert.deepEqual(gpuMorphEngine.calls.find(x => x[0] === 'mesh_morph')[5], normals);
+assert.deepEqual(gpuMorphEngine.calls.filter(x => x[0] === 'morph_weights').at(-1)[2], [1]);
+assert.equal(gpuMorphEngine.calls.filter(x => x[0] === 'mesh_update').length, 0);
+assert.deepEqual(gpuMorphEngine.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[2], [-2,-2,0, 2,-2,0, 0,2,0]);
+gpuMorphModel.dispose();
+const rejectedGpuMorph = enableFakeGpuMorph(fakeEngine(), { upload: false });
+const rejectedGpuMorphModel = await loadGLTF(rejectedGpuMorph, 'http://localhost/morph.gltf');
+assert.equal(rejectedGpuMorph.calls.some(x => x[0] === 'morph_release'), true);
+assert.equal(rejectedGpuMorph.calls.some(x => x[0] === 'mesh_update'), true);
+rejectedGpuMorphModel.dispose();
+const largeGpuMorph = enableFakeGpuMorph(fakeEngine());
+const largeGpuMorphModel = await loadGLTF(largeGpuMorph, 'http://localhost/large-morph.gltf');
+assert.equal(largeGpuMorph.calls.some(x => x[0] === 'mesh_morph'), false);
+assert.equal(largeGpuMorph.calls.some(x => x[0] === 'mesh_update'), true);
+largeGpuMorphModel.dispose();
+const combinedMorphSkin = enableFakeGpuMorph(fakeEngine());
+const combinedMorphSkinModel = await loadGLTF(combinedMorphSkin, 'http://localhost/combined-morph-skin.gltf');
+assert.equal(combinedMorphSkinModel.playAnimation(0, { loop: false }), true);
+assert.equal(combinedMorphSkinModel.seekAnimation(1), true);
+assert.equal(combinedMorphSkin.calls.some(x => x[0] === 'mesh_skin'), true);
+assert.deepEqual(combinedMorphSkin.calls.filter(x => x[0] === 'morph_weights').at(-1)[2], [1]);
+assert.deepEqual(combinedMorphSkin.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[2], [-1,-2,0, 3,-2,0, 1,2,0]);
+assert.equal(combinedMorphSkin.calls.filter(x => x[0] === 'mesh_update').length, 0);
+combinedMorphSkinModel.dispose();
+const fallbackCombined = enableFakeGpuMorph(fakeEngine(), { skin: false });
+const fallbackCombinedModel = await loadGLTF(fallbackCombined, 'http://localhost/combined-morph-skin.gltf');
+assert.equal(fallbackCombined.calls.some(x => x[0] === 'morph_release'), true);
+assert.equal(fallbackCombined.calls.some(x => x[0] === 'mesh_update'), true);
+fallbackCombinedModel.dispose();
 const cubicMorphEngine = fakeEngine(), cubicMorphModel = await loadGLTF(cubicMorphEngine, 'http://localhost/cubic-morph.gltf');
 assert.equal(cubicMorphModel.playAnimation(0, { loop: false }), true);
 assert.equal(cubicMorphModel.seekAnimation(0.5), true);

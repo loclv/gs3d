@@ -18,7 +18,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Assets | Built-in primitives, custom geometry, and a browser loader for glTF/GLB meshes, materials and transform animations with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
 | Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and ACES tone mapping with exposure | Browser reference validation |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Browser reference validation |
-| Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning for skin-only meshes; CPU geometry retained for picking | GPU morph targets, browser rendering validation, and deformation benchmarks |
+| Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and deformation benchmarks; GPU morph targets fall back to CPU above 64 targets or device texture limits |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and shrinking arena backing arrays |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection | Browser integration tests |
 | Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters | Render targets, post-processing, custom shaders and colour management; CPU reference renderer still processes draw items individually |
@@ -84,13 +84,14 @@ shadow behavior and browser reference images for the GPU path.
 
 ### 3. Animated assets and richer scenes
 
-* **Partly implemented:** glTF translation, rotation, scale and skeletal clips
-  support LINEAR, STEP and CUBICSPLINE sampling with play, pause, seek, stop and
-  loop controls. WebGL skin-only meshes use joint-palette textures and avoid
-  uploading deformed mesh buffers; retained CPU geometry stays synchronized
-  for picking. POSITION/NORMAL morphs and combined skin+morph meshes still use
+* **Partly implemented:** glTF translation, rotation, scale, morph-weight and
+  skeletal clips support LINEAR, STEP and CUBICSPLINE sampling with play, pause,
+  seek, stop and loop controls. WebGL skin palettes and POSITION/NORMAL morph
+  textures avoid pose-driven vertex-buffer uploads, including combined
+  skin+morph meshes when both GPU uploads succeed. Retained CPU geometry stays
+  synchronized for picking; unsupported target counts or failed uploads use
   CPU deformation. Validate animated WebGL output and benchmark pose updates on
-  representative characters; GPU morph targets remain unimplemented.
+  representative characters.
 * **Partly implemented:** selectable perspective and orthographic cameras have
   stable IDs, active-camera fallback, and removal. Reusable orbit, pinch, pan
   and keyboard controls are available; validate camera switching and input in
