@@ -71,6 +71,14 @@ scene, input, camera, and rendering APIs.
 The arena floor uses [Ground Grey](https://polyhaven.com/a/ground_grey), by
 Rob Tuytel / Poly Haven (CC0); a local copy is included.
 
+### Measure WebGL instancing
+
+Run `./build_web.sh --benchmark --serve` and open
+<http://localhost:8080/benchmark/>. The page varies the number of visible
+instances of one cube mesh and reports scene draw calls, browser frame rate,
+and engine-call median and p95. See [performance.md](docs/performance.md) for
+the measurement limits and comparison method.
+
 ### Engine demo
 
 ```bash

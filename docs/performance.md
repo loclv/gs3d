@@ -147,3 +147,27 @@ specular, dropping the normalized half-vector, table-based `powf`) is off the
 table for the CPU backend: it is the reference that
 `src/test_engine.goose` reads pixels from, and `docs/architecture.md` promises
 the two backends compute the same fragments term for term.
+
+## WebGL instancing benchmark
+
+Build and serve the repeated-mesh scene with:
+
+```bash
+./build_web.sh --benchmark --serve
+```
+
+Open <http://localhost:8080/benchmark/>. The scene contains one shared cube
+mesh and up to 1,024 visible nodes with identical opaque material state. The
+slider changes the visible node count. The page warms up for 120 frames, then
+reports recent browser frame rate, synchronous engine-call median and p95, and
+WebGL scene-pass draw calls. A correctly batched count of 2 or more should use
+one scene draw call while all visible nodes remain in the view frustum.
+
+The frame-call timings measure JavaScript-to-WebAssembly engine work and GPU
+command submission, not completion of GPU work. Browser frame rate includes
+the browser's refresh limit and GPU execution. Record browser/version, GPU,
+canvas pixel dimensions, node count, scene draw calls, median and p95 when
+comparing devices or revisions; use the same browser, window size and power
+state for before/after comparisons. The current WebGL benchmark has no browser
+automation or GPU timer query, so its results are diagnostic rather than a
+cross-device performance claim.

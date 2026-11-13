@@ -107,8 +107,9 @@ Tests cover animation interpolation, skinning, and camera projection.
   for directional, point and spot shadow passes. Blended items retain their
   sorted order and draw individually. The CPU backend remains the reference
   path and does not instance. The viewer reports actual WebGL scene-pass draw
-  calls; add representative benchmarks for scene update, culling and draw
-  submission before selecting further optimisations.
+  calls. A repeated-mesh benchmark page reports draw calls, browser frame rate,
+  and engine-call median and p95; capture results across representative browser
+  and GPU configurations before selecting further optimisations.
 * Add render targets, post-processing, and a supported custom-shader interface.
 * Package and document the browser API, including lifecycle and errors; add
   examples and continuous browser tests. Add native asset loading when native
