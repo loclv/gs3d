@@ -55,8 +55,10 @@ same scene renders identically in a tab and on disk.
 ### View a textured model
 
 Run `./build_web.sh --viewer --serve` and open <http://localhost:8080/viewer/>.
-The viewer uses reusable mouse and touch controls from `web/orbit-controls.js`;
-their callback API and cleanup are documented in [assets.md](docs/assets.md).
+The viewer imports the asset loader and typed orbit controls through the
+`goose-3d-browser-assets` package subpaths, mapped to the local package files
+for this repository example. Their callback API and cleanup are documented in
+[assets.md](docs/assets.md).
 Drag to orbit, scroll to zoom, click the model to select a mesh, and use Reload
 to load and dispose it again. The selected material shows previews of its
 texture maps and updates when you switch variants. The bundled GLB uses the CC0 Ground Grey texture

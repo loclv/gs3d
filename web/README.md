@@ -44,9 +44,10 @@ canvas or viewer is removed.
 
 Run `npm test` in this directory to exercise asset parsing and lifecycle
 against a fake engine and the orbit controls against a fake canvas. Run
-`npm run test:build` from the repository's `web/` directory to check that the
-browser build exports every host function used by the asset helpers. These
-tests do not compile shaders or verify WebGL output.
+These tests do not compile shaders or verify WebGL output. From the repository
+checkout, run `node test_build_exports.mjs` to check the browser build's host
+exports and `node test_viewer_import_map.mjs` to check that the local viewer
+maps its public package imports to the checked-in helpers.
 
 `model.applyLights()` opts into the selected scene's `KHR_lights_punctual`
 lights. Its optional `pointShadow` and `spotShadow` values select one caster of

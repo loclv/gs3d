@@ -4,8 +4,7 @@
   "description": "Browser asset helpers and TypeScript declarations for Goose 3D",
   "type": "module",
   "scripts": {
-    "test": "node ./test_assets.mjs && node ./test_orbit_controls.mjs",
-    "test:build": "node ./test_build_exports.mjs"
+    "test": "node ./test_assets.mjs && node ./test_orbit_controls.mjs"
   },
   "exports": {
     ".": {

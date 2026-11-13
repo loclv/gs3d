@@ -202,10 +202,11 @@ Tests cover animation interpolation, skinning, and camera projection.
 * **Partly implemented:** the browser asset package documents loading, ownership,
   and errors. `npm test` runs parser and lifecycle checks against a fake engine,
   plus orbit-control input checks against a fake canvas through the published
-  package subpath; `npm run test:build` checks that the WebAssembly build
-  exports the host functions the helpers call. Publish the package, add more
-  runnable examples, and add continuous browser rendering tests. Add native
-  asset loading when native interactive applications are a target.
+  package subpath; the repository-only `test_build_exports.mjs` check verifies
+  that the WebAssembly build exports the host functions the helpers call.
+  Publish the package, add more runnable examples, and add continuous browser
+  rendering tests. Add native asset loading when native interactive
+  applications are a target.
 
 **Done when:** a documented benchmark demonstrates instancing and resource
 reuse, and published examples build and run through the supported API.

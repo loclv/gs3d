@@ -61,7 +61,7 @@ relative to the model URL. Resources require normal browser fetch/CORS access.
 The viewer's input controls can also be used independently of the viewer host:
 
 ```js
-import { createOrbitControls } from './orbit-controls.js';
+import { createOrbitControls } from 'goose-3d-browser-assets/orbit-controls';
 
 const controls = createOrbitControls(canvas, {
   onOrbit: (yawDelta, pitchDelta) => engine._g3_viewer_orbit(yawDelta, pitchDelta),
