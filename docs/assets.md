@@ -12,7 +12,7 @@ their declarations. Applications still build and initialize their own Goose
 WebAssembly engine before calling the helpers.
 
 ```js
-import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setEnvironmentRotation, setToneMapping, setFXAA, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
+import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setEnvironmentLighting, setEnvironmentRotation, setToneMapping, setFXAA, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
 
 try {
   setOutputColorSpace(engine, 'srgb'); // after engine startup
@@ -49,6 +49,7 @@ try {
   const environment = await loadHDRImage(engine, './studio.hdr');
   setEnvironmentMap(engine, environment, 0.8);
   setEnvironmentRotation(engine, Math.PI / 2); // rotate the equirectangular map around world up
+  setEnvironmentLighting(engine, [0.5, 0.7, 1.0], [0.12, 0.1, 0.08], 0.6);
   setToneMapping(engine, true);
   setExposure(engine, 1.0); // accepted range is 0–32
   // When no longer needed: setEnvironmentMap(engine, null); environment.dispose();
@@ -129,6 +130,10 @@ preserving its direct lights.
 `setEnvironmentRotation(engine, radians)` rotates the equirectangular
 environment around world up. It affects diffuse and reflection lookups, accepts
 finite radians, and leaves hemispherical sky/ground fill unchanged.
+`setEnvironmentLighting(engine, sky, ground, intensity)` sets additive diffuse
+hemisphere fill, with linear RGB triples for the sky and ground. Values above
+one preserve HDR lighting; a zero intensity disables this fill without clearing
+an equirectangular environment map.
 `model.setMaterialEnvironmentIntensity(index, value)` resolves a glTF material
 index (or `-1` for the implicit default material) through that model's checked
 handles and returns `false` after disposal or for an unknown index.

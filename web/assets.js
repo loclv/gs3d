@@ -175,6 +175,19 @@ export function setEnvironmentMap(engine, texture, intensity = 1) {
   engine._g3_asset_environment_map(id, intensity);
 }
 
+// Set diffuse sky/ground hemisphere fill. Linear RGB values above one support
+// HDR lighting; intensity scales both hemispheres.
+export function setEnvironmentLighting(engine, sky, ground, intensity = 1) {
+  const validColor = color => Array.isArray(color) && color.length === 3 &&
+    color.every(value => Number.isFinite(value) && value >= 0 && value <= 3.4e38);
+  if (!validColor(sky) || !validColor(ground) || !Number.isFinite(intensity) || intensity < 0 || intensity > 3.4e38) {
+    throw new AssetError('ENVIRONMENT', 'Expected non-negative finite linear RGB sky and ground colours and intensity');
+  }
+  if (!engine._g3_asset_environment_lighting(...sky, ...ground, intensity)) {
+    throw new AssetError('ENVIRONMENT', 'The engine rejected the hemispherical environment lighting');
+  }
+}
+
 // Rotate an equirectangular environment around world up, in radians.
 export function setEnvironmentRotation(engine, radians) {
   if (!Number.isFinite(radians) || Math.abs(radians) > 3.4e38) {

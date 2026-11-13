@@ -18,7 +18,7 @@ reference for rendering changes.
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for glTF/GLB meshes with shared static primitive uploads, `EXT_mesh_gpu_instancing`, selectable scenes and cameras, opt-in `KHR_lights_punctual`, WebP texture sources with fallback, quantized geometry, optional generated normals, vertex colours, materials, transform animations, dense and sparse accessors, and reusable asset-owned slots | Broader glTF extension coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
 | Materials | Shared glTF materials with `COLOR_0`, metallic-roughness, tangent-space normal, occlusion, emissive, specular, clearcoat, sheen and anisotropy maps, authored and morphed tangents, eight texture-coordinate sets, double-sided rendering, selectable `KHR_materials_variants`, per-material environment intensity, rotatable equirectangular environment maps, `KHR_materials_unlit`, `KHR_materials_ior`, `KHR_materials_clearcoat`, `KHR_materials_specular`, `KHR_materials_sheen`, `KHR_materials_anisotropy`, `KHR_materials_emissive_strength`, per-texture `KHR_texture_transform` on `TEXCOORD_0` through `_7`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and Reinhard/ACES tone mapping with exposure | Browser shader validation and reference images |
-| Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Browser reference validation |
+| Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, browser-controllable hemispherical fill, and rotatable RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL/TANGENT morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and representative deformation measurements; GPU morph targets fall back to CPU above 64 targets or device texture limits |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; asset-owned mesh descriptor reuse; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Shrinking grow-only backing arrays; ordinary mesh IDs remain permanent for compatibility |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection; package subpath with TypeScript declarations and fake-canvas interaction tests | Browser integration tests |
@@ -120,9 +120,8 @@ and a browser integration check for behavior exposed through WebGL.
   primitive handles plus default and variant material summaries; material
   summaries expose texture bindings and a bounded preview API, and the viewer
   displays maps for the selected material and variant. Its material selector
-  controls per-material environment intensity. The viewer can rotate its HDR
-  equirectangular environment around world up. Validate those paths in a real
-  browser.
+  controls per-material environment intensity, hemisphere fill intensity, and
+  HDR equirectangular environment yaw. Validate those paths in a real browser.
 
 **Done when:** a documented example loads a static textured GLB, orbits it,
 selects a mesh with a click, and repeatedly loads and disposes models without
@@ -151,6 +150,10 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
   backend composites in floating point; WebGL uses a floating-point render
   target when supported and has an inline fallback. Verify colour output
   against browser reference images.
+* **Implemented:** browser applications can set linear sky and ground RGB
+  hemisphere colours and intensity independently from the equirectangular map.
+  Inputs are checked for finite non-negative float32 values; verify the visual
+  result against browser reference images.
 
 **Done when:** representative glTF materials and a shadow-casting scene render
 with documented limitations in both backends, with pixel tests for lighting and

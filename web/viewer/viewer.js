@@ -1,6 +1,6 @@
 import createGoose3D from './app.js';
 import { fitToDisplay } from '../canvas.js';
-import { loadGLTF, setEnvironmentRotation } from 'goose-3d-browser-assets';
+import { loadGLTF, setEnvironmentLighting, setEnvironmentRotation } from 'goose-3d-browser-assets';
 import { createOrbitControls } from 'goose-3d-browser-assets/orbit-controls';
 
 const canvas = document.getElementById('canvas');
@@ -13,6 +13,8 @@ const environmentInput = document.getElementById('environment-intensity');
 const environmentValue = document.getElementById('environment-value');
 const rotationInput = document.getElementById('environment-rotation');
 const rotationValue = document.getElementById('environment-rotation-value');
+const hemisphereInput = document.getElementById('hemisphere-intensity');
+const hemisphereValue = document.getElementById('hemisphere-value');
 let engine, model, last = 0;
 let selectedPrimitive = null;
 let environmentIntensities = new Map();
@@ -110,6 +112,11 @@ async function start() {
       const degrees = Number(rotationInput.value);
       setEnvironmentRotation(engine, degrees * Math.PI / 180);
       rotationValue.value = `${degrees}°`;
+    });
+    hemisphereInput.addEventListener('input', () => {
+      const intensity = Number(hemisphereInput.value);
+      setEnvironmentLighting(engine, [0.32, 0.48, 0.72], [0.16, 0.12, 0.08], intensity);
+      hemisphereValue.value = intensity.toFixed(2);
     });
     variantSelect.addEventListener('change', () => {
       if (!model) return;

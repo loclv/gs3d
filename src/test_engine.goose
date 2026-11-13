@@ -711,9 +711,11 @@ fn case_lights() {
     testing::check(g3::material_set_environment_intensity(environment_material, 0.5) &&
                    !g3::material_set_environment_intensity(environment_material, -1.0),
                    "material environment intensity accepts non-negative factors only");
-    g3::set_environment(float3 { 0.0, 0.0, 1.0 }, float3 { 1.0, 0.0, 0.0 }, 1.0);
+    let hemisphere_valid = g3::set_environment(float3 { 0.0, 0.0, 1.0 }, float3 { 1.0, 0.0, 0.0 }, 1.0);
+    let negative_hemisphere_rejected = !g3::set_environment(float3 { -1.0, 0.0, 0.0 }, float3_0, 1.0);
     g3::frame(1.0 / 60.0);
-    testing::check(is_color(g3::read_pixel(200, 200), 64, 0, 64, 2), "material environment intensity scales hemispherical fill");
+    testing::check(hemisphere_valid && negative_hemisphere_rejected && is_color(g3::read_pixel(200, 200), 64, 0, 64, 2),
+                   "hemisphere lighting accepts finite non-negative HDR colours and rejects negatives");
     g3::set_environment(float3_0, float3_0, 0.0);
     let env_pixel: u8[4] = [64, 128, 192, 255];
     let env = g3::texture_create(1, 1, env_pixel[..]);

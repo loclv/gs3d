@@ -204,6 +204,14 @@ export function setEnvironmentMap(
   intensity?: number,
 ): void;
 
+/** Set linear RGB diffuse sky/ground fill; colour values above one support HDR lighting. */
+export function setEnvironmentLighting(
+  engine: Goose3DEngine,
+  sky: readonly [number, number, number],
+  ground: readonly [number, number, number],
+  intensity?: number,
+): void;
+
 /** Rotate an equirectangular environment around world up, in radians. */
 export function setEnvironmentRotation(engine: Goose3DEngine, radians: number): void;
 

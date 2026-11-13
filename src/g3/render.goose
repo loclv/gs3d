@@ -260,9 +260,13 @@ fn add_spot_light_physical(pos: float3, dir: float3, color: float3, range: f32, 
 }
 
 // Diffuse hemispherical environment: sky above, ground below; zero disables it.
-fn set_environment(sky: float3, ground: float3, intensity: f32) {
+fn set_environment(sky: float3, ground: float3, intensity: f32) -> bool {
+    guard intensity >= 0.0 && intensity <= 3.4e38 &&
+          sky.x >= 0.0 && sky.x <= 3.4e38 && sky.y >= 0.0 && sky.y <= 3.4e38 && sky.z >= 0.0 && sky.z <= 3.4e38 &&
+          ground.x >= 0.0 && ground.x <= 3.4e38 && ground.y >= 0.0 && ground.y <= 3.4e38 && ground.z >= 0.0 && ground.z <= 3.4e38 else { return false; }
     g_view_state.env_sky = float4 { sky.x, sky.y, sky.z, intensity };
     g_view_state.env_ground = float4 { ground.x, ground.y, ground.z, 0.0 };
+    return true;
 }
 
 // Equirectangular linear or HDR environment: diffuse lookup stays on the surface normal;
