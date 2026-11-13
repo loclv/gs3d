@@ -677,6 +677,12 @@ void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int3
     upload_texture_hdr(id,pixels,width,height);
 }
 
+/* Browser assets are fetched and decoded by web/assets.js. */
+uint8_t g3p_load_radiance_hdr(int32_t id, g3_u8_slice path) {
+    (void)id; (void)path;
+    return 0;
+}
+
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
     if (id < 0 || id >= texture_count || !textures[id] || wrap_u < 0 || wrap_u > 2 || wrap_v < 0 || wrap_v > 2) return;
     const GLint modes[3] = { GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT };

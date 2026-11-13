@@ -251,8 +251,9 @@ What the API gives you:
   Built-in meshes have UVs; custom meshes can use `push_vertex_uv`. Both
   backends support nearest, linear, and mipmapped filtering via
   `texture_set_filter`, and clamp, repeat, and mirrored repeat per axis via
-  `texture_set_wrap`. Uploading pixels resets those settings. Image decoding
-  belongs to the host; the game demonstrates browser-side decoding. Texture RGB
+  `texture_set_wrap`. Uploading pixels resets those settings. Raster image
+  decoding belongs to the host; Radiance HDR is supported by the native API and
+  browser asset loader. The game demonstrates browser-side decoding. Texture RGB
   multiplies the node colour. `node.alpha_mode` chooses colour-driven blending
   (0), an alpha cutoff (1), or blending (2). Masking and blending multiply
   texture alpha by node colour alpha; opaque items ignore texture alpha.
@@ -264,8 +265,9 @@ What the API gives you:
   multiplier (0–32). The CPU backend composites into a floating-point buffer;
   WebGL uses an RGBA16F target when floating-point color rendering and blending
   are available, and otherwise maps each fragment before blending. Tone mapping
-  works with HDR lighting values. `loadHDRImage` loads Radiance `.hdr`
-  environment maps in browser builds; native HDR image decoding is not included.
+  works with HDR lighting values. Browser projects can use `loadHDRImage`;
+  native projects can load the supported Radiance RGBE subset with
+  `texture_load_hdr(path)`.
 * **Nodes** — `node_add(mesh)`, `node_group()`, `node(id) -> Node&`,
   `node_parent(child, parent)`, `scene_clear()`, and `node_count()`. A node has
   position, euler rotation, scale, colour, `unlit`, `visible`, specular
@@ -415,8 +417,9 @@ Deliberately out of scope for now, in rough order of how much they would add:
 * **Partial PBR.** Shared materials support metallic-roughness factors and
   maps, tangent-space normal maps for surface shading, and occlusion maps for
   indirect fill, plus emissive factors and textures. GGX-prefiltered
-  environment lighting, ACES tone mapping, and exposure controls are available;
-  HDR environment image input and full colour management remain unimplemented.
+  environment lighting, ACES tone mapping, exposure controls, and Radiance
+  RGBE environment image loading are available. Full colour management remains
+  incomplete.
 * **Limited shadows, environment lighting, and normals.** The primary
   directional light, one selected extra point light, and one selected spot
   light cast shadows; PCF filtering has hard, 3×3, and 5×5 settings, and
@@ -424,8 +427,8 @@ Deliberately out of scope for now, in rough order of how much they would add:
   1024 pixels per face or spot map, directional shadows have explicit bounds,
   and shadow-enabled frames submit off-camera nodes so they can cast shadows.
   Environment textures provide diffuse fill and GGX-prefiltered reflections.
-  Images are currently RGB8, so HDR environment radiance and a skybox are not
-  available.
+  Browser and native Radiance RGBE loaders preserve HDR radiance; a skybox is
+  not available.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
 * **CPU skinning.** Browser glTF skins deform and upload full mesh geometry on

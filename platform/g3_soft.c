@@ -308,6 +308,91 @@ void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int3
                                    .min_filter = 9729, .mag_filter = 9729, .levels = 1 };
 }
 
+/* Load the browser loader's supported Radiance subset for native programs:
+   RGBE, canonical -Y +X orientation, and modern per-channel scanline RLE. */
+uint8_t g3p_load_radiance_hdr(int32_t id, g3_u8_slice path) {
+    if (id < 0 || !path.data || path.len <= 0 || path.len > 4096) return 0;
+    char filename[4097];
+    for (int64_t i = 0; i < path.len; i++) {
+        if (path.data[i] == 0) return 0;
+        filename[i] = (char)path.data[i];
+    }
+    filename[path.len] = 0;
+    FILE *file = fopen(filename, "rb");
+    if (!file) return 0;
+
+    char line[256];
+    int ok = fgets(line, sizeof(line), file) &&
+             (!strcmp(line, "#?RADIANCE\n") || !strcmp(line, "#?RADIANCE\r\n") ||
+              !strcmp(line, "#?RGBE\n") || !strcmp(line, "#?RGBE\r\n"));
+    int format_ok = 0;
+    while (ok && fgets(line, sizeof(line), file)) {
+        if (!strcmp(line, "\n") || !strcmp(line, "\r\n")) break;
+        if (!strcmp(line, "FORMAT=32-bit_rle_rgbe\n") ||
+            !strcmp(line, "FORMAT=32-bit_rle_rgbe\r\n")) format_ok = 1;
+    }
+    int width = 0, height = 0;
+    if (!ok || !format_ok || !fgets(line, sizeof(line), file) ||
+        sscanf(line, "-Y %d +X %d", &height, &width) != 2 ||
+        width <= 0 || height <= 0 || width > 16384 || height > 16384 ||
+        (int64_t)width * height > 16777216) {
+        fclose(file);
+        return 0;
+    }
+
+    size_t pixel_count = (size_t)width * (size_t)height;
+    uint8_t *rgbe = malloc(pixel_count * 4);
+    float *rgba = malloc(pixel_count * 4 * sizeof(float));
+    uint8_t *scanline = malloc((size_t)width * 4);
+    uint8_t *channel_data = malloc((size_t)width);
+    if (!rgbe || !rgba || !scanline || !channel_data) {
+        free(rgbe); free(rgba); free(scanline); free(channel_data); fclose(file); return 0;
+    }
+    for (int y = 0; y < height && ok; y++) {
+        uint8_t first[4];
+        if (fread(first, 1, 4, file) != 4) { ok = 0; break; }
+        if (width >= 8 && width <= 32767 && first[0] == 2 && first[1] == 2 &&
+            !(first[2] & 128) && (((int)first[2] << 8) | first[3]) == width) {
+            for (int channel = 0; channel < 4 && ok; channel++) {
+                int x = 0;
+                while (x < width) {
+                    int code = fgetc(file);
+                    if (code == EOF || code == 0) { ok = 0; break; }
+                    if (code > 128) {
+                        int count = code - 128, value = fgetc(file);
+                        if (value == EOF || count > width - x) { ok = 0; break; }
+                        for (int i = 0; i < count; i++) channel_data[x++] = (uint8_t)value;
+                    } else {
+                        int count = code;
+                        if (count > width - x || fread(channel_data + x, 1, (size_t)count, file) != (size_t)count) { ok = 0; break; }
+                        x += count;
+                    }
+                }
+                if (ok) for (int x = 0; x < width; x++) scanline[(size_t)x * 4 + channel] = channel_data[x];
+            }
+            if (ok) memcpy(rgbe + (size_t)y * width * 4, scanline, (size_t)width * 4);
+        } else {
+            memcpy(rgbe + (size_t)y * width * 4, first, 4);
+            if (width > 1 && fread(rgbe + (size_t)y * width * 4 + 4, 4, (size_t)width - 1, file) != (size_t)width - 1) ok = 0;
+        }
+    }
+    fclose(file);
+    if (ok) {
+        for (size_t i = 0; i < pixel_count; i++) {
+            const uint8_t *p = rgbe + i * 4;
+            float scale = p[3] ? ldexpf(1.0f, (int)p[3] - 136) : 0.0f;
+            rgba[i * 4] = ((float)p[0] + 0.5f) * scale;
+            rgba[i * 4 + 1] = ((float)p[1] + 0.5f) * scale;
+            rgba[i * 4 + 2] = ((float)p[2] + 0.5f) * scale;
+            rgba[i * 4 + 3] = 1.0f;
+        }
+        g3_f32_slice pixels = { rgba, (int64_t)pixel_count * 4 };
+        g3p_upload_texture_hdr(id, pixels, width, height);
+    }
+    free(rgbe); free(rgba); free(scanline); free(channel_data);
+    return (uint8_t)ok;
+}
+
 void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
     upload_texture(id, pixels, width, height, 0);
 }
@@ -546,7 +631,8 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     r += base[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w * env_scale * ao;
     g += base[1] * (vs->env_ground.y * (1.0f - sky) + vs->env_sky.y * sky) * vs->env_sky.w * env_scale * ao;
     b += base[2] * (vs->env_ground.z * (1.0f - sky) + vs->env_sky.z * sky) * vs->env_sky.w * env_scale * ao;
-    if (vs->environment_texture >= 0 && vs->environment_texture < texture_count && textures[vs->environment_texture].pixels) {
+    if (vs->environment_texture >= 0 && vs->environment_texture < texture_count &&
+        (textures[vs->environment_texture].pixels || textures[vs->environment_texture].hdr_pixels)) {
         float env[4];
         float y = n.y < -1.0f ? -1.0f : n.y > 1.0f ? 1.0f : n.y;
         sample_environment_lod(vs->environment_texture, atan2f(n.z, n.x) / 6.28318530718f + 0.5f,

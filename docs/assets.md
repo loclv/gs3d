@@ -109,6 +109,15 @@ if an upload fails it releases the resources already created. Browser graphics
 driver failures may still be reported separately through the backend's error
 mechanism.
 
+Native Goose programs can call `texture_load_hdr(path)` from `g3.texture` to
+load a Radiance `.hdr` file into the CPU backend. It accepts the same canonical
+`-Y +X` orientation and `32-bit_rle_rgbe` scanline RLE subset, up to
+16,777,216 pixels. The returned texture uses the ordinary `texture_handle`,
+`texture_remove`, and `set_environment_map` lifecycle. It returns `-1` for an
+unreadable file, unsupported header/orientation, malformed pixel data, or an
+invalid size. Browser programs should continue to use `loadHDRImage`, which
+fetches and decodes assets in JavaScript.
+
 ## Supported model subset
 
 * `.gltf` JSON and `.glb` version 2, with external, data-URI, or GLB binary

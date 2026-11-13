@@ -222,6 +222,25 @@ fn case_texture() {
     testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 3), "texture centre bilinearly mixes all four texels");
 }
 
+fn case_native_hdr_load() {
+    let hdr = g3::texture_load_hdr("testdata/radiance-white-8x1.hdr");
+    let handle = g3::texture_handle(hdr);
+    testing::check(hdr >= 0 && g3::texture_handle_valid(handle), "native Radiance HDR loader creates a live texture");
+    g3::scene_clear();
+    flat_camera();
+    g3::clear_lights();
+    g3::set_ambient(float3_0, 0.0);
+    g3::set_environment(float3_0, float3_0, 0.0);
+    let n .= g3::node(g3::node_add(g3::mesh_cube(1.0)));
+    n.spec = 0.0;
+    g3::set_environment_map(hdr, 0.5);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 254, 254, 254, 2), "native HDR RGBE values retain radiance in environment sampling");
+    g3::set_environment_map(-1, 0.0);
+    testing::check(g3::texture_remove(handle) && !g3::texture_handle_valid(handle), "native HDR texture follows ordinary texture removal lifecycle");
+    testing::check(g3::texture_load_hdr("testdata/missing.hdr") == -1, "native Radiance HDR loader reports missing files");
+}
+
 fn case_texture_alpha() {
     g3::scene_clear();
     flat_camera();
@@ -1119,6 +1138,7 @@ fn main() {
     case_culling();
     case_backface();
     case_texture();
+    case_native_hdr_load();
     case_texture_alpha();
     case_texture_wrap();
     case_texture_filter();

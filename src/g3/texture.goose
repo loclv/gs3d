@@ -62,6 +62,19 @@ fn texture_create_hdr(width: i32, height: i32, pixels: const f32[:]) -> i32 {
     return id;
 }
 
+// Native-only Radiance RGBE loader. Browser applications should use loadHDRImage.
+fn texture_load_hdr(path: const u8[:]) -> i32 {
+    guard path.len > 0 else { return -1; }
+    let id = g_texture_count;
+    g_texture_count += 1;
+    g_texture_slots.push(TextureSlot { .. });
+    if !g3p_load_radiance_hdr(id, path) {
+        g_texture_slots[id].removed = true;
+        return -1;
+    }
+    return id;
+}
+
 // New uploads start clamp-to-edge. Set wrapping after each upload.
 fn texture_set_wrap(id: i32, wrap_u: i32, wrap_v: i32) -> bool {
     guard texture_slot_live(id) && wrap_u >= 0 && wrap_u <= 2 && wrap_v >= 0 && wrap_v <= 2 else { return false; }

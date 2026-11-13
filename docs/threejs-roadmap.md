@@ -16,8 +16,8 @@ and pixel tests provide a useful reference for rendering changes.
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, and a browser loader for glTF/GLB meshes, materials and transform animations with reusable asset-owned slots | Complete glTF coverage, native loading, general resource ownership and fragmentation control; see [assets.md](assets.md) |
-| Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and ACES tone mapping with exposure | Browser reference validation, native HDR image decoding |
-| Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Native HDR environment decoding |
+| Materials | Shared glTF materials with metallic-roughness, tangent-space normal, occlusion and emissive maps, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and ACES tone mapping with exposure | Browser reference validation |
+| Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; CPU-deformed skins and morphs | GPU joint palettes and deformation performance |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and shrinking arena backing arrays |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit and pinch controls, viewer selection | Additional touch gestures, panning, keyboard camera controls, browser integration tests |
@@ -65,15 +65,14 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
   emissive maps, with per-triangle tangent frames derived from positions and UVs.
   Equirectangular maps add diffuse fill, GGX importance-sampled specular mips,
   and a split-sum BRDF integration LUT. ACES tone mapping, exposure controls,
-  and browser Radiance HDR environment loading are implemented; validate
-  browser references and add native HDR image decoding.
+  and browser/native Radiance HDR environment loading are implemented; validate
+  browser references.
 * **Implemented:** shadows from the primary directional light, one
   selected extra point light, and one selected spot light. Point shadows use a
   six-face cube map; spot shadows use a perspective map. Both backends use
   256, 512, or 1024-pixel maps, opaque and masked casters, and optional 3×3 or
   5×5 PCF. Equirectangular maps provide diffuse fill and GGX-prefiltered
-  reflections; browser Radiance RGBE images retain HDR radiance, while native
-  image decoding remains unsupported.
+  reflections; browser and native Radiance RGBE loading retain HDR radiance.
 * **Implemented:** ACES tone mapping with exposure controls and browser Radiance
   HDR environment image loading. The CPU backend composites in floating point;
   WebGL uses a floating-point render target when supported and has an inline
