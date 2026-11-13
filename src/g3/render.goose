@@ -191,6 +191,8 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         metallic_roughness_texture: surface.metallic_roughness_texture,
         normal_texture: surface.normal_texture,
         normal_scale: surface.normal_scale,
+        occlusion_texture: surface.occlusion_texture,
+        occlusion_strength: surface.occlusion_strength,
     };
 }
 

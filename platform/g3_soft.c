@@ -373,7 +373,7 @@ static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
 }
 
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
-                  const g3_vec3 wp, g3_vec3 n, const float tex[3], const float mr[4], float *out_rgb) {
+                  const g3_vec3 wp, g3_vec3 n, const float tex[3], const float mr[4], float ao, float *out_rgb) {
     float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 1e-12f) { n.x /= len; n.y /= len; n.z /= len; }
     else { n.x = n.y = n.z = 0.0f; }
@@ -397,34 +397,34 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
 
     float amb = vs->ambient.w;
     float visible = shadow_visibility(vs, wp);
-    float r = it->color.x * tex[0] * (vs->ambient.x * amb + vs->light_color.x * diff * visible) + vs->light_color.x * spec * visible;
-    float g = it->color.y * tex[1] * (vs->ambient.y * amb + vs->light_color.y * diff * visible) + vs->light_color.y * spec * visible;
-    float b = it->color.z * tex[2] * (vs->ambient.z * amb + vs->light_color.z * diff * visible) + vs->light_color.z * spec * visible;
+    float r = it->color.x * tex[0] * (vs->ambient.x * amb * ao + vs->light_color.x * diff * visible) + vs->light_color.x * spec * visible;
+    float g = it->color.y * tex[1] * (vs->ambient.y * amb * ao + vs->light_color.y * diff * visible) + vs->light_color.y * spec * visible;
+    float b = it->color.z * tex[2] * (vs->ambient.z * amb * ao + vs->light_color.z * diff * visible) + vs->light_color.z * spec * visible;
     float base[3] = { it->color.x * tex[0], it->color.y * tex[1], it->color.z * tex[2] };
     float metallic = it->pbr.y * mr[2], roughness = it->pbr.z * mr[1];
     if (it->pbr.x > 0.5f) {
         float brdf[3];
         pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, metallic, roughness, brdf);
         float diffuse = 1.0f - fmaxf(0.0f, fminf(metallic, 1.0f));
-        r = base[0]*vs->ambient.x*amb*diffuse + brdf[0]*vs->light_color.x*visible;
-        g = base[1]*vs->ambient.y*amb*diffuse + brdf[1]*vs->light_color.y*visible;
-        b = base[2]*vs->ambient.z*amb*diffuse + brdf[2]*vs->light_color.z*visible;
+        r = base[0]*vs->ambient.x*amb*diffuse*ao + brdf[0]*vs->light_color.x*visible;
+        g = base[1]*vs->ambient.y*amb*diffuse*ao + brdf[1]*vs->light_color.y*visible;
+        b = base[2]*vs->ambient.z*amb*diffuse*ao + brdf[2]*vs->light_color.z*visible;
     }
     float sky = n.y * 0.5f + 0.5f;
     float env_scale = it->pbr.x > 0.5f ? 1.0f - fmaxf(0.0f, fminf(metallic, 1.0f)) : 1.0f;
     if (sky < 0.0f) sky = 0.0f;
     if (sky > 1.0f) sky = 1.0f;
-    r += base[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w * env_scale;
-    g += base[1] * (vs->env_ground.y * (1.0f - sky) + vs->env_sky.y * sky) * vs->env_sky.w * env_scale;
-    b += base[2] * (vs->env_ground.z * (1.0f - sky) + vs->env_sky.z * sky) * vs->env_sky.w * env_scale;
+    r += base[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w * env_scale * ao;
+    g += base[1] * (vs->env_ground.y * (1.0f - sky) + vs->env_sky.y * sky) * vs->env_sky.w * env_scale * ao;
+    b += base[2] * (vs->env_ground.z * (1.0f - sky) + vs->env_sky.z * sky) * vs->env_sky.w * env_scale * ao;
     if (vs->environment_texture >= 0 && vs->environment_texture < texture_count && textures[vs->environment_texture].pixels) {
         float env[4];
         float y = n.y < -1.0f ? -1.0f : n.y > 1.0f ? 1.0f : n.y;
         sample_environment_lod(vs->environment_texture, atan2f(n.z, n.x) / 6.28318530718f + 0.5f,
                                acosf(y) / 3.14159265359f, 0.0f, env);
-        r += base[0] * env[0] * vs->environment_intensity * env_scale;
-        g += base[1] * env[1] * vs->environment_intensity * env_scale;
-        b += base[2] * env[2] * vs->environment_intensity * env_scale;
+        r += base[0] * env[0] * vs->environment_intensity * env_scale * ao;
+        g += base[1] * env[1] * vs->environment_intensity * env_scale * ao;
+        b += base[2] * env[2] * vs->environment_intensity * env_scale * ao;
         if (it->pbr.x > 0.5f) {
             float rx=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.x-vx;
             float ry=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.y-vy;
@@ -441,7 +441,7 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
                 float f0=0.04f*(1.0f-metal)+base[c]*metal;
                 float edge=fmaxf(1.0f-rough,f0);
                 float fresnel=f0+(edge-f0)*fresnel_weight;
-                float specular=reflected[c]*fresnel*vs->environment_intensity;
+                float specular=reflected[c]*fresnel*vs->environment_intensity*ao;
                 if (c==0) r+=specular; else if (c==1) g+=specular; else b+=specular;
             }
         }
@@ -881,7 +881,7 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             n.y = t->nrm[0][1] * b0 + t->nrm[1][1] * b1 + t->nrm[2][1] * b2;
             n.z = t->nrm[0][2] * b0 + t->nrm[1][2] * b1 + t->nrm[2][2] * b2;
 
-            float rgb[3], tex[4], mr[4] = { 1, 1, 1, 1 };
+            float rgb[3], tex[4], mr[4] = { 1, 1, 1, 1 }, ao = 1.0f;
             float u = t->uv[0][0] * b0 + t->uv[1][0] * b1 + t->uv[2][0] * b2;
             float v = t->uv[0][1] * b0 + t->uv[1][1] * b1 + t->uv[2][1] * b2;
             float nl=sqrtf(n.x*n.x+n.y*n.y+n.z*n.z);
@@ -918,9 +918,15 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
                 float mr_rho = texture_footprint(t, it->metallic_roughness_texture, l0, l1, l2, u, v);
                 sample_texture(it->metallic_roughness_texture, u, v, mr_rho, mr);
             }
+            if (it->occlusion_texture >= 0) {
+                float occlusion[4];
+                float ao_rho = texture_footprint(t, it->occlusion_texture, l0, l1, l2, u, v);
+                sample_texture(it->occlusion_texture, u, v, ao_rho, occlusion);
+                ao = 1.0f + it->occlusion_strength * (occlusion[0] - 1.0f);
+            }
             float alpha = it->color.w * tex[3];
             if (it->alpha_mode == 1 && alpha < it->alpha_cutoff) continue;
-            shade(it, vs, wp, n, tex, mr, rgb);
+            shade(it, vs, wp, n, tex, mr, ao, rgb);
             if (counting) shaded += 1;
             blend_pixel(fb + at * 3, rgb, alpha, blended);
             if (!blended) depth[at] = z;

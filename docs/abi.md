@@ -36,7 +36,7 @@ The procedural checklist lives in
 
 `float m[16]`, column-major: element `(row r, column c)` is `m[c*4 + r]`.
 
-### `g3_draw_item` — 208 bytes
+### `g3_draw_item` — 216 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -53,6 +53,8 @@ The procedural checklist lives in
 | 196 | `int32_t` | `metallic_roughness_texture` | linear data texture: G roughness, B metallic; -1 disables |
 | 200 | `int32_t` | `normal_texture` | linear tangent-space normal texture; -1 disables |
 | 204 | `float` | `normal_scale` | glTF normal scale applied to tangent-space X/Y |
+| 208 | `int32_t` | `occlusion_texture` | linear data texture: R ambient occlusion; -1 disables |
+| 212 | `float` | `occlusion_strength` | glTF strength blended between full and sampled occlusion |
 
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).

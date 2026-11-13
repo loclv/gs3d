@@ -103,6 +103,9 @@ mechanism.
   `TEXCOORD_0`. Positions and normals are required.
 * Opaque, masked and blended base-colour factors and base-colour textures.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
+  Occlusion textures use the glTF red channel and attenuate indirect ambient
+  and environment fill according to the material's `occlusionTexture.strength`;
+  direct lights remain unaffected.
   Metallic-roughness textures use the glTF B channel for metallic and G for
   roughness, uploaded as linear data. If one glTF texture is used for both
   base colour and metallic-roughness, the loader keeps separate sRGB and linear
@@ -121,12 +124,12 @@ mechanism.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
 skins, animations, morph targets, sparse accessors, non-triangle modes,
-double-sided materials, occlusion, emissive textures, and advanced
+double-sided materials, emissive textures, and advanced
 texture/sampler extensions. Tangent frames for normal maps are derived per
 triangle from positions and `TEXCOORD_0`; explicit glTF tangent attributes are
-not used, so mirrored UV seams can differ from MikkTSpace results. PBR is
-limited to direct lights and factors/maps; roughness is clamped to at least
-0.045.
+not used, so mirrored UV seams can differ from MikkTSpace results. Direct PBR
+lighting uses GGX; environment reflections use the documented mip/Fresnel
+approximation. Roughness is clamped to at least 0.045.
 Unsupported optional data may be
 ignored. Files needing these features require a fuller loader and renderer.
 

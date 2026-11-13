@@ -39,7 +39,7 @@ typedef struct {
     GLint mvp, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
     GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4];
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
-    GLint normal_tex, normal_textured, normal_scale;
+    GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint env_map, env_map_enabled, env_map_intensity;
     GLint shadow_map, shadow_matrix, shadow_params;
     GLint alpha_mode, alpha_cutoff;
@@ -99,6 +99,9 @@ static const char *FRAGMENT_SRC =
     "uniform sampler2D u_normal_tex;\n"
     "uniform bool u_normal_textured;\n"
     "uniform float u_normal_scale;\n"
+    "uniform sampler2D u_occlusion_tex;\n"
+    "uniform bool u_occlusion_textured;\n"
+    "uniform float u_occlusion_strength;\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform vec3 u_eye;\n"
@@ -162,6 +165,8 @@ static const char *FRAGMENT_SRC =
     "    float alpha = u_color.a * texel.a;\n"
     "    if (u_alpha_mode == 1 && alpha < u_alpha_cutoff) discard;\n"
     "    vec3 base = u_color.rgb * texel.rgb;\n"
+    "    float ao = 1.0;\n"
+    "    if (u_occlusion_textured) ao = 1.0 + u_occlusion_strength*(texture(u_occlusion_tex, v_uv).r-1.0);\n"
     "    vec2 mr = u_pbr.yz;\n"
     "    if (u_mr_textured) { vec4 packed_mr = texture(u_mr_tex, v_uv); mr *= packed_mr.bg; }\n"
     "    float visibility = 1.0;\n"
@@ -171,22 +176,22 @@ static const char *FRAGMENT_SRC =
     "        if (light_pos.w > 0.0 && all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThan(uvz.xy, vec2(1.0))) && uvz.z <= 1.0)\n"
     "            visibility = uvz.z - u_shadow_params.y <= texture(u_shadow_map, uvz.xy).r ? 1.0 : 0.0;\n"
     "    }\n"
-    "    vec3 col = base * (u_ambient.rgb * u_ambient.a + u_light_color * diff * visibility)\n"
+    "    vec3 col = base * (u_ambient.rgb * u_ambient.a * ao + u_light_color * diff * visibility)\n"
     "             + u_light_color * spec * visibility;\n"
     "    float env_scale = u_pbr.x > 0.5 ? 1.0-clamp(mr.x,0.0,1.0) : 1.0;\n"
-    "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale + pbr_light(n,v,l,base,mr.x,mr.y)*u_light_color*visibility;\n"
+    "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale*ao + pbr_light(n,v,l,base,mr.x,mr.y)*u_light_color*visibility;\n"
     "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
-    "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale;\n"
+    "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale * ao;\n"
     "    if (u_env_map_enabled) {\n"
     "        vec2 env_uv = vec2(atan(n.z, n.x) / 6.28318530718 + 0.5, acos(clamp(n.y, -1.0, 1.0)) / 3.14159265359);\n"
-    "        col += base * textureLod(u_env_map, env_uv, 0.0).rgb * u_env_map_intensity * env_scale;\n"
+    "        col += base * textureLod(u_env_map, env_uv, 0.0).rgb * u_env_map_intensity * env_scale * ao;\n"
     "        if (u_pbr.x > 0.5) {\n"
     "            vec3 reflected = reflect(-v, n);\n"
     "            vec2 spec_uv = vec2(atan(reflected.z, reflected.x) / 6.28318530718 + 0.5, acos(clamp(reflected.y, -1.0, 1.0)) / 3.14159265359);\n"
     "            float rough = clamp(mr.y, 0.045, 1.0);\n"
     "            vec3 f0 = mix(vec3(0.04), base, clamp(mr.x, 0.0, 1.0));\n"
     "            vec3 fresnel = f0 + (max(vec3(1.0-rough), f0)-f0)*pow(1.0-max(dot(n,v),0.0),5.0);\n"
-    "            col += textureLod(u_env_map, spec_uv, rough*rough*8.0).rgb * fresnel * u_env_map_intensity;\n"
+    "            col += textureLod(u_env_map, spec_uv, rough*rough*8.0).rgb * fresnel * u_env_map_intensity * ao;\n"
     "        }\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
@@ -270,6 +275,9 @@ static void find_uniforms(void) {
     shader.normal_tex = glGetUniformLocation(shader.program, "u_normal_tex");
     shader.normal_textured = glGetUniformLocation(shader.program, "u_normal_textured");
     shader.normal_scale = glGetUniformLocation(shader.program, "u_normal_scale");
+    shader.occlusion_tex = glGetUniformLocation(shader.program, "u_occlusion_tex");
+    shader.occlusion_textured = glGetUniformLocation(shader.program, "u_occlusion_textured");
+    shader.occlusion_strength = glGetUniformLocation(shader.program, "u_occlusion_strength");
     shader.eye = glGetUniformLocation(shader.program, "u_eye");
     shader.view_direction = glGetUniformLocation(shader.program, "u_view_direction");
     shader.light_dir = glGetUniformLocation(shader.program, "u_light_dir");
@@ -680,12 +688,21 @@ static void draw_item(const g3_draw_item *it) {
     glUniform1i(shader.mr_tex, 3);
     glUniform1i(shader.mr_textured, mr_textured);
 
+    /* Keep all shader samplers on separate units: base 0, environment 1,
+       shadow 2, metallic-roughness 3, normal 4, occlusion 5. */
     int normal_textured = it->normal_texture >= 0 && it->normal_texture < texture_count && textures[it->normal_texture];
-    glActiveTexture(GL_TEXTURE2);
+    glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, normal_textured ? textures[it->normal_texture] : 0);
-    glUniform1i(shader.normal_tex, 2);
+    glUniform1i(shader.normal_tex, 4);
     glUniform1i(shader.normal_textured, normal_textured);
     glUniform1f(shader.normal_scale, it->normal_scale);
+
+    int occlusion_textured = it->occlusion_texture >= 0 && it->occlusion_texture < texture_count && textures[it->occlusion_texture];
+    glActiveTexture(GL_TEXTURE5);
+    glBindTexture(GL_TEXTURE_2D, occlusion_textured ? textures[it->occlusion_texture] : 0);
+    glUniform1i(shader.occlusion_tex, 5);
+    glUniform1i(shader.occlusion_textured, occlusion_textured);
+    glUniform1f(shader.occlusion_strength, it->occlusion_strength);
 
     glBindVertexArray(m->vao);
     glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0);

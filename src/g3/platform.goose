@@ -40,6 +40,8 @@ struct DrawItem {
     metallic_roughness_texture: i32, // linear texture: G roughness, B metallic
     normal_texture: i32, // linear tangent-space normal texture, -1 disables
     normal_scale: f32,
+    occlusion_texture: i32, // linear data texture: R ambient occlusion
+    occlusion_strength: f32,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;
