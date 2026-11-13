@@ -162,7 +162,8 @@ shadow behavior and browser reference images for the GPU path.
   skin+morph meshes when both GPU uploads succeed. Retained CPU geometry stays
   synchronized for picking; unsupported target counts or failed uploads use
   CPU deformation. A local browser benchmark now measures `model.update()` and
-  engine frame times separately on a 64-target, 2,048-vertex GLB. Validate
+  engine frame times separately on 32 instances of a 64-target, 2,048-vertex
+  GLB, sharing one mesh and morph upload. Validate
   animated WebGL output and record measurements on
   representative characters and devices.
 * **Partly implemented:** selectable perspective and orthographic cameras have

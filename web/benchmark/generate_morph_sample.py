@@ -1,4 +1,4 @@
-"""Generate a high-poly, 64-target glTF animation benchmark asset."""
+"""Generate a 32-instance, high-poly 64-target glTF animation benchmark."""
 import json
 import math
 import pathlib
@@ -78,6 +78,14 @@ for key in range(len(times)):
     weights[key * TARGETS + key % TARGETS] = 1.0
 weight_view = append(floats(weights))
 weight_accessor = accessor(weight_view, 5126, len(weights), "SCALAR")
+instance_translations = [
+    (column * 1.5 - 5.25, row * 1.5 - 2.25, 0.0)
+    for row in range(4) for column in range(8)
+]
+translation_view = append(floats([value for translation in instance_translations for value in translation]))
+translation_accessor = accessor(translation_view, 5126, len(instance_translations), "VEC3")
+scale_view = append(floats([0.45] * (len(instance_translations) * 3)))
+scale_accessor = accessor(scale_view, 5126, len(instance_translations), "VEC3")
 
 doc = {
     "asset": {"version": "2.0", "generator": "goose-3d morph benchmark generator"},
@@ -88,7 +96,11 @@ doc = {
         "attributes": {"POSITION": position_accessor, "NORMAL": normal_accessor, "TEXCOORD_0": uv_accessor},
         "indices": index_accessor, "material": 0, "targets": targets,
     }]}],
-    "nodes": [{"mesh": 0, "weights": [0.0] * TARGETS}],
+    "extensionsUsed": ["EXT_mesh_gpu_instancing"],
+    "nodes": [{"mesh": 0, "weights": [0.0] * TARGETS,
+               "extensions": {"EXT_mesh_gpu_instancing": {"attributes": {
+                   "TRANSLATION": translation_accessor, "SCALE": scale_accessor,
+               }}}}],
     "scenes": [{"nodes": [0]}], "scene": 0,
     "animations": [{"name": "Morph Sweep", "samplers": [{"input": time_accessor, "output": weight_accessor}],
                     "channels": [{"sampler": 0, "target": {"node": 0, "path": "weights"}}]}],
@@ -102,4 +114,4 @@ glb = (struct.pack("<III", 0x46546C67, 2, total) +
        struct.pack("<II", len(json_data), 0x4E4F534A) + json_data +
        struct.pack("<II", len(binary), 0x004E4942) + binary)
 (HERE / "morph-benchmark.glb").write_bytes(glb)
-print(f"wrote morph-benchmark.glb ({len(glb)} bytes, {len(vertices) // 3} vertices, {TARGETS} targets)")
+print(f"wrote morph-benchmark.glb ({len(glb)} bytes, {len(vertices) // 3} vertices, {TARGETS} targets, {len(instance_translations)} instances)")

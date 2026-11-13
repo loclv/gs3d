@@ -1376,7 +1376,7 @@ morphBenchmarkEngine._g3_host_mesh_morph = (_id, _positions, _normals, _tangents
 };
 const morphBenchmarkModel = await loadGLTF(morphBenchmarkEngine, 'http://localhost/morph-benchmark.glb');
 assert.deepEqual(morphBenchmarkUploads, [[2048, 64]], 'the animation benchmark uploads its full morph target set once');
-assert.equal(morphBenchmarkModel.nodes[0].primitives.length, 1, 'the benchmark creates one GPU-deformed morph mesh');
+assert.equal(morphBenchmarkModel.nodes[0].primitives.length, 32, 'the benchmark creates 32 instances of its shared GPU-deformed morph mesh');
 assert.equal(morphBenchmarkModel.playAnimation(0), true);
 const morphWeightUploadsBefore = morphWeightUploadCount();
 morphBenchmarkModel.update(0.125);
