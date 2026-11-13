@@ -21,6 +21,7 @@ import g3.render;
 import g3.engine;
 import g3.texture;
 import g3.gltf_native;
+import json;
 import g3.picking;
 import testing;
 
@@ -305,6 +306,19 @@ fn case_native_hdr_load() {
 fn case_native_glb_load() {
     g3::scene_clear();
     flat_camera();
+    var transform_doc: json::Node[>..] = [];
+    var transform_decoded: u8[>..] = [];
+    let transform_root, transform_error = json::parse("{\"nodes\":[{\"translation\":[10,0,0],\"children\":[1]},{\"translation\":[0,2,0],\"children\":[2]},{\"translation\":[0,0,3]}]}", transform_doc, transform_decoded);
+    let world, world_ok = g3::glb_node_world_matrix(transform_root, 2);
+    testing::check(transform_root && transform_error.len == 0 && world_ok &&
+                   world.m[12] == 10.0 && world.m[13] == 2.0 && world.m[14] == 3.0,
+                   "native GLB node transforms compose through the complete parent chain");
+    var invalid_doc: json::Node[>..] = [];
+    var invalid_decoded: u8[>..] = [];
+    let invalid_root, invalid_error = json::parse("{\"nodes\":[{\"children\":[2]},{\"children\":[2]},{\"translation\":[0,0,1]}]}", invalid_doc, invalid_decoded);
+    let invalid_world, invalid_ok = g3::glb_node_world_matrix(invalid_root, 2);
+    testing::check(invalid_root && invalid_error.len == 0 && !invalid_ok,
+                   "native GLB rejects nodes with multiple parents");
     let model, loaded = g3::native_glb_load_primitive("web/viewer/sample.glb", 0, 0);
     let live = loaded && g3::mesh_handle_valid(model.mesh) && g3::node_handle_valid(model.node) &&
                g3::material_handle_valid(model.material) && g3::node(model.node.index).material == model.material.id;

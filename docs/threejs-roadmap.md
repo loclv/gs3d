@@ -77,9 +77,10 @@ and a browser integration check for behavior exposed through WebGL.
   falls back to the core source when fetching or decoding WebP fails.
 * **Partly implemented:** native Goose programs can load and dispose one static
   primitive from a GLB, including float vertex attributes, triangle indices,
-  the first matching node's local transform, and scalar material factors and
-  flags. Material textures, images, hierarchy, animations, sparse data, and
-  external `.gltf` buffers remain browser-only.
+  the first matching node's world transform composed through its ancestors,
+  and scalar material factors and flags. Material textures, images, full node
+  hierarchy, animations, sparse data, and external `.gltf` buffers remain
+  browser-only.
 * **Implemented:** glTF `doubleSided` materials disable face culling in colour
   and shadow passes and reverse back-face normals before colour lighting.
   Validate these paths against browser reference images.

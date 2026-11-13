@@ -78,13 +78,14 @@ g3::native_glb_dispose(model);
 
 The loader supports float32 `POSITION`, `NORMAL`, and optional `TEXCOORD_0`
 attributes, triangle primitives, and unsigned 8-, 16-, or 32-bit indices. It
-applies the first node instance's local matrix or TRS transform. It imports
+applies the first matching node instance's matrix or TRS transform composed
+with its ancestors. It imports
 material base colour, metallic and roughness factors, emissive factor, alpha
 mode and cutoff, and the double-sided flag. `NativeGlbModel` owns checked mesh,
 node, and material handles; dispose the model to release them. It does not yet
 load material textures, images, external `.gltf` buffers, skins, animations,
-sparse accessors, or parent transforms. Browser applications should use the
-broader `web/assets.js` loader.
+sparse accessors, or the full node hierarchy. Browser applications should use
+the broader `web/assets.js` loader.
 
 The viewer's input controls can also be used independently of the viewer host:
 

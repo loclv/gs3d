@@ -219,6 +219,36 @@ fn glb_matrix(node: json::Node?) -> Mat4, bool {
     return out, true;
 }
 
+// Compose the local transform of a node with every parent up to its root.
+// The depth bound rejects cycles, and the parent table rejects duplicate links.
+fn glb_node_world_matrix(root: json::Node?, node_index: i64) -> Mat4, bool {
+    let nodes = json::member(root, "nodes");
+    let count = glb_array_count(nodes);
+    guard node_index >= 0 && node_index < count else { return mat4_identity(), false; }
+    var parents: i64[>..] = [];
+    for _ in 0..count { parents.push(-1); }
+    for i in 0..count {
+        let children = json::member(glb_json_element(nodes, i), "children");
+        for j in 0..glb_array_count(children) {
+            let child, ok = glb_json_index(glb_json_element(children, j));
+            guard ok && child >= 0 && child < count && parents[child] < 0 else { return mat4_identity(), false; }
+            parents[child] = i;
+        }
+    }
+    var current = node_index;
+    var world = mat4_identity();
+    var depth: i64 = 0;
+    while current >= 0 && depth < count {
+        let local, local_ok = glb_matrix(glb_json_element(nodes, current));
+        guard local_ok else { return mat4_identity(), false; }
+        world = mat4_mul(local, world);
+        current = parents[current];
+        depth += 1;
+    }
+    guard current < 0 else { return mat4_identity(), false; }
+    return world, true;
+}
+
 // Load one selected static primitive from an embedded-binary glTF 2.0 GLB.
 // Supports float32 POSITION/NORMAL/TEXCOORD_0, TRIANGLES, and u8/u16/u32
 // indices and scalar/factor materials; skins, animation, sparse accessors,
@@ -302,7 +332,7 @@ fn native_glb_load_primitive(path: const u8[:], mesh_index: i64, primitive_index
         let node_mesh = json::member(candidate, "mesh");
         if node_mesh {
             let id, ok = glb_json_index(node_mesh);
-            if ok && id == mesh_index { let matrix, valid = glb_matrix(candidate); guard valid else { return NativeGlbModel { .. }, false; } transform = matrix; break; }
+            if ok && id == mesh_index { let matrix, valid = glb_node_world_matrix(root, i); guard valid else { return NativeGlbModel { .. }, false; } transform = matrix; break; }
         }
     }
     let imported_material, material_ok = glb_material(root, primitive);
