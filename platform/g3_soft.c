@@ -723,6 +723,9 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
 
     float amb = vs->ambient.w;
     float visible = shadow_visibility(vs, wp);
+    float coat_factor = fmaxf(0.0f, fminf(it->clearcoat.x, 1.0f));
+    float coat_roughness = fmaxf(0.045f, fminf(it->clearcoat.y, 1.0f));
+    float coat[3] = {0.0f, 0.0f, 0.0f};
     float base[3] = { it->color.x * vertex_color[0] * tex[0], it->color.y * vertex_color[1] * tex[1], it->color.z * vertex_color[2] * tex[2] };
     float r = base[0] * (vs->ambient.x * amb * ao + vs->light_color.x * diff * visible) + vs->light_color.x * spec * visible;
     float g = base[1] * (vs->ambient.y * amb * ao + vs->light_color.y * diff * visible) + vs->light_color.y * spec * visible;
@@ -731,6 +734,11 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     if (it->pbr.x > 0.5f) {
         float brdf[3];
         pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, metallic, roughness, it->pbr.w, specular_strength, specular_color, brdf);
+        if (coat_factor > 0.0f) {
+            float layer[3];
+            pbr_light(n,(g3_vec3){vx,vy,vz},(g3_vec3){lx,ly,lz},(float[3]){0,0,0},0.0f,coat_roughness,1.5f,1.0f,(float[3]){1,1,1},layer);
+            for (int c=0;c<3;c++) coat[c] += layer[c]*(c==0?vs->light_color.x:c==1?vs->light_color.y:vs->light_color.z)*visible*coat_factor;
+        }
         float metal = fmaxf(0.0f, fminf(metallic, 1.0f));
         float diffuse = 1.0f-metal;
         r = base[0]*vs->ambient.x*amb*diffuse*ao + brdf[0]*vs->light_color.x*visible;
@@ -775,6 +783,14 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
                 float specular=reflected[c]*(f0*brdf_a+brdf_b)*strength*vs->environment_intensity*ao;
                 if (c==0) r+=specular; else if (c==1) g+=specular; else b+=specular;
             }
+            if (coat_factor > 0.0f) {
+                float coat_rough=fmaxf(0.045f,fminf(coat_roughness,1.0f));
+                float coat_lod=coat_rough*(float)max_lod, coat_reflected[4], coat_a, coat_b;
+                sample_environment_lod(vs->environment_texture,atan2f(rz,rx)/6.28318530718f+0.5f,
+                                       acosf(ryc)/3.14159265359f,coat_lod,coat_reflected);
+                sample_brdf_lut(nv,coat_rough,&coat_a,&coat_b);
+                for(int c=0;c<3;c++) coat[c]+=coat_reflected[c]*(0.04f*coat_a+coat_b)*vs->environment_intensity*ao*coat_factor;
+            }
         }
     }
     int count = vs->light_count < 0 ? 0 : vs->light_count > 4 ? 4 : vs->light_count;
@@ -814,6 +830,13 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
             float brdf[3];
             pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){ex,ey,ez}, base, metallic, roughness, it->pbr.w, specular_strength, specular_color, brdf);
             r += brdf[0]*light->color.x*falloff; g += brdf[1]*light->color.y*falloff; b += brdf[2]*light->color.z*falloff;
+            if (coat_factor > 0.0f) {
+                float layer[3];
+                pbr_light(n,(g3_vec3){vx,vy,vz},(g3_vec3){ex,ey,ez},(float[3]){0,0,0},0.0f,coat_roughness,1.5f,1.0f,(float[3]){1,1,1},layer);
+                coat[0]+=layer[0]*light->color.x*falloff*coat_factor;
+                coat[1]+=layer[1]*light->color.y*falloff*coat_factor;
+                coat[2]+=layer[2]*light->color.z*falloff*coat_factor;
+            }
         } else {
             r += (base[0] * d + s) * light->color.x * falloff;
             g += (base[1] * d + s) * light->color.y * falloff;
@@ -822,6 +845,9 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     }
     if (it->params.x > 0.5f) { r = base[0]; g = base[1]; b = base[2]; }
     r += emission[0]; g += emission[1]; b += emission[2];
+    float coat_fresnel=0.04f+0.96f*powf(1.0f-fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f),5.0f);
+    float coat_attenuation=1.0f-coat_factor*coat_fresnel;
+    r=r*coat_attenuation+coat[0]; g=g*coat_attenuation+coat[1]; b=b*coat_attenuation+coat[2];
 
     float fog = 1.0f - expf(-vl * vs->fog.w);
     if (fog < 0.0f) fog = 0.0f;

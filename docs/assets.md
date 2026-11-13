@@ -137,7 +137,8 @@ driver failures may still be reported separately through the backend's error
 mechanism.
 
 The glTF loader supports `KHR_materials_unlit`, `KHR_materials_ior`,
-`KHR_materials_specular`, `KHR_materials_emissive_strength`, and per-texture
+`KHR_materials_specular`, the factor-only subset of `KHR_materials_clearcoat`,
+`KHR_materials_emissive_strength`, and per-texture
 `KHR_texture_transform` on `TEXCOORD_0` through `TEXCOORD_7`. Unlit selects
 the engine's unlit material path;
 emissive strength multiplies the material's `emissiveFactor` before the
@@ -213,6 +214,9 @@ fetches and decodes assets in JavaScript.
   RGB map to dielectric F0. The colour factor may exceed 1; resulting F0 is
   clamped to 1. Metallic specular response remains driven by base colour. Both
   texture slots support independent `KHR_texture_transform` settings.
+  Clearcoat factors add a dielectric top layer to direct and environment
+  specular lighting and attenuate the base layer by view-angle Fresnel.
+  Clearcoat textures and the clearcoat normal map are not supported yet.
   `KHR_materials_emissive_strength` scales `emissiveFactor`, including values
   above 1 for HDR emission.
   `KHR_materials_variants` exposes its names on the loaded model. Call

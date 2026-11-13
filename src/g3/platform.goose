@@ -58,6 +58,7 @@ struct DrawItem {
     specular_color_texture: i32, // sRGB RGB controls dielectric F0 colour
     specular_uv: UvTransform,
     specular_color_uv: UvTransform,
+    clearcoat: float4, // x factor, y roughness; z/w reserved
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

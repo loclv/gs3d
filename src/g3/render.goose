@@ -421,6 +421,7 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         specular_color_texture: surface.specular_color_texture,
         specular_uv: surface.specular_uv,
         specular_color_uv: surface.specular_color_uv,
+        clearcoat: float4 { surface.clearcoat_factor, surface.clearcoat_roughness, 0.0, 0.0 },
     };
 }
 

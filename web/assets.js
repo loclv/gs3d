@@ -535,11 +535,12 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
   const material = materialIndex === undefined ? {} : item(doc.materials, materialIndex, 'material');
   if (material.name !== undefined && typeof material.name !== 'string') invalid('Invalid material name');
   let unlit = false, emissiveStrength = 1, ior = 1.5;
+  let clearcoatFactor = 0, clearcoatRoughness = 0;
   let specularFactor = 1, specularColorFactor = [1, 1, 1], specularExtension = null;
   if (material.extensions !== undefined) {
     if (!material.extensions || typeof material.extensions !== 'object' || Array.isArray(material.extensions)) invalid('Invalid material extensions');
     const materialExtensions = Object.keys(material.extensions);
-    if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular'].includes(extension))) unsupported('Unsupported material feature');
+    if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat'].includes(extension))) unsupported('Unsupported material feature');
     if (materialExtensions.includes('KHR_materials_unlit')) {
       if (!extensionsUsed.includes('KHR_materials_unlit')) invalid('KHR_materials_unlit must be listed in extensionsUsed');
       const extension = material.extensions.KHR_materials_unlit;
@@ -570,6 +571,16 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
       if (!Array.isArray(specularColorFactor) || specularColorFactor.length !== 3 ||
           !specularColorFactor.every(value => Number.isFinite(value) && value >= 0)) invalid('Invalid specular color factor');
       if (unlit) invalid('KHR_materials_specular cannot be combined with KHR_materials_unlit');
+    }
+    if (materialExtensions.includes('KHR_materials_clearcoat')) {
+      if (!extensionsUsed.includes('KHR_materials_clearcoat')) invalid('KHR_materials_clearcoat must be listed in extensionsUsed');
+      const extension = material.extensions.KHR_materials_clearcoat;
+      if (!extension || typeof extension !== 'object' || Array.isArray(extension)) invalid('Invalid KHR_materials_clearcoat extension');
+      clearcoatFactor = extension.clearcoatFactor ?? 0;
+      clearcoatRoughness = extension.clearcoatRoughnessFactor ?? 0;
+      if (![clearcoatFactor, clearcoatRoughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid clearcoat factor');
+      if (extension.clearcoatTexture || extension.clearcoatRoughnessTexture || extension.clearcoatNormalTexture) unsupported('KHR_materials_clearcoat textures are not supported yet');
+      if (unlit) invalid('KHR_materials_clearcoat cannot be combined with KHR_materials_unlit');
     }
   }
   if (material.doubleSided !== undefined && typeof material.doubleSided !== 'boolean') invalid('Invalid doubleSided material flag');
@@ -643,7 +654,7 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
     normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
     emissive: emissive.map(value => value * emissiveStrength), emissiveTextureIndex,
     doubleSided: material.doubleSided ?? false, unlit, ior, specularFactor, specularColorFactor,
-    specularTextureIndex, specularColorTextureIndex,
+    specularTextureIndex, specularColorTextureIndex, clearcoatFactor, clearcoatRoughness,
     uvTransforms: [baseUvTransform, metallicRoughnessUvTransform, normalUvTransform, occlusionUvTransform,
       emissiveUvTransform, specularUvTransform, specularColorUvTransform], materialIndex: materialIndex ?? -1 };
 }
@@ -664,6 +675,7 @@ function inspectMaterial(spec) {
     emissiveFactor: Object.freeze([...spec.emissive]), doubleSided: spec.doubleSided,
     unlit: spec.unlit, ior: spec.ior, specularFactor: spec.specularFactor,
     specularColorFactor: Object.freeze([...spec.specularColorFactor]),
+    clearcoatFactor: spec.clearcoatFactor, clearcoatRoughnessFactor: spec.clearcoatRoughness,
     textureSlots: Object.freeze(textureSlots),
   });
 }
@@ -702,7 +714,7 @@ async function prepare(url, requestedScene) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   if (doc.extensions !== undefined && (!doc.extensions || typeof doc.extensions !== 'object' || Array.isArray(doc.extensions))) invalid('Invalid glTF extensions');
   const variantExtension = doc.extensions?.KHR_materials_variants;
@@ -1214,6 +1226,9 @@ export async function loadGLTF(engine, url, options = {}) {
       if (!engine._g3_asset_material_specular(id, spec.specularFactor, ...spec.specularColorFactor,
         getTexture(spec.specularTextureIndex, false), getTexture(spec.specularColorTextureIndex, true))) {
         throw new AssetError('UPLOAD', 'Could not set material specular properties');
+      }
+      if (!engine._g3_asset_material_clearcoat(id, spec.clearcoatFactor, spec.clearcoatRoughness)) {
+        throw new AssetError('UPLOAD', 'Could not set material clearcoat properties');
       }
       for (let slot = 0; slot < spec.uvTransforms.length; slot++) {
         const transform = spec.uvTransforms[slot];

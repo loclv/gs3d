@@ -77,6 +77,8 @@ struct Material {
     specular_color_texture: i32 = -1,
     specular_uv: g3::UvTransform = g3::UvTransform { scale: float2 { 1.0, 1.0 }, .. },
     specular_color_uv: g3::UvTransform = g3::UvTransform { scale: float2 { 1.0, 1.0 }, .. },
+    clearcoat_factor: f32,
+    clearcoat_roughness: f32,
     removed: bool,
     asset_owned: bool,
     generation: i32 = 1,

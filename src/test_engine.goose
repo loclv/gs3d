@@ -1217,6 +1217,13 @@ fn case_pbr() {
     g3::material(mat).color = float4 { 0.5, 0.5, 0.5, 1.0 };
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 20, 20, 20, 2), "PBR dielectric matches normal-incidence GGX calculation");
+    // At normal incidence, clearcoat F0=0.04 adds a roughness-0.5 GGX
+    // highlight (0.04 * D * V * 0.5 = 0.0255) and attenuates the base by 0.96.
+    g3::material(mat).clearcoat_factor = 1.0;
+    g3::material(mat).clearcoat_roughness = 0.5;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 26, 26, 26, 2), "clearcoat adds a GGX top layer and Fresnel attenuates the base");
+    g3::material(mat).clearcoat_factor = 0.0;
     // At IOR 2.333, dielectric F0 is about 0.16. For roughness 1 the
     // normal-incidence response is 0.5 * (0.84*0.5/pi + 0.16/(4*pi))
     // = 0.0732, or 19/255.

@@ -317,6 +317,7 @@ function fakeEngine() {
   engine.materialGenerations = materialGenerations;
   engine._g3_asset_material = (...args) => { const id = nextMaterial++; materialGenerations.set(id, 1); calls.push(['material', id, ...args]); return id; };
   engine._g3_asset_material_specular = (...args) => { calls.push(['material_specular', ...args]); return true; };
+  engine._g3_asset_material_clearcoat = (...args) => { calls.push(['material_clearcoat', ...args]); return true; };
   engine._g3_asset_material_uv_transform = (...args) => { calls.push(['material_uv_transform', ...args]); return true; };
   engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); const id = nextMesh++; meshGenerations.set(id, 1); return id; };
   engine._g3_host_mesh_update = (id, positions, normals, tangents, count) => {
@@ -442,7 +443,8 @@ assert.deepEqual(inspectedPrimitive.variants, [{
   index: 0, name: 'Blue', material: {
     index: 1, name: 'Blue paint', baseColorFactor: [0, 0, 1, 1], metallicFactor: 0.4,
     roughnessFactor: 0.2, alphaMode: 'OPAQUE', alphaCutoff: 0.5, emissiveFactor: [0, 0, 0],
-    doubleSided: false, unlit: false, ior: 1.5, specularFactor: 1, specularColorFactor: [1, 1, 1], textureSlots: [],
+    doubleSided: false, unlit: false, ior: 1.5, specularFactor: 1, specularColorFactor: [1, 1, 1],
+    clearcoatFactor: 0, clearcoatRoughnessFactor: 0, textureSlots: [],
   },
 }], 'primitive inspection includes default factors and mapped variant material metadata');
 assert.equal(variantModel.activeVariant, -1);
@@ -543,6 +545,19 @@ assert.equal(specularEngine.calls.find(call => call[0] === 'material_uv_transfor
 assert.equal(specularEngine.calls.filter(call => call[0] === 'texture').length, 1, 'specular strength texture uploads as linear data');
 assert.equal(specularEngine.calls.filter(call => call[0] === 'texture_srgb').length, 1, 'specular color shares its sRGB upload with base color');
 specularModel.dispose();
+const clearcoatDoc = structuredClone(doc);
+clearcoatDoc.extensionsUsed = ['KHR_materials_clearcoat'];
+clearcoatDoc.extensionsRequired = ['KHR_materials_clearcoat'];
+clearcoatDoc.materials[0].extensions = { KHR_materials_clearcoat: { clearcoatFactor: 0.7, clearcoatRoughnessFactor: 0.25 } };
+resources.set('http://localhost/clearcoat.gltf', bytes(clearcoatDoc));
+const clearcoatEngine = fakeEngine(), clearcoatModel = await loadGLTF(clearcoatEngine, 'http://localhost/clearcoat.gltf');
+assert.deepEqual(clearcoatEngine.calls.find(call => call[0] === 'material_clearcoat'), ['material_clearcoat', 1, 0.7, 0.25]);
+assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.clearcoatFactor, 0.7);
+assert.equal(clearcoatModel.nodes[0].primitiveMaterials[0].default.clearcoatRoughnessFactor, 0.25);
+clearcoatModel.dispose();
+clearcoatDoc.materials[0].extensions.KHR_materials_clearcoat.clearcoatTexture = { index: 0 };
+resources.set('http://localhost/clearcoat-texture.gltf', bytes(clearcoatDoc));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/clearcoat-texture.gltf'), e => e.code === 'UNSUPPORTED');
 specularDoc.materials[0].extensions.KHR_materials_specular.specularFactor = 1.1;
 resources.set('http://localhost/invalid-specular-factor.gltf', bytes(specularDoc));
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/invalid-specular-factor.gltf'), e => e.code === 'INVALID_GLTF');

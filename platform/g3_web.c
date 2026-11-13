@@ -86,6 +86,7 @@ typedef struct {
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
     GLint specular, specular_tex, specular_textured, specular_color_tex, specular_color_textured;
+    GLint clearcoat;
     GLint uv_transform[7], uv_rotation[7], uv_set[7];
     GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
@@ -270,6 +271,7 @@ static const char *FRAGMENT_SRC =
     "uniform sampler2D u_emissive_tex;\n"
     "uniform bool u_emissive_textured;\n"
     "uniform vec4 u_specular;\n"
+    "uniform vec4 u_clearcoat;\n"
     "uniform sampler2D u_specular_tex;\n"
     "uniform bool u_specular_textured;\n"
     "uniform sampler2D u_specular_color_tex;\n"
@@ -387,6 +389,9 @@ static const char *FRAGMENT_SRC =
     "    vec3 dielectric = clamp(vec3(dielectric_f0(u_pbr.w))*specular_color,0.0,1.0);\n"
     "    vec3 f0 = mix(dielectric,base,metal);\n"
     "    float specular_weight = mix(clamp(specular_strength,0.0,1.0),1.0,metal);\n"
+    "    float coat_factor = clamp(u_clearcoat.x,0.0,1.0);\n"
+    "    float coat_roughness = clamp(u_clearcoat.y,0.045,1.0);\n"
+    "    float coat_fresnel = 0.04 + 0.96*pow(1.0-max(dot(n,v),0.0),5.0);\n"
     "    float visibility = 1.0;\n"
     "    if (u_shadow_params.x > 0.5) {\n"
     "        vec4 light_pos = u_shadow_matrix * vec4(v_world, 1.0);\n"
@@ -400,6 +405,7 @@ static const char *FRAGMENT_SRC =
     "            visibility = sum / max(count,1.0);\n"
     "        }\n"
     "    }\n"
+    "    vec3 coat = pbr_light(n,v,l,vec3(0.0),0.0,coat_roughness,1.5,1.0,vec3(1.0))*u_light_color*visibility*coat_factor;\n"
     "    vec3 col = base * (u_ambient.rgb * u_ambient.a * ao + u_light_color * diff * visibility)\n"
     "             + u_light_color * spec * visibility;\n"
     "    float env_scale = u_pbr.x > 0.5 ? 1.0-metal : 1.0;\n"
@@ -415,6 +421,8 @@ static const char *FRAGMENT_SRC =
     "            float rough = clamp(mr.y, 0.045, 1.0);\n"
     "            vec2 brdf = texture(u_brdf_lut, vec2(max(dot(n,v),0.0),rough)).rg;\n"
     "            col += textureLod(u_env_map, spec_uv, rough*u_env_map_max_lod).rgb * (f0*brdf.x+vec3(brdf.y)) * specular_weight * u_env_map_intensity * ao;\n"
+    "            vec2 coat_brdf = texture(u_brdf_lut, vec2(max(dot(n,v),0.0),coat_roughness)).rg;\n"
+    "            coat += textureLod(u_env_map, spec_uv, coat_roughness*u_env_map_max_lod).rgb * (vec3(0.04*coat_brdf.x+coat_brdf.y)) * u_env_map_intensity * ao * coat_factor;\n"
     "        }\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
@@ -463,10 +471,12 @@ static const char *FRAGMENT_SRC =
     "        vec3 halfdir = normalize(ld + v);\n"
     "        float s = pow(max(dot(n, halfdir), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
     "        col += (u_pbr.x > 0.5 ? pbr_light(n,v,ld,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
+    "        if (u_pbr.x > 0.5 && coat_factor > 0.0) coat += pbr_light(n,v,ld,vec3(0.0),0.0,coat_roughness,1.5,1.0,vec3(1.0))*light.color.rgb*falloff*coat_factor;\n"
     "    }\n"
     "    if (u_params.x > 0.5) col = base;\n"
     "    vec3 emissive_texel = u_emissive_textured ? texture(u_emissive_tex, emissive_uv).rgb : vec3(1.0);\n"
     "    col += u_emissive.rgb * emissive_texel;\n"
+    "    col = col*(1.0-coat_factor*coat_fresnel)+coat;\n"
     "    float dist = length(u_eye - v_world);\n"
     "    float fog = clamp(1.0 - exp(-dist * u_fog.a), 0.0, 1.0);\n"
     "    col = mix(col, u_fog.rgb, fog);\n"
@@ -541,6 +551,7 @@ static void find_uniforms(void) {
     shader.specular_textured = glGetUniformLocation(shader.program, "u_specular_textured");
     shader.specular_color_tex = glGetUniformLocation(shader.program, "u_specular_color_tex");
     shader.specular_color_textured = glGetUniformLocation(shader.program, "u_specular_color_textured");
+    shader.clearcoat = glGetUniformLocation(shader.program, "u_clearcoat");
     for (int i = 0; i < 7; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_uv_transform[%d]", i); shader.uv_transform[i] = glGetUniformLocation(shader.program, name);
@@ -1724,6 +1735,7 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform4f(shader.emissive, it->emissive.x, it->emissive.y, it->emissive.z, it->emissive.w);
 
     glUniform4f(shader.specular, it->specular.x, it->specular.y, it->specular.z, it->specular.w);
+    glUniform4f(shader.clearcoat, it->clearcoat.x, it->clearcoat.y, 0.0f, 0.0f);
     int specular_textured = it->specular_texture >= 0 && it->specular_texture < texture_count && textures[it->specular_texture];
     glActiveTexture(GL_TEXTURE14);
     glBindTexture(GL_TEXTURE_2D, specular_textured ? textures[it->specular_texture] : 0);
