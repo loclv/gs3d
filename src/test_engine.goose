@@ -719,6 +719,17 @@ fn case_lights() {
     let bounded = first_reuse == second_reuse && g3::asset_light_set_release(second_reuse);
     testing::check(bounded, "released asset light snapshots reuse their descriptor slots");
     g3::clear_lights();
+    let original_point = g3::add_point_light(float3_0, float3_1, 5.0);
+    let original_shadow = g3::set_point_light_shadows(0, 0.001);
+    let shadow_lease = g3::asset_light_set_begin();
+    let imported_spot = g3::add_spot_light_physical(float3_0, float3 { 0.0, 0.0, -1.0 }, float3_1, 5.0, 0.1, 0.2);
+    let imported_shadow = g3::set_spot_light_shadows(0, 0.002);
+    let shadows_restored = g3::asset_light_set_release(shadow_lease);
+    testing::check(original_point && original_shadow && imported_spot && imported_shadow && shadows_restored &&
+                   g3::g_view_state.light_count == 1 && g3::g_view_state.point_shadow_light_index == 0 &&
+                   g3::g_view_state.spot_shadow_light_index == -1 && g3::g_view_state.point_shadow_params.x > 0.5,
+                   "disposing imported lights restores the prior point shadow and clears the imported spot shadow");
+    g3::clear_lights();
 }
 
 fn case_shadow() {
