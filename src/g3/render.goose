@@ -56,6 +56,21 @@ let POST_PROCESS_MAX_PASSES = 8;
 struct QueuedPostProcessPass { source: i32, destination: i32, effect: i32, shader: i32 = -1 }
 var g_post_process_queue: QueuedPostProcessPass[>..];
 
+// Asset light sets are temporary overlays. The saved chain lets models be
+// disposed in any order without resurrecting lights from an already disposed
+// model when a newer overlay is later removed.
+struct SavedLightSet {
+    previous: i32,
+    removed: bool,
+    children: i32,
+    lights: Light[4],
+    count: i32,
+    point_view_proj: Mat4[6], point_index: i32, point_params: float4,
+    spot_view_proj: Mat4, spot_index: i32, spot_params: float4,
+}
+var g_saved_light_sets: SavedLightSet[>..];
+var g_active_light_set: i32 = -1;
+
 // --- the frame's constants
 
 fn set_light(dir: float3, color: float3) {
@@ -69,6 +84,60 @@ fn set_light(dir: float3, color: float3) {
 
 // The original directional light is independent of these four extra lights.
 fn clear_lights() { g_view_state.light_count = 0; clear_point_light_shadows(); clear_spot_light_shadows(); }
+
+fn asset_light_set_begin() -> i32 {
+    var id: i32 = -1;
+    for i in 0..g_saved_light_sets.len {
+        if g_saved_light_sets[i].removed && g_saved_light_sets[i].children == 0 { id = i as i32; break; }
+    }
+    if id < 0 {
+        g_saved_light_sets.push(SavedLightSet { previous: g_active_light_set, removed: false, children: 0,
+        lights: g_view_state.lights, count: g_view_state.light_count,
+        point_view_proj: g_view_state.point_shadow_view_proj,
+        point_index: g_view_state.point_shadow_light_index, point_params: g_view_state.point_shadow_params,
+        spot_view_proj: g_view_state.spot_shadow_view_proj, spot_index: g_view_state.spot_shadow_light_index,
+        spot_params: g_view_state.spot_shadow_params });
+        id = (g_saved_light_sets.len - 1) as i32;
+    } else {
+        g_saved_light_sets[id] = SavedLightSet { previous: g_active_light_set, removed: false, children: 0,
+            lights: g_view_state.lights, count: g_view_state.light_count,
+            point_view_proj: g_view_state.point_shadow_view_proj,
+            point_index: g_view_state.point_shadow_light_index, point_params: g_view_state.point_shadow_params,
+            spot_view_proj: g_view_state.spot_shadow_view_proj, spot_index: g_view_state.spot_shadow_light_index,
+            spot_params: g_view_state.spot_shadow_params };
+    }
+    if g_active_light_set >= 0 { g_saved_light_sets[g_active_light_set].children += 1; }
+    g_active_light_set = id;
+    clear_lights();
+    return id;
+}
+
+fn asset_light_set_active() -> i32 { return g_active_light_set; }
+fn asset_light_set_clear() { clear_lights(); }
+
+fn asset_light_set_release(id: i32) -> bool {
+    guard id >= 0 && id < g_saved_light_sets.len && !g_saved_light_sets[id].removed else { return false; }
+    g_saved_light_sets[id].removed = true;
+    if g_active_light_set != id { return true; }
+    var releasing = id;
+    var done = false;
+    while !done {
+        let saved = g_saved_light_sets[releasing];
+        g_view_state.light_count = saved.count;
+        for i in 0..4 { g_view_state.lights[i] = saved.lights[i]; }
+        for i in 0..6 { g_view_state.point_shadow_view_proj[i] = saved.point_view_proj[i]; }
+        g_view_state.point_shadow_light_index = saved.point_index;
+        g_view_state.point_shadow_params = saved.point_params;
+        g_view_state.spot_shadow_view_proj = saved.spot_view_proj;
+        g_view_state.spot_shadow_light_index = saved.spot_index;
+        g_view_state.spot_shadow_params = saved.spot_params;
+        let previous = saved.previous;
+        if previous >= 0 { g_saved_light_sets[previous].children -= 1; }
+        if previous >= 0 && g_saved_light_sets[previous].removed { releasing = previous; }
+        else { g_active_light_set = previous; done = true; }
+    }
+    return true;
+}
 
 fn add_directional_light(dir: float3, color: float3) -> bool {
     guard length(dir) > 0.0 && g_view_state.light_count < 4 else { return false; }

@@ -45,6 +45,24 @@ resources.set('http://localhost/cameras.gltf', bytes(cameraDoc));
 const badCameraDoc = structuredClone(cameraDoc);
 badCameraDoc.cameras[0].perspective.yfov = 0;
 resources.set('http://localhost/bad-camera.gltf', bytes(badCameraDoc));
+const punctualDoc = structuredClone(doc);
+punctualDoc.extensionsUsed = ['KHR_lights_punctual'];
+punctualDoc.extensions = { KHR_lights_punctual: { lights: [
+  { name: 'Sun', type: 'directional', color: [1, 0.5, 0.25], intensity: 2 },
+  { name: 'Lamp', type: 'point', color: [0.25, 0.5, 1], intensity: 3 },
+  { name: 'Spot', type: 'spot', range: 15, spot: { innerConeAngle: 0.1, outerConeAngle: 0.6 } },
+] } };
+punctualDoc.nodes = [
+  { translation: [0, 1, 0], extensions: { KHR_lights_punctual: { light: 0 } } },
+  { translation: [2, 3, 4], extensions: { KHR_lights_punctual: { light: 1 } } },
+  { translation: [0, 0, 5], extensions: { KHR_lights_punctual: { light: 2 } } },
+];
+punctualDoc.scenes = [{ nodes: [0, 1, 2] }];
+resources.set('http://localhost/punctual.gltf', bytes(punctualDoc));
+const tooManyLightsDoc = structuredClone(punctualDoc);
+tooManyLightsDoc.nodes.push({ extensions: { KHR_lights_punctual: { light: 0 } } }, { extensions: { KHR_lights_punctual: { light: 1 } } });
+tooManyLightsDoc.scenes[0].nodes.push(3, 4);
+resources.set('http://localhost/too-many-lights.gltf', bytes(tooManyLightsDoc));
 const variantDoc = structuredClone(doc);
 variantDoc.extensionsUsed = ['KHR_materials_variants'];
 variantDoc.extensionsRequired = ['KHR_materials_variants'];
@@ -237,9 +255,9 @@ for (const [name, expected] of [
   sparseModel.dispose();
 }
 const quantizedEngine = fakeEngine(), quantizedModel = await loadGLTF(quantizedEngine, 'http://localhost/quantized.gltf');
-assert.deepEqual(quantizedModel.nodes.map(({ index, name, parent, children, mesh, skin }) => ({ index, name, parent, children, mesh, skin })), [
-  { index: 0, name: 'Quantized root', parent: null, children: [1], mesh: 0, camera: null, skin: null },
-  { index: 1, name: 'Marker', parent: 0, children: [], mesh: null, camera: null, skin: null },
+assert.deepEqual(quantizedModel.nodes.map(({ index, name, parent, children, mesh, camera, light, skin }) => ({ index, name, parent, children, mesh, camera, light, skin })), [
+  { index: 0, name: 'Quantized root', parent: null, children: [1], mesh: 0, camera: null, light: null, skin: null },
+  { index: 1, name: 'Marker', parent: 0, children: [], mesh: null, camera: null, light: null, skin: null },
 ], 'model inspection lists the selected scene hierarchy with mesh and skin references');
 assert.ok(isNodeHandleValid(quantizedEngine, quantizedModel.nodes[0].handle), 'inspected node metadata carries a checked node handle');
 assert.equal(quantizedModel.nodes[0].primitives.length, 1, 'node inspection exposes handles for each mesh primitive');
@@ -374,6 +392,30 @@ function fakeEngine() {
   engine._g3_asset_camera_active = () => engine.activeCamera;
   engine._g3_asset_camera_select = id => { calls.push(['camera_select', id]); engine.activeCamera = id; return true; };
   engine._g3_asset_camera_remove = id => { calls.push(['camera_remove', id]); if (engine.activeCamera === id) engine.activeCamera = -1; return true; };
+  let nextLightLease = 0;
+  const lightSets = new Map();
+  engine.activeLightSet = -1;
+  engine.activeLights = [];
+  engine._g3_asset_lights_begin = () => {
+    const id = nextLightLease++;
+    lightSets.set(id, { previous: engine.activeLightSet, removed: false, previousLights: [...engine.activeLights] });
+    engine.activeLightSet = id; engine.activeLights = []; calls.push(['lights_begin', id]); return id;
+  };
+  engine._g3_asset_lights_active = () => engine.activeLightSet;
+  engine._g3_asset_lights_clear = () => { engine.activeLights = []; calls.push(['lights_clear']); };
+  engine._g3_asset_lights_release = id => {
+    const state = lightSets.get(id); if (!state || state.removed) return false;
+    state.removed = true; calls.push(['lights_release', id]);
+    if (engine.activeLightSet === id) {
+      let restore = id, previous = state.previous;
+      while (previous >= 0 && lightSets.get(previous)?.removed) { restore = previous; previous = lightSets.get(previous).previous; }
+      engine.activeLightSet = previous; engine.activeLights = [...lightSets.get(restore).previousLights];
+    }
+    return true;
+  };
+  for (const [name, args] of [['directional', 6], ['point', 7], ['spot', 12]]) engine[`_g3_asset_light_${name}`] = (...values) => {
+    calls.push([`light_${name}`, ...values]); engine.activeLights.push([name, ...values]); return values.length === args;
+  };
   engine._g3_asset_node_generation = id => generations.get(id) || 0;
   engine._g3_asset_node_valid = (id, generation, epoch) => epoch === (engine.epoch || 0) && generations.get(id) === generation;
   engine._g3_asset_node_release = (id, generation, epoch) => {
@@ -404,6 +446,30 @@ assert.equal(cameraModel.activeCamera, -1);
 cameraModel.dispose();
 assert.equal(cameraEngine.calls.some(call => call[0] === 'camera_remove' && call[1] === 10), true);
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/bad-camera.gltf'), error => error.code === 'INVALID_GLTF');
+const punctualEngine = fakeEngine(), punctualModel = await loadGLTF(punctualEngine, 'http://localhost/punctual.gltf');
+assert.equal(punctualEngine.activeLightSet, -1, 'loading light metadata does not change the scene light set');
+assert.deepEqual(punctualModel.lights.map(({ index, name, type, node, intensity, range, effectiveRange }) => ({ index, name, type, node, intensity, range, effectiveRange })), [
+  { index: 0, name: 'Sun', type: 'directional', node: 0, intensity: 2, range: null, effectiveRange: null },
+  { index: 1, name: 'Lamp', type: 'point', node: 1, intensity: 3, range: null, effectiveRange: 1000 },
+  { index: 2, name: 'Spot', type: 'spot', node: 2, intensity: 1, range: 15, effectiveRange: 15 },
+]);
+assert.equal(punctualModel.applyLights(), true);
+assert.deepEqual(punctualEngine.calls.find(call => call[0] === 'light_directional'), ['light_directional', 0, 0, -1, 2, 1, 0.5]);
+assert.deepEqual(punctualEngine.calls.find(call => call[0] === 'light_point'), ['light_point', 2, 3, 4, 0.75, 1.5, 3, 1000]);
+assert.deepEqual(punctualEngine.calls.find(call => call[0] === 'light_spot'), ['light_spot', 0, 0, 5, 0, 0, -1, 1, 1, 1, 15, 0.1, 0.6]);
+assert.equal(punctualModel.lightsApplied, true);
+punctualModel.dispose();
+assert.equal(punctualEngine.activeLightSet, -1, 'disposing an applied light set restores the previous engine state');
+const laterLightEngine = fakeEngine();
+const earlierLightModel = await loadGLTF(laterLightEngine, 'http://localhost/punctual.gltf');
+const laterLightModel = await loadGLTF(laterLightEngine, 'http://localhost/punctual.gltf');
+assert.equal(earlierLightModel.applyLights(), true);
+assert.equal(laterLightModel.applyLights(), true);
+earlierLightModel.dispose();
+laterLightModel.dispose();
+assert.equal(laterLightEngine.activeLightSet, -1, 'disposing nested models restores the original light set without reviving a disposed model');
+assert.equal(laterLightEngine.activeLights.length, 0);
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/too-many-lights.gltf'), error => error.code === 'UNSUPPORTED');
 
 function enableFakeGpuMorph(engine, { upload = true, skin = true } = {}) {
   engine._g3_host_mesh_morph = (id, positionsPtr, normalsPtr, tangentsPtr, vertexCount, targetCount) => {

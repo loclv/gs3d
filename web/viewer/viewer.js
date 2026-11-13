@@ -71,10 +71,12 @@ async function loadModel() {
     variantSelect.replaceChildren(new Option('Default materials', '-1'));
     for (const [index, name] of model.variants.entries()) variantSelect.add(new Option(name, String(index)));
     variantSelect.disabled = model.variants.length === 0;
+    const lightStatus = model.lights.length === 0 ? '' : model.applyLights()
+      ? ` ${model.lights.length} imported lights active.` : ' Could not apply imported lights.';
     if (model.animations.length) {
       model.playAnimation(0);
-      status.textContent = `Playing ${model.animations[0].name}. Click a face to select it.`;
-    } else status.textContent = 'Model loaded. Click a face to select it.';
+      status.textContent = `Playing ${model.animations[0].name}.${lightStatus} Click a face to select it.`;
+    } else status.textContent = `Model loaded.${lightStatus} Click a face to select it.`;
   } catch (error) { status.textContent = `Could not load model: ${error.message}`; }
   finally { reload.disabled = false; }
 }

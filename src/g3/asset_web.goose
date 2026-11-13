@@ -146,3 +146,17 @@ export fn g3_asset_camera_update(id: i32, px: f32, py: f32, pz: f32, tx: f32, ty
 }
 export fn g3_asset_camera_select(id: i32) -> bool { return g3::camera_select(id); }
 export fn g3_asset_camera_remove(id: i32) -> bool { return g3::camera_remove(id); }
+export fn g3_asset_lights_begin() -> i32 { return g3::asset_light_set_begin(); }
+export fn g3_asset_lights_active() -> i32 { return g3::asset_light_set_active(); }
+export fn g3_asset_lights_clear() { g3::asset_light_set_clear(); }
+export fn g3_asset_lights_release(id: i32) -> bool { return g3::asset_light_set_release(id); }
+export fn g3_asset_light_directional(dx: f32, dy: f32, dz: f32, r: f32, g: f32, b: f32) -> bool {
+    return g3::add_directional_light(float3 { dx, dy, dz }, float3 { r, g, b });
+}
+export fn g3_asset_light_point(px: f32, py: f32, pz: f32, r: f32, g: f32, b: f32, range: f32) -> bool {
+    return g3::add_point_light(float3 { px, py, pz }, float3 { r, g, b }, range);
+}
+export fn g3_asset_light_spot(px: f32, py: f32, pz: f32, dx: f32, dy: f32, dz: f32,
+                              r: f32, g: f32, b: f32, range: f32, inner: f32, outer: f32) -> bool {
+    return g3::add_spot_light(float3 { px, py, pz }, float3 { dx, dy, dz }, float3 { r, g, b }, range, inner, outer);
+}

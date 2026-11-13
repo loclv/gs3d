@@ -26,7 +26,9 @@ try {
   }
   // model.sceneIndex identifies the loaded scene; roots contains its checked node handles.
   // model.nodes exposes selected-scene glTF indices, names, parent/child links,
-  // mesh/skin references, a checked transform-group handle, and each primitive handle.
+  // mesh/camera/light/skin references, a checked group handle, and primitive handles.
+  // If the document contains KHR_lights_punctual, model.applyLights() opts into them;
+  // model.dispose() restores the previous engine light set.
   // model.variants lists KHR_materials_variants names; model.setVariant('Damaged') switches materials.
   // model.setVariant(null) restores each primitive's default material.
   // model.pick(canvas, event.clientX, event.clientY) returns a handle or null.
@@ -184,6 +186,15 @@ fetches and decodes assets in JavaScript.
   uses the canvas aspect ratio; orthographic height comes from `ymag`, while
   `xmag` and perspective `aspectRatio` do not lock the projection to a fixed
   aspect ratio.
+* `KHR_lights_punctual` directional, point and spot light instances in the
+  selected scene. Loading only exposes metadata; call `model.applyLights()` to
+  replace the engine's four extra lights, and `model.clearLights()` or
+  `model.dispose()` to restore the previous set. Active imported lights follow
+  animated node transforms when `model.update()` advances an animation. The
+  engine's finite quadratic range attenuation differs from glTF's physical
+  attenuation; a source light without `range` uses an effective 1000-unit
+  range. The primary engine directional light and environment lighting are
+  unchanged, and imported lights do not automatically cast shadows.
 * `KHR_mesh_quantization` supports signed and unsigned 8-bit or 16-bit positions
   and texture coordinates, plus normalized signed 8-bit or 16-bit normals and
   tangents. Morph position deltas also accept signed quantized values; morph

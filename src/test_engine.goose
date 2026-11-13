@@ -684,6 +684,24 @@ fn case_lights() {
     testing::check(is_color(g3::read_pixel(200, 200), 32, 64, 96, 2), "environment map contributes its sampled colour");
     g3::set_environment_map(-1, 0.0);
     testing::check(!g3::add_point_light(float3_0, float3_1, 0.0), "invalid light range is rejected");
+
+    g3::clear_lights();
+    g3::add_directional_light(float3 { 0.0, 0.0, -1.0 }, float3 { 0.125, 0.0, 0.0 });
+    let first = g3::asset_light_set_begin();
+    g3::add_point_light(float3_0, float3 { 0.0, 0.25, 0.0 }, 5.0);
+    let second = g3::asset_light_set_begin();
+    g3::add_spot_light(float3_0, float3 { 0.0, 0.0, -1.0 }, float3 { 0.0, 0.0, 0.5 }, 5.0, 0.1, 0.2);
+    let removed_earlier = g3::asset_light_set_release(first);
+    let restored_original = g3::asset_light_set_release(second);
+    testing::check(removed_earlier && restored_original && g3::g_view_state.light_count == 1 &&
+                   g3::g_view_state.lights[0].position.w == 0.0 && g3::g_view_state.lights[0].color.x == 0.125,
+                   "out-of-order asset light disposal restores the original set, not a disposed overlay");
+    let first_reuse = g3::asset_light_set_begin();
+    g3::asset_light_set_release(first_reuse);
+    let second_reuse = g3::asset_light_set_begin();
+    let bounded = first_reuse == second_reuse && g3::asset_light_set_release(second_reuse);
+    testing::check(bounded, "released asset light snapshots reuse their descriptor slots");
+    g3::clear_lights();
 }
 
 fn case_shadow() {

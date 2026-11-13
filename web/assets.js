@@ -742,7 +742,7 @@ async function prepare(url, requestedScene) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization', 'KHR_lights_punctual'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   if (doc.extensions !== undefined && (!doc.extensions || typeof doc.extensions !== 'object' || Array.isArray(doc.extensions))) invalid('Invalid glTF extensions');
   const variantExtension = doc.extensions?.KHR_materials_variants;
@@ -751,6 +751,32 @@ async function prepare(url, requestedScene) {
   const variantNames = (variantExtension?.variants ?? []).map((variant, index) => {
     if (!variant || typeof variant !== 'object' || Array.isArray(variant) || (variant.name !== undefined && typeof variant.name !== 'string')) invalid('Invalid material variant');
     return variant.name ?? `Variant ${index}`;
+  });
+  const punctualExtension = doc.extensions?.KHR_lights_punctual;
+  if (extensionsUsed.includes('KHR_lights_punctual') !== (punctualExtension !== undefined)) invalid('KHR_lights_punctual declaration does not match its extension data');
+  if (punctualExtension !== undefined && (!punctualExtension || typeof punctualExtension !== 'object' || Array.isArray(punctualExtension) || !Array.isArray(punctualExtension.lights))) invalid('Invalid KHR_lights_punctual extension');
+  const lightDefinitions = (punctualExtension?.lights ?? []).map((light, index) => {
+    if (!light || typeof light !== 'object' || Array.isArray(light)) invalid(`Invalid punctual light ${index}`);
+    if (light.extensions) unsupported('Punctual light extensions are not supported');
+    if (light.name !== undefined && typeof light.name !== 'string') invalid(`Invalid punctual light name ${index}`);
+    const color = light.color ?? [1, 1, 1], intensity = light.intensity ?? 1;
+    if (!Array.isArray(color) || color.length !== 3 || !color.every(value => Number.isFinite(value) && value >= 0 && value <= 1) ||
+        !Number.isFinite(intensity) || intensity < 0 || intensity > 3.4e38 ||
+        color.some(value => !Number.isFinite(value * intensity) || value * intensity > 3.4e38)) invalid(`Invalid punctual light colour or intensity ${index}`);
+    const range = light.range ?? 1000;
+    if (light.range !== undefined && (!Number.isFinite(range) || !(range > 0) || range > 3.4e38)) invalid(`Invalid punctual light range ${index}`);
+    if (light.type === 'directional') return { index, name: light.name ?? null, type: 'directional', color: [...color], intensity, range: null, effectiveRange: null, inner: 0, outer: 0 };
+    if (light.type === 'point') return { index, name: light.name ?? null, type: 'point', color: [...color], intensity, range: light.range ?? null, effectiveRange: range, inner: 0, outer: 0 };
+    if (light.type === 'spot') {
+      const inner = light.spot?.innerConeAngle ?? 0, outer = light.spot?.outerConeAngle ?? Math.PI / 4;
+      if (!light.spot || typeof light.spot !== 'object' || Array.isArray(light.spot) ||
+          !Number.isFinite(inner) || inner < 0 || !Number.isFinite(outer) || !(outer > 0 && outer <= Math.PI / 2) || inner > outer) invalid(`Invalid spot light ${index}`);
+      const supportedOuter = Math.max(outer, 1e-6), supportedInner = Math.min(inner, supportedOuter * 0.999);
+      return { index, name: light.name ?? null, type: 'spot', color: [...color], intensity, range: light.range ?? null, effectiveRange: range,
+        inner: light.spot.innerConeAngle ?? 0, outer: light.spot.outerConeAngle ?? Math.PI / 4,
+        engineInner: supportedInner, engineOuter: supportedOuter };
+    }
+    invalid(`Invalid punctual light type ${index}`);
   });
   const bufferDefinitions = doc.buffers ?? [];
   if (!Array.isArray(bufferDefinitions)) invalid('Invalid glTF buffers');
@@ -964,12 +990,24 @@ async function prepare(url, requestedScene) {
   const scene = item(doc.scenes, sceneIndex, 'scene');
   if (scene.nodes !== undefined && !Array.isArray(scene.nodes)) invalid('Invalid scene roots');
   const roots = scene.nodes || [];
-  const seen = new Set(), usedSkinIndices = new Set();
+  const seen = new Set(), usedSkinIndices = new Set(), lightInstances = [];
   function visit(index, depth) {
     if (depth > 63 || seen.has(index)) invalid('Invalid or overly deep node hierarchy');
     seen.add(index);
     const n = item(nodes, index, 'node');
-    if (n.extensions) unsupported('Unsupported node feature');
+    if (n.extensions !== undefined) {
+      if (!n.extensions || typeof n.extensions !== 'object' || Array.isArray(n.extensions)) invalid('Invalid node extensions');
+      const names = Object.keys(n.extensions);
+      if (names.some(name => name !== 'KHR_lights_punctual')) unsupported('Unsupported node feature');
+    }
+    let lightIndex = -1;
+    if (n.extensions?.KHR_lights_punctual !== undefined) {
+      if (!extensionsUsed.includes('KHR_lights_punctual')) invalid('KHR_lights_punctual must be listed in extensionsUsed');
+      const reference = n.extensions.KHR_lights_punctual;
+      if (!reference || typeof reference !== 'object' || Array.isArray(reference) || !Number.isInteger(reference.light)) invalid('Invalid node punctual light reference');
+      lightIndex = reference.light;
+      lightInstances.push({ ...item(lightDefinitions, lightIndex, 'punctual light'), node: index });
+    }
     if (n.name !== undefined && typeof n.name !== 'string') invalid('Invalid node name');
     const cameraIndex = n.camera === undefined ? -1 : n.camera;
     if (cameraIndex >= 0) {
@@ -1000,10 +1038,11 @@ async function prepare(url, requestedScene) {
       }
     } else if (primitives.some(primitive => primitive.joints.length)) invalid('Skin attributes require a node skin');
     const transform = localMatrix(n);
-    return { index, name: n.name ?? null, meshIndex: n.mesh ?? null, cameraIndex, skinIndex, weights: [...morphWeights], ...transform, primitives,
+    return { index, name: n.name ?? null, meshIndex: n.mesh ?? null, cameraIndex, lightIndex, skinIndex, weights: [...morphWeights], ...transform, primitives,
       children: (n.children || []).map(child => visit(child, depth + 1)) };
   }
   const sceneRoots = roots.map(root => visit(root, 0));
+  if (lightInstances.length > 4) unsupported('The engine supports at most four extra glTF lights in one scene');
   const sceneNodeIndices = new Set(seen);
   for (const skinIndex of usedSkinIndices) {
     const skin = skins[skinIndex];
@@ -1058,7 +1097,7 @@ async function prepare(url, requestedScene) {
     });
     return { name: typeof animation.name === 'string' ? animation.name : `Animation ${animationIndex}`, duration, channels };
   });
-  return { images, textureSpecs, roots: sceneRoots, skins, animations, cameras, sceneIndex, variantNames };
+  return { images, textureSpecs, roots: sceneRoots, skins, animations, cameras, lights: lightInstances, sceneIndex, variantNames };
 }
 
 // Model disposal is idempotent. GPU objects are released; arena records remain.
@@ -1078,6 +1117,8 @@ export async function loadGLTF(engine, url, options = {}) {
   let activeAnimation = -1, animationTime = 0, animationPlaying = false, animationLoop = true;
   let activeVariant = -1;
   let modelCameraIds = [], selectedCamera = -1, fallbackCamera = -1;
+  const lightLeases = [];
+  let activeLightLease = -1;
   let touchedTransforms = new Set();
   const writeTransform = state => {
     if (!state.hasTransform || !isNodeHandleValid(engine, state.handle)) return;
@@ -1229,6 +1270,46 @@ export async function loadGLTF(engine, url, options = {}) {
     return !!engine._g3_asset_camera_update(id, ...pose.pos, ...pose.target, ...pose.up,
       camera.fov, camera.type === 'orthographic' ? 1 : 0, camera.orthoHeight, camera.near, camera.far);
   };
+  const lightPose = light => {
+    let result = null;
+    const visit = (node, parent) => {
+      const state = transformNodes.get(node.index);
+      const local = state?.hasTransform ? localMatrix(state).matrix : node.matrix;
+      const world = parent ? multiply4(parent, local) : local;
+      if (node.index === light.node) result = world;
+      for (const child of node.children) visit(child, world);
+    };
+    for (const root of data.roots) visit(root, null);
+    if (!result) return null;
+    const position = transformPoint4(result, [0, 0, 0]);
+    if (light.type === 'directional') return { direction: normalize3(transformDirection4(result, [0, 0, -1])) };
+    const direction = normalize3(transformDirection4(result, [0, 0, -1]));
+    return { position, direction };
+  };
+  const writeLightItems = () => {
+    for (const light of data.lights) {
+      const pose = lightPose(light);
+      if (!pose) return false;
+      const color = light.color.map(value => value * light.intensity);
+      let added;
+      if (light.type === 'directional') added = engine._g3_asset_light_directional(...pose.direction, ...color);
+      else if (light.type === 'point') added = engine._g3_asset_light_point(...pose.position, ...color, light.effectiveRange);
+      else added = engine._g3_asset_light_spot(...pose.position, ...pose.direction, ...color, light.effectiveRange, light.engineInner, light.engineOuter);
+      if (!added) return false;
+    }
+    return true;
+  };
+  const syncAppliedLights = () => {
+    if (activeLightLease < 0 || engine._g3_asset_lights_active() !== activeLightLease) return true;
+    engine._g3_asset_lights_clear();
+    return writeLightItems();
+  };
+  const clearModelLights = () => {
+    for (let index = lightLeases.length - 1; index >= 0; index--) engine._g3_asset_lights_release(lightLeases[index]);
+    lightLeases.length = 0;
+    activeLightLease = -1;
+    return true;
+  };
   const applyAnimation = (index, time) => {
     if (sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
     const animation = index < 0 ? null : data.animations[index];
@@ -1247,12 +1328,13 @@ export async function loadGLTF(engine, url, options = {}) {
     }
     for (const nodeIndex of nextTouched) writeTransform(transformNodes.get(nodeIndex));
     touchedTransforms = nextTouched;
-    return updateDeformedMeshes() && syncSelectedCamera();
+    return updateDeformedMeshes() && syncSelectedCamera() && syncAppliedLights();
   };
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     animationPlaying = false;
+    clearModelLights();
     for (const node of nodes) engine._g3_asset_node_release(node.index, node.generation, node.epoch);
     for (const handle of materials.values()) engine._g3_asset_release_material(handle.id, handle.generation);
     for (const handle of meshes) {
@@ -1287,6 +1369,7 @@ export async function loadGLTF(engine, url, options = {}) {
     };
     for (const root of data.roots) discardNodeData(root);
     for (const skin of data.skins) { skin.joints.length = 0; skin.inverseBindMatrices.length = 0; }
+    data.lights.length = 0;
     for (const image of data.images) image.pixels = new Uint8ClampedArray(0);
     data.images.length = 0;
     data.textureSpecs.length = 0;
@@ -1480,6 +1563,7 @@ export async function loadGLTF(engine, url, options = {}) {
         index: node.index, name: node.name, parent: parentIndex,
         children: Object.freeze(node.children.map(child => child.index)),
         mesh: node.meshIndex, camera: node.cameraIndex < 0 ? null : node.cameraIndex,
+        light: node.lightIndex < 0 ? null : node.lightIndex,
         skin: node.skinIndex < 0 ? null : node.skinIndex,
         handle: groupHandle, primitives: Object.freeze(primitiveHandles),
         primitiveMaterials: Object.freeze(primitiveMaterials),
@@ -1503,6 +1587,10 @@ export async function loadGLTF(engine, url, options = {}) {
       nodes: Object.freeze(modelNodes),
       cameras: Object.freeze(data.cameras.map(camera => Object.freeze({ index: camera.index, name: camera.name,
         type: camera.type, node: camera.node }))),
+      lights: Object.freeze(data.lights.map(light => Object.freeze({ index: light.index, name: light.name,
+        type: light.type, node: light.node, color: Object.freeze([...light.color]), intensity: light.intensity,
+        range: light.range, effectiveRange: light.effectiveRange, innerConeAngle: light.type === 'spot' ? light.inner : null,
+        outerConeAngle: light.type === 'spot' ? light.outer : null }))),
       animations: Object.freeze(data.animations.map(({ name, duration }, index) => Object.freeze({ index, name, duration }))),
       variants: Object.freeze([...data.variantNames]),
       meshes: Object.freeze([...meshes]),
@@ -1535,6 +1623,20 @@ export async function loadGLTF(engine, url, options = {}) {
         return true;
       },
       get activeCamera() { return selectedCamera; },
+      /** Replace the engine's four extra lights with this scene's glTF lights. */
+      applyLights() {
+        if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
+        if (activeLightLease < 0 || engine._g3_asset_lights_active() !== activeLightLease) {
+          activeLightLease = engine._g3_asset_lights_begin();
+          if (activeLightLease < 0) return false;
+          lightLeases.push(activeLightLease);
+        } else engine._g3_asset_lights_clear();
+        if (writeLightItems()) return true;
+        clearModelLights();
+        return false;
+      },
+      clearLights() { return clearModelLights(); },
+      get lightsApplied() { return activeLightLease >= 0 && engine._g3_asset_lights_active() === activeLightLease; },
       getTexturePreview(textureIndex, maxDimension = 256) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch() || !Number.isInteger(textureIndex) || textureIndex < 0 || textureIndex >= data.textureSpecs.length ||
             !Number.isInteger(maxDimension) || maxDimension < 1 || maxDimension > 1024) return null;

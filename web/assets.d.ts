@@ -45,6 +45,21 @@ export interface AnimationInfo {
   readonly duration: number;
 }
 
+export interface PunctualLightInfo {
+  readonly index: number;
+  readonly name: string | null;
+  readonly type: 'directional' | 'point' | 'spot';
+  readonly node: number;
+  readonly color: readonly [number, number, number];
+  readonly intensity: number;
+  /** glTF range, or null when the glTF source leaves it unbounded. */
+  readonly range: number | null;
+  /** Finite range used by this engine; null for directional lights. */
+  readonly effectiveRange: number | null;
+  readonly innerConeAngle: number | null;
+  readonly outerConeAngle: number | null;
+}
+
 export interface MaterialInspection {
   readonly index: number;
   readonly name: string | null;
@@ -91,10 +106,12 @@ export interface ModelNodeInfo {
   /** Parent glTF node index, or null for a scene root. */
   readonly parent: number | null;
   readonly children: readonly number[];
-  /** Referenced glTF mesh and skin indices, or null when absent. */
+  /** Referenced glTF mesh, camera, punctual light and skin indices, or null when absent. */
   readonly mesh: number | null;
   /** Referenced glTF camera index, or null when absent. */
   readonly camera: number | null;
+  /** Referenced KHR_lights_punctual light definition index, or null when absent. */
+  readonly light: number | null;
   readonly skin: number | null;
   /** Checked engine node handle for the glTF node's transform group. */
   readonly handle: NodeHandle;
@@ -116,6 +133,14 @@ export interface LoadedModel {
   selectCamera(index: number | null): boolean;
   /** Selected glTF camera index, or -1 when the pre-load view is active. */
   readonly activeCamera: number;
+  /** Punctual light instances attached to nodes in the selected scene. */
+  readonly lights: readonly PunctualLightInfo[];
+  /** Replace the engine's extra lights with this model's punctual lights. */
+  applyLights(): boolean;
+  /** Restore the extra light set that was active before this model was applied. */
+  clearLights(): boolean;
+  /** True while this model's light set is the active extra-light set. */
+  readonly lightsApplied: boolean;
   readonly animations: readonly AnimationInfo[];
   /** Material variant names declared by KHR_materials_variants. */
   readonly variants: readonly string[];
