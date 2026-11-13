@@ -831,6 +831,15 @@ fn case_pbr() {
     g3::material(mat).color = float4 { 0.8, 0.4, 0.2, 1.0 };
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 8, 4, 2, 2), "PBR metal has coloured specular and no diffuse term");
+    let packed_mr: u8[4] = [255, 255, 0, 255];
+    g3::material(mat).metallic_roughness_texture = g3::texture_create(1, 1, packed_mr[..]);
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 32, 16, 8, 2), "metallic-roughness texture green controls roughness and blue controls metallic");
+    packed_mr[2] = 255;
+    g3::texture_create(1, 1, packed_mr[..]);
+    g3::material(mat).metallic_roughness_texture = g3::g_texture_count - 1;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(200, 200), 8, 4, 2, 2), "metallic-roughness texture blue selects metallic response");
     g3::material(mat).roughness = 0.5;
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 130, 65, 32, 3), "lower roughness sharpens the normal-incidence highlight");

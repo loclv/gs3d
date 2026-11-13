@@ -366,7 +366,7 @@ static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
 }
 
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
-                  const g3_vec3 wp, g3_vec3 n, const float tex[3], float *out_rgb) {
+                  const g3_vec3 wp, g3_vec3 n, const float tex[3], const float mr[4], float *out_rgb) {
     float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 1e-12f) { n.x /= len; n.y /= len; n.z /= len; }
     else { n.x = n.y = n.z = 0.0f; }
@@ -394,16 +394,17 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     float g = it->color.y * tex[1] * (vs->ambient.y * amb + vs->light_color.y * diff * visible) + vs->light_color.y * spec * visible;
     float b = it->color.z * tex[2] * (vs->ambient.z * amb + vs->light_color.z * diff * visible) + vs->light_color.z * spec * visible;
     float base[3] = { it->color.x * tex[0], it->color.y * tex[1], it->color.z * tex[2] };
+    float metallic = it->pbr.y * mr[2], roughness = it->pbr.z * mr[1];
     if (it->pbr.x > 0.5f) {
         float brdf[3];
-        pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, it->pbr.y, it->pbr.z, brdf);
-        float diffuse = 1.0f - fmaxf(0.0f, fminf(it->pbr.y, 1.0f));
+        pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, metallic, roughness, brdf);
+        float diffuse = 1.0f - fmaxf(0.0f, fminf(metallic, 1.0f));
         r = base[0]*vs->ambient.x*amb*diffuse + brdf[0]*vs->light_color.x*visible;
         g = base[1]*vs->ambient.y*amb*diffuse + brdf[1]*vs->light_color.y*visible;
         b = base[2]*vs->ambient.z*amb*diffuse + brdf[2]*vs->light_color.z*visible;
     }
     float sky = n.y * 0.5f + 0.5f;
-    float env_scale = it->pbr.x > 0.5f ? 1.0f - fmaxf(0.0f, fminf(it->pbr.y, 1.0f)) : 1.0f;
+    float env_scale = it->pbr.x > 0.5f ? 1.0f - fmaxf(0.0f, fminf(metallic, 1.0f)) : 1.0f;
     if (sky < 0.0f) sky = 0.0f;
     if (sky > 1.0f) sky = 1.0f;
     r += base[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w * env_scale;
@@ -449,7 +450,7 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
         float s = powf(nh2, shine) * it->params.y;
         if (it->pbr.x > 0.5f) {
             float brdf[3];
-            pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){ex,ey,ez}, base, it->pbr.y, it->pbr.z, brdf);
+            pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){ex,ey,ez}, base, metallic, roughness, brdf);
             r += brdf[0]*light->color.x*falloff; g += brdf[1]*light->color.y*falloff; b += brdf[2]*light->color.z*falloff;
         } else {
             r += (base[0] * d + s) * light->color.x * falloff;
@@ -819,14 +820,18 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             n.y = t->nrm[0][1] * b0 + t->nrm[1][1] * b1 + t->nrm[2][1] * b2;
             n.z = t->nrm[0][2] * b0 + t->nrm[1][2] * b1 + t->nrm[2][2] * b2;
 
-            float rgb[3], tex[4];
+            float rgb[3], tex[4], mr[4] = { 1, 1, 1, 1 };
             float u = t->uv[0][0] * b0 + t->uv[1][0] * b1 + t->uv[2][0] * b2;
             float v = t->uv[0][1] * b0 + t->uv[1][1] * b1 + t->uv[2][1] * b2;
             float rho = texture_footprint(t, it->texture, l0, l1, l2, u, v);
             sample_texture(it->texture, u, v, rho, tex);
+            if (it->pbr.x > 0.5f && it->metallic_roughness_texture >= 0) {
+                float mr_rho = texture_footprint(t, it->metallic_roughness_texture, l0, l1, l2, u, v);
+                sample_texture(it->metallic_roughness_texture, u, v, mr_rho, mr);
+            }
             float alpha = it->color.w * tex[3];
             if (it->alpha_mode == 1 && alpha < it->alpha_cutoff) continue;
-            shade(it, vs, wp, n, tex, rgb);
+            shade(it, vs, wp, n, tex, mr, rgb);
             if (counting) shaded += 1;
             blend_pixel(fb + at * 3, rgb, alpha, blended);
             if (!blended) depth[at] = z;

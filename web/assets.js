@@ -238,7 +238,12 @@ async function prepare(url) {
     const cutoff = material.alphaCutoff ?? 0.5;
     if (!Number.isFinite(cutoff) || cutoff < 0) invalid('Invalid alpha cutoff');
     const pbr = material.pbrMetallicRoughness || {};
-    if (pbr.metallicRoughnessTexture) unsupported('Metallic-roughness textures are not supported');
+    let metallicRoughnessTextureIndex = -1;
+    if (pbr.metallicRoughnessTexture) {
+      if (!uv || (pbr.metallicRoughnessTexture.texCoord || 0) !== 0 || pbr.metallicRoughnessTexture.extensions) unsupported('Unsupported metallic-roughness texture coordinates');
+      item(textureSpecs, pbr.metallicRoughnessTexture.index, 'metallic-roughness texture');
+      metallicRoughnessTextureIndex = pbr.metallicRoughnessTexture.index;
+    }
     const metallic = pbr.metallicFactor ?? 1, roughness = pbr.roughnessFactor ?? 1;
     if (![metallic, roughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid metallic or roughness factor');
     const color = pbr.baseColorFactor || [1, 1, 1, 1];
@@ -252,7 +257,7 @@ async function prepare(url) {
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
     return { pos: pos.values, normal: normal.values, uv: uv?.values, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,
-      alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, materialIndex: p.material ?? -1 };
+      alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex, materialIndex: p.material ?? -1 };
   }));
   const nodes = doc.nodes || [], roots = item(doc.scenes, doc.scene ?? 0, 'scene').nodes || [];
   const seen = new Set();
@@ -275,7 +280,7 @@ export async function loadGLTF(engine, url) {
     if (error instanceof AssetError) throw error;
     throw new AssetError('INVALID_GLTF', 'Invalid glTF structure or URL', error);
   }
-  const nodes = [], meshes = [], textures = [], materials = new Map();
+  const nodes = [], meshes = [], materials = new Map(), textures = new Map();
   const sceneEpoch = engine._g3_asset_scene_epoch();
   let disposed = false;
   const dispose = () => {
@@ -286,10 +291,20 @@ export async function loadGLTF(engine, url) {
     for (const handle of meshes) {
       if (engine._g3_asset_release_mesh(handle.id, handle.generation)) engine._g3_host_release_mesh(handle.id);
     }
-    for (const id of textures) releaseTexture(engine, id);
+    for (const handle of textures.values()) releaseTexture(engine, handle);
   };
   try {
-    for (const spec of data.textureSpecs) textures.push(uploadImage(engine, data.images[spec.image], spec.wrapU, spec.wrapV, spec.minFilter, spec.magFilter, true));
+    function getTexture(index, srgb) {
+      if (index < 0) return -1;
+      const key = `${index}:${srgb ? 'srgb' : 'linear'}`;
+      let handle = textures.get(key);
+      if (!handle) {
+        const spec = data.textureSpecs[index];
+        handle = uploadImage(engine, data.images[spec.image], spec.wrapU, spec.wrapV, spec.minFilter, spec.magFilter, srgb);
+        textures.set(key, handle);
+      }
+      return handle.id;
+    }
     function createNode(node, parent) {
       const group = engine._g3_asset_node(-1, parent);
       const groupHandle = makeNodeHandle(engine, group);
@@ -308,7 +323,8 @@ export async function loadGLTF(engine, url) {
         nodes.push(nodeHandle);
         let material = materials.get(p.materialIndex);
         if (!material) {
-          const materialId = engine._g3_asset_material(...p.color, p.textureIndex < 0 ? -1 : textures[p.textureIndex].id, p.alphaMode, p.alphaCutoff, p.metallic, p.roughness);
+          const materialId = engine._g3_asset_material(...p.color, getTexture(p.textureIndex, true), p.alphaMode, p.alphaCutoff,
+            p.metallic, p.roughness, getTexture(p.metallicRoughnessTextureIndex, false));
           material = makeResourceHandle(engine, materialId, 'material');
           materials.set(p.materialIndex, material);
         }
@@ -322,7 +338,7 @@ export async function loadGLTF(engine, url) {
       roots: Object.freeze(roots),
       meshes: Object.freeze([...meshes]),
       materials: Object.freeze([...materials.values()]),
-      textures: Object.freeze([...textures]),
+      textures: Object.freeze([...textures.values()]),
       // A nearer object belonging to another model occludes this model.
       pick(canvas, clientX, clientY) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return null;

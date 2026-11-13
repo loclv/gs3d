@@ -103,6 +103,10 @@ mechanism.
   `TEXCOORD_0`. Positions and normals are required.
 * Opaque, masked and blended base-colour factors and base-colour textures.
   Metallic and roughness factors drive GGX direct lighting; both default to 1.
+  Metallic-roughness textures use the glTF B channel for metallic and G for
+  roughness, uploaded as linear data. If one glTF texture is used for both
+  base colour and metallic-roughness, the loader keeps separate sRGB and linear
+  uploads.
   Ambient and environment lighting remain diffuse approximations without
   prefiltered specular reflections. Nearest, linear and mipmapped filters are supported,
   as are clamp, repeat and mirrored repeat separately for each axis. An omitted
@@ -113,9 +117,9 @@ mechanism.
 
 This is **not a complete glTF implementation**. It rejects required extensions,
 skins, animations, morph targets, sparse accessors, non-triangle modes,
-double-sided materials, and normal, occlusion, emissive, or
-metallic-roughness textures, and advanced texture/sampler extensions. PBR is
-limited to direct lights and factors; roughness is clamped to at least 0.045.
+double-sided materials, normal, occlusion, emissive textures, and advanced
+texture/sampler extensions. PBR is limited to direct lights and factors/maps;
+roughness is clamped to at least 0.045.
 Unsupported optional data may be
 ignored. Files needing these features require a fuller loader and renderer.
 

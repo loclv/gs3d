@@ -37,6 +37,7 @@ struct DrawItem {
     alpha_mode: i32,    // 0 opaque, 1 mask, 2 blend
     alpha_cutoff: f32,
     pbr: float4,        // x enabled, y metallic, z roughness
+    metallic_roughness_texture: i32, // linear texture: G roughness, B metallic
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;
