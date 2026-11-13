@@ -807,16 +807,16 @@ async function prepare(url, requestedScene) {
     if (!Array.isArray(color) || color.length !== 3 || !color.every(value => Number.isFinite(value) && value >= 0 && value <= 1) ||
         !Number.isFinite(intensity) || intensity < 0 || intensity > 3.4e38 ||
         color.some(value => !Number.isFinite(value * intensity) || value * intensity > 3.4e38)) invalid(`Invalid punctual light colour or intensity ${index}`);
-    const range = light.range ?? 1000;
+    const range = light.range ?? 0;
     if (light.range !== undefined && (!Number.isFinite(range) || !(range > 0) || range > 3.4e38)) invalid(`Invalid punctual light range ${index}`);
     if (light.type === 'directional') return { index, name: light.name ?? null, type: 'directional', color: [...color], intensity, range: null, effectiveRange: null, inner: 0, outer: 0 };
-    if (light.type === 'point') return { index, name: light.name ?? null, type: 'point', color: [...color], intensity, range: light.range ?? null, effectiveRange: range, inner: 0, outer: 0 };
+    if (light.type === 'point') return { index, name: light.name ?? null, type: 'point', color: [...color], intensity, range: light.range ?? null, effectiveRange: light.range ?? null, inner: 0, outer: 0 };
     if (light.type === 'spot') {
       const inner = light.spot?.innerConeAngle ?? 0, outer = light.spot?.outerConeAngle ?? Math.PI / 4;
       if (!light.spot || typeof light.spot !== 'object' || Array.isArray(light.spot) ||
           !Number.isFinite(inner) || inner < 0 || !Number.isFinite(outer) || !(outer > 0 && outer <= Math.PI / 2) || inner > outer) invalid(`Invalid spot light ${index}`);
       const supportedOuter = Math.max(outer, 1e-6), supportedInner = Math.min(inner, supportedOuter * 0.999);
-      return { index, name: light.name ?? null, type: 'spot', color: [...color], intensity, range: light.range ?? null, effectiveRange: range,
+      return { index, name: light.name ?? null, type: 'spot', color: [...color], intensity, range: light.range ?? null, effectiveRange: light.range ?? null,
         inner: light.spot.innerConeAngle ?? 0, outer: light.spot.outerConeAngle ?? Math.PI / 4,
         engineInner: supportedInner, engineOuter: supportedOuter };
     }
@@ -1403,8 +1403,8 @@ export async function loadGLTF(engine, url, options = {}) {
       const color = light.color.map(value => value * light.intensity);
       let added;
       if (light.type === 'directional') added = engine._g3_asset_light_directional(...pose.direction, ...color);
-      else if (light.type === 'point') added = engine._g3_asset_light_point(...pose.position, ...color, light.effectiveRange);
-      else added = engine._g3_asset_light_spot(...pose.position, ...pose.direction, ...color, light.effectiveRange, light.engineInner, light.engineOuter);
+      else if (light.type === 'point') added = engine._g3_asset_light_point(...pose.position, ...color, light.effectiveRange ?? 0);
+      else added = engine._g3_asset_light_spot(...pose.position, ...pose.direction, ...color, light.effectiveRange ?? 0, light.engineInner, light.engineOuter);
       if (!added) return false;
     }
     return true;

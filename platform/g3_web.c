@@ -81,7 +81,7 @@ typedef struct {
 typedef struct {
     GLuint program;
     GLint mvp, view_proj, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
-    GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4];
+    GLint light_count, light_position[4], light_direction[4], light_color_extra[4], light_inner[4], light_attenuation[4];
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
@@ -302,7 +302,7 @@ static const char *FRAGMENT_SRC =
     "uniform vec4 u_view_direction;\n"
     "uniform vec3 u_light_dir;\n"
     "uniform vec3 u_light_color;\n"
-    "struct Light { vec4 position; vec4 direction; vec4 color; float inner; };\n"
+    "struct Light { vec4 position; vec4 direction; vec4 color; float inner; float attenuation; };\n"
     "uniform Light u_lights[4];\n"
     "uniform int u_light_count;\n"
     "uniform vec4 u_env_sky;\n"
@@ -476,8 +476,11 @@ static const char *FRAGMENT_SRC =
     "        vec3 ld = light.position.w < 0.5 ? -light.direction.xyz : delta / max(distance_to_light, 0.000001);\n"
     "        float falloff = 1.0;\n"
     "        if (light.position.w > 0.5) {\n"
-    "            falloff = max(1.0 - distance_to_light / light.direction.w, 0.0);\n"
-    "            falloff *= falloff;\n"
+    "            if (light.direction.w > 0.0) {\n"
+    "                float range_fade = max(1.0 - distance_to_light / light.direction.w, 0.0);\n"
+    "                falloff *= range_fade * range_fade;\n"
+    "            }\n"
+    "            if (light.attenuation > 0.5) falloff *= 1.0 / max(distance_to_light * distance_to_light, 0.0001);\n"
     "        }\n"
     "        if (light.position.w > 1.5) {\n"
     "            float cone = clamp((dot(-ld, light.direction.xyz) - light.color.w) / (light.inner - light.color.w), 0.0, 1.0);\n"
@@ -663,6 +666,7 @@ static void find_uniforms(void) {
         snprintf(name, sizeof(name), "u_lights[%d].direction", i); shader.light_direction[i] = glGetUniformLocation(shader.program, name);
         snprintf(name, sizeof(name), "u_lights[%d].color", i); shader.light_color_extra[i] = glGetUniformLocation(shader.program, name);
         snprintf(name, sizeof(name), "u_lights[%d].inner", i); shader.light_inner[i] = glGetUniformLocation(shader.program, name);
+        snprintf(name, sizeof(name), "u_lights[%d].attenuation", i); shader.light_attenuation[i] = glGetUniformLocation(shader.program, name);
     }
 }
 
@@ -1535,6 +1539,7 @@ static void bind_view(const g3_view_state *view) {
         glUniform4f(shader.light_direction[i], l->direction.x, l->direction.y, l->direction.z, l->direction.w);
         glUniform4f(shader.light_color_extra[i], l->color.x, l->color.y, l->color.z, l->color.w);
         glUniform1f(shader.light_inner[i], l->inner);
+        glUniform1f(shader.light_attenuation[i], l->attenuation);
     }
 }
 

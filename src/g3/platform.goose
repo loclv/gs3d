@@ -74,8 +74,9 @@ struct DrawItem {
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;
-// direction.w = range, color.w = outer cone cosine, inner = inner cosine.
-struct Light { position: float4, direction: float4, color: float4, inner: f32 }
+// direction.w = range, color.w = outer cone cosine, inner = inner cosine,
+// attenuation = 0 squared linear range, 1 inverse square with range fade.
+struct Light { position: float4, direction: float4, color: float4, inner: f32, attenuation: f32 }
 
 // The frame's constants: what every draw of the frame shares.
 struct ViewState {

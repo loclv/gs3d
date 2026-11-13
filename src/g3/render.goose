@@ -144,19 +144,29 @@ fn add_directional_light(dir: float3, color: float3) -> bool {
     let d = normalize(dir);
     let i = g_view_state.light_count;
     g_view_state.lights[i] = Light { position: float4 { 0.0, 0.0, 0.0, 0.0 },
-        direction: float4 { d.x, d.y, d.z, 0.0 }, color: float4 { color.x, color.y, color.z, 0.0 }, inner: 0.0 };
+        direction: float4 { d.x, d.y, d.z, 0.0 }, color: float4 { color.x, color.y, color.z, 0.0 }, inner: 0.0, attenuation: 0.0 };
     g_view_state.light_count += 1;
     return true;
 }
 
-// Point and spot attenuation is (1 - distance / range)^2 inside the range.
-fn add_point_light(pos: float3, color: float3, range: f32) -> bool {
-    guard range > 0.0 && g_view_state.light_count < 4 else { return false; }
+// Point and spot lights use squared linear range falloff by default.
+fn add_point_light_mode(pos: float3, color: float3, range: f32, attenuation: f32) -> bool {
+    guard range >= 0.0 && (range > 0.0 || attenuation > 0.5) && g_view_state.light_count < 4 else { return false; }
     let i = g_view_state.light_count;
     g_view_state.lights[i] = Light { position: float4 { pos.x, pos.y, pos.z, 1.0 },
-        direction: float4 { 0.0, 0.0, 0.0, range }, color: float4 { color.x, color.y, color.z, 0.0 }, inner: 0.0 };
+        direction: float4 { 0.0, 0.0, 0.0, range }, color: float4 { color.x, color.y, color.z, 0.0 }, inner: 0.0, attenuation: attenuation };
     g_view_state.light_count += 1;
     return true;
+}
+
+fn add_point_light(pos: float3, color: float3, range: f32) -> bool {
+    return add_point_light_mode(pos, color, range, 0.0);
+}
+
+// Physical point lights use inverse-square distance attenuation and a smooth
+// squared range fade. A zero range means no lighting cutoff.
+fn add_point_light_physical(pos: float3, color: float3, range: f32) -> bool {
+    return add_point_light_mode(pos, color, range, 1.0);
 }
 
 // One extra point light can cast a six-face hard shadow. The index is its
@@ -164,9 +174,11 @@ fn add_point_light(pos: float3, color: float3, range: f32) -> bool {
 fn set_point_light_shadows(light_index: i32, bias: f32) -> bool {
     guard light_index >= 0 && light_index < g_view_state.light_count && bias >= 0.0 else { return false; }
     let light = g_view_state.lights[light_index];
-    guard light.position.w > 0.5 && light.position.w < 1.5 && light.direction.w > 0.01 else { return false; }
+    guard light.position.w > 0.5 && light.position.w < 1.5 && light.direction.w >= 0.0 &&
+          (light.direction.w > 0.01 || light.attenuation > 0.5) else { return false; }
     let eye = float3 { light.position.x, light.position.y, light.position.z };
-    let projection = mat4_perspective(PI * 0.5, 1.0, 0.01, light.direction.w);
+    let far = if light.direction.w > 0.01 { light.direction.w } else { 1000.0 };
+    let projection = mat4_perspective(PI * 0.5, 1.0, 0.01, far);
     var directions: float3[6];
     directions[0] = float3 { 1.0, 0.0, 0.0 }; directions[1] = float3 { -1.0, 0.0, 0.0 };
     directions[2] = float3 { 0.0, 1.0, 0.0 }; directions[3] = float3 { 0.0, -1.0, 0.0 };
@@ -191,11 +203,13 @@ fn clear_point_light_shadows() {
 fn set_spot_light_shadows(light_index: i32, bias: f32) -> bool {
     guard light_index >= 0 && light_index < g_view_state.light_count && bias >= 0.0 else { return false; }
     let light = g_view_state.lights[light_index];
-    guard light.position.w > 1.5 && light.direction.w > 0.01 && light.color.w > 0.0 else { return false; }
+    guard light.position.w > 1.5 && light.direction.w >= 0.0 &&
+          (light.direction.w > 0.01 || light.attenuation > 0.5) && light.color.w > 0.0 else { return false; }
     let eye = float3 { light.position.x, light.position.y, light.position.z };
     let dir = float3 { light.direction.x, light.direction.y, light.direction.z };
     let up = if abs(dir.y) > 0.95 { float3 { 1.0, 0.0, 0.0 } } else { float3 { 0.0, 1.0, 0.0 } };
-    let projection = mat4_perspective(2.0 * acos(light.color.w), 1.0, 0.01, light.direction.w);
+    let far = if light.direction.w > 0.01 { light.direction.w } else { 1000.0 };
+    let projection = mat4_perspective(2.0 * acos(light.color.w), 1.0, 0.01, far);
     g_view_state.spot_shadow_view_proj = mat4_mul(projection, mat4_look_at(eye, eye + dir, up));
     g_view_state.spot_shadow_light_index = light_index;
     g_view_state.spot_shadow_params = float4 { 1.0, bias, g_shadow_filter_radius, 0.0 };
@@ -227,14 +241,22 @@ fn set_shadow_resolution(resolution: i32) -> bool {
 }
 
 // Angles are half-angles in radians, with a smooth falloff between them.
-fn add_spot_light(pos: float3, dir: float3, color: float3, range: f32, inner: f32, outer: f32) -> bool {
-    guard range > 0.0 && length(dir) > 0.0 && inner >= 0.0 && inner < outer && outer <= PI && cos(inner) > cos(outer) && g_view_state.light_count < 4 else { return false; }
+fn add_spot_light_mode(pos: float3, dir: float3, color: float3, range: f32, inner: f32, outer: f32, attenuation: f32) -> bool {
+    guard range >= 0.0 && (range > 0.0 || attenuation > 0.5) && length(dir) > 0.0 && inner >= 0.0 && inner < outer && outer <= PI && cos(inner) > cos(outer) && g_view_state.light_count < 4 else { return false; }
     let d = normalize(dir);
     let i = g_view_state.light_count;
     g_view_state.lights[i] = Light { position: float4 { pos.x, pos.y, pos.z, 2.0 },
-        direction: float4 { d.x, d.y, d.z, range }, color: float4 { color.x, color.y, color.z, cos(outer) }, inner: cos(inner) };
+        direction: float4 { d.x, d.y, d.z, range }, color: float4 { color.x, color.y, color.z, cos(outer) }, inner: cos(inner), attenuation: attenuation };
     g_view_state.light_count += 1;
     return true;
+}
+
+fn add_spot_light(pos: float3, dir: float3, color: float3, range: f32, inner: f32, outer: f32) -> bool {
+    return add_spot_light_mode(pos, dir, color, range, inner, outer, 0.0);
+}
+
+fn add_spot_light_physical(pos: float3, dir: float3, color: float3, range: f32, inner: f32, outer: f32) -> bool {
+    return add_spot_light_mode(pos, dir, color, range, inner, outer, 1.0);
 }
 
 // Diffuse hemispherical environment: sky above, ground below; zero disables it.

@@ -166,9 +166,9 @@ export fn g3_asset_light_directional(dx: f32, dy: f32, dz: f32, r: f32, g: f32, 
     return g3::add_directional_light(float3 { dx, dy, dz }, float3 { r, g, b });
 }
 export fn g3_asset_light_point(px: f32, py: f32, pz: f32, r: f32, g: f32, b: f32, range: f32) -> bool {
-    return g3::add_point_light(float3 { px, py, pz }, float3 { r, g, b }, range);
+    return g3::add_point_light_physical(float3 { px, py, pz }, float3 { r, g, b }, range);
 }
 export fn g3_asset_light_spot(px: f32, py: f32, pz: f32, dx: f32, dy: f32, dz: f32,
                               r: f32, g: f32, b: f32, range: f32, inner: f32, outer: f32) -> bool {
-    return g3::add_spot_light(float3 { px, py, pz }, float3 { dx, dy, dz }, float3 { r, g, b }, range, inner, outer);
+    return g3::add_spot_light_physical(float3 { px, py, pz }, float3 { dx, dy, dz }, float3 { r, g, b }, range, inner, outer);
 }

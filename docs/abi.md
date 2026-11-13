@@ -104,7 +104,7 @@ discarded, including in the shadow pass. Blended items read depth but do not
 write it; opaque and surviving mask fragments write depth. Texture alpha is
 ignored for opaque items.
 
-### `g3_view_state` — 1020 bytes
+### `g3_view_state` — 1036 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -116,26 +116,26 @@ ignored for opaque items.
 | 68 | `g3_vec4` | `clear` | the colour a frame starts from |
 | 84 | `g3_vec4` | `params` | x time, y sRGB output encoding, z tone-map mode (0 none, 1 Reinhard, 2 ACES), w exposure |
 | 100 | `g3_light[4]` | `lights` | extra directional, point and spot lights |
-| 308 | `int32_t` | `light_count` | number of active extra lights, 0–4 |
-| 312 | `g3_vec4` | `env_sky` | hemispherical sky RGB and intensity |
-| 328 | `g3_vec4` | `env_ground` | hemispherical ground RGB |
-| 344 | `int32_t` | `environment_texture` | equirectangular RGB texture handle, or -1 |
-| 348 | `float` | `environment_intensity` | multiplier for texture-based environment fill and reflection |
-| 352 | `g3_mat4` | `shadow_view_proj` | primary directional light's world-to-shadow clip transform |
-| 416 | `g3_vec4` | `shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
-| 432 | `g3_vec4` | `view_direction` | xyz direction toward viewer, w selects orthographic shading |
-| 448 | `g3_mat4[6]` | `point_shadow_view_proj` | six point-light cube-face world-to-shadow transforms |
-| 832 | `int32_t` | `point_shadow_light_index` | selected extra point light, or -1 |
-| 836 | `g3_vec4` | `point_shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
-| 852 | `g3_mat4` | `spot_shadow_view_proj` | selected spot light's world-to-shadow clip transform |
-| 916 | `int32_t` | `spot_shadow_light_index` | selected extra spot light, or -1 |
-| 920 | `g3_vec4` | `spot_shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
-| 936 | `int32_t` | `shadow_resolution` | square map size: 256, 512, or 1024 |
-| 940 | `int32_t` | `post_process` | bit 0 enables the FXAA full-screen output pass |
-| 944 | `int32_t` | `render_target` | texture id to draw into, or -1 for the window surface |
-| 948 | `int32_t` | `target_width` | selected render-target width, in pixels |
-| 952 | `int32_t` | `target_height` | selected render-target height, in pixels |
-| 956 | `g3_mat4` | `view_proj` | camera view-projection matrix, also used to form instanced MVP matrices |
+| 324 | `int32_t` | `light_count` | number of active extra lights, 0–4 |
+| 328 | `g3_vec4` | `env_sky` | hemispherical sky RGB and intensity |
+| 344 | `g3_vec4` | `env_ground` | hemispherical ground RGB |
+| 360 | `int32_t` | `environment_texture` | equirectangular RGB texture handle, or -1 |
+| 364 | `float` | `environment_intensity` | multiplier for texture-based environment fill and reflection |
+| 368 | `g3_mat4` | `shadow_view_proj` | primary directional light's world-to-shadow clip transform |
+| 432 | `g3_vec4` | `shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
+| 448 | `g3_vec4` | `view_direction` | xyz direction toward viewer, w selects orthographic shading |
+| 464 | `g3_mat4[6]` | `point_shadow_view_proj` | six point-light cube-face world-to-shadow transforms |
+| 848 | `int32_t` | `point_shadow_light_index` | selected extra point light, or -1 |
+| 852 | `g3_vec4` | `point_shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
+| 868 | `g3_mat4` | `spot_shadow_view_proj` | selected spot light's world-to-shadow clip transform |
+| 932 | `int32_t` | `spot_shadow_light_index` | selected extra spot light, or -1 |
+| 936 | `g3_vec4` | `spot_shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
+| 952 | `int32_t` | `shadow_resolution` | square map size: 256, 512, or 1024 |
+| 956 | `int32_t` | `post_process` | bit 0 enables the FXAA full-screen output pass |
+| 960 | `int32_t` | `render_target` | texture id to draw into, or -1 for the window surface |
+| 964 | `int32_t` | `target_width` | selected render-target width, in pixels |
+| 968 | `int32_t` | `target_height` | selected render-target height, in pixels |
+| 972 | `g3_mat4` | `view_proj` | camera view-projection matrix, also used to form instanced MVP matrices |
 
 A selected target is a linear RGBA8 texture with RGB clamped to 0..1 and alpha
 fixed to 1. Its texture-coordinate origin is the lower-left, matching WebGL.
@@ -151,9 +151,12 @@ array. Maps use 512×512 depth and hard, 3×3, or 5×5 PCF filtering; blended
 casters are discarded and masked alpha cutouts are supported. Spot projection
 supports outer half-angles below 90°.
 
-Each packed `g3_light` is 52 bytes: position and type in a `vec4`, direction
-and range in a `vec4`, colour and outer-cone cosine in a `vec4`, followed by
-the inner-cone cosine as a float. Type 0 is directional, 1 point, and 2 spot.
+Each packed `g3_light` is 56 bytes: position and type in a `vec4`, direction
+and range in a `vec4`, colour and outer-cone cosine in a `vec4`, then inner-cone
+cosine and attenuation mode floats. Attenuation 0 uses squared linear range
+falloff; 1 adds inverse-square distance attenuation. Range zero means no
+lighting cutoff for physical point and spot lights. Type 0 is directional, 1
+point, and 2 spot.
 
 ### Slices
 

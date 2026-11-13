@@ -212,10 +212,12 @@ fetches and decodes assets in JavaScript.
   replace the engine's four extra lights, and `model.clearLights()` or
   `model.dispose()` to restore the previous set. Active imported lights follow
   animated node transforms when `model.update()` advances an animation. The
-  engine's finite quadratic range attenuation differs from glTF's physical
-  attenuation; a source light without `range` uses an effective 1000-unit
-  range. The primary engine directional light and environment lighting are
-  unchanged, and imported lights do not automatically cast shadows.
+  engine applies inverse-square distance attenuation and a smooth squared
+  range fade to imported point and spot lights. A source light without `range`
+  has no lighting cutoff. If a user enables a point or spot shadow for such a
+  light, its shadow projection uses a 1000-unit far plane. The primary engine
+  directional light and environment lighting are unchanged, and imported
+  lights do not automatically cast shadows.
 * `KHR_mesh_quantization` supports signed and unsigned 8-bit or 16-bit positions
   and texture coordinates, plus normalized signed 8-bit or 16-bit normals and
   tangents. Morph position deltas also accept signed quantized values; morph

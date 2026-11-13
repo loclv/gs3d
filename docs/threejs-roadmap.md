@@ -165,8 +165,10 @@ shadow behavior and browser reference images for the GPU path.
   real browser.
 * **Partly implemented:** the browser loader reads `KHR_lights_punctual` and
   can apply four scene lights with nested, out-of-order-safe restoration and
-  animated node transforms. The finite-range attenuation differs from the
-  glTF physical model; shadows remain explicit engine configuration.
+  animated node transforms. Imported point and spot lights use inverse-square
+  attenuation and omit the lighting cutoff when `range` is absent. Shadows
+  remain explicit engine configuration; unbounded lights use a 1000-unit shadow
+  projection far plane when a user enables one.
 
 **Done when:** an imported animated character plays, pauses, and switches
 clips, and a scene can switch between perspective and orthographic cameras.

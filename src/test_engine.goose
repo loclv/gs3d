@@ -665,9 +665,23 @@ fn case_lights() {
     g3::frame(1.0 / 60.0);
     testing::check(point && is_color(g3::read_pixel(200, 200), 64, 0, 0, 2), "point light falls off with distance");
     g3::clear_lights();
+    // At distance 2, inverse-square attenuation is 1/4. The squared linear
+    // range fade at range 8 is (1 - 2/8)^2 = 9/16; together they yield 9/64.
+    let physical_point = g3::add_point_light_physical(float3 { 0.0, 0.0, 3.0 }, float3 { 1.0, 0.0, 0.0 }, 8.0);
+    g3::frame(1.0 / 60.0);
+    testing::check(physical_point && is_color(g3::read_pixel(200, 200), 36, 0, 0, 2), "physical point light uses inverse-square attenuation");
+    g3::clear_lights();
+    let unbounded_point = g3::add_point_light_physical(float3 { 0.0, 0.0, 3.0 }, float3 { 1.0, 0.0, 0.0 }, 0.0);
+    g3::frame(1.0 / 60.0);
+    testing::check(unbounded_point && is_color(g3::read_pixel(200, 200), 64, 0, 0, 2), "zero physical range disables the lighting cutoff");
+    g3::clear_lights();
     let spot = g3::add_spot_light(float3 { 0.0, 0.0, 3.0 }, float3 { 0.0, 0.0, -1.0 }, float3 { 0.0, 0.0, 1.0 }, 4.0, 0.2, 0.4);
     g3::frame(1.0 / 60.0);
     testing::check(spot && is_color(g3::read_pixel(200, 200), 0, 0, 64, 2), "spot light illuminates its cone");
+    g3::clear_lights();
+    let physical_spot = g3::add_spot_light_physical(float3 { 0.0, 0.0, 3.0 }, float3 { 0.0, 0.0, -1.0 }, float3 { 0.0, 0.0, 1.0 }, 8.0, 0.2, 0.4);
+    g3::frame(1.0 / 60.0);
+    testing::check(physical_spot && is_color(g3::read_pixel(200, 200), 0, 0, 36, 2), "physical spot light uses inverse-square attenuation inside its cone");
     g3::clear_lights();
     let away = g3::add_spot_light(float3 { 0.0, 0.0, 3.0 }, float3 { 1.0, 0.0, 0.0 }, float3_1, 4.0, 0.2, 0.4);
     g3::frame(1.0 / 60.0);

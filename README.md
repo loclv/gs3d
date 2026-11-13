@@ -369,8 +369,12 @@ What the API gives you:
   split-sum BRDF integration LUT. HDR input uses Radiance RGBE in browser
   builds; a skybox is not implemented.
   Add functions return false when parameters are invalid or the limit is reached.
-  Point and spot lights use squared linear range falloff; spot angles are
-  inner and outer half-angles in radians. `set_directional_shadows(center,
+  Point and spot lights use squared linear range falloff by default; their
+  spot angles are inner and outer half-angles in radians.
+  `add_point_light_physical` and `add_spot_light_physical` use inverse-square
+  distance attenuation with the same smooth finite-range fade; passing range
+  zero disables the cutoff for those physical lights.
+  `set_directional_shadows(center,
   extent, bias)` enables a 512×512 shadow map for the primary directional
   light; `clear_shadows()` disables it. Call `set_point_light_shadows(index,
   bias)` after adding a point light to enable its six-face 512×512 shadow map;
@@ -415,7 +419,7 @@ near, so they are drawn after everything opaque and read the depth they should.
 `Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings,
 a double-sided flag, twelve texture-coordinate transforms, clearcoat and sheen factors and maps, 605 bytes. A
 `Vertex` is 120 bytes, including eight UV sets, tangent and colour. Its
-`ViewState` is 1020 bytes and includes render-target selection, dimensions and
+`ViewState` is 1036 bytes and includes render-target selection, dimensions and
 the shared camera view-projection matrix.
 `g3p_draw_frame` hands the backend a slice
 of them plus the frame's `ViewState`, and `platform/g3_abi.h`

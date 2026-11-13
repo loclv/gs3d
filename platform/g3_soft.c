@@ -834,9 +834,16 @@ float material_clearcoat, float material_clearcoat_roughness, const float sheen_
         float ez = light->position.w < 0.5f ? -light->direction.z : dz / ll;
         float falloff = 1.0f;
         if (light->position.w > 0.5f) {
-            falloff = 1.0f - distance / light->direction.w;
-            if (falloff < 0.0f) falloff = 0.0f;
-            falloff *= falloff;
+            if (light->direction.w > 0.0f) {
+                float range_fade = 1.0f - distance / light->direction.w;
+                if (range_fade < 0.0f) range_fade = 0.0f;
+                falloff *= range_fade * range_fade;
+            }
+            if (light->attenuation > 0.5f) {
+                float distance_squared = distance * distance;
+                if (distance_squared < 0.0001f) distance_squared = 0.0001f;
+                falloff *= 1.0f / distance_squared;
+            }
         }
         if (light->position.w > 1.5f) {
             float cone = (-ex * light->direction.x - ey * light->direction.y - ez * light->direction.z - light->color.w) / (light->inner - light->color.w);

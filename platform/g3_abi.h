@@ -76,7 +76,7 @@ typedef struct {
     g3_uv_transform sheen_color_uv, sheen_roughness_uv;
 } g3_draw_item;
 
-typedef struct { g3_vec4 position, direction, color; float inner; } g3_light;
+typedef struct { g3_vec4 position, direction, color; float inner, attenuation; } g3_light;
 
 /* The frame's shared constants. */
 typedef struct {
@@ -165,27 +165,28 @@ _Static_assert(offsetof(g3_draw_item, sheen_color_texture) == 549, "DrawItem.she
 _Static_assert(offsetof(g3_draw_item, sheen_roughness_texture) == 553, "DrawItem.sheen_roughness_texture offset");
 _Static_assert(offsetof(g3_draw_item, sheen_color_uv) == 557, "DrawItem.sheen_color_uv offset");
 _Static_assert(offsetof(g3_draw_item, sheen_roughness_uv) == 581, "DrawItem.sheen_roughness_uv offset");
-_Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
-_Static_assert(sizeof(g3_view_state) == 1020, "g3_view_state must be 1020 bytes");
+_Static_assert(sizeof(g3_light) == 56, "g3_light must be 56 bytes");
+_Static_assert(offsetof(g3_light, attenuation) == 52, "Light.attenuation offset");
+_Static_assert(sizeof(g3_view_state) == 1036, "g3_view_state must be 1036 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");
-_Static_assert(offsetof(g3_view_state, light_count) == 308, "ViewState.light_count offset");
-_Static_assert(offsetof(g3_view_state, env_sky) == 312, "ViewState.env_sky offset");
-_Static_assert(offsetof(g3_view_state, environment_texture) == 344, "ViewState.environment_texture offset");
-_Static_assert(offsetof(g3_view_state, shadow_view_proj) == 352, "ViewState.shadow_view_proj offset");
-_Static_assert(offsetof(g3_view_state, shadow_params) == 416, "ViewState.shadow_params offset");
-_Static_assert(offsetof(g3_view_state, view_direction) == 432, "ViewState.view_direction offset");
-_Static_assert(offsetof(g3_view_state, point_shadow_view_proj) == 448, "ViewState.point_shadow_view_proj offset");
-_Static_assert(offsetof(g3_view_state, point_shadow_light_index) == 832, "ViewState.point_shadow_light_index offset");
-_Static_assert(offsetof(g3_view_state, point_shadow_params) == 836, "ViewState.point_shadow_params offset");
-_Static_assert(offsetof(g3_view_state, spot_shadow_view_proj) == 852, "ViewState.spot_shadow_view_proj offset");
-_Static_assert(offsetof(g3_view_state, spot_shadow_light_index) == 916, "ViewState.spot_shadow_light_index offset");
-_Static_assert(offsetof(g3_view_state, spot_shadow_params) == 920, "ViewState.spot_shadow_params offset");
-_Static_assert(offsetof(g3_view_state, shadow_resolution) == 936, "ViewState.shadow_resolution offset");
-_Static_assert(offsetof(g3_view_state, post_process) == 940, "ViewState.post_process offset");
-_Static_assert(offsetof(g3_view_state, render_target) == 944, "ViewState.render_target offset");
-_Static_assert(offsetof(g3_view_state, target_width) == 948, "ViewState.target_width offset");
-_Static_assert(offsetof(g3_view_state, target_height) == 952, "ViewState.target_height offset");
-_Static_assert(offsetof(g3_view_state, view_proj) == 956, "ViewState.view_proj offset");
+_Static_assert(offsetof(g3_view_state, light_count) == 324, "ViewState.light_count offset");
+_Static_assert(offsetof(g3_view_state, env_sky) == 328, "ViewState.env_sky offset");
+_Static_assert(offsetof(g3_view_state, environment_texture) == 360, "ViewState.environment_texture offset");
+_Static_assert(offsetof(g3_view_state, shadow_view_proj) == 368, "ViewState.shadow_view_proj offset");
+_Static_assert(offsetof(g3_view_state, shadow_params) == 432, "ViewState.shadow_params offset");
+_Static_assert(offsetof(g3_view_state, view_direction) == 448, "ViewState.view_direction offset");
+_Static_assert(offsetof(g3_view_state, point_shadow_view_proj) == 464, "ViewState.point_shadow_view_proj offset");
+_Static_assert(offsetof(g3_view_state, point_shadow_light_index) == 848, "ViewState.point_shadow_light_index offset");
+_Static_assert(offsetof(g3_view_state, point_shadow_params) == 852, "ViewState.point_shadow_params offset");
+_Static_assert(offsetof(g3_view_state, spot_shadow_view_proj) == 868, "ViewState.spot_shadow_view_proj offset");
+_Static_assert(offsetof(g3_view_state, spot_shadow_light_index) == 932, "ViewState.spot_shadow_light_index offset");
+_Static_assert(offsetof(g3_view_state, spot_shadow_params) == 936, "ViewState.spot_shadow_params offset");
+_Static_assert(offsetof(g3_view_state, shadow_resolution) == 952, "ViewState.shadow_resolution offset");
+_Static_assert(offsetof(g3_view_state, post_process) == 956, "ViewState.post_process offset");
+_Static_assert(offsetof(g3_view_state, render_target) == 960, "ViewState.render_target offset");
+_Static_assert(offsetof(g3_view_state, target_width) == 964, "ViewState.target_width offset");
+_Static_assert(offsetof(g3_view_state, target_height) == 968, "ViewState.target_height offset");
+_Static_assert(offsetof(g3_view_state, view_proj) == 972, "ViewState.view_proj offset");
 _Static_assert(offsetof(g3_draw_item, mvp) == 4, "DrawItem.mvp offset");
 _Static_assert(offsetof(g3_draw_item, color) == 132, "DrawItem.color offset");
 _Static_assert(offsetof(g3_draw_item, params) == 148, "DrawItem.params offset");

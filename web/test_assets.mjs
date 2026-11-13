@@ -490,12 +490,13 @@ const punctualEngine = fakeEngine(), punctualModel = await loadGLTF(punctualEngi
 assert.equal(punctualEngine.activeLightSet, -1, 'loading light metadata does not change the scene light set');
 assert.deepEqual(punctualModel.lights.map(({ index, name, type, node, intensity, range, effectiveRange }) => ({ index, name, type, node, intensity, range, effectiveRange })), [
   { index: 0, name: 'Sun', type: 'directional', node: 0, intensity: 2, range: null, effectiveRange: null },
-  { index: 1, name: 'Lamp', type: 'point', node: 1, intensity: 3, range: null, effectiveRange: 1000 },
+  { index: 1, name: 'Lamp', type: 'point', node: 1, intensity: 3, range: null, effectiveRange: null },
   { index: 2, name: 'Spot', type: 'spot', node: 2, intensity: 1, range: 15, effectiveRange: 15 },
 ]);
 assert.equal(punctualModel.applyLights(), true);
 assert.deepEqual(punctualEngine.calls.find(call => call[0] === 'light_directional'), ['light_directional', 0, 0, -1, 2, 1, 0.5]);
-assert.deepEqual(punctualEngine.calls.find(call => call[0] === 'light_point'), ['light_point', 2, 3, 4, 0.75, 1.5, 3, 1000]);
+assert.deepEqual(punctualEngine.calls.find(call => call[0] === 'light_point'), ['light_point', 2, 3, 4, 0.75, 1.5, 3, 0],
+  'glTF point lights without a range keep inverse-square attenuation without a lighting cutoff');
 assert.deepEqual(punctualEngine.calls.find(call => call[0] === 'light_spot'), ['light_spot', 0, 0, 5, 0, 0, -1, 1, 1, 1, 15, 0.1, 0.6]);
 assert.equal(punctualModel.lightsApplied, true);
 punctualModel.dispose();
