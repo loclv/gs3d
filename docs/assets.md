@@ -182,9 +182,10 @@ fetches and decodes assets in JavaScript.
   optional float or quantized normals and tangents,
   optional `TEXCOORD_0` through `TEXCOORD_7`, and optional `COLOR_0` as float
   `VEC3`/`VEC4` or normalized unsigned-byte/unsigned-short `VEC3`/`VEC4`.
-  Node transforms, texture transforms, and material scalar values must remain
-  finite when converted to the engine's float32 representation; out-of-range
-  values are reported as `INVALID_GLTF` before scene resources are created.
+  Node transforms, texture transforms, camera projection values, and material
+  scalars must remain finite when converted to the engine's float32
+  representation; out-of-range values are reported as `INVALID_GLTF` before
+  scene resources are created.
   Vertex colours are linear and multiply the base-colour factor and texture;
   `VEC3` supplies alpha 1. Missing normals are generated as area-weighted
   vertex normals from triangle faces. Interleaved byte strides are accepted for

@@ -624,6 +624,12 @@ for (const [label, mutate] of [
     value.materials[0].pbrMetallicRoughness.baseColorTexture = { index: 0,
       extensions: { KHR_texture_transform: { scale: [3.5e38, 1] } } };
   }],
+  ['orthographic camera height', value => {
+    value.cameras = [{ type: 'orthographic', orthographic: { xmag: 2e38, ymag: 2e38, znear: 0, zfar: 3e38 } }];
+  }],
+  ['perspective camera range', value => {
+    value.cameras = [{ type: 'perspective', perspective: { yfov: 0.75, znear: 3.3e38 } }];
+  }],
 ]) {
   const invalidFloatDoc = structuredClone(doc);
   mutate(invalidFloatDoc);

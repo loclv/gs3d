@@ -61,9 +61,10 @@ and a browser integration check for behavior exposed through WebGL.
   sparse-only data and validated sparse indices, ranges, component alignment,
   vertex-only byte strides and normalized flags. Continue expanding validation
   for the rest of the glTF specification.
-* **Implemented:** node matrices and TRS transforms, texture transforms, and
-  unbounded material scalars are checked against the engine's finite float32
-  range before they cross the JavaScript-to-Wasm boundary.
+* **Implemented:** node matrices and TRS transforms, texture transforms, camera
+  projection values, and unbounded material scalars are checked against the
+  engine's finite float32 range before they cross the JavaScript-to-Wasm
+  boundary. Derived camera planes and orthographic view height are checked too.
 * **Implemented:** `KHR_mesh_quantization` decodes quantized base and morph
   position, normal, tangent and texture-coordinate accessors into engine floats.
   Quantized assets must declare the extension as required.

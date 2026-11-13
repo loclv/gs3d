@@ -1020,17 +1020,19 @@ async function prepare(url, requestedScene) {
     if (camera.type === 'perspective') {
       const p = camera.perspective;
       if (!p || !Number.isFinite(p.yfov) || !(p.yfov > 0 && p.yfov < Math.PI) ||
-          !Number.isFinite(p.znear) || !(p.znear > 0 && p.znear <= 3.4e38) ||
-          (p.zfar !== undefined && (!Number.isFinite(p.zfar) || !(p.zfar > p.znear) || p.zfar > 3.4e38)) ||
-          (p.aspectRatio !== undefined && (!Number.isFinite(p.aspectRatio) || !(p.aspectRatio > 0 && p.aspectRatio <= 3.4e38)))) invalid(`Invalid perspective camera ${cameraIndex}`);
+          !isFiniteF32(p.znear) || !(p.znear > 0) ||
+          (p.zfar !== undefined && (!isFiniteF32(p.zfar) || !(p.zfar > p.znear))) ||
+          (p.aspectRatio !== undefined && (!isFiniteF32(p.aspectRatio) || !(p.aspectRatio > 0)))) invalid(`Invalid perspective camera ${cameraIndex}`);
+      const far = p.zfar ?? Math.max(400, p.znear + 1);
+      if (!isFiniteF32(far) || !(far > p.znear)) invalid(`Invalid perspective camera ${cameraIndex}`);
       return { index: cameraIndex, name: camera.name ?? null, type: 'perspective', fov: p.yfov,
-        orthoHeight: 10, near: p.znear, far: p.zfar ?? Math.max(400, p.znear + 1), aspectRatio: p.aspectRatio ?? null, nodes: [] };
+        orthoHeight: 10, near: p.znear, far, aspectRatio: p.aspectRatio ?? null, nodes: [] };
     }
     if (camera.type === 'orthographic') {
       const o = camera.orthographic;
-      if (!o || !Number.isFinite(o.xmag) || !(o.xmag > 0 && o.xmag <= 3.4e38) || !Number.isFinite(o.ymag) || !(o.ymag > 0 && o.ymag <= 3.4e38) ||
-          !Number.isFinite(o.znear) || !Number.isFinite(o.zfar) || !(o.znear >= 0 && o.zfar > o.znear && o.zfar <= 3.4e38) ||
-          !Number.isFinite(o.xmag / o.ymag) || o.xmag / o.ymag > 3.4e38) invalid(`Invalid orthographic camera ${cameraIndex}`);
+      if (!o || !isFiniteF32(o.xmag) || !(o.xmag > 0) || !isFiniteF32(o.ymag) || !(o.ymag > 0) ||
+          !isFiniteF32(o.znear) || !isFiniteF32(o.zfar) || !(o.znear >= 0 && o.zfar > o.znear) ||
+          !isFiniteF32(o.xmag / o.ymag) || !isFiniteF32(2 * o.ymag)) invalid(`Invalid orthographic camera ${cameraIndex}`);
       return { index: cameraIndex, name: camera.name ?? null, type: 'orthographic', fov: 0.9,
         orthoHeight: 2 * o.ymag, near: o.znear, far: o.zfar, aspectRatio: o.xmag / o.ymag, nodes: [] };
     }
