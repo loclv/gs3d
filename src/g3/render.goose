@@ -293,7 +293,8 @@ fn texture_remove(handle: TextureHandle) -> bool {
            m.occlusion_texture == id || m.emissive_texture == id || m.specular_texture == id ||
            m.specular_color_texture == id || m.clearcoat_texture == id ||
            m.clearcoat_roughness_texture == id || m.clearcoat_normal_texture == id ||
-           m.sheen_color_texture == id || m.sheen_roughness_texture == id { return false; }
+           m.sheen_color_texture == id || m.sheen_roughness_texture == id ||
+           m.anisotropy_texture == id { return false; }
     }
     return texture_remove_storage(handle);
 }
@@ -527,6 +528,9 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         sheen_roughness_texture: surface.sheen_roughness_texture,
         sheen_color_uv: surface.sheen_color_uv,
         sheen_roughness_uv: surface.sheen_roughness_uv,
+        anisotropy: float4 { surface.anisotropy_strength, surface.anisotropy_rotation, 0.0, 0.0 },
+        anisotropy_texture: surface.anisotropy_texture,
+        anisotropy_uv: surface.anisotropy_uv,
     };
 }
 

@@ -81,6 +81,8 @@ export interface MaterialInspection {
   readonly clearcoatNormalScale: number;
   readonly sheenColorFactor: readonly [number, number, number];
   readonly sheenRoughnessFactor: number;
+  readonly anisotropyStrength: number;
+  readonly anisotropyRotation: number;
   readonly textureSlots: readonly string[];
   readonly textureBindings: readonly { readonly slot: string; readonly index: number }[];
 }

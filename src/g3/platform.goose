@@ -71,6 +71,9 @@ struct DrawItem {
     sheen_roughness_texture: i32, // linear alpha controls sheen roughness
     sheen_color_uv: UvTransform,
     sheen_roughness_uv: UvTransform,
+    anisotropy: float4, // x strength, y rotation in radians
+    anisotropy_texture: i32, // linear RG direction and B strength map
+    anisotropy_uv: UvTransform,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

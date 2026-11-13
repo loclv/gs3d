@@ -91,7 +91,8 @@ typedef struct {
     GLint clearcoat_normal_tex, clearcoat_normal_textured, clearcoat_normal_scale;
     GLint sheen, sheen_color_tex, sheen_color_textured;
     GLint sheen_roughness_tex, sheen_roughness_textured;
-    GLint uv_transform[12], uv_rotation[12], uv_set[12];
+    GLint anisotropy, anisotropy_tex, anisotropy_textured;
+    GLint uv_transform[13], uv_rotation[13], uv_set[13];
     GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
@@ -288,13 +289,16 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_sheen_color_textured;\n"
     "uniform sampler2D u_sheen_roughness_tex;\n"
     "uniform bool u_sheen_roughness_textured;\n"
+    "uniform vec4 u_anisotropy;\n"
+    "uniform sampler2D u_anisotropy_tex;\n"
+    "uniform bool u_anisotropy_textured;\n"
     "uniform sampler2D u_specular_tex;\n"
     "uniform bool u_specular_textured;\n"
     "uniform sampler2D u_specular_color_tex;\n"
     "uniform bool u_specular_color_textured;\n"
-    "uniform vec4 u_uv_transform[12];\n"
-    "uniform float u_uv_rotation[12];\n"
-    "uniform int u_uv_set[12];\n"
+    "uniform vec4 u_uv_transform[13];\n"
+    "uniform float u_uv_rotation[13];\n"
+    "uniform int u_uv_set[13];\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform bool u_double_sided;\n"
@@ -348,6 +352,7 @@ static const char *FRAGMENT_SRC =
     "    return ((1.0-f)*(1.0-metal)*base/3.14159265359 + d*vis*f)*nl;\n"
     "}\n"
     "vec3 sheen_light(vec3 n,vec3 v,vec3 l,vec3 color,float rough){float nl=max(dot(n,l),0.0),nv=max(dot(n,v),0.0);vec3 hs=l+v;float hl=length(hs);if(nl<=0.0||nv<=0.0||hl<=1e-12)return vec3(0.0);vec3 h=hs/hl;float nh=max(dot(n,h),0.0);float alpha=max(rough,0.07);float inv=1.0/alpha;float d=(2.0+inv)*pow(max(1.0-nh*nh,0.0),0.5*inv)/(6.28318530718);float vis=1.0/max(4.0*(nl+nv-nl*nv),1e-6);return color*(d*vis*nl);}\n"
+    "vec3 anisotropic_light(vec3 n,vec3 v,vec3 l,vec3 t,vec3 b,vec3 base,float metal,float rough,float ior,float specStrength,vec3 specColor,float strength){float nl=max(dot(n,l),0.0),nv=max(dot(n,v),0.0);vec3 h=normalize(l+v);if(nl<=0.0||nv<=0.0)return vec3(0.0);float alpha=max(rough,0.045)*max(rough,0.045),at=mix(alpha,1.0,strength*strength),ab=alpha;float th=dot(t,h),bh=dot(b,h),nh=max(dot(n,h),0.0);float a2=at*ab;vec3 f=vec3(ab*th,at*bh,a2*nh);float w2=a2/max(dot(f,f),1e-12);float D=a2*w2*w2/3.14159265359;float gv=nl*length(vec3(at*dot(t,v),ab*dot(b,v),nv));float gl=nv*length(vec3(at*dot(t,l),ab*dot(b,l),nl));float V=min(1.0,0.5/max(gv+gl,1e-6));float vh=max(dot(v,h),0.0);float m=clamp(metal,0.0,1.0);vec3 dc=clamp(vec3(dielectric_f0(ior))*specColor,0.0,1.0);vec3 f0=mix(dc,base,m);vec3 F=(f0+(1.0-f0)*pow(1.0-vh,5.0))*mix(clamp(specStrength,0.0,1.0),1.0,m);return (F*D*V+(1.0-F)*(1.0-m)*base/3.14159265359)*nl;}\n"
     "void main() {\n"
     "    vec2 base_uv = material_uv(0);\n"
     "    vec2 mr_uv = material_uv(1);\n"
@@ -361,8 +366,12 @@ static const char *FRAGMENT_SRC =
     "    vec2 clearcoat_normal_uv = material_uv(9);\n"
     "    vec2 sheen_color_uv = material_uv(10);\n"
     "    vec2 sheen_roughness_uv = material_uv(11);\n"
+    "    vec2 anisotropy_uv = material_uv(12);\n"
     "    float normal_length = length(v_normal);\n"
     "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
+    "    vec3 anisotropy_t = normalize(v_tangent.xyz - n*dot(n,v_tangent.xyz));\n"
+    "    if (length(anisotropy_t) < 1e-6) { vec3 an_dpdx=dFdx(v_world),an_dpdy=dFdy(v_world);vec2 an_uvdx=dFdx(anisotropy_uv),an_uvdy=dFdy(anisotropy_uv);float an_det=an_uvdx.x*an_uvdy.y-an_uvdx.y*an_uvdy.x;anisotropy_t=abs(an_det)>1e-12?normalize((an_dpdx*an_uvdy.y-an_dpdy*an_uvdx.y)/an_det):normalize(cross(n,vec3(0.0,1.0,0.0))); }\n"
+    "    vec3 anisotropy_b = normalize(cross(n,anisotropy_t))*(v_tangent.w<0.0?-1.0:1.0);\n"
     "    vec3 clearcoat_n = n;\n"
     "    if (u_normal_textured && normal_length > 1e-12) {\n"
     "        vec3 t, b; float tangent_length = length(v_tangent.xyz);\n"
@@ -408,6 +417,7 @@ static const char *FRAGMENT_SRC =
     "    }\n"
     "    if (u_double_sided && !gl_FrontFacing) n = -n;\n"
     "    if (u_double_sided && !gl_FrontFacing) clearcoat_n = -clearcoat_n;\n"
+    "    anisotropy_t=normalize(anisotropy_t-n*dot(n,anisotropy_t));anisotropy_b=normalize(cross(n,anisotropy_t))*(v_tangent.w<0.0?-1.0:1.0);\n"
     "    vec3 l = -u_light_dir;\n"
     "    float diff = max(dot(n, l), 0.0);\n"
     "    vec3 v = normalize(u_view_direction.w > 0.5 ? u_view_direction.xyz : u_eye - v_world);\n"
@@ -431,6 +441,7 @@ static const char *FRAGMENT_SRC =
     "    float coat_roughness = clamp(u_clearcoat.y*(u_clearcoat_roughness_textured?texture(u_clearcoat_roughness_tex,clearcoat_roughness_uv).g:1.0),0.045,1.0);\n"
     "    vec3 sheen_color = u_sheen.rgb*(u_sheen_color_textured?texture(u_sheen_color_tex,sheen_color_uv).rgb:vec3(1.0));\n"
     "    float sheen_roughness = clamp(u_sheen.a*(u_sheen_roughness_textured?texture(u_sheen_roughness_tex,sheen_roughness_uv).a:1.0),0.07,1.0);\n"
+    "    float aniso_strength=clamp(u_anisotropy.x,0.0,1.0);vec2 aniso_dir=vec2(1.0,0.0);if(u_anisotropy_textured){vec3 aniso_tex=texture(u_anisotropy_tex,anisotropy_uv).rgb;aniso_dir=aniso_tex.rg*2.0-1.0;aniso_strength*=aniso_tex.b;}float ca=cos(u_anisotropy.y),sa=sin(u_anisotropy.y);aniso_dir=mat2(ca,sa,-sa,ca)*normalize(aniso_dir);vec3 aniso_t=normalize(anisotropy_t*aniso_dir.x+anisotropy_b*aniso_dir.y);vec3 aniso_b=normalize(cross(n,aniso_t));\n"
     "    float coat_fresnel = 0.04 + 0.96*pow(1.0-max(dot(clearcoat_n,v),0.0),5.0);\n"
     "    float visibility = 1.0;\n"
     "    if (u_shadow_params.x > 0.5) {\n"
@@ -449,14 +460,15 @@ static const char *FRAGMENT_SRC =
     "    vec3 col = base * (u_ambient.rgb * u_ambient.a * ao + u_light_color * diff * visibility)\n"
     "             + u_light_color * spec * visibility;\n"
     "    float env_scale = u_pbr.x > 0.5 ? 1.0-metal : 1.0;\n"
-    "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale*ao + (pbr_light(n,v,l,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color)+sheen_light(n,v,l,sheen_color,sheen_roughness))*u_light_color*visibility;\n"
+    "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale*ao + ((aniso_strength>0.0?anisotropic_light(n,v,l,aniso_t,aniso_b,base,mr.x,clamp(mr.y,0.045,1.0),u_pbr.w,specular_strength,specular_color,aniso_strength):pbr_light(n,v,l,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color))+sheen_light(n,v,l,sheen_color,sheen_roughness))*u_light_color*visibility;\n"
     "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
     "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale * ao;\n"
     "    if (u_env_map_enabled) {\n"
     "        vec2 env_uv = vec2(atan(n.z, n.x) / 6.28318530718 + 0.5, acos(clamp(n.y, -1.0, 1.0)) / 3.14159265359);\n"
     "        col += base * textureLod(u_env_map, env_uv, 0.0).rgb * u_env_map_intensity * env_scale * ao;\n"
     "        if (u_pbr.x > 0.5) {\n"
-    "            vec3 reflected = reflect(-v, n);\n"
+    "            vec3 env_n=n;if(aniso_strength>0.0){vec3 bent_cross=cross(aniso_b,v);vec3 bent=length(bent_cross)>1e-12?normalize(cross(bent_cross,aniso_b)):n;float bent_mix=pow(1.0-aniso_strength*(1.0-clamp(mr.y,0.0,1.0)),4.0);bent=normalize(mix(bent,n,bent_mix));vec3 bent_reflect=reflect(-v,bent);env_n=normalize(mix(bent_reflect,bent,clamp(mr.y,0.0,1.0)*clamp(mr.y,0.0,1.0)));}\n"
+    "            vec3 reflected = reflect(-v, env_n);\n"
     "            vec2 spec_uv = vec2(atan(reflected.z, reflected.x) / 6.28318530718 + 0.5, acos(clamp(reflected.y, -1.0, 1.0)) / 3.14159265359);\n"
     "            float rough = clamp(mr.y, 0.045, 1.0);\n"
     "            vec2 brdf = texture(u_brdf_lut, vec2(max(dot(n,v),0.0),rough)).rg;\n"
@@ -517,7 +529,7 @@ static const char *FRAGMENT_SRC =
     "        float d = max(dot(n, ld), 0.0);\n"
     "        vec3 halfdir = normalize(ld + v);\n"
     "        float s = pow(max(dot(n, halfdir), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
-    "        col += (u_pbr.x > 0.5 ? pbr_light(n,v,ld,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color)+sheen_light(n,v,ld,sheen_color,sheen_roughness) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
+    "        col += (u_pbr.x > 0.5 ? (aniso_strength>0.0?anisotropic_light(n,v,ld,aniso_t,aniso_b,base,mr.x,clamp(mr.y,0.045,1.0),u_pbr.w,specular_strength,specular_color,aniso_strength):pbr_light(n,v,ld,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color))+sheen_light(n,v,ld,sheen_color,sheen_roughness) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
     "        if (u_pbr.x > 0.5 && coat_factor > 0.0) coat += pbr_light(clearcoat_n,v,ld,vec3(0.0),0.0,coat_roughness,1.5,1.0,vec3(1.0))*light.color.rgb*falloff*coat_factor;\n"
     "    }\n"
     "    if (u_params.x > 0.5) col = base;\n"
@@ -611,7 +623,10 @@ static void find_uniforms(void) {
     shader.sheen_color_textured = glGetUniformLocation(shader.program, "u_sheen_color_textured");
     shader.sheen_roughness_tex = glGetUniformLocation(shader.program, "u_sheen_roughness_tex");
     shader.sheen_roughness_textured = glGetUniformLocation(shader.program, "u_sheen_roughness_textured");
-    for (int i = 0; i < 12; i++) {
+    shader.anisotropy = glGetUniformLocation(shader.program, "u_anisotropy");
+    shader.anisotropy_tex = glGetUniformLocation(shader.program, "u_anisotropy_tex");
+    shader.anisotropy_textured = glGetUniformLocation(shader.program, "u_anisotropy_textured");
+    for (int i = 0; i < 13; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_uv_transform[%d]", i); shader.uv_transform[i] = glGetUniformLocation(shader.program, name);
         snprintf(name, sizeof(name), "u_uv_rotation[%d]", i); shader.uv_rotation[i] = glGetUniformLocation(shader.program, name);
@@ -737,9 +752,9 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     emscripten_webgl_make_context_current(ctx);
     GLint max_fragment_texture_units = 0;
     glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &max_fragment_texture_units);
-    if (max_fragment_texture_units < 22) {
-        fprintf(stderr, "g3_web: WebGL2 exposes %d fragment texture units; 22 are required\n", max_fragment_texture_units);
-        report("This goose-3d build requires at least 22 WebGL2 fragment texture units.");
+    if (max_fragment_texture_units < 23) {
+        fprintf(stderr, "g3_web: WebGL2 exposes %d fragment texture units; 23 are required\n", max_fragment_texture_units);
+        report("This goose-3d build requires at least 23 WebGL2 fragment texture units.");
         emscripten_webgl_destroy_context(ctx);
         ctx = 0;
         return 0;
@@ -1150,6 +1165,7 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            a->clearcoat_normal_scale == b->clearcoat_normal_scale &&
            same_vec4(a->sheen,b->sheen) && a->sheen_color_texture == b->sheen_color_texture &&
            a->sheen_roughness_texture == b->sheen_roughness_texture &&
+           same_vec4(a->anisotropy,b->anisotropy) && a->anisotropy_texture == b->anisotropy_texture &&
            a->double_sided == b->double_sided &&
            same_uv_transform(a->base_color_uv, b->base_color_uv) &&
            same_uv_transform(a->metallic_roughness_uv, b->metallic_roughness_uv) &&
@@ -1162,7 +1178,8 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            same_uv_transform(a->clearcoat_roughness_uv, b->clearcoat_roughness_uv) &&
            same_uv_transform(a->clearcoat_normal_uv, b->clearcoat_normal_uv) &&
            same_uv_transform(a->sheen_color_uv,b->sheen_color_uv) &&
-           same_uv_transform(a->sheen_roughness_uv,b->sheen_roughness_uv);
+           same_uv_transform(a->sheen_roughness_uv,b->sheen_roughness_uv) &&
+           same_uv_transform(a->anisotropy_uv,b->anisotropy_uv);
 }
 
 EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_calls; }
@@ -1480,7 +1497,7 @@ static int item_samples_texture(const g3_draw_item *it, int32_t id) {
            it->occlusion_texture == id || it->emissive_texture == id || it->specular_texture == id ||
            it->specular_color_texture == id || it->clearcoat_texture == id ||
            it->clearcoat_roughness_texture == id || it->clearcoat_normal_texture == id ||
-           it->sheen_color_texture == id || it->sheen_roughness_texture == id;
+           it->sheen_color_texture == id || it->sheen_roughness_texture == id || it->anisotropy_texture == id;
 }
 
 /* --- a frame --- */
@@ -1770,11 +1787,11 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
     glUniform4f(shader.pbr, it->pbr.x, it->pbr.y, it->pbr.z, it->pbr.w);
-    const g3_uv_transform *uv_transforms[12] = { &it->base_color_uv, &it->metallic_roughness_uv,
+    const g3_uv_transform *uv_transforms[13] = { &it->base_color_uv, &it->metallic_roughness_uv,
         &it->normal_uv, &it->occlusion_uv, &it->emissive_uv, &it->specular_uv, &it->specular_color_uv,
         &it->clearcoat_uv, &it->clearcoat_roughness_uv, &it->clearcoat_normal_uv,
-        &it->sheen_color_uv, &it->sheen_roughness_uv };
-    for (int uv = 0; uv < 12; uv++) {
+        &it->sheen_color_uv, &it->sheen_roughness_uv, &it->anisotropy_uv };
+    for (int uv = 0; uv < 13; uv++) {
         glUniform4f(shader.uv_transform[uv], uv_transforms[uv]->offset.x, uv_transforms[uv]->offset.y,
                     uv_transforms[uv]->scale.x, uv_transforms[uv]->scale.y);
         glUniform1f(shader.uv_rotation[uv], uv_transforms[uv]->rotation);
@@ -1851,6 +1868,12 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glBindTexture(GL_TEXTURE_2D, sheen_roughness_textured ? textures[it->sheen_roughness_texture] : 0);
     glUniform1i(shader.sheen_roughness_tex, 21);
     glUniform1i(shader.sheen_roughness_textured, sheen_roughness_textured);
+    glUniform4f(shader.anisotropy, it->anisotropy.x, it->anisotropy.y, 0.0f, 0.0f);
+    int anisotropy_textured = it->anisotropy_texture >= 0 && it->anisotropy_texture < texture_count && textures[it->anisotropy_texture];
+    glActiveTexture(GL_TEXTURE22);
+    glBindTexture(GL_TEXTURE_2D, anisotropy_textured ? textures[it->anisotropy_texture] : 0);
+    glUniform1i(shader.anisotropy_tex, 22);
+    glUniform1i(shader.anisotropy_textured, anisotropy_textured);
     int specular_textured = it->specular_texture >= 0 && it->specular_texture < texture_count && textures[it->specular_texture];
     glActiveTexture(GL_TEXTURE14);
     glBindTexture(GL_TEXTURE_2D, specular_textured ? textures[it->specular_texture] : 0);

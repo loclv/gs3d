@@ -99,7 +99,7 @@ and child indices, optional mesh and skin indices, the checked engine handle for
 that node's transform group, checked handles for its primitive nodes, and
 `primitiveMaterials` summaries in matching order. Material summaries include
 names, factors, alpha mode, sidedness, shading model, IOR, normal and
-occlusion strengths, specular, clearcoat, and sheen factors, and the texture slots in
+occlusion strengths, specular, clearcoat, sheen, and anisotropy factors, and the texture slots in
 use. Texture bindings map each slot to its glTF texture index.
 `getTexturePreview(index, maxDimension)` returns a
 bounded RGBA copy for UI previews (default 256, maximum 1024), or `null` for an invalid or disposed model;
@@ -146,7 +146,7 @@ mechanism.
 
 The glTF loader supports `KHR_materials_unlit`, `KHR_materials_ior`,
 `KHR_materials_specular`, `KHR_materials_clearcoat`,
-`KHR_materials_emissive_strength`, `KHR_materials_sheen`, and per-texture
+`KHR_materials_emissive_strength`, `KHR_materials_sheen`, `KHR_materials_anisotropy`, and per-texture
 `KHR_texture_transform` on `TEXCOORD_0` through `TEXCOORD_7`. Unlit selects
 the engine's unlit material path;
 emissive strength multiplies the material's `emissiveFactor` before the
@@ -154,7 +154,7 @@ emissive texture is applied. `KHR_materials_specular` scales and tints
 dielectric reflections with factors and optional textures. Required extensions outside this supported set are
 reported as `UNSUPPORTED`; optional extensions that the loader does not
 recognize are also rejected when present on a material or texture.
-The WebGL renderer requires at least 22 fragment texture units for its current
+The WebGL renderer requires at least 23 fragment texture units for its current
 material, environment, skinning, and shadow samplers; startup reports this limit
 when a device exposes fewer.
 
@@ -274,6 +274,13 @@ fetches and decodes assets in JavaScript.
   its linear roughness map uses alpha. Both maps accept independent texture
   transforms. Prefiltered environment maps also contribute a roughness-blurred
   grazing sheen reflection.
+  `KHR_materials_anisotropy` uses anisotropic GGX for direct lights on both
+  backends. `anisotropyStrength` is in [0, 1]; rotation is counter-clockwise in
+  tangent space. Its optional linear map decodes RG from [0, 1] to a direction
+  in [-1, 1] and multiplies strength by B. The map accepts
+  `KHR_texture_transform`. Environment reflections use the spec's bent-normal
+  single-sample approximation; authored tangents are preferred, with a
+  UV-derived tangent fallback.
   `KHR_materials_emissive_strength` scales `emissiveFactor`, including values
   above 1 for HDR emission.
   `KHR_materials_variants` exposes its names on the loaded model. Call

@@ -548,10 +548,11 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
   let clearcoatFactor = 0, clearcoatRoughness = 0, clearcoatExtension = null;
   let specularFactor = 1, specularColorFactor = [1, 1, 1], specularExtension = null;
   let sheenColorFactor = [0, 0, 0], sheenRoughness = 0, sheenExtension = null;
+  let anisotropyStrength = 0, anisotropyRotation = 0, anisotropyExtension = null;
   if (material.extensions !== undefined) {
     if (!material.extensions || typeof material.extensions !== 'object' || Array.isArray(material.extensions)) invalid('Invalid material extensions');
     const materialExtensions = Object.keys(material.extensions);
-    if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_materials_sheen'].includes(extension))) unsupported('Unsupported material feature');
+    if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_materials_sheen', 'KHR_materials_anisotropy'].includes(extension))) unsupported('Unsupported material feature');
     if (materialExtensions.includes('KHR_materials_unlit')) {
       if (!extensionsUsed.includes('KHR_materials_unlit')) invalid('KHR_materials_unlit must be listed in extensionsUsed');
       const extension = material.extensions.KHR_materials_unlit;
@@ -602,6 +603,15 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
       if (!Number.isFinite(sheenRoughness) || sheenRoughness < 0 || sheenRoughness > 1) invalid('Invalid sheen roughness factor');
       if (unlit) invalid('KHR_materials_sheen cannot be combined with KHR_materials_unlit');
     }
+    if (materialExtensions.includes('KHR_materials_anisotropy')) {
+      if (!extensionsUsed.includes('KHR_materials_anisotropy')) invalid('KHR_materials_anisotropy must be listed in extensionsUsed');
+      anisotropyExtension = material.extensions.KHR_materials_anisotropy;
+      if (!anisotropyExtension || typeof anisotropyExtension !== 'object' || Array.isArray(anisotropyExtension)) invalid('Invalid KHR_materials_anisotropy extension');
+      anisotropyStrength = anisotropyExtension.anisotropyStrength ?? 0;
+      anisotropyRotation = anisotropyExtension.anisotropyRotation ?? 0;
+      if (!isFiniteF32(anisotropyStrength) || anisotropyStrength < 0 || anisotropyStrength > 1 || !isFiniteF32(anisotropyRotation)) invalid('Invalid anisotropy parameters');
+      if (unlit) invalid('KHR_materials_anisotropy cannot be combined with KHR_materials_unlit');
+    }
   }
   if (material.doubleSided !== undefined && typeof material.doubleSided !== 'boolean') invalid('Invalid doubleSided material flag');
   const alphaModes = { OPAQUE: 0, MASK: 1, BLEND: 2 };
@@ -622,6 +632,7 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
   const clearcoatNormalUvTransform = clearcoatExtension?.clearcoatNormalTexture ? parseTextureTransform(clearcoatExtension.clearcoatNormalTexture, extensionsUsed) : identityUvTransform();
   const sheenColorUvTransform = sheenExtension?.sheenColorTexture ? parseTextureTransform(sheenExtension.sheenColorTexture, extensionsUsed) : identityUvTransform();
   const sheenRoughnessUvTransform = sheenExtension?.sheenRoughnessTexture ? parseTextureTransform(sheenExtension.sheenRoughnessTexture, extensionsUsed) : identityUvTransform();
+  const anisotropyUvTransform = anisotropyExtension?.anisotropyTexture ? parseTextureTransform(anisotropyExtension.anisotropyTexture, extensionsUsed) : identityUvTransform();
   const clearcoatNormalScale = clearcoatExtension?.clearcoatNormalTexture?.scale ?? 1;
   if (!isFiniteF32(clearcoatNormalScale)) invalid('Invalid clearcoat normal scale');
   let normalTextureIndex = -1;
@@ -693,6 +704,12 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
     item(textureSpecs, sheenExtension.sheenRoughnessTexture.index, 'sheen roughness texture');
     sheenRoughnessTextureIndex = sheenExtension.sheenRoughnessTexture.index;
   }
+  let anisotropyTextureIndex = -1;
+  if (anisotropyExtension?.anisotropyTexture) {
+    if (!availableUvSets[anisotropyUvTransform.texcoord]) unsupported('Unsupported anisotropy texture coordinates');
+    item(textureSpecs, anisotropyExtension.anisotropyTexture.index, 'anisotropy texture');
+    anisotropyTextureIndex = anisotropyExtension.anisotropyTexture.index;
+  }
   const metallic = pbr.metallicFactor ?? 1, roughness = pbr.roughnessFactor ?? 1;
   if (![metallic, roughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid metallic or roughness factor');
   const color = pbr.baseColorFactor || [1, 1, 1, 1];
@@ -713,9 +730,11 @@ function parseMaterial(doc, textureSpecs, materialIndex, availableUvSets, extens
     clearcoatTextureIndex, clearcoatRoughnessTextureIndex,
     clearcoatNormalTextureIndex, clearcoatNormalScale,
     sheenColorFactor: [...sheenColorFactor], sheenRoughness, sheenColorTextureIndex, sheenRoughnessTextureIndex,
+    anisotropyStrength, anisotropyRotation, anisotropyTextureIndex,
     uvTransforms: [baseUvTransform, metallicRoughnessUvTransform, normalUvTransform, occlusionUvTransform,
       emissiveUvTransform, specularUvTransform, specularColorUvTransform, clearcoatUvTransform,
-      clearcoatRoughnessUvTransform, clearcoatNormalUvTransform, sheenColorUvTransform, sheenRoughnessUvTransform], materialIndex: materialIndex ?? -1 };
+      clearcoatRoughnessUvTransform, clearcoatNormalUvTransform, sheenColorUvTransform, sheenRoughnessUvTransform,
+      anisotropyUvTransform], materialIndex: materialIndex ?? -1 };
 }
 
 function inspectMaterial(spec) {
@@ -727,6 +746,7 @@ function inspectMaterial(spec) {
     ['specularColor', spec.specularColorTextureIndex], ['clearcoat', spec.clearcoatTextureIndex],
     ['clearcoatRoughness', spec.clearcoatRoughnessTextureIndex], ['clearcoatNormal', spec.clearcoatNormalTextureIndex],
     ['sheenColor', spec.sheenColorTextureIndex], ['sheenRoughness', spec.sheenRoughnessTextureIndex],
+    ['anisotropy', spec.anisotropyTextureIndex],
   ].filter(([, index]) => index >= 0).map(([slot, index]) => Object.freeze({ slot, index }));
   return Object.freeze({
     index: spec.materialIndex, name: spec.name,
@@ -740,6 +760,7 @@ function inspectMaterial(spec) {
     clearcoatFactor: spec.clearcoatFactor, clearcoatRoughnessFactor: spec.clearcoatRoughness,
     clearcoatNormalScale: spec.clearcoatNormalScale,
     sheenColorFactor: Object.freeze([...spec.sheenColorFactor]), sheenRoughnessFactor: spec.sheenRoughness,
+    anisotropyStrength: spec.anisotropyStrength, anisotropyRotation: spec.anisotropyRotation,
     textureSlots: Object.freeze(textureBindings.map(binding => binding.slot)),
     textureBindings: Object.freeze(textureBindings),
   });
@@ -786,7 +807,7 @@ async function prepare(url, requestedScene) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_materials_sheen', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization', 'KHR_lights_punctual', 'EXT_mesh_gpu_instancing'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_materials_sheen', 'KHR_materials_anisotropy', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization', 'KHR_lights_punctual', 'EXT_mesh_gpu_instancing'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   if (doc.extensions !== undefined && (!doc.extensions || typeof doc.extensions !== 'object' || Array.isArray(doc.extensions))) invalid('Invalid glTF extensions');
   const variantExtension = doc.extensions?.KHR_materials_variants;
@@ -1543,6 +1564,8 @@ export async function loadGLTF(engine, url, options = {}) {
         getTexture(spec.sheenColorTextureIndex, true), getTexture(spec.sheenRoughnessTextureIndex, false))) {
         throw new AssetError('UPLOAD', 'Could not set material sheen properties');
       }
+      if (!engine._g3_asset_material_anisotropy(id, spec.anisotropyStrength, spec.anisotropyRotation,
+        getTexture(spec.anisotropyTextureIndex, false))) throw new AssetError('UPLOAD', 'Could not set material anisotropy properties');
       for (let slot = 0; slot < spec.uvTransforms.length; slot++) {
         const transform = spec.uvTransforms[slot];
         if (!engine._g3_asset_material_uv_transform(id, slot, ...transform.offset, ...transform.scale, transform.rotation, transform.texcoord)) {

@@ -510,7 +510,7 @@ static int samples_texture(const g3_draw_item *it, int32_t id) {
            it->occlusion_texture == id || it->emissive_texture == id || it->specular_texture == id ||
            it->specular_color_texture == id || it->clearcoat_texture == id ||
            it->clearcoat_roughness_texture == id || it->clearcoat_normal_texture == id ||
-           it->sheen_color_texture == id || it->sheen_roughness_texture == id;
+           it->sheen_color_texture == id || it->sheen_roughness_texture == id || it->anisotropy_texture == id;
 }
 
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
@@ -674,6 +674,32 @@ static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
     }
 }
 
+static void pbr_anisotropic_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, g3_vec3 t, g3_vec3 b,
+                                  const float base[3], float metallic, float roughness, float ior,
+                                  float specular_strength, const float specular_color[3],
+                                  float strength, float out[3]) {
+    float nl=fmaxf(n.x*l.x+n.y*l.y+n.z*l.z,0.0f), nv=fmaxf(n.x*v.x+n.y*v.y+n.z*v.z,0.0f);
+    float hx=l.x+v.x,hy=l.y+v.y,hz=l.z+v.z,hl=sqrtf(hx*hx+hy*hy+hz*hz);
+    if(nl<=0.0f||nv<=0.0f||hl<=1e-12f){out[0]=out[1]=out[2]=0.0f;return;}
+    hx/=hl;hy/=hl;hz/=hl;
+    float rough=fmaxf(0.045f,fminf(roughness,1.0f));
+    float alpha=rough*rough,at=alpha+(1.0f-alpha)*strength*strength,ab=alpha;
+    float th=t.x*hx+t.y*hy+t.z*hz,bh=b.x*hx+b.y*hy+b.z*hz,nh=fmaxf(n.x*hx+n.y*hy+n.z*hz,0.0f);
+    float a2=at*ab,fx=ab*th,fy=at*bh,fz=a2*nh,w2=a2/fmaxf(fx*fx+fy*fy+fz*fz,1e-12f);
+    float distribution=a2*w2*w2/3.14159265359f;
+    float gv=nl*sqrtf(at*at*(t.x*v.x+t.y*v.y+t.z*v.z)*(t.x*v.x+t.y*v.y+t.z*v.z)+ab*ab*(b.x*v.x+b.y*v.y+b.z*v.z)*(b.x*v.x+b.y*v.y+b.z*v.z)+nv*nv);
+    float gl=nv*sqrtf(at*at*(t.x*l.x+t.y*l.y+t.z*l.z)*(t.x*l.x+t.y*l.y+t.z*l.z)+ab*ab*(b.x*l.x+b.y*l.y+b.z*l.z)*(b.x*l.x+b.y*l.y+b.z*l.z)+nl*nl);
+    float visibility=fminf(1.0f,0.5f/fmaxf(gv+gl,1e-6f));
+    float vh=fmaxf(v.x*hx+v.y*hy+v.z*hz,0.0f),m=fmaxf(0.0f,fminf(metallic,1.0f));
+    float fresnel_weight=powf(1.0f-vh,5.0f),dielectric=dielectric_f0(ior);
+    for(int i=0;i<3;i++){
+        float dc=fmaxf(0.0f,fminf(dielectric*specular_color[i],1.0f));
+        float f0=dc*(1.0f-m)+base[i]*m;
+        float f=(f0+(1.0f-f0)*fresnel_weight)*(specular_strength*(1.0f-m)+m);
+        out[i]=((1.0f-f)*(1.0f-m)*base[i]/3.14159265359f+distribution*visibility*f)*nl;
+    }
+}
+
 static void sheen_light(g3_vec3 n,g3_vec3 v,g3_vec3 l,const float color[3],float rough,float out[3]) {
     float nl=fmaxf(n.x*l.x+n.y*l.y+n.z*l.z,0.0f), nv=fmaxf(n.x*v.x+n.y*v.y+n.z*v.z,0.0f);
     float hx=l.x+v.x,hy=l.y+v.y,hz=l.z+v.z,hl=sqrtf(hx*hx+hy*hy+hz*hz);
@@ -713,7 +739,8 @@ static void sample_brdf_lut(float nv, float roughness, float *a, float *b) {
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
                   const g3_vec3 wp, g3_vec3 n, g3_vec3 clearcoat_n, const float tex[3], const float vertex_color[4], const float mr[4], float ao,
 const float emission[3], float specular_strength, const float specular_color[3],
-float material_clearcoat, float material_clearcoat_roughness, const float sheen_color[3], float sheen_roughness, float *out_rgb) {
+float material_clearcoat, float material_clearcoat_roughness, const float sheen_color[3], float sheen_roughness,
+g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *out_rgb) {
     float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 1e-12f) { n.x /= len; n.y /= len; n.z /= len; }
     else { n.x = n.y = n.z = 0.0f; }
@@ -749,7 +776,8 @@ float material_clearcoat, float material_clearcoat_roughness, const float sheen_
     float metallic = it->pbr.y * mr[2], roughness = it->pbr.z * mr[1];
     if (it->pbr.x > 0.5f) {
         float brdf[3];
-        pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, metallic, roughness, it->pbr.w, specular_strength, specular_color, brdf);
+        if (anisotropy_strength > 0.0f) pbr_anisotropic_light(n,(g3_vec3){vx,vy,vz},(g3_vec3){lx,ly,lz},anisotropy_t,anisotropy_b,base,metallic,roughness,it->pbr.w,specular_strength,specular_color,anisotropy_strength,brdf);
+        else pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, metallic, roughness, it->pbr.w, specular_strength, specular_color, brdf);
         float sheen[3]; sheen_light(n,(g3_vec3){vx,vy,vz},(g3_vec3){lx,ly,lz},sheen_color,sheen_roughness,sheen);
         for(int c=0;c<3;c++)brdf[c]+=sheen[c];
         if (coat_factor > 0.0f) {
@@ -783,6 +811,15 @@ float material_clearcoat, float material_clearcoat_roughness, const float sheen_
             float rx=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.x-vx;
             float ry=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.y-vy;
             float rz=2.0f*(n.x*vx+n.y*vy+n.z*vz)*n.z-vz;
+            if(anisotropy_strength>0.0f){
+                float cx=anisotropy_b.y*vz-anisotropy_b.z*vy,cy=anisotropy_b.z*vx-anisotropy_b.x*vz,cz=anisotropy_b.x*vy-anisotropy_b.y*vx;
+                float bx=cy*anisotropy_b.z-cz*anisotropy_b.y,by=cz*anisotropy_b.x-cx*anisotropy_b.z,bz=cx*anisotropy_b.y-cy*anisotropy_b.x;
+                float bl=sqrtf(bx*bx+by*by+bz*bz);if(bl>1e-12f){bx/=bl;by/=bl;bz/=bl;}
+                float mixv=powf(1.0f-anisotropy_strength*(1.0f-fmaxf(0.0f,fminf(roughness,1.0f))),4.0f);
+                bx=bx+(n.x-bx)*mixv;by=by+(n.y-by)*mixv;bz=bz+(n.z-bz)*mixv;bl=sqrtf(bx*bx+by*by+bz*bz);if(bl>1e-12f){bx/=bl;by/=bl;bz/=bl;}
+                float vd=bx*vx+by*vy+bz*vz,rrx=2.0f*vd*bx-vx,rry=2.0f*vd*by-vy,rrz=2.0f*vd*bz-vz,q=roughness*roughness;
+                rx=rrx+(bx-rrx)*q;ry=rry+(by-rry)*q;rz=rrz+(bz-rrz)*q;float rl=sqrtf(rx*rx+ry*ry+rz*rz);if(rl>1e-12f){rx/=rl;ry/=rl;rz/=rl;}
+            }
             float ryc=ry < -1.0f ? -1.0f : ry > 1.0f ? 1.0f : ry;
             float rough=fmaxf(0.045f,fminf(roughness,1.0f));
             soft_texture *environment=&textures[vs->environment_texture];
@@ -865,7 +902,8 @@ float material_clearcoat, float material_clearcoat_roughness, const float sheen_
         float s = powf(nh2, shine) * it->params.y;
         if (it->pbr.x > 0.5f) {
             float brdf[3];
-            pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){ex,ey,ez}, base, metallic, roughness, it->pbr.w, specular_strength, specular_color, brdf);
+            if (anisotropy_strength > 0.0f) pbr_anisotropic_light(n,(g3_vec3){vx,vy,vz},(g3_vec3){ex,ey,ez},anisotropy_t,anisotropy_b,base,metallic,roughness,it->pbr.w,specular_strength,specular_color,anisotropy_strength,brdf);
+            else pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){ex,ey,ez}, base, metallic, roughness, it->pbr.w, specular_strength, specular_color, brdf);
             float sheen[3]; sheen_light(n,(g3_vec3){vx,vy,vz},(g3_vec3){ex,ey,ez},sheen_color,sheen_roughness,sheen);
             for(int c=0;c<3;c++)brdf[c]+=sheen[c];
             r += brdf[0]*light->color.x*falloff; g += brdf[1]*light->color.y*falloff; b += brdf[2]*light->color.z*falloff;
@@ -1715,8 +1753,31 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
                 n.x = -n.x; n.y = -n.y; n.z = -n.z;
                 clearcoat_n.x = -clearcoat_n.x; clearcoat_n.y = -clearcoat_n.y; clearcoat_n.z = -clearcoat_n.z;
             }
+            g3_vec3 aniso_t={0,0,0},aniso_b={0,0,0};
+            float anisotropy_strength=fmaxf(0.0f,fminf(it->anisotropy.x,1.0f));
+            if(it->pbr.x>0.5f&&anisotropy_strength>0.0f){
+                float tx=t->tangent[0][0]*b0+t->tangent[1][0]*b1+t->tangent[2][0]*b2;
+                float ty=t->tangent[0][1]*b0+t->tangent[1][1]*b1+t->tangent[2][1]*b2;
+                float tz=t->tangent[0][2]*b0+t->tangent[1][2]*b1+t->tangent[2][2]*b2;
+                float handedness=t->tangent[0][3]*b0+t->tangent[1][3]*b1+t->tangent[2][3]*b2;
+                if(sqrtf(tx*tx+ty*ty+tz*tz)<1e-12f){tx=t->derived_tangent[0];ty=t->derived_tangent[1];tz=t->derived_tangent[2];handedness=1.0f;}
+                float ndt=n.x*tx+n.y*ty+n.z*tz;tx-=n.x*ndt;ty-=n.y*ndt;tz-=n.z*ndt;
+                float tl=sqrtf(tx*tx+ty*ty+tz*tz);if(tl>1e-12f){tx/=tl;ty/=tl;tz/=tl;}
+                float bx=(n.y*tz-n.z*ty)*(handedness<0?-1.0f:1.0f),by=(n.z*tx-n.x*tz)*(handedness<0?-1.0f:1.0f),bz=(n.x*ty-n.y*tx)*(handedness<0?-1.0f:1.0f);
+                float du=1.0f,dv=0.0f;
+                if(it->anisotropy_texture>=0){
+                    float raw_u,raw_v,au,av,sample[4];interpolate_uv(t,it->anisotropy_uv.texcoord,b0,b1,b2,&raw_u,&raw_v);transform_uv(&it->anisotropy_uv,raw_u,raw_v,&au,&av);
+                    sample_texture(it->anisotropy_texture,au,av,texture_footprint(t,it->anisotropy_texture,&it->anisotropy_uv,l0,l1,l2,raw_u,raw_v),sample);
+                    du=sample[0]*2.0f-1.0f;dv=sample[1]*2.0f-1.0f;anisotropy_strength*=sample[2];
+                }
+                float dl=sqrtf(du*du+dv*dv);if(dl>1e-12f){du/=dl;dv/=dl;}else{du=1.0f;dv=0.0f;}
+                float ca=cosf(it->anisotropy.y),sa=sinf(it->anisotropy.y),rdx=ca*du-sa*dv,rdy=sa*du+ca*dv;
+                aniso_t=(g3_vec3){tx*rdx+bx*rdy,ty*rdx+by*rdy,tz*rdx+bz*rdy};
+                float al=sqrtf(aniso_t.x*aniso_t.x+aniso_t.y*aniso_t.y+aniso_t.z*aniso_t.z);if(al>1e-12f){aniso_t.x/=al;aniso_t.y/=al;aniso_t.z/=al;}
+                aniso_b=(g3_vec3){(n.y*aniso_t.z-n.z*aniso_t.y)*(handedness<0?-1.0f:1.0f),(n.z*aniso_t.x-n.x*aniso_t.z)*(handedness<0?-1.0f:1.0f),(n.x*aniso_t.y-n.y*aniso_t.x)*(handedness<0?-1.0f:1.0f)};
+            }
             shade(it, vs, wp, n, clearcoat_n, tex, vertex_color, mr, ao, emission, specular_strength, specular_color,
-                  clearcoat, clearcoat_roughness, sheen_color, sheen_roughness, rgb);
+                  clearcoat, clearcoat_roughness, sheen_color, sheen_roughness, aniso_t, aniso_b, anisotropy_strength, rgb);
             if (counting) shaded += 1;
             if (vs->params.z > 0.5f) blend_pixel_hdr(hdr_fb + at * 3, rgb, alpha, blended);
             else blend_pixel(fb + at * 3, rgb, alpha, blended);

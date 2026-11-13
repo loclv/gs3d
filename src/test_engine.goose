@@ -936,6 +936,9 @@ fn case_ordinary_texture_removal() {
     g3::material(material).sheen_color_texture = -1;
     g3::material(material).sheen_roughness_texture = texture;
     testing::check(!g3::texture_remove(handle), "a sheen roughness map keeps its texture alive");
+    g3::material(material).sheen_roughness_texture = -1;
+    g3::material(material).anisotropy_texture = texture;
+    testing::check(!g3::texture_remove(handle), "an anisotropy direction map keeps its texture alive");
     g3::material_remove(material);
     g3::set_environment_map(texture, 1.0);
     testing::check(!g3::texture_remove(handle), "the active environment texture cannot be removed");
@@ -1285,6 +1288,20 @@ fn case_pbr() {
     g3::material(mat).color = float4 { 0.5, 0.5, 0.5, 1.0 };
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 20, 20, 20, 2), "PBR dielectric matches normal-incidence GGX calculation");
+    g3::material(mat).roughness = 0.5;
+    g3::material(mat).metallic = 1.0;
+    g3::material(mat).color = float4_1;
+    g3::frame(1.0 / 60.0);
+    let isotropic = g3::read_pixel(200, 200);
+    g3::material(mat).anisotropy_strength = 1.0;
+    g3::frame(1.0 / 60.0);
+    let anisotropic = g3::read_pixel(200, 200);
+    testing::check(channel(anisotropic, 16) + 1 < channel(isotropic, 16),
+        "full anisotropy redistributes the normal-incidence metallic highlight");
+    g3::material(mat).anisotropy_strength = 0.0;
+    g3::material(mat).metallic = 0.0;
+    g3::material(mat).roughness = 1.0;
+    g3::material(mat).color = float4 { 0.5, 0.5, 0.5, 1.0 };
     // At normal incidence, clearcoat F0=0.04 adds a roughness-0.5 GGX
     // highlight (0.04 * D * V * 0.5 = 0.0255) and attenuates the base by 0.96.
     g3::material(mat).clearcoat_factor = 1.0;

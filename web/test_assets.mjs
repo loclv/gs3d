@@ -389,6 +389,7 @@ function fakeEngine() {
   engine._g3_asset_material_specular = (...args) => { calls.push(['material_specular', ...args]); return true; };
   engine._g3_asset_material_clearcoat = (...args) => { calls.push(['material_clearcoat', ...args]); return true; };
   engine._g3_asset_material_sheen = (...args) => { calls.push(['material_sheen', ...args]); return true; };
+  engine._g3_asset_material_anisotropy = (...args) => { calls.push(['material_anisotropy', ...args]); return true; };
   engine._g3_asset_material_uv_transform = (...args) => { calls.push(['material_uv_transform', ...args]); return true; };
   engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); const id = nextMesh++; meshGenerations.set(id, 1); return id; };
   engine._g3_host_mesh_update = (id, positions, normals, tangents, count) => {
@@ -686,7 +687,7 @@ assert.deepEqual(inspectedPrimitive.variants, [{
     doubleSided: false, unlit: false, ior: 1.5, specularFactor: 1, specularColorFactor: [1, 1, 1],
     clearcoatFactor: 0, clearcoatRoughnessFactor: 0, clearcoatNormalScale: 1,
     sheenColorFactor: [0, 0, 0], sheenRoughnessFactor: 0,
-    textureSlots: [], textureBindings: [],
+    anisotropyStrength: 0, anisotropyRotation: 0, textureSlots: [], textureBindings: [],
   },
 }], 'primitive inspection includes default factors and mapped variant material metadata');
 assert.equal(variantModel.activeVariant, -1);
@@ -855,6 +856,25 @@ assert.equal(sheenEngine.calls.find(call => call[0] === 'material_uv_transform' 
 assert.equal(sheenEngine.calls.filter(call => call[0] === 'texture_srgb').length, 1);
 assert.equal(sheenEngine.calls.filter(call => call[0] === 'texture').length, 1);
 sheenModel.dispose();
+const anisotropyDoc = structuredClone(sheenDoc);
+anisotropyDoc.extensionsUsed = ['KHR_materials_anisotropy', 'KHR_texture_transform'];
+anisotropyDoc.extensionsRequired = ['KHR_materials_anisotropy'];
+anisotropyDoc.materials[0].extensions = { KHR_materials_anisotropy: {
+  anisotropyStrength: 0.6, anisotropyRotation: 0.35,
+  anisotropyTexture: { index: 0, extensions: { KHR_texture_transform: { rotation: 0.2 } } },
+} };
+resources.set('http://localhost/anisotropy.gltf', bytes(anisotropyDoc));
+const anisotropyEngine = fakeEngine(), anisotropyModel = await loadGLTF(anisotropyEngine, 'http://localhost/anisotropy.gltf');
+assert.deepEqual(anisotropyEngine.calls.find(call => call[0] === 'material_anisotropy'), ['material_anisotropy', 1, 0.6, 0.35, 5]);
+assert.equal(anisotropyModel.nodes[0].primitiveMaterials[0].default.anisotropyStrength, 0.6);
+assert.equal(anisotropyModel.nodes[0].primitiveMaterials[0].default.anisotropyRotation, 0.35);
+assert.deepEqual(anisotropyModel.nodes[0].primitiveMaterials[0].default.textureSlots, ['anisotropy']);
+assert.equal(anisotropyEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 12)[8], 0);
+anisotropyModel.dispose();
+const invalidAnisotropy = structuredClone(anisotropyDoc);
+invalidAnisotropy.materials[0].extensions.KHR_materials_anisotropy.anisotropyStrength = 1.1;
+resources.set('http://localhost/invalid-anisotropy.gltf', bytes(invalidAnisotropy));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/invalid-anisotropy.gltf'), e => e.code === 'INVALID_GLTF');
 const invalidSheenFactor = structuredClone(sheenDoc);
 invalidSheenFactor.materials[0].extensions.KHR_materials_sheen.sheenColorFactor[1] = 1.1;
 resources.set('http://localhost/invalid-sheen-factor.gltf', bytes(invalidSheenFactor));

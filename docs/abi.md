@@ -51,7 +51,7 @@ The procedural checklist lives in
 selected `texcoord` set (0 through 7). The renderer scales the selected UV, rotates
 it, then adds the offset.
 
-### `g3_draw_item` — 605 bytes
+### `g3_draw_item` — 649 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -96,6 +96,9 @@ it, then adds the offset.
 | 553 | `int32_t` | `sheen_roughness_texture` | linear alpha sheen roughness map; -1 disables |
 | 557 | `g3_uv_transform` | `sheen_color_uv` | sheen colour-map transform |
 | 581 | `g3_uv_transform` | `sheen_roughness_uv` | sheen roughness-map transform |
+| 605 | `g3_vec4` | `anisotropy` | x strength, y tangent-space rotation in radians |
+| 621 | `int32_t` | `anisotropy_texture` | linear RG direction and B strength map; -1 disables |
+| 625 | `g3_uv_transform` | `anisotropy_uv` | anisotropy-map transform |
 
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
