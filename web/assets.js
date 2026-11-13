@@ -268,9 +268,9 @@ function unpack(bytes) {
       offset += length;
     }
     if (!json) invalid('GLB has no JSON chunk');
-    return { json, bin };
+    return { json, bin, glb: true };
   }
-  return { json: bytes };
+  return { json: bytes, bin: undefined, glb: false };
 }
 
 function accessor(doc, buffers, index, expected) {
@@ -505,7 +505,7 @@ function parseTextureTransform(info, extensionsUsed) {
 
 async function prepare(url) {
   const absolute = new URL(url, globalThis.location?.href || 'http://localhost/');
-  const { json, bin } = unpack(await fetchBytes(absolute));
+  const { json, bin, glb } = unpack(await fetchBytes(absolute));
   let doc;
   try { doc = JSON.parse(new TextDecoder().decode(json)); }
   catch (error) { throw new AssetError('INVALID_GLTF', 'Invalid glTF JSON', error); }
@@ -516,7 +516,14 @@ async function prepare(url) {
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
   const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_texture_transform'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
-  const buffers = await Promise.all((doc.buffers || []).map(async (buffer, i) => {
+  const bufferDefinitions = doc.buffers ?? [];
+  if (!Array.isArray(bufferDefinitions)) invalid('Invalid glTF buffers');
+  if (glb && bin !== undefined) {
+    const first = bufferDefinitions[0];
+    if (!first || first.uri !== undefined || !Number.isSafeInteger(first.byteLength) || first.byteLength < 0 ||
+        bin.byteLength < first.byteLength || bin.byteLength - first.byteLength > 3) invalid('Invalid GLB BIN chunk padding or buffer reference');
+  }
+  const buffers = await Promise.all(bufferDefinitions.map(async (buffer, i) => {
     const data = buffer.uri !== undefined ? await fetchBytes(new URL(buffer.uri, absolute)) : i === 0 ? bin : undefined;
     if (!data || !Number.isInteger(buffer.byteLength) || buffer.byteLength < 0 || data.byteLength < buffer.byteLength) invalid('Missing or truncated buffer');
     return data;

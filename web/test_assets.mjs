@@ -30,6 +30,11 @@ function glb(document, data) {
 }
 const glbDoc = structuredClone(doc); delete glbDoc.buffers[0].uri;
 const resources = new Map([['http://localhost/model.gltf', bytes(doc)], ['http://localhost/mesh.bin', binary], ['http://localhost/model.glb', glb(glbDoc, binary)], ['http://localhost/image.png', new Uint8Array([1])]]);
+resources.set('http://localhost/oversized-glb-padding.glb', glb(glbDoc, new ArrayBuffer(84)));
+const missingGlbBuffer = structuredClone(glbDoc); delete missingGlbBuffer.buffers;
+resources.set('http://localhost/unreferenced-glb-bin.glb', glb(missingGlbBuffer, binary));
+const glbUriBuffer = structuredClone(glbDoc); glbUriBuffer.buffers[0].uri = 'mesh.bin';
+resources.set('http://localhost/glb-bin-with-uri.glb', glb(glbUriBuffer, binary));
 const tangentBinary = new ArrayBuffer(48), tangentData = new DataView(tangentBinary);
 for (let i = 0; i < 3; i++) [0, 1, 0, -1].forEach((value, component) => tangentData.setFloat32(i * 16 + component * 4, value, true));
 const tangentDoc = structuredClone(doc);
@@ -318,6 +323,11 @@ for (const path of ['model.gltf', 'model.glb']) {
   assert.equal(model.pick(canvas, 120, 60), null);
   assert.equal(engine.calls.filter(x => x[0] === 'hide').length, 2);
   assert.equal(engine.calls.filter(x => x[0] === 'recycle_mesh').length, 1);
+}
+for (const path of ['oversized-glb-padding.glb', 'unreferenced-glb-bin.glb', 'glb-bin-with-uri.glb']) {
+  const engine = fakeEngine();
+  await assert.rejects(loadGLTF(engine, `http://localhost/${path}`), error => error.code === 'INVALID_GLTF');
+  assert.equal(engine.calls.length, 0, `${path} is rejected before resource creation`);
 }
 const engine = fakeEngine();
 const factorsDoc = structuredClone(doc);

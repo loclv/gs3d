@@ -116,7 +116,8 @@ returns null after disposal or a scene reset.
 
 `AssetError.code` includes `FETCH`, `IMAGE`, `HDR`, `ENVIRONMENT`, `EXPOSURE`,
 `INVALID_GLTF`, `UNSUPPORTED`, `MEMORY`, and `UPLOAD`. The loader validates and decodes before creating scene objects;
-if an upload fails it releases the resources already created. Browser graphics
+GLB JSON/BIN chunk ordering, buffer references, and up to three BIN padding
+bytes are checked before decoding; if an upload fails it releases the resources already created. Browser graphics
 driver failures may still be reported separately through the backend's error
 mechanism.
 
