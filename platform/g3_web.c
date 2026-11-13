@@ -42,7 +42,7 @@ typedef struct {
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
     GLint env_map, env_map_enabled, env_map_intensity;
-    GLint shadow_map, shadow_matrix, shadow_params;
+    GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
     GLint spot_shadow_map, spot_shadow_matrix, spot_shadow_index, spot_shadow_params;
     GLint alpha_mode, alpha_cutoff;
@@ -66,7 +66,8 @@ static GLint shadow_mask, shadow_cutoff, shadow_alpha, shadow_tex, shadow_textur
 static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
 static GLint output_sampler;
 static int output_width, output_height;
-#define SHADOW_SIZE 512
+static int shadow_map_size = 512;
+static int allocated_shadow_size;
 
 static const char *VERTEX_SRC =
     "#version 300 es\n"
@@ -127,6 +128,7 @@ static const char *FRAGMENT_SRC =
     "uniform sampler2D u_shadow_map;\n"
     "uniform mat4 u_shadow_matrix;\n"
     "uniform vec4 u_shadow_params;\n"
+    "uniform float u_shadow_resolution;\n"
     "uniform samplerCubeShadow u_point_shadow_map;\n"
     "uniform mat4 u_point_shadow_matrices[6];\n"
     "uniform int u_point_shadow_index;\n"
@@ -192,7 +194,7 @@ static const char *FRAGMENT_SRC =
     "        if (light_pos.w > 0.0 && all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThan(uvz.xy, vec2(1.0))) && uvz.z <= 1.0) {\n"
     "            int radius = int(u_shadow_params.z + 0.5); float sum = 0.0; float count = 0.0;\n"
     "            for (int y=-2; y<=2; y++) for (int x=-2; x<=2; x++) if (abs(x)<=radius && abs(y)<=radius) {\n"
-    "                float depth = texture(u_shadow_map, uvz.xy + vec2(float(x),float(y))/512.0).r;\n"
+    "                float depth = texture(u_shadow_map, uvz.xy + vec2(float(x),float(y))/u_shadow_resolution).r;\n"
     "                sum += uvz.z-u_shadow_params.y <= depth ? 1.0 : 0.0; count += 1.0;\n"
     "            }\n"
     "            visibility = sum / max(count,1.0);\n"
@@ -240,7 +242,7 @@ static const char *FRAGMENT_SRC =
     "                vec3 ray=normalize(delta); vec3 up=abs(ray.y)<0.99?vec3(0.0,1.0,0.0):vec3(1.0,0.0,0.0);\n"
     "                vec3 tangent=normalize(cross(ray,up)); vec3 bitangent=cross(ray,tangent);\n"
     "                for(int y=-2;y<=2;y++) for(int x=-2;x<=2;x++) if(abs(x)<=radius&&abs(y)<=radius) {\n"
-    "                    vec3 sample_ray=delta+(tangent*float(x)+bitangent*float(y))*(2.0/512.0*length(delta));\n"
+    "                    vec3 sample_ray=delta+(tangent*float(x)+bitangent*float(y))*(2.0/u_shadow_resolution*length(delta));\n"
     "                    sum+=texture(u_point_shadow_map,vec4(sample_ray,refz)); count+=1.0;\n"
     "                }\n"
     "                falloff*=sum/max(count,1.0);\n"
@@ -252,7 +254,7 @@ static const char *FRAGMENT_SRC =
     "                if (all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThan(uvz.xy, vec2(1.0))) && uvz.z <= 1.0) {\n"
     "                    int radius=int(u_spot_shadow_params.z+0.5); float sum=0.0; float count=0.0;\n"
     "                    for(int y=-2;y<=2;y++) for(int x=-2;x<=2;x++) if(abs(x)<=radius&&abs(y)<=radius) {\n"
-    "                        sum+=texture(u_spot_shadow_map,vec3(uvz.xy+vec2(float(x),float(y))/512.0,uvz.z-u_spot_shadow_params.y)); count+=1.0;\n"
+    "                        sum+=texture(u_spot_shadow_map,vec3(uvz.xy+vec2(float(x),float(y))/u_shadow_resolution,uvz.z-u_spot_shadow_params.y)); count+=1.0;\n"
     "                    }\n"
     "                    falloff*=sum/max(count,1.0);\n"
     "                }\n"
@@ -350,6 +352,7 @@ static void find_uniforms(void) {
     shader.shadow_map = glGetUniformLocation(shader.program, "u_shadow_map");
     shader.shadow_matrix = glGetUniformLocation(shader.program, "u_shadow_matrix");
     shader.shadow_params = glGetUniformLocation(shader.program, "u_shadow_params");
+    shader.shadow_resolution = glGetUniformLocation(shader.program, "u_shadow_resolution");
     shader.point_shadow_map = glGetUniformLocation(shader.program, "u_point_shadow_map");
     shader.point_shadow_matrices = glGetUniformLocation(shader.program, "u_point_shadow_matrices[0]");
     shader.point_shadow_index = glGetUniformLocation(shader.program, "u_point_shadow_index");
@@ -641,6 +644,7 @@ static void bind_view(const g3_view_state *view) {
     glUniform1i(shader.shadow_map, 2);
     glUniformMatrix4fv(shader.shadow_matrix, 1, GL_FALSE, view->shadow_view_proj.m);
     glUniform4f(shader.shadow_params, shadow_texture ? view->shadow_params.x : 0.0f, view->shadow_params.y, view->shadow_params.z, 0.0f);
+    glUniform1f(shader.shadow_resolution, (float)shadow_map_size);
     glActiveTexture(GL_TEXTURE7);
     glBindTexture(GL_TEXTURE_CUBE_MAP, point_shadow_texture);
     glUniform1i(shader.point_shadow_map, 7);
@@ -665,7 +669,7 @@ static void bind_view(const g3_view_state *view) {
 }
 
 static int ensure_shadow_map(void) {
-    if (shadow_program && shadow_fbo && shadow_texture) return 1;
+    if (shadow_program && shadow_fbo && shadow_texture && allocated_shadow_size == shadow_map_size) return 1;
     const char *vs_src = "#version 300 es\nlayout(location=0) in vec3 a_pos;\nlayout(location=2) in vec2 a_uv;\nuniform mat4 u_light;\nuniform mat4 u_model;\nout vec2 v_uv;\nvoid main(){v_uv=a_uv;gl_Position=u_light*u_model*vec4(a_pos,1.0);}\n";
     const char *fs_src = "#version 300 es\nprecision highp float;\nin vec2 v_uv;\nuniform bool u_mask;\nuniform bool u_textured;\nuniform sampler2D u_tex;\nuniform float u_alpha;\nuniform float u_cutoff;\nvoid main(){if(u_mask && u_alpha*(u_textured ? texture(u_tex,v_uv).a : 1.0)<u_cutoff) discard;}\n";
     GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "shadow vertex");
@@ -678,7 +682,7 @@ static int ensure_shadow_map(void) {
     if (!linked) { glDeleteProgram(program); report("Could not link shadow shader."); return 0; }
     glGenTextures(1, &shadow_texture);
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, SHADOW_SIZE, SHADOW_SIZE, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, shadow_map_size, shadow_map_size, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -703,6 +707,7 @@ static int ensure_shadow_map(void) {
     shadow_alpha = glGetUniformLocation(program, "u_alpha");
     shadow_tex = glGetUniformLocation(program, "u_tex");
     shadow_textured = glGetUniformLocation(program, "u_textured");
+    allocated_shadow_size = shadow_map_size;
     return 1;
 }
 
@@ -712,7 +717,7 @@ static int ensure_point_shadow_map(void) {
     glGenTextures(1, &point_shadow_texture);
     glBindTexture(GL_TEXTURE_CUBE_MAP, point_shadow_texture);
     for (int face=0; face<6; face++)
-        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X+face,0,GL_DEPTH_COMPONENT24,SHADOW_SIZE,SHADOW_SIZE,0,GL_DEPTH_COMPONENT,GL_UNSIGNED_INT,NULL);
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X+face,0,GL_DEPTH_COMPONENT24,shadow_map_size,shadow_map_size,0,GL_DEPTH_COMPONENT,GL_UNSIGNED_INT,NULL);
     glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
     glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
     glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
@@ -729,7 +734,7 @@ static int ensure_spot_shadow_map(void) {
     if (!ensure_shadow_map()) return 0;
     glGenTextures(1,&spot_shadow_texture);
     glBindTexture(GL_TEXTURE_2D,spot_shadow_texture);
-    glTexImage2D(GL_TEXTURE_2D,0,GL_DEPTH_COMPONENT24,SHADOW_SIZE,SHADOW_SIZE,0,GL_DEPTH_COMPONENT,GL_UNSIGNED_INT,NULL);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_DEPTH_COMPONENT24,shadow_map_size,shadow_map_size,0,GL_DEPTH_COMPONENT,GL_UNSIGNED_INT,NULL);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
@@ -743,7 +748,7 @@ static int ensure_spot_shadow_map(void) {
 static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *view, const g3_mat4 *light_matrix, GLuint depth_texture) {
     glBindFramebuffer(GL_FRAMEBUFFER, shadow_fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth_texture, 0);
-    glViewport(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+    glViewport(0, 0, shadow_map_size, shadow_map_size);
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glClear(GL_DEPTH_BUFFER_BIT);
     glUseProgram(shadow_program);
     glUniformMatrix4fv(shadow_light_matrix, 1, GL_FALSE, light_matrix->m);
@@ -769,7 +774,7 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vie
 
 static void render_point_shadow_maps(g3_draw_item_slice items, const g3_view_state *view) {
     if (!ensure_point_shadow_map()) return;
-    glBindFramebuffer(GL_FRAMEBUFFER,shadow_fbo); glViewport(0,0,SHADOW_SIZE,SHADOW_SIZE);
+    glBindFramebuffer(GL_FRAMEBUFFER,shadow_fbo); glViewport(0,0,shadow_map_size,shadow_map_size);
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glUseProgram(shadow_program);
     for (int face=0; face<6; face++) {
         glFramebufferTexture2D(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_TEXTURE_CUBE_MAP_POSITIVE_X+face,point_shadow_texture,0);
@@ -920,6 +925,17 @@ static void present_srgb(void) {
 
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (!ctx || !shader.program) return;
+    int requested = view->shadow_resolution == 256 || view->shadow_resolution == 512 || view->shadow_resolution == 1024 ? view->shadow_resolution : 512;
+    if (allocated_shadow_size && allocated_shadow_size != requested) {
+        if (shadow_program) glDeleteProgram(shadow_program);
+        if (shadow_fbo) glDeleteFramebuffers(1,&shadow_fbo);
+        if (shadow_texture) glDeleteTextures(1,&shadow_texture);
+        if (point_shadow_texture) glDeleteTextures(1,&point_shadow_texture);
+        if (spot_shadow_texture) glDeleteTextures(1,&spot_shadow_texture);
+        shadow_program=shadow_fbo=shadow_texture=point_shadow_texture=spot_shadow_texture=0;
+        allocated_shadow_size=0;
+    }
+    shadow_map_size=requested;
     if (view->shadow_params.x > 0.5f && ensure_shadow_map()) render_shadow_map(items, view, &view->shadow_view_proj, shadow_texture);
     if (view->point_shadow_params.x > 0.5f && view->point_shadow_light_index >= 0 && view->point_shadow_light_index < view->light_count)
         render_point_shadow_maps(items, view);

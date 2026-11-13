@@ -135,6 +135,13 @@ fn set_shadow_filter_radius(radius: i32) -> bool {
     return true;
 }
 
+// Set every shadow map to one supported square resolution.
+fn set_shadow_resolution(resolution: i32) -> bool {
+    guard resolution == 256 || resolution == 512 || resolution == 1024 else { return false; }
+    g_view_state.shadow_resolution = resolution;
+    return true;
+}
+
 // Angles are half-angles in radians, with a smooth falloff between them.
 fn add_spot_light(pos: float3, dir: float3, color: float3, range: f32, inner: f32, outer: f32) -> bool {
     guard range > 0.0 && length(dir) > 0.0 && inner >= 0.0 && inner < outer && outer <= PI && cos(inner) > cos(outer) && g_view_state.light_count < 4 else { return false; }

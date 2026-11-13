@@ -78,6 +78,7 @@ typedef struct {
     g3_mat4 spot_shadow_view_proj;
     int32_t spot_shadow_light_index;
     g3_vec4 spot_shadow_params; /* x enabled, y depth bias, z PCF radius */
+    int32_t shadow_resolution; /* 256, 512, or 1024 */
 } g3_view_state;
 
 typedef struct { const g3_vertex *data; int64_t len; } g3_vertex_slice;
@@ -104,7 +105,7 @@ _Static_assert(offsetof(g3_draw_item, occlusion_strength) == 212, "DrawItem.occl
 _Static_assert(offsetof(g3_draw_item, emissive) == 216, "DrawItem.emissive offset");
 _Static_assert(offsetof(g3_draw_item, emissive_texture) == 232, "DrawItem.emissive_texture offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
-_Static_assert(sizeof(g3_view_state) == 936, "g3_view_state must be 936 bytes");
+_Static_assert(sizeof(g3_view_state) == 940, "g3_view_state must be 940 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");
 _Static_assert(offsetof(g3_view_state, light_count) == 308, "ViewState.light_count offset");
 _Static_assert(offsetof(g3_view_state, env_sky) == 312, "ViewState.env_sky offset");
@@ -118,6 +119,7 @@ _Static_assert(offsetof(g3_view_state, point_shadow_params) == 836, "ViewState.p
 _Static_assert(offsetof(g3_view_state, spot_shadow_view_proj) == 852, "ViewState.spot_shadow_view_proj offset");
 _Static_assert(offsetof(g3_view_state, spot_shadow_light_index) == 916, "ViewState.spot_shadow_light_index offset");
 _Static_assert(offsetof(g3_view_state, spot_shadow_params) == 920, "ViewState.spot_shadow_params offset");
+_Static_assert(offsetof(g3_view_state, shadow_resolution) == 936, "ViewState.shadow_resolution offset");
 _Static_assert(offsetof(g3_draw_item, mvp) == 4, "DrawItem.mvp offset");
 _Static_assert(offsetof(g3_draw_item, color) == 132, "DrawItem.color offset");
 _Static_assert(offsetof(g3_draw_item, params) == 148, "DrawItem.params offset");

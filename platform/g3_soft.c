@@ -52,10 +52,10 @@ typedef struct {
 } soft_texture;
 static soft_texture *textures;
 static int32_t texture_count;
-#define SHADOW_SIZE 512
-static float shadow_depth[SHADOW_SIZE * SHADOW_SIZE];
-static float point_shadow_depth[6][SHADOW_SIZE * SHADOW_SIZE];
-static float spot_shadow_depth[SHADOW_SIZE * SHADOW_SIZE];
+#define SHADOW_MAX_SIZE 1024
+static float shadow_depth[SHADOW_MAX_SIZE * SHADOW_MAX_SIZE];
+static float point_shadow_depth[6][SHADOW_MAX_SIZE * SHADOW_MAX_SIZE];
+static float spot_shadow_depth[SHADOW_MAX_SIZE * SHADOW_MAX_SIZE];
 
 /* --- the frame's scratch
 
@@ -348,15 +348,19 @@ static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int light_index);
 static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 
-static float shadow_depth_visibility(const float *map, int px, int py, float z, float bias, int radius) {
+static int shadow_map_size(const g3_view_state *vs) {
+    return vs->shadow_resolution == 256 || vs->shadow_resolution == 512 || vs->shadow_resolution == 1024 ? vs->shadow_resolution : 512;
+}
+
+static float shadow_depth_visibility(const float *map, int size, int px, int py, float z, float bias, int radius) {
     if (radius < 0) radius = 0;
     if (radius > 2) radius = 2;
     int visible = 0, samples = 0;
     for (int y=-radius; y<=radius; y++) for (int x=-radius; x<=radius; x++) {
         int sx=px+x, sy=py+y;
-        if (sx<0) sx=0; else if (sx>=SHADOW_SIZE) sx=SHADOW_SIZE-1;
-        if (sy<0) sy=0; else if (sy>=SHADOW_SIZE) sy=SHADOW_SIZE-1;
-        visible += z-bias <= map[sy*SHADOW_SIZE+sx];
+        if (sx<0) sx=0; else if (sx>=size) sx=size-1;
+        if (sy<0) sy=0; else if (sy>=size) sy=size-1;
+        visible += z-bias <= map[sy*size+sx];
         samples++;
     }
     return samples ? (float)visible/(float)samples : 1.0f;
@@ -770,8 +774,9 @@ static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
     if (w <= 0.0f) return 1.0f;
     x = x / w * 0.5f + 0.5f; y = y / w * 0.5f + 0.5f; z = z / w * 0.5f + 0.5f;
     if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
-    int px = (int)(x * SHADOW_SIZE), py = SHADOW_SIZE - 1 - (int)(y * SHADOW_SIZE);
-    return shadow_depth_visibility(shadow_depth,px,py,z,vs->shadow_params.y,(int)(vs->shadow_params.z+0.5f));
+    int size=shadow_map_size(vs);
+    int px = (int)(x * size), py = size - 1 - (int)(y * size);
+    return shadow_depth_visibility(shadow_depth,size,px,py,z,vs->shadow_params.y,(int)(vs->shadow_params.z+0.5f));
 }
 
 static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int light_index) {
@@ -788,8 +793,9 @@ static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int li
     if (w <= 0.0f) return 1.0f;
     x=x/w*0.5f+0.5f; y=y/w*0.5f+0.5f; z=z/w*0.5f+0.5f;
     if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
-    int px=(int)(x*SHADOW_SIZE), py=SHADOW_SIZE-1-(int)(y*SHADOW_SIZE);
-    return shadow_depth_visibility(point_shadow_depth[face],px,py,z,vs->point_shadow_params.y,(int)(vs->point_shadow_params.z+0.5f));
+    int size=shadow_map_size(vs);
+    int px=(int)(x*size), py=size-1-(int)(y*size);
+    return shadow_depth_visibility(point_shadow_depth[face],size,px,py,z,vs->point_shadow_params.y,(int)(vs->point_shadow_params.z+0.5f));
 }
 
 static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
@@ -801,8 +807,9 @@ static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
     if (w <= 0.0f) return 1.0f;
     x=x/w*0.5f+0.5f; y=y/w*0.5f+0.5f; z=z/w*0.5f+0.5f;
     if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
-    int px=(int)(x*SHADOW_SIZE), py=SHADOW_SIZE-1-(int)(y*SHADOW_SIZE);
-    return shadow_depth_visibility(spot_shadow_depth,px,py,z,vs->spot_shadow_params.y,(int)(vs->spot_shadow_params.z+0.5f));
+    int size=shadow_map_size(vs);
+    int px=(int)(x*size), py=size-1-(int)(y*size);
+    return shadow_depth_visibility(spot_shadow_depth,size,px,py,z,vs->spot_shadow_params.y,(int)(vs->spot_shadow_params.z+0.5f));
 }
 
 /* Perspective-correct UV at a neighboring pixel, even if it lies just
@@ -832,10 +839,10 @@ static float texture_footprint(const soft_tri *t, int32_t id, float l0, float l1
 
 /* Rasterize the same opaque draw items from the light before the colour pass.
    Shadow map rows are top-first, like the main software framebuffer. */
-static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs, const g3_mat4 *light_matrix, float *target_depth) {
-    for (int i = 0; i < SHADOW_SIZE * SHADOW_SIZE; i++) target_depth[i] = 1.0f;
+static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs, const g3_mat4 *light_matrix, float *target_depth, int size) {
+    for (int i = 0; i < size * size; i++) target_depth[i] = 1.0f;
     int old_w = fb_w, old_h = fb_h;
-    fb_w = fb_h = SHADOW_SIZE;
+    fb_w = fb_h = size;
     for (int64_t i = 0; i < items.len; i++) {
         const g3_draw_item *source = &items.data[i];
         if (source->params.w > 0.5f || source->mesh < 0 || source->mesh >= mesh_count) continue;
@@ -876,7 +883,7 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs,
                     if (tex[3] * source->color.w < source->alpha_cutoff) continue;
                 }
                 float z = l0*t.sz[0] + l1*t.sz[1] + l2*t.sz[2];
-                float *dst = &target_depth[y * SHADOW_SIZE + x];
+                float *dst = &target_depth[y * size + x];
                 if (z < *dst) *dst = z;
             }
             }
@@ -1098,11 +1105,12 @@ static void clear_frame(const g3_view_state *view) {
 
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (!fb) return;
-    if (view->shadow_params.x > 0.5f) render_shadow_map(items, view, &view->shadow_view_proj, shadow_depth);
+    int shadow_size=shadow_map_size(view);
+    if (view->shadow_params.x > 0.5f) render_shadow_map(items, view, &view->shadow_view_proj, shadow_depth, shadow_size);
     if (view->point_shadow_params.x > 0.5f && view->point_shadow_light_index >= 0 && view->point_shadow_light_index < view->light_count)
-        for (int face=0; face<6; face++) render_shadow_map(items, view, &view->point_shadow_view_proj[face], point_shadow_depth[face]);
+        for (int face=0; face<6; face++) render_shadow_map(items, view, &view->point_shadow_view_proj[face], point_shadow_depth[face], shadow_size);
     if (view->spot_shadow_params.x > 0.5f && view->spot_shadow_light_index >= 0 && view->spot_shadow_light_index < view->light_count && view->lights[view->spot_shadow_light_index].position.w > 1.5f)
-        render_shadow_map(items, view, &view->spot_shadow_view_proj, spot_shadow_depth);
+        render_shadow_map(items, view, &view->spot_shadow_view_proj, spot_shadow_depth, shadow_size);
     prof.frames += 1;
     const double t0 = prof.on ? now_seconds() : 0.0;
 

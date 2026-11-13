@@ -65,7 +65,7 @@ discarded, including in the shadow pass. Blended items read depth but do not
 write it; opaque and surviving mask fragments write depth. Texture alpha is
 ignored for opaque items.
 
-### `g3_view_state` — 936 bytes
+### `g3_view_state` — 940 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -91,6 +91,7 @@ ignored for opaque items.
 | 852 | `g3_mat4` | `spot_shadow_view_proj` | selected spot light's world-to-shadow clip transform |
 | 916 | `int32_t` | `spot_shadow_light_index` | selected extra spot light, or -1 |
 | 920 | `g3_vec4` | `spot_shadow_params` | x enabled, y normalized depth bias, z PCF radius in texels |
+| 936 | `int32_t` | `shadow_resolution` | square map size: 256, 512, or 1024 |
 
 One extra point light and one extra spot light can cast shadows per frame. The
 WebGL backend stores point depth in a cube texture and spot depth in a 2D
