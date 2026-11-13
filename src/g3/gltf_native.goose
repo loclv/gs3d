@@ -276,6 +276,14 @@ fn glb_vertex_color(bytes: const u8[:], binary_start: i64, accessor: GlbAccessor
     return float4 { r, g, b, alpha }, true;
 }
 
+fn glb_vertex_tangent(bytes: const u8[:], binary_start: i64, accessor: GlbAccessor, vertex_index: i64) -> float4, bool {
+    let at = binary_start + accessor.offset + vertex_index * accessor.stride;
+    let x, x_ok = glb_f32(bytes, at); let y, y_ok = glb_f32(bytes, at + 4);
+    let z, z_ok = glb_f32(bytes, at + 8); let w, w_ok = glb_f32(bytes, at + 12);
+    guard x_ok && y_ok && z_ok && w_ok else { return float4_0, false; }
+    return float4 { x, y, z, w }, true;
+}
+
 fn glb_index_accessor(doc: json::Node?, binary_size: i64, index: i64) -> GlbAccessor, i64, bool {
     let accessors = json::member(doc, "accessors");
     let views = json::member(doc, "bufferViews");
@@ -431,6 +439,9 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     let uv_node = json::member(attributes, "TEXCOORD_0");
     var uvs = GlbAccessor { .. };
     if uv_node { let uv_index, uv_ok = glb_json_index(uv_node); guard uv_ok else { return NativeGlbModel { .. }, false; } let uv_result, uv_valid = glb_accessor(root, declared_bytes, uv_index, "VEC2", 5126, 2); guard uv_valid && uv_result.count == positions.count else { return NativeGlbModel { .. }, false; } uvs = uv_result; }
+    let tangent_node = json::member(attributes, "TANGENT");
+    var tangents = GlbAccessor { .. };
+    if tangent_node { let tangent_index, tangent_index_ok = glb_json_index(tangent_node); guard tangent_index_ok else { return NativeGlbModel { .. }, false; } let tangent_info, tangent_ok = glb_accessor(root, declared_bytes, tangent_index, "VEC4", 5126, 4); guard tangent_ok && tangent_info.count == positions.count else { return NativeGlbModel { .. }, false; } tangents = tangent_info; }
     let color_node = json::member(attributes, "COLOR_0");
     var colors = GlbAccessor { .. }; var color_type: i64 = 0;
     if color_node { let color_index, color_index_ok = glb_json_index(color_node); guard color_index_ok else { return NativeGlbModel { .. }, false; } let color_info, color_component_type, color_ok = glb_color_accessor(root, declared_bytes, color_index); guard color_ok && color_info.count == positions.count else { return NativeGlbModel { .. }, false; } colors = color_info; color_type = color_component_type; }
@@ -450,7 +461,13 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
         if uv_node { let uv_base = bin_start + uvs.offset + i * uvs.stride; let u, g = glb_f32(bytes[..], uv_base); let v, h = glb_f32(bytes[..], uv_base + 4); guard g && h else { return NativeGlbModel { .. }, false; } uv = float2 { u, v }; }
         var color = float4_1;
         if color_node { let color_value, color_valid = glb_vertex_color(bytes[..], bin_start, colors, color_type, i); guard color_valid else { return NativeGlbModel { .. }, false; } color = color_value; }
-        vertices.push(Vertex { pos: float3 { px, py, pz }, normal: float3 { nx, ny, nz }, uv: uv, color: color, .. });
+        var tangent = float4_0;
+        if tangent_node {
+            let tangent_value, tangent_valid = glb_vertex_tangent(bytes[..], bin_start, tangents, i);
+            guard tangent_valid else { return NativeGlbModel { .. }, false; }
+            tangent = tangent_value;
+        }
+        vertices.push(Vertex { pos: float3 { px, py, pz }, normal: float3 { nx, ny, nz }, uv: uv, tangent: tangent, color: color, .. });
     }
     for i in 0..index_info.count {
         let at = bin_start + index_info.offset + i * index_info.stride;

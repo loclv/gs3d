@@ -429,6 +429,10 @@ fn case_native_glb_load() {
     testing::check(float_color_ok && abs(float_color.x - 1.0) < 0.001 && abs(float_color.y - 0.5) < 0.001 &&
                    abs(float_color.z - 0.25) < 0.001 && float_color.w == 1.0,
                    "native GLB decodes float VEC3 COLOR_0 with implicit opaque alpha");
+    let tangent_bytes: u8[16] = [0, 0, 128, 63, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 63];
+    let tangent, tangent_ok = g3::glb_vertex_tangent(tangent_bytes[..], 0, g3::GlbAccessor { stride: 16, components: 4, .. }, 0);
+    testing::check(tangent_ok && tangent.x == 1.0 && tangent.y == 0.0 && tangent.z == 0.0 && tangent.w == 1.0,
+                   "native GLB decodes authored float32 tangent frames");
     let absent, missing_file = g3::native_glb_load_primitive("testdata/missing.glb", 0, 0);
     testing::check(!missing_file && absent.mesh.id < 0, "native GLB loader reports a missing asset without creating resources");
 }
