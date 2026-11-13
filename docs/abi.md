@@ -37,7 +37,12 @@ The procedural checklist lives in
 
 `float m[16]`, column-major: element `(row r, column c)` is `m[c*4 + r]`.
 
-### `g3_draw_item` — 237 bytes
+### `g3_uv_transform` — 20 bytes
+
+`offset: float2`, `scale: float2`, and `rotation: float` in radians. The
+renderer scales the input UV, rotates it, then adds the offset.
+
+### `g3_draw_item` — 337 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -59,6 +64,11 @@ The procedural checklist lives in
 | 216 | `g3_vec4` | `emissive` | linear RGB emission factor |
 | 232 | `int32_t` | `emissive_texture` | sRGB emission texture id, or -1 for no texture |
 | 236 | `uint8_t` | `double_sided` | draw both winding directions and flip back-face normals |
+| 237 | `g3_uv_transform` | `base_color_uv` | base-colour UV offset, scale and rotation |
+| 257 | `g3_uv_transform` | `metallic_roughness_uv` | metallic-roughness UV offset, scale and rotation |
+| 277 | `g3_uv_transform` | `normal_uv` | normal-map UV offset, scale and rotation |
+| 297 | `g3_uv_transform` | `occlusion_uv` | occlusion UV offset, scale and rotation |
+| 317 | `g3_uv_transform` | `emissive_uv` | emissive UV offset, scale and rotation |
 
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).

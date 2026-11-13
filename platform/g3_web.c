@@ -73,6 +73,7 @@ typedef struct {
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
+    GLint uv_transform[5], uv_rotation[5];
     GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
@@ -116,6 +117,7 @@ static GLint shadow_mask, shadow_cutoff, shadow_alpha, shadow_tex, shadow_textur
 static GLint shadow_skin_enabled, shadow_joint_palette, shadow_joint_count;
 static GLint shadow_morph_enabled, shadow_morph_positions;
 static GLint shadow_morph_weights, shadow_morph_target_count;
+static GLint shadow_uv_transform, shadow_uv_rotation;
 static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
 static GLint output_sampler, output_tone_map, output_exposure, output_encode_srgb;
 static int output_width, output_height;
@@ -208,6 +210,8 @@ static const char *FRAGMENT_SRC =
     "uniform vec4 u_emissive;\n"
     "uniform sampler2D u_emissive_tex;\n"
     "uniform bool u_emissive_textured;\n"
+    "uniform vec4 u_uv_transform[5];\n"
+    "uniform float u_uv_rotation[5];\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform bool u_double_sided;\n"
@@ -242,6 +246,7 @@ static const char *FRAGMENT_SRC =
     "uniform bool u_tone_map_inline;\n"
     "uniform float u_exposure_inline;\n"
     "out vec4 out_color;\n"
+    "vec2 material_uv(int slot, vec2 coord) { vec2 scaled=coord*u_uv_transform[slot].zw; float c=cos(u_uv_rotation[slot]), s=sin(u_uv_rotation[slot]); return u_uv_transform[slot].xy+vec2(c*scaled.x-s*scaled.y,s*scaled.x+c*scaled.y); }\n"
     "vec3 pbr_light(vec3 n, vec3 v, vec3 l, vec3 base, float metal, float rough) {\n"
     "    float nl = max(dot(n,l), 0.0), nv = max(dot(n,v), 0.0);\n"
     "    vec3 sum = l + v; float len = length(sum);\n"
@@ -256,16 +261,22 @@ static const char *FRAGMENT_SRC =
     "    return ((1.0-f)*(1.0-metal)*base/3.14159265359 + d*vis*f)*nl;\n"
     "}\n"
     "void main() {\n"
+    "    vec2 base_uv = material_uv(0, v_uv);\n"
+    "    vec2 mr_uv = material_uv(1, v_uv);\n"
+    "    vec2 normal_uv = material_uv(2, v_uv);\n"
+    "    vec2 occlusion_uv = material_uv(3, v_uv);\n"
+    "    vec2 emissive_uv = material_uv(4, v_uv);\n"
     "    float normal_length = length(v_normal);\n"
     "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
     "    if (u_normal_textured && normal_length > 1e-12) {\n"
     "        vec3 t, b; float tangent_length = length(v_tangent.xyz);\n"
-    "        bool authored_tangent = tangent_length > 1e-12 && abs(v_tangent.w) > 0.5;\n"
+    "        bool identity_normal_uv = all(equal(u_uv_transform[2], vec4(0.0,0.0,1.0,1.0))) && u_uv_rotation[2] == 0.0;\n"
+    "        bool authored_tangent = tangent_length > 1e-12 && abs(v_tangent.w) > 0.5 && identity_normal_uv;\n"
     "        if (authored_tangent) {\n"
     "            t = v_tangent.xyz; b = vec3(0.0);\n"
     "        } else {\n"
     "            vec3 dpdx = dFdx(v_world), dpdy = dFdy(v_world);\n"
-    "            vec2 duvdx = dFdx(v_uv), duvdy = dFdy(v_uv);\n"
+    "            vec2 duvdx = dFdx(normal_uv), duvdy = dFdy(normal_uv);\n"
     "            float det = duvdx.x*duvdy.y - duvdx.y*duvdy.x;\n"
     "            if (abs(det) > 1e-12) { t = (dpdx*duvdy.y - dpdy*duvdx.y) / det; b = (-dpdx*duvdy.x + dpdy*duvdx.x) / det; }\n"
     "            else { t = vec3(0.0); b = vec3(0.0); }\n"
@@ -278,7 +289,7 @@ static const char *FRAGMENT_SRC =
     "                else b -= n*dot(n,b) + t*dot(t,b);\n"
     "                float bl = length(b);\n"
     "                if (bl > 1e-12) {\n"
-    "                    b /= bl; vec3 map_n = texture(u_normal_tex, v_uv).xyz*2.0-1.0;\n"
+    "                    b /= bl; vec3 map_n = texture(u_normal_tex, normal_uv).xyz*2.0-1.0;\n"
     "                    map_n.xy *= u_normal_scale; float ml = length(map_n);\n"
     "                    if (ml > 1e-12) n = normalize(t*map_n.x + b*map_n.y + n*map_n.z);\n"
     "                }\n"
@@ -291,14 +302,14 @@ static const char *FRAGMENT_SRC =
     "    vec3 v = normalize(u_view_direction.w > 0.5 ? u_view_direction.xyz : u_eye - v_world);\n"
     "    vec3 h = normalize(l + v);\n"
     "    float spec = pow(max(dot(n, h), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
-    "    vec4 texel = u_textured ? texture(u_tex, v_uv) : vec4(1.0);\n"
+    "    vec4 texel = u_textured ? texture(u_tex, base_uv) : vec4(1.0);\n"
     "    float alpha = u_color.a * texel.a;\n"
     "    if (u_alpha_mode == 1 && alpha < u_alpha_cutoff) discard;\n"
     "    vec3 base = u_color.rgb * texel.rgb;\n"
     "    float ao = 1.0;\n"
-    "    if (u_occlusion_textured) ao = 1.0 + u_occlusion_strength*(texture(u_occlusion_tex, v_uv).r-1.0);\n"
+    "    if (u_occlusion_textured) ao = 1.0 + u_occlusion_strength*(texture(u_occlusion_tex, occlusion_uv).r-1.0);\n"
     "    vec2 mr = u_pbr.yz;\n"
-    "    if (u_mr_textured) { vec4 packed_mr = texture(u_mr_tex, v_uv); mr *= packed_mr.bg; }\n"
+    "    if (u_mr_textured) { vec4 packed_mr = texture(u_mr_tex, mr_uv); mr *= packed_mr.bg; }\n"
     "    float visibility = 1.0;\n"
     "    if (u_shadow_params.x > 0.5) {\n"
     "        vec4 light_pos = u_shadow_matrix * vec4(v_world, 1.0);\n"
@@ -378,7 +389,7 @@ static const char *FRAGMENT_SRC =
     "        col += (u_pbr.x > 0.5 ? pbr_light(n,v,ld,base,mr.x,mr.y) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
     "    }\n"
     "    if (u_params.x > 0.5) col = base;\n"
-    "    vec3 emissive_texel = u_emissive_textured ? texture(u_emissive_tex, v_uv).rgb : vec3(1.0);\n"
+    "    vec3 emissive_texel = u_emissive_textured ? texture(u_emissive_tex, emissive_uv).rgb : vec3(1.0);\n"
     "    col += u_emissive.rgb * emissive_texel;\n"
     "    float dist = length(u_eye - v_world);\n"
     "    float fog = clamp(1.0 - exp(-dist * u_fog.a), 0.0, 1.0);\n"
@@ -448,6 +459,11 @@ static void find_uniforms(void) {
     shader.emissive = glGetUniformLocation(shader.program, "u_emissive");
     shader.emissive_tex = glGetUniformLocation(shader.program, "u_emissive_tex");
     shader.emissive_textured = glGetUniformLocation(shader.program, "u_emissive_textured");
+    for (int i = 0; i < 5; i++) {
+        char name[64];
+        snprintf(name, sizeof(name), "u_uv_transform[%d]", i); shader.uv_transform[i] = glGetUniformLocation(shader.program, name);
+        snprintf(name, sizeof(name), "u_uv_rotation[%d]", i); shader.uv_rotation[i] = glGetUniformLocation(shader.program, name);
+    }
     shader.eye = glGetUniformLocation(shader.program, "u_eye");
     shader.view_direction = glGetUniformLocation(shader.program, "u_view_direction");
     shader.light_dir = glGetUniformLocation(shader.program, "u_light_dir");
@@ -906,11 +922,16 @@ static int same_vec4(g3_vec4 a, g3_vec4 b) {
     return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
 }
 
+static int same_uv_transform(g3_uv_transform a, g3_uv_transform b) {
+    return a.offset.x == b.offset.x && a.offset.y == b.offset.y &&
+           a.scale.x == b.scale.x && a.scale.y == b.scale.y && a.rotation == b.rotation;
+}
+
 static int shadow_compatible(const g3_draw_item *a, const g3_draw_item *b) {
     return a->mesh == b->mesh && a->params.w <= 0.5f && b->params.w <= 0.5f &&
            a->texture == b->texture && a->alpha_mode == b->alpha_mode &&
            a->color.w == b->color.w && a->alpha_cutoff == b->alpha_cutoff &&
-           a->double_sided == b->double_sided;
+           a->double_sided == b->double_sided && same_uv_transform(a->base_color_uv, b->base_color_uv);
 }
 
 static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
@@ -924,7 +945,12 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            a->occlusion_strength == b->occlusion_strength &&
            same_vec4(a->emissive, b->emissive) &&
            a->emissive_texture == b->emissive_texture &&
-           a->double_sided == b->double_sided;
+           a->double_sided == b->double_sided &&
+           same_uv_transform(a->base_color_uv, b->base_color_uv) &&
+           same_uv_transform(a->metallic_roughness_uv, b->metallic_roughness_uv) &&
+           same_uv_transform(a->normal_uv, b->normal_uv) &&
+           same_uv_transform(a->occlusion_uv, b->occlusion_uv) &&
+           same_uv_transform(a->emissive_uv, b->emissive_uv);
 }
 
 EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_calls; }
@@ -1234,7 +1260,7 @@ static int ensure_shadow_map(void) {
         "for(int i=0;i<4;i++){float w=a_weights0[i];if(w>0.0){s+=joint_matrix(a_joints0[i])*w;t+=w;}}\n"
         "for(int i=0;i<4;i++){float w=a_weights1[i];if(w>0.0){s+=joint_matrix(a_joints1[i])*w;t+=w;}}\n"
         "if(t>0.0)p=s*p/t;} v_uv=a_uv; gl_Position=u_light*(u_instanced?a_instance_model:u_model)*p; }\n";
-    const char *fs_src = "#version 300 es\nprecision highp float;\nin vec2 v_uv;\nuniform bool u_mask;\nuniform bool u_textured;\nuniform sampler2D u_tex;\nuniform float u_alpha;\nuniform float u_cutoff;\nvoid main(){if(u_mask && u_alpha*(u_textured ? texture(u_tex,v_uv).a : 1.0)<u_cutoff) discard;}\n";
+    const char *fs_src = "#version 300 es\nprecision highp float;\nin vec2 v_uv;\nuniform bool u_mask;\nuniform bool u_textured;\nuniform sampler2D u_tex;\nuniform float u_alpha;\nuniform float u_cutoff;\nuniform vec4 u_uv_transform;\nuniform float u_uv_rotation;\nvec2 material_uv(vec2 coord){vec2 scaled=coord*u_uv_transform.zw;float c=cos(u_uv_rotation),s=sin(u_uv_rotation);return u_uv_transform.xy+vec2(c*scaled.x-s*scaled.y,s*scaled.x+c*scaled.y);}\nvoid main(){if(u_mask && u_alpha*(u_textured ? texture(u_tex,material_uv(v_uv)).a : 1.0)<u_cutoff) discard;}\n";
     GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "shadow vertex");
     GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "shadow fragment");
     if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); return 0; }
@@ -1271,6 +1297,8 @@ static int ensure_shadow_map(void) {
     shadow_alpha = glGetUniformLocation(program, "u_alpha");
     shadow_tex = glGetUniformLocation(program, "u_tex");
     shadow_textured = glGetUniformLocation(program, "u_textured");
+    shadow_uv_transform = glGetUniformLocation(program, "u_uv_transform");
+    shadow_uv_rotation = glGetUniformLocation(program, "u_uv_rotation");
     shadow_skin_enabled = glGetUniformLocation(program, "u_skin_enabled");
     shadow_joint_palette = glGetUniformLocation(program, "u_joint_palette");
     shadow_joint_count = glGetUniformLocation(program, "u_joint_count");
@@ -1324,6 +1352,9 @@ static void draw_shadow_run(g3_draw_item_slice items, int64_t first, int32_t cou
     glUniform1i(shadow_mask, it->alpha_mode == 1);
     glUniform1f(shadow_alpha, it->color.w);
     glUniform1f(shadow_cutoff, it->alpha_cutoff);
+    glUniform4f(shadow_uv_transform, it->base_color_uv.offset.x, it->base_color_uv.offset.y,
+                it->base_color_uv.scale.x, it->base_color_uv.scale.y);
+    glUniform1f(shadow_uv_rotation, it->base_color_uv.rotation);
     bind_shadow_skin(m);
     bind_shadow_morph(m);
     glBindVertexArray(m->vao);
@@ -1435,6 +1466,13 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
     glUniform4f(shader.pbr, it->pbr.x, it->pbr.y, it->pbr.z, it->pbr.w);
+    const g3_uv_transform *uv_transforms[5] = { &it->base_color_uv, &it->metallic_roughness_uv,
+        &it->normal_uv, &it->occlusion_uv, &it->emissive_uv };
+    for (int uv = 0; uv < 5; uv++) {
+        glUniform4f(shader.uv_transform[uv], uv_transforms[uv]->offset.x, uv_transforms[uv]->offset.y,
+                    uv_transforms[uv]->scale.x, uv_transforms[uv]->scale.y);
+        glUniform1f(shader.uv_rotation[uv], uv_transforms[uv]->rotation);
+    }
     glUniform1i(shader.alpha_mode, it->alpha_mode);
     glUniform1f(shader.alpha_cutoff, it->alpha_cutoff);
     glUniform1i(shader.double_sided, it->double_sided);

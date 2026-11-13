@@ -22,6 +22,7 @@ namespace g3;
 // UV (0,0) addresses the first row of the supplied RGBA image. A zero tangent
 // selects the backend's UV-derived frame; otherwise tangent.w is handedness.
 struct Vertex { pos: float3, normal: float3, uv: float2, tangent: float4 }
+struct UvTransform { offset: float2, scale: float2, rotation: f32 }
 
 // One triangle soup to draw with one state: mesh, its matrices, its colour.
 struct DrawItem {
@@ -46,6 +47,11 @@ struct DrawItem {
     emissive: float4,   // RGB emission factor in linear space
     emissive_texture: i32, // sRGB emissive image, -1 disables
     double_sided: bool, // draw and light both winding directions
+    base_color_uv: UvTransform,
+    metallic_roughness_uv: UvTransform,
+    normal_uv: UvTransform,
+    occlusion_uv: UvTransform,
+    emissive_uv: UvTransform,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

@@ -59,6 +59,17 @@ export fn g3_asset_material(r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_
     m.unlit = unlit;
     return id;
 }
+export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offset_y: f32, scale_x: f32, scale_y: f32, rotation: f32) -> bool {
+    guard g3::material_valid(id) else { return false; }
+    let transform = g3::UvTransform { offset: float2 { offset_x, offset_y }, scale: float2 { scale_x, scale_y }, rotation: rotation };
+    if slot == 0 { g3::material(id).base_color_uv = transform; }
+    else if slot == 1 { g3::material(id).metallic_roughness_uv = transform; }
+    else if slot == 2 { g3::material(id).normal_uv = transform; }
+    else if slot == 3 { g3::material(id).occlusion_uv = transform; }
+    else if slot == 4 { g3::material(id).emissive_uv = transform; }
+    else { return false; }
+    return true;
+}
 export fn g3_asset_node_material(node: i32, material: i32) { g3::node(node).material = material; }
 export fn g3_asset_material_generation(id: i32) -> i32 { return g3::material_handle(id).generation; }
 export fn g3_asset_material_valid(id: i32, generation: i32) -> bool { return g3::material_handle_valid(g3::MaterialHandle { id: id, generation: generation }); }

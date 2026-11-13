@@ -178,6 +178,7 @@ function fakeEngine() {
   engine.meshGenerations = meshGenerations; engine.textureGenerations = textureGenerations;
   engine.materialGenerations = materialGenerations;
   engine._g3_asset_material = (...args) => { const id = nextMaterial++; materialGenerations.set(id, 1); calls.push(['material', id, ...args]); return id; };
+  engine._g3_asset_material_uv_transform = (...args) => { calls.push(['material_uv_transform', ...args]); return true; };
   engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); const id = nextMesh++; meshGenerations.set(id, 1); return id; };
   engine._g3_host_mesh_update = (id, positions, normals, count) => {
     calls.push(['mesh_update', id, [...engine.HEAPF32.slice(positions >>> 2, (positions >>> 2) + count)],
@@ -349,12 +350,26 @@ transformedTexture.materials[0].pbrMetallicRoughness.baseColorTexture.extensions
 };
 resources.set('http://localhost/transformed-texture.gltf', bytes(transformedTexture));
 const transformedEngine = fakeEngine(), transformedModel = await loadGLTF(transformedEngine, 'http://localhost/transformed-texture.gltf');
-assert.ok(transformedEngine.calls.find(call => call[0] === 'vertex').slice(-6, -4).every((value, i) => Math.abs(value - [3.25, -1.5][i]) < 1e-6), 'KHR_texture_transform applies offset, rotation and scale to UVs');
+assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'vertex').slice(-6, -4), [-1, -1], 'mesh UVs remain shared and unmodified');
+assert.deepEqual(transformedEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0), ['material_uv_transform', 1, 0, 0.25, 0.5, 2, 3, Math.PI / 2], 'base-colour texture transform reaches its material slot');
 transformedModel.dispose();
+const perTextureTransforms = structuredClone(transformedTexture);
+perTextureTransforms.materials[0].pbrMetallicRoughness.metallicRoughnessTexture = { index: 0, extensions: {
+  KHR_texture_transform: { offset: [0, 0], scale: [4, 4] },
+} };
+resources.set('http://localhost/per-texture-transforms.gltf', bytes(perTextureTransforms));
+const perTextureEngine = fakeEngine(), perTextureModel = await loadGLTF(perTextureEngine, 'http://localhost/per-texture-transforms.gltf');
+assert.deepEqual(perTextureEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 0).slice(3), [0.25, 0.5, 2, 3, Math.PI / 2]);
+assert.deepEqual(perTextureEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 1).slice(3), [0, 0, 4, 4, 0], 'different texture slots retain independent transforms');
+perTextureModel.dispose();
 const unsupportedUvSet = structuredClone(transformedTexture);
 unsupportedUvSet.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.texCoord = 1;
 resources.set('http://localhost/unsupported-transform-uv.gltf', bytes(unsupportedUvSet));
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/unsupported-transform-uv.gltf'), e => e.code === 'UNSUPPORTED');
+const invalidTextureTransform = structuredClone(transformedTexture);
+invalidTextureTransform.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.offset = null;
+resources.set('http://localhost/invalid-texture-transform.gltf', bytes(invalidTextureTransform));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/invalid-texture-transform.gltf'), e => e.code === 'INVALID_GLTF');
 const unlistedTextureTransform = structuredClone(transformedTexture);
 delete unlistedTextureTransform.extensionsUsed;
 delete unlistedTextureTransform.extensionsRequired;

@@ -23,6 +23,7 @@ typedef struct { float x, y, z; } g3_vec3;
 typedef struct { float x, y; } g3_vec2;
 typedef struct { float x, y, z, w; } g3_vec4;
 typedef struct { float m[16]; } g3_mat4;          /* column-major */
+typedef struct { g3_vec2 offset, scale; float rotation; } g3_uv_transform;
 
 /* Tangent.xyz is local direction and w is handedness; zero xyz derives it from UVs. */
 typedef struct { g3_vec3 pos, normal; g3_vec2 uv; g3_vec4 tangent; } g3_vertex;
@@ -54,6 +55,11 @@ typedef struct {
     g3_vec4 emissive;
     int32_t emissive_texture;
     uint8_t double_sided;
+    g3_uv_transform base_color_uv;
+    g3_uv_transform metallic_roughness_uv;
+    g3_uv_transform normal_uv;
+    g3_uv_transform occlusion_uv;
+    g3_uv_transform emissive_uv;
 } g3_draw_item;
 
 typedef struct { g3_vec4 position, direction, color; float inner; } g3_light;
@@ -97,7 +103,7 @@ _Static_assert(sizeof(g3_vertex) == 48, "g3_vertex must be 48 bytes");
 _Static_assert(offsetof(g3_vertex, uv) == 24, "Vertex.uv offset");
 _Static_assert(offsetof(g3_vertex, tangent) == 32, "Vertex.tangent offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
-_Static_assert(sizeof(g3_draw_item) == 237, "g3_draw_item must be 237 bytes");
+_Static_assert(sizeof(g3_draw_item) == 337, "g3_draw_item must be 337 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
 _Static_assert(offsetof(g3_draw_item, alpha_mode) == 172, "DrawItem.alpha_mode offset");
 _Static_assert(offsetof(g3_draw_item, alpha_cutoff) == 176, "DrawItem.alpha_cutoff offset");
@@ -110,6 +116,12 @@ _Static_assert(offsetof(g3_draw_item, occlusion_strength) == 212, "DrawItem.occl
 _Static_assert(offsetof(g3_draw_item, emissive) == 216, "DrawItem.emissive offset");
 _Static_assert(offsetof(g3_draw_item, emissive_texture) == 232, "DrawItem.emissive_texture offset");
 _Static_assert(offsetof(g3_draw_item, double_sided) == 236, "DrawItem.double_sided offset");
+_Static_assert(sizeof(g3_uv_transform) == 20, "g3_uv_transform must be 20 bytes");
+_Static_assert(offsetof(g3_draw_item, base_color_uv) == 237, "DrawItem.base_color_uv offset");
+_Static_assert(offsetof(g3_draw_item, metallic_roughness_uv) == 257, "DrawItem.metallic_roughness_uv offset");
+_Static_assert(offsetof(g3_draw_item, normal_uv) == 277, "DrawItem.normal_uv offset");
+_Static_assert(offsetof(g3_draw_item, occlusion_uv) == 297, "DrawItem.occlusion_uv offset");
+_Static_assert(offsetof(g3_draw_item, emissive_uv) == 317, "DrawItem.emissive_uv offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
 _Static_assert(sizeof(g3_view_state) == 940, "g3_view_state must be 940 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");

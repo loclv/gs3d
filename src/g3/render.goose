@@ -297,6 +297,11 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         emissive: float4 { surface.emissive.x, surface.emissive.y, surface.emissive.z, 0.0 },
         emissive_texture: surface.emissive_texture,
         double_sided: surface.double_sided,
+        base_color_uv: surface.base_color_uv,
+        metallic_roughness_uv: surface.metallic_roughness_uv,
+        normal_uv: surface.normal_uv,
+        occlusion_uv: surface.occlusion_uv,
+        emissive_uv: surface.emissive_uv,
     };
 }
 

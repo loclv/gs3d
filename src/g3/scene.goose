@@ -18,6 +18,7 @@ import vec;
 import math;
 import g3.math;
 import g3.mesh;
+import g3.platform;
 
 namespace g3;
 
@@ -64,6 +65,11 @@ struct Material {
     emissive: float3,
     emissive_texture: i32 = -1,
     double_sided: bool,   // render back faces and flip their normals
+    base_color_uv: g3::UvTransform = g3::UvTransform { scale: float2 { 1.0, 1.0 }, .. },
+    metallic_roughness_uv: g3::UvTransform = g3::UvTransform { scale: float2 { 1.0, 1.0 }, .. },
+    normal_uv: g3::UvTransform = g3::UvTransform { scale: float2 { 1.0, 1.0 }, .. },
+    occlusion_uv: g3::UvTransform = g3::UvTransform { scale: float2 { 1.0, 1.0 }, .. },
+    emissive_uv: g3::UvTransform = g3::UvTransform { scale: float2 { 1.0, 1.0 }, .. },
     removed: bool,
     asset_owned: bool,
     generation: i32 = 1,

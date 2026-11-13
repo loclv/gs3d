@@ -232,6 +232,14 @@ fn case_texture() {
     testing::check(is_color(g3::read_pixel(120, 120), 0, 0, 255, 1), "texture upper left is blue");
     testing::check(is_color(g3::read_pixel(280, 120), 255, 255, 255, 1), "texture upper right is white");
     testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 3), "texture centre bilinearly mixes all four texels");
+    let material_id = g3::material_add();
+    let surface .= g3::material(material_id);
+    surface.texture = texture;
+    surface.unlit = true;
+    surface.base_color_uv = g3::UvTransform { offset: float2 { 1.0, 0.0 }, scale: float2 { 1.0, 1.0 }, .. };
+    n.material = material_id;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(120, 280), 0, 255, 0, 1), "base-colour UV offset shifts sampling into the neighboring texel");
 }
 
 fn case_native_hdr_load() {
@@ -477,6 +485,16 @@ fn case_shadow() {
     cube.alpha_mode = 1;
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(303, 200), 180, 180, 180, 3), "masked texels do not cast shadows");
+    let edge_alpha: u8[8] = [255, 255, 255, 255, 255, 255, 255, 0];
+    let edge_texture = g3::texture_create(2, 1, edge_alpha[..]);
+    let masked_material = g3::material_add();
+    let masked_surface .= g3::material(masked_material);
+    masked_surface.texture = edge_texture;
+    masked_surface.alpha_mode = 1;
+    masked_surface.base_color_uv = g3::UvTransform { offset: float2 { 10.0, 0.0 }, scale: float2 { 1.0, 1.0 }, .. };
+    cube.material = masked_material;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(303, 200), 180, 180, 180, 3), "base-colour transform also controls masked shadow sampling");
     g3::clear_shadows();
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(303, 200), 180, 180, 180, 3), "disabling shadows restores the light");

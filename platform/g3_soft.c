@@ -85,6 +85,9 @@ typedef struct {
     int x0, y0, x1, y1;
 } soft_tri;
 
+static void transform_uv(const g3_uv_transform *transform, float u, float v, float *out_u, float *out_v);
+static int uv_transform_identity(const g3_uv_transform *transform);
+
 typedef struct {
     soft_tri tri;
     const g3_draw_item *item;
@@ -1025,8 +1028,10 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
         t->tangent[k][3] = v[3] * orientation;
     }
 
-    float e1[3], e2[3], du1=t->uv[1][0]-t->uv[0][0], dv1=t->uv[1][1]-t->uv[0][1];
-    float du2=t->uv[2][0]-t->uv[0][0], dv2=t->uv[2][1]-t->uv[0][1];
+    float normal_uv[3][2];
+    for (int k=0;k<3;k++) transform_uv(&it->normal_uv,t->uv[k][0],t->uv[k][1],&normal_uv[k][0],&normal_uv[k][1]);
+    float e1[3], e2[3], du1=normal_uv[1][0]-normal_uv[0][0], dv1=normal_uv[1][1]-normal_uv[0][1];
+    float du2=normal_uv[2][0]-normal_uv[0][0], dv2=normal_uv[2][1]-normal_uv[0][1];
     for (int c=0;c<3;c++) { e1[c]=t->world[1][c]-t->world[0][c]; e2[c]=t->world[2][c]-t->world[0][c]; }
     float uv_det=du1*dv2-dv1*du2;
     if (fabsf(uv_det)>1e-12f) for (int c=0;c<3;c++) {
@@ -1126,7 +1131,19 @@ static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
 
 /* Perspective-correct UV at a neighboring pixel, even if it lies just
    outside this triangle. These finite differences approximate GPU LOD. */
-static float texture_footprint(const soft_tri *t, int32_t id, float l0, float l1, float l2, float u, float v) {
+static void transform_uv(const g3_uv_transform *transform, float u, float v, float *out_u, float *out_v) {
+    float c = cosf(transform->rotation), s = sinf(transform->rotation);
+    float x = transform->scale.x * u, y = transform->scale.y * v;
+    *out_u = transform->offset.x + c*x - s*y;
+    *out_v = transform->offset.y + s*x + c*y;
+}
+
+static int uv_transform_identity(const g3_uv_transform *transform) {
+    return transform->offset.x == 0.0f && transform->offset.y == 0.0f &&
+           transform->scale.x == 1.0f && transform->scale.y == 1.0f && transform->rotation == 0.0f;
+}
+
+static float texture_footprint(const soft_tri *t, int32_t id, const g3_uv_transform *transform, float l0, float l1, float l2, float u, float v) {
     if (id < 0 || id >= texture_count || (!textures[id].pixels && !textures[id].hdr_pixels)) return 0.0f;
     const soft_texture *tex = &textures[id];
     if (tex->min_filter == tex->mag_filter) return 0.0f;
@@ -1135,14 +1152,19 @@ static float texture_footprint(const soft_tri *t, int32_t id, float l0, float l1
     float dl0y = (t->sx[2] - t->sx[1]) / t->det;
     float dl1y = (t->sx[0] - t->sx[2]) / t->det;
     float d0[2] = { dl0x, dl0y }, d1[2] = { dl1x, dl1y };
-    float max_sq = 0.0f;
+    float center_u, center_v, max_sq = 0.0f;
+    transform_uv(transform, u, v, &center_u, &center_v);
     for (int axis = 0; axis < 2; axis++) {
         float w0 = (l0+d0[axis])*t->inv_w[0], w1 = (l1+d1[axis])*t->inv_w[1];
         float w2 = (l2-d0[axis]-d1[axis])*t->inv_w[2];
         float sum = w0+w1+w2;
         if (sum <= 1e-12f) continue;
-        float du = ((t->uv[0][0]*w0+t->uv[1][0]*w1+t->uv[2][0]*w2)/sum-u)*tex->w;
-        float dv = ((t->uv[0][1]*w0+t->uv[1][1]*w1+t->uv[2][1]*w2)/sum-v)*tex->h;
+        float neighbor_u, neighbor_v;
+        transform_uv(transform,
+            (t->uv[0][0]*w0+t->uv[1][0]*w1+t->uv[2][0]*w2)/sum,
+            (t->uv[0][1]*w0+t->uv[1][1]*w1+t->uv[2][1]*w2)/sum, &neighbor_u, &neighbor_v);
+        float du = (neighbor_u-center_u)*tex->w;
+        float dv = (neighbor_v-center_v)*tex->h;
         float sq = du*du+dv*dv;
         if (sq > max_sq) max_sq = sq;
     }
@@ -1190,8 +1212,10 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs,
                     float u=t.uv[0][0]*b0+t.uv[1][0]*b1+t.uv[2][0]*b2;
                     float v=t.uv[0][1]*b0+t.uv[1][1]*b1+t.uv[2][1]*b2;
                     float tex[4];
-                    float rho = texture_footprint(&t, source->texture, l0, l1, l2, u, v);
-                    sample_texture(source->texture, u, v, rho, tex);
+                    float tu, tv;
+                    transform_uv(&source->base_color_uv,u,v,&tu,&tv);
+                    float rho = texture_footprint(&t, source->texture, &source->base_color_uv, l0, l1, l2, u, v);
+                    sample_texture(source->texture, tu, tv, rho, tex);
                     if (tex[3] * source->color.w < source->alpha_cutoff) continue;
                 }
                 float z = l0*t.sz[0] + l1*t.sz[1] + l2*t.sz[2];
@@ -1273,7 +1297,7 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
                 float ty=t->tangent[0][1]*b0+t->tangent[1][1]*b1+t->tangent[2][1]*b2;
                 float tz=t->tangent[0][2]*b0+t->tangent[1][2]*b1+t->tangent[2][2]*b2;
                 float handedness=t->tangent[0][3]*b0+t->tangent[1][3]*b1+t->tangent[2][3]*b2;
-                int authored = tx*tx+ty*ty+tz*tz > 1e-12f && fabsf(handedness) > 0.5f;
+                int authored = tx*tx+ty*ty+tz*tz > 1e-12f && fabsf(handedness) > 0.5f && uv_transform_identity(&it->normal_uv);
                 if (!authored) { tx=t->derived_tangent[0]; ty=t->derived_tangent[1]; tz=t->derived_tangent[2]; }
                 float ndott=n.x*tx+n.y*ty+n.z*tz;
                 tx-=n.x*ndott; ty-=n.y*ndott; tz-=n.z*ndott;
@@ -1294,7 +1318,9 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
                     if (bl>1e-12f) {
                         bx/=bl; by/=bl; bz/=bl;
                         float normal_sample[4];
-                        sample_texture(it->normal_texture,u,v,texture_footprint(t,it->normal_texture,l0,l1,l2,u,v),normal_sample);
+                        float nu, nv;
+                        transform_uv(&it->normal_uv,u,v,&nu,&nv);
+                        sample_texture(it->normal_texture,nu,nv,texture_footprint(t,it->normal_texture,&it->normal_uv,l0,l1,l2,u,v),normal_sample);
                         float mx=(normal_sample[0]*2.0f-1.0f)*it->normal_scale;
                         float my=(normal_sample[1]*2.0f-1.0f)*it->normal_scale;
                         float mz=normal_sample[2]*2.0f-1.0f;
@@ -1304,20 +1330,27 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
                     }
                 }
             }
-            float rho = texture_footprint(t, it->texture, l0, l1, l2, u, v);
-            sample_texture(it->texture, u, v, rho, tex);
+            float bu, bv;
+            transform_uv(&it->base_color_uv,u,v,&bu,&bv);
+            float rho = texture_footprint(t, it->texture, &it->base_color_uv, l0, l1, l2, u, v);
+            sample_texture(it->texture, bu, bv, rho, tex);
             if (it->pbr.x > 0.5f && it->metallic_roughness_texture >= 0) {
-                float mr_rho = texture_footprint(t, it->metallic_roughness_texture, l0, l1, l2, u, v);
-                sample_texture(it->metallic_roughness_texture, u, v, mr_rho, mr);
+                float mu, mv;
+                transform_uv(&it->metallic_roughness_uv,u,v,&mu,&mv);
+                float mr_rho = texture_footprint(t, it->metallic_roughness_texture, &it->metallic_roughness_uv, l0, l1, l2, u, v);
+                sample_texture(it->metallic_roughness_texture, mu, mv, mr_rho, mr);
             }
             if (it->occlusion_texture >= 0) {
-                float occlusion[4];
-                float ao_rho = texture_footprint(t, it->occlusion_texture, l0, l1, l2, u, v);
-                sample_texture(it->occlusion_texture, u, v, ao_rho, occlusion);
+                float occlusion[4], ou, ov;
+                transform_uv(&it->occlusion_uv,u,v,&ou,&ov);
+                float ao_rho = texture_footprint(t, it->occlusion_texture, &it->occlusion_uv, l0, l1, l2, u, v);
+                sample_texture(it->occlusion_texture, ou, ov, ao_rho, occlusion);
                 ao = 1.0f + it->occlusion_strength * (occlusion[0] - 1.0f);
             }
-            float emissive_rho = texture_footprint(t, it->emissive_texture, l0, l1, l2, u, v);
-            sample_texture(it->emissive_texture, u, v, emissive_rho, emissive_tex);
+            float eu, ev;
+            transform_uv(&it->emissive_uv,u,v,&eu,&ev);
+            float emissive_rho = texture_footprint(t, it->emissive_texture, &it->emissive_uv, l0, l1, l2, u, v);
+            sample_texture(it->emissive_texture, eu, ev, emissive_rho, emissive_tex);
             emission[0] = it->emissive.x * emissive_tex[0];
             emission[1] = it->emissive.y * emissive_tex[1];
             emission[2] = it->emissive.z * emissive_tex[2];
