@@ -34,6 +34,7 @@ same scene renders identically in a tab and on disk.
 | `src/g3/render.goose` | per frame: transforms, frustum cull, draw-list pack, sort, submit |
 | `src/g3/engine.goose` | `init` / `frame` / `shutdown`, input state, stats |
 | `src/g3/gltf_native.goose` | native static GLB and JSON glTF primitive loading into checked mesh and node handles |
+| `src/g3/texture_native.goose` | native PPM P6 image decoding into checked sRGB textures |
 | `src/g3/platform.goose` | the backend contract: `DrawItem`, `ViewState`, the `g3p_*` calls |
 | `src/demo/scene.goose` | the demo scene, written against the public API only |
 | `src/app_web.goose` | the browser entry point (no `main`; exported `g3_app_*`) |

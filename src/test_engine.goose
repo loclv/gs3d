@@ -20,6 +20,7 @@ import g3.scene;
 import g3.render;
 import g3.engine;
 import g3.texture;
+import g3.texture_native;
 import g3.gltf_native;
 import json;
 import g3.picking;
@@ -223,8 +224,12 @@ fn case_texture() {
     flat_camera();
     let pixels: u8[16] = [255, 0, 0, 255, 0, 255, 0, 255,
                           0, 0, 255, 255, 255, 255, 255, 255];
-    let texture = g3::texture_create(2, 2, pixels[..]);
-    testing::check(texture >= 0 && g3::texture_create(2, 3, pixels[..]) == -1, "texture dimensions are validated");
+    let image = g3::native_texture_load_ppm("testdata/native-checker.ppm");
+    let texture = image.id;
+    let invalid_image = g3::native_texture_load_ppm("testdata/native-bad.ppm");
+    testing::check(g3::texture_handle_valid(image) && texture >= 0 && !g3::texture_handle_valid(invalid_image) &&
+                   g3::texture_create(2, 3, pixels[..]) == -1,
+                   "native PPM loading creates a checked sRGB texture and rejects malformed images");
     let n .= g3::node(g3::node_add(g3::mesh_cube(1.0)));
     n.texture = texture;
     n.unlit = true;
@@ -245,6 +250,9 @@ fn case_texture() {
 
     // A mesh keeps eight UV sets independent, and a material selects each.
     g3::scene_clear();
+    let old_material_released = g3::material_remove(material_id);
+    testing::check(old_material_released && g3::texture_remove(image) && !g3::texture_handle_valid(image),
+                   "native PPM texture releases through checked texture lifecycle");
     flat_camera();
     let uv1_texture = g3::texture_create(2, 2, pixels[..]);
     let verts: g3::Vertex[4] = [

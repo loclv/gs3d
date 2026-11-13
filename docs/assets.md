@@ -123,6 +123,14 @@ textures, images, skins, animations,
 sparse accessors, or the full node hierarchy as engine parent/child nodes.
 Browser applications should use the broader `web/assets.js` loader.
 
+Native image loading currently supports binary PPM P6 files with 8-bit RGB and
+`MAXVAL 255`, through `native_texture_load_ppm(path)`. It returns a checked
+`TextureHandle`; call `texture_remove(handle)` when the texture has no live
+users. The loader flips PPM's top-down rows into the renderer's `v=0` first-row
+layout and uploads sRGB colour. PNG, JPEG, and glTF image/texture references
+are not decoded by the native loader yet. Native Radiance HDR environments use
+`texture_load_hdr`.
+
 The viewer's input controls can also be used independently of the viewer host:
 
 ```js
