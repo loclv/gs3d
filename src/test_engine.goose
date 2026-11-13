@@ -319,6 +319,21 @@ fn case_native_glb_load() {
     let invalid_world, invalid_ok = g3::glb_node_world_matrix(invalid_root, 2);
     testing::check(invalid_root && invalid_error.len == 0 && !invalid_ok,
                    "native GLB rejects nodes with multiple parents");
+    var unlit_doc: json::Node[>..] = [];
+    var unlit_decoded: u8[>..] = [];
+    let unlit_root, unlit_error = json::parse("{\"extensionsUsed\":[\"KHR_materials_unlit\"],\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.2,0.3,0.4,1]},\"extensions\":{\"KHR_materials_unlit\":{}}}],\"primitive\":{\"material\":0}}", unlit_doc, unlit_decoded);
+    let unlit_material, unlit_ok = g3::glb_material(unlit_root, json::member(unlit_root, "primitive"));
+    let unlit_live = unlit_ok && g3::material_handle_valid(unlit_material) && g3::material(unlit_material.id).unlit &&
+                     abs(g3::material(unlit_material.id).color.x - 0.2) < 0.001;
+    testing::check(unlit_root && unlit_error.len == 0 && unlit_live,
+                   "native GLB imports declared KHR_materials_unlit materials");
+    if g3::material_handle_valid(unlit_material) { g3::material_asset_release(unlit_material); }
+    var undeclared_doc: json::Node[>..] = [];
+    var undeclared_decoded: u8[>..] = [];
+    let undeclared_root, undeclared_error = json::parse("{\"materials\":[{\"extensions\":{\"KHR_materials_unlit\":{}}}],\"primitive\":{\"material\":0}}", undeclared_doc, undeclared_decoded);
+    let undeclared_material, undeclared_ok = g3::glb_material(undeclared_root, json::member(undeclared_root, "primitive"));
+    testing::check(undeclared_root && undeclared_error.len == 0 && !undeclared_ok && !g3::material_handle_valid(undeclared_material),
+                   "native GLB rejects undeclared KHR_materials_unlit");
     let model, loaded = g3::native_glb_load_primitive("web/viewer/sample.glb", 0, 0);
     let live = loaded && g3::mesh_handle_valid(model.mesh) && g3::node_handle_valid(model.node) &&
                g3::material_handle_valid(model.material) && g3::node(model.node.index).material == model.material.id;

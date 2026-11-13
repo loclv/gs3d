@@ -58,6 +58,14 @@ fn glb_number(node: json::Node?, fallback: f64) -> f64, bool {
     return json::as_f64(node);
 }
 
+fn glb_array_has_string(node: json::Node?, value: const u8[:]) -> bool {
+    for i in 0..glb_array_count(node) {
+        let candidate, ok = json::as_string(glb_json_element(node, i));
+        if ok && candidate == value { return true; }
+    }
+    return false;
+}
+
 fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bool {
     let material_node = json::member(primitive, "material");
     if !material_node { return MaterialHandle { .. }, true; }
@@ -102,13 +110,19 @@ fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bo
     let sided_node = json::member(source, "doubleSided");
     var double_sided = false;
     if sided_node { let value, valid = json::as_bool(sided_node); guard valid else { return MaterialHandle { .. }, false; } double_sided = value; }
+    let unlit_node = json::member(json::member(source, "extensions"), "KHR_materials_unlit");
+    var unlit = false;
+    if unlit_node {
+        guard glb_array_has_string(json::member(root, "extensionsUsed"), "KHR_materials_unlit") else { return MaterialHandle { .. }, false; }
+        unlit = true;
+    }
 
     let id = material_asset_add();
     let m .= material(id);
     m.color = if alpha_mode == 0 { float4 { color.x, color.y, color.z, 1.0 } } else { color };
     m.alpha_mode = alpha_mode; m.alpha_cutoff = cutoff as f32; m.pbr = true;
     m.metallic = metallic_value as f32; m.roughness = roughness_value as f32;
-    m.emissive = emissive; m.double_sided = double_sided;
+    m.emissive = emissive; m.double_sided = double_sided; m.unlit = unlit;
     return material_handle(id), true;
 }
 
