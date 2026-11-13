@@ -3,12 +3,27 @@ import vec;
 import g3.scene;
 import g3.engine;
 import g3.render;
+import g3.texture;
 import g3.asset_web;
 
 export fn g3_app_init(width: i32, height: i32) -> bool {
     guard g3::init(width, height, "Goose 3D viewer") else { return false; }
     g3::set_output_srgb(true);
     g3::set_environment(float3 { 0.32, 0.48, 0.72 }, float3 { 0.16, 0.12, 0.08 }, 0.55);
+    var environment_pixels: f32[128];
+    for row in 4 { for column in 8 {
+        let offset = (row * 8 + column) * 4;
+        let color = if row == 3 { float3 { 0.18, 0.12, 0.08 } }
+            else if row == 2 { float3 { 0.72, 0.48, 0.28 } }
+            else if row == 1 && (column == 3 || column == 4) { float3 { 4.0, 3.2, 2.2 } }
+            else { float3 { 0.22, 0.38, 0.72 } };
+        environment_pixels[offset] = color.x;
+        environment_pixels[offset + 1] = color.y;
+        environment_pixels[offset + 2] = color.z;
+        environment_pixels[offset + 3] = 1.0;
+    } }
+    let environment = g3::texture_create_hdr(8, 4, environment_pixels[..]);
+    if environment >= 0 { g3::set_environment_map(environment, 0.8); }
     g3::camera_orbit(0.65, 0.35, 5.0, float3_0);
     return true;
 }

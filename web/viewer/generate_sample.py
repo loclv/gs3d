@@ -48,7 +48,7 @@ doc = {
     ],
     "images": [{"bufferView": 4, "mimeType": "image/jpeg"}],
     "textures": [{"source": 0}],
-    "materials": [{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}, "metallicFactor": 0, "roughnessFactor": 1}}],
+    "materials": [{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}, "metallicFactor": 0.05, "roughnessFactor": 0.35}}],
     "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2}, "indices": 3, "material": 0}]}],
     "nodes": [{"mesh": 0}], "scenes": [{"nodes": [0]}], "scene": 0,
     "animations": [{"name": "Turntable", "samplers": [{"input": 4, "output": 5}],
