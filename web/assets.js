@@ -937,6 +937,27 @@ async function prepare(url, requestedScene) {
     if (!Array.isArray(weights) || weights.length !== targetCount || !weights.every(Number.isFinite)) invalid(`Invalid default morph weights in mesh ${meshIndex}`);
     return { primitives, targetCount, weights: [...weights] };
   });
+  const cameras = (doc.cameras || []).map((camera, cameraIndex) => {
+    if (!camera || typeof camera !== 'object' || Array.isArray(camera)) invalid(`Invalid camera ${cameraIndex}`);
+    if (camera.extensions) unsupported('Camera extensions are not supported');
+    if (camera.type === 'perspective') {
+      const p = camera.perspective;
+      if (!p || !Number.isFinite(p.yfov) || !(p.yfov > 0 && p.yfov < Math.PI) ||
+          !Number.isFinite(p.znear) || !(p.znear > 0) ||
+          (p.zfar !== undefined && (!Number.isFinite(p.zfar) || !(p.zfar > p.znear))) ||
+          (p.aspectRatio !== undefined && (!Number.isFinite(p.aspectRatio) || !(p.aspectRatio > 0)))) invalid(`Invalid perspective camera ${cameraIndex}`);
+      return { index: cameraIndex, name: camera.name ?? null, type: 'perspective', fov: p.yfov,
+        orthoHeight: 10, near: p.znear, far: p.zfar ?? Math.max(400, p.znear + 1), aspectRatio: p.aspectRatio ?? null, node: null };
+    }
+    if (camera.type === 'orthographic') {
+      const o = camera.orthographic;
+      if (!o || !Number.isFinite(o.xmag) || !(o.xmag > 0) || !Number.isFinite(o.ymag) || !(o.ymag > 0) ||
+          !Number.isFinite(o.znear) || !Number.isFinite(o.zfar) || !(o.znear >= 0 && o.zfar > o.znear)) invalid(`Invalid orthographic camera ${cameraIndex}`);
+      return { index: cameraIndex, name: camera.name ?? null, type: 'orthographic', fov: 0.9,
+        orthoHeight: 2 * o.ymag, near: o.znear, far: o.zfar, aspectRatio: o.xmag / o.ymag, node: null };
+    }
+    invalid(`Invalid camera type in camera ${cameraIndex}`);
+  });
   const nodes = doc.nodes || [];
   const sceneIndex = requestedScene ?? doc.scene ?? 0;
   if (!Number.isInteger(sceneIndex) || sceneIndex < 0) invalid('Invalid scene index');
@@ -950,6 +971,12 @@ async function prepare(url, requestedScene) {
     const n = item(nodes, index, 'node');
     if (n.extensions) unsupported('Unsupported node feature');
     if (n.name !== undefined && typeof n.name !== 'string') invalid('Invalid node name');
+    const cameraIndex = n.camera === undefined ? -1 : n.camera;
+    if (cameraIndex >= 0) {
+      const camera = item(cameras, cameraIndex, 'camera');
+      if (camera.node !== null) invalid('A glTF camera may be attached to only one node');
+      camera.node = index;
+    } else if (n.camera !== undefined) invalid('Invalid node camera index');
     const meshData = n.mesh === undefined ? null : item(meshes, n.mesh, 'mesh');
     const primitives = meshData?.primitives ?? [];
     const targetCount = meshData?.targetCount ?? 0;
@@ -973,7 +1000,7 @@ async function prepare(url, requestedScene) {
       }
     } else if (primitives.some(primitive => primitive.joints.length)) invalid('Skin attributes require a node skin');
     const transform = localMatrix(n);
-    return { index, name: n.name ?? null, meshIndex: n.mesh ?? null, skinIndex, weights: [...morphWeights], ...transform, primitives,
+    return { index, name: n.name ?? null, meshIndex: n.mesh ?? null, cameraIndex, skinIndex, weights: [...morphWeights], ...transform, primitives,
       children: (n.children || []).map(child => visit(child, depth + 1)) };
   }
   const sceneRoots = roots.map(root => visit(root, 0));
@@ -1031,7 +1058,7 @@ async function prepare(url, requestedScene) {
     });
     return { name: typeof animation.name === 'string' ? animation.name : `Animation ${animationIndex}`, duration, channels };
   });
-  return { images, textureSpecs, roots: sceneRoots, skins, animations, sceneIndex, variantNames };
+  return { images, textureSpecs, roots: sceneRoots, skins, animations, cameras, sceneIndex, variantNames };
 }
 
 // Model disposal is idempotent. GPU objects are released; arena records remain.
@@ -1050,9 +1077,10 @@ export async function loadGLTF(engine, url, options = {}) {
   let disposed = false;
   let activeAnimation = -1, animationTime = 0, animationPlaying = false, animationLoop = true;
   let activeVariant = -1;
+  let modelCameraIds = [], selectedCamera = -1, fallbackCamera = -1;
   let touchedTransforms = new Set();
   const writeTransform = state => {
-    if (!state.translation || !isNodeHandleValid(engine, state.handle)) return;
+    if (!state.hasTransform || !isNodeHandleValid(engine, state.handle)) return;
     const matrix = localMatrix({ translation: state.translation, rotation: state.rotation, scale: state.scale }).matrix;
     matrix.forEach((value, index) => engine._g3_asset_matrix(state.handle.index, index, value));
   };
@@ -1069,7 +1097,7 @@ export async function loadGLTF(engine, url, options = {}) {
     const worlds = new Map();
     const visitWorld = (node, parent) => {
       const state = transformNodes.get(node.index);
-      const local = state?.translation ? localMatrix(state).matrix : node.matrix;
+      const local = state?.hasTransform ? localMatrix(state).matrix : node.matrix;
       const world = parent ? multiply4(parent, local) : local;
       worlds.set(node.index, world);
       for (const child of node.children) visitWorld(child, world);
@@ -1177,6 +1205,30 @@ export async function loadGLTF(engine, url, options = {}) {
     }
     return true;
   };
+  const cameraPose = camera => {
+    if (camera.node === null) return null;
+    let result = null;
+    const visit = (node, parent) => {
+      const state = transformNodes.get(node.index);
+      const local = state?.hasTransform ? localMatrix(state).matrix : node.matrix;
+      const world = parent ? multiply4(parent, local) : local;
+      if (node.index === camera.node) result = world;
+      for (const child of node.children) visit(child, world);
+    };
+    for (const root of data.roots) visit(root, null);
+    if (!result) return null;
+    const pos = transformPoint4(result, [0, 0, 0]);
+    const forward = normalize3(transformDirection4(result, [0, 0, -1]));
+    const up = normalize3(transformDirection4(result, [0, 1, 0]));
+    return { pos, target: pos.map((value, axis) => value + forward[axis]), up };
+  };
+  const syncSelectedCamera = () => {
+    if (selectedCamera < 0) return true;
+    const camera = data.cameras[selectedCamera], pose = cameraPose(camera), id = modelCameraIds[selectedCamera];
+    if (!pose) return false;
+    return !!engine._g3_asset_camera_update(id, ...pose.pos, ...pose.target, ...pose.up,
+      camera.fov, camera.type === 'orthographic' ? 1 : 0, camera.orthoHeight, camera.near, camera.far);
+  };
   const applyAnimation = (index, time) => {
     if (sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
     const animation = index < 0 ? null : data.animations[index];
@@ -1195,7 +1247,7 @@ export async function loadGLTF(engine, url, options = {}) {
     }
     for (const nodeIndex of nextTouched) writeTransform(transformNodes.get(nodeIndex));
     touchedTransforms = nextTouched;
-    return updateDeformedMeshes();
+    return updateDeformedMeshes() && syncSelectedCamera();
   };
   const dispose = () => {
     if (disposed) return;
@@ -1213,6 +1265,12 @@ export async function loadGLTF(engine, url, options = {}) {
     }
     deformedMeshes.length = 0;
     for (const handle of textures.values()) releaseTexture(engine, handle);
+    const currentCamera = engine._g3_asset_camera_active();
+    if (selectedCamera >= 0 && modelCameraIds.includes(currentCamera)) {
+      if (fallbackCamera >= 0) engine._g3_asset_camera_select(fallbackCamera);
+    }
+    for (const id of modelCameraIds) engine._g3_asset_camera_remove(id);
+    if (fallbackCamera >= 0) engine._g3_asset_camera_remove(fallbackCamera);
     for (const animation of data.animations) for (const channel of animation.channels) {
       channel.times.length = 0;
       channel.values.length = 0;
@@ -1346,11 +1404,14 @@ export async function loadGLTF(engine, url, options = {}) {
       const primitiveHandles = [];
       const primitiveMaterials = [];
       node.matrix.forEach((value, index) => engine._g3_asset_matrix(group, index, value));
-      if (node.translation || node.weights.length) transformNodes.set(node.index, {
+      const animatedTransform = data.animations.some(animation => animation.channels.some(channel =>
+        channel.node === node.index && channel.path !== 'weights'));
+      if (node.translation || node.rotation || node.scale || node.weights.length || animatedTransform) transformNodes.set(node.index, {
         handle: groupHandle,
-        baseTranslation: node.translation ? [...node.translation] : null, translation: node.translation ? [...node.translation] : null,
-        baseRotation: node.rotation ? [...node.rotation] : null, rotation: node.rotation ? [...node.rotation] : null,
-        baseScale: node.scale ? [...node.scale] : null, scale: node.scale ? [...node.scale] : null,
+        hasTransform: !!(node.translation || node.rotation || node.scale),
+        baseTranslation: node.translation ? [...node.translation] : [0, 0, 0], translation: node.translation ? [...node.translation] : [0, 0, 0],
+        baseRotation: node.rotation ? [...node.rotation] : [0, 0, 0, 1], rotation: node.rotation ? [...node.rotation] : [0, 0, 0, 1],
+        baseScale: node.scale ? [...node.scale] : [1, 1, 1], scale: node.scale ? [...node.scale] : [1, 1, 1],
         baseWeights: [...node.weights], weights: [...node.weights],
       });
       for (const p of node.primitives) {
@@ -1418,7 +1479,8 @@ export async function loadGLTF(engine, url, options = {}) {
       modelNodes.push(Object.freeze({
         index: node.index, name: node.name, parent: parentIndex,
         children: Object.freeze(node.children.map(child => child.index)),
-        mesh: node.meshIndex, skin: node.skinIndex < 0 ? null : node.skinIndex,
+        mesh: node.meshIndex, camera: node.cameraIndex < 0 ? null : node.cameraIndex,
+        skin: node.skinIndex < 0 ? null : node.skinIndex,
         handle: groupHandle, primitives: Object.freeze(primitiveHandles),
         primitiveMaterials: Object.freeze(primitiveMaterials),
       }));
@@ -1426,11 +1488,21 @@ export async function loadGLTF(engine, url, options = {}) {
       return groupHandle;
     }
     const roots = data.roots.map(root => createNode(root, -1));
+    for (const camera of data.cameras) {
+      const pose = cameraPose(camera);
+      if (!pose) { modelCameraIds.push(-1); continue; }
+      const id = engine._g3_asset_camera_add(...pose.pos, ...pose.target, ...pose.up,
+        camera.fov, camera.type === 'orthographic' ? 1 : 0, camera.orthoHeight, camera.near, camera.far);
+      if (id < 0) throw new AssetError('UPLOAD', 'Could not create glTF camera');
+      modelCameraIds.push(id);
+    }
     if (!applyAnimation(-1, 0)) throw new AssetError('UPLOAD', 'Could not initialize skinned model');
     return {
       sceneIndex: data.sceneIndex,
       roots: Object.freeze(roots),
       nodes: Object.freeze(modelNodes),
+      cameras: Object.freeze(data.cameras.map(camera => Object.freeze({ index: camera.index, name: camera.name,
+        type: camera.type, node: camera.node }))),
       animations: Object.freeze(data.animations.map(({ name, duration }, index) => Object.freeze({ index, name, duration }))),
       variants: Object.freeze([...data.variantNames]),
       meshes: Object.freeze([...meshes]),
@@ -1448,6 +1520,21 @@ export async function loadGLTF(engine, url, options = {}) {
         return true;
       },
       get activeVariant() { return activeVariant; },
+      selectCamera(index) {
+        if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch()) return false;
+        if (index === null) {
+          if (selectedCamera < 0) return true;
+          if (fallbackCamera < 0 || !engine._g3_asset_camera_select(fallbackCamera)) return false;
+          selectedCamera = -1;
+          return true;
+        }
+        if (!Number.isInteger(index) || index < 0 || index >= modelCameraIds.length || modelCameraIds[index] < 0) return false;
+        if (fallbackCamera < 0) fallbackCamera = engine._g3_asset_camera_add_current();
+        selectedCamera = index;
+        if (!syncSelectedCamera() || !engine._g3_asset_camera_select(modelCameraIds[index])) { selectedCamera = -1; return false; }
+        return true;
+      },
+      get activeCamera() { return selectedCamera; },
       getTexturePreview(textureIndex, maxDimension = 256) {
         if (disposed || sceneEpoch !== engine._g3_asset_scene_epoch() || !Number.isInteger(textureIndex) || textureIndex < 0 || textureIndex >= data.textureSpecs.length ||
             !Number.isInteger(maxDimension) || maxDimension < 1 || maxDimension > 1024) return null;

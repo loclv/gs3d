@@ -93,6 +93,8 @@ export interface ModelNodeInfo {
   readonly children: readonly number[];
   /** Referenced glTF mesh and skin indices, or null when absent. */
   readonly mesh: number | null;
+  /** Referenced glTF camera index, or null when absent. */
+  readonly camera: number | null;
   readonly skin: number | null;
   /** Checked engine node handle for the glTF node's transform group. */
   readonly handle: NodeHandle;
@@ -108,6 +110,12 @@ export interface LoadedModel {
   readonly roots: readonly NodeHandle[];
   /** glTF node hierarchy and references for the selected scene, in depth-first order. */
   readonly nodes: readonly ModelNodeInfo[];
+  /** Camera definitions in the glTF document; node is null when not instantiated in the selected scene. */
+  readonly cameras: readonly { readonly index: number; readonly name: string | null; readonly type: 'perspective' | 'orthographic'; readonly node: number | null }[];
+  /** Select a glTF camera by document index; pass null to restore the view active before selection. */
+  selectCamera(index: number | null): boolean;
+  /** Selected glTF camera index, or -1 when the pre-load view is active. */
+  readonly activeCamera: number;
   readonly animations: readonly AnimationInfo[];
   /** Material variant names declared by KHR_materials_variants. */
   readonly variants: readonly string[];

@@ -320,7 +320,25 @@ fn camera_add() -> i64 {
     return id;
 }
 
+// Add a camera without changing the current view. Asset loaders use this for
+// cameras that are selected explicitly by the application.
+fn camera_add_detached(cam: Camera) -> i64 {
+    let offset = cam.pos - cam.target;
+    let distance = length(offset);
+    let yaw = atan2(offset.x, offset.z);
+    let pitch = asin(offset.y / (if distance > 0.000001 { distance } else { 1.0 }));
+    g_cameras.push(CameraState { camera: cam, yaw: yaw, pitch: pitch, distance: distance,
+        orbit_target: cam.target, removed: false });
+    return g_cameras.len - 1;
+}
+
 fn camera_active() -> i64 { return g_active_camera }
+fn camera_update(id: i64, cam: Camera) -> bool {
+    guard id >= 0 && id < g_cameras.len && !g_cameras[id].removed else { return false; }
+    g_cameras[id].camera = cam;
+    if g_active_camera == id { g_camera = cam; }
+    return true;
+}
 fn camera_count() -> i64 {
     var count: i64 = 0;
     for i in 0..g_cameras.len { if !g_cameras[i].removed { count += 1; } }

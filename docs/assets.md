@@ -176,6 +176,14 @@ fetches and decodes assets in JavaScript.
   Vertex colours are linear and multiply the base-colour factor and texture;
   `VEC3` supplies alpha 1. Missing normals are generated as area-weighted
   vertex normals from triangle faces.
+* Perspective and orthographic glTF cameras attached to nodes in the selected
+  scene. `model.cameras` exposes camera definitions and `selectCamera(index)`
+  switches the active engine camera; `selectCamera(null)` restores the view
+  that was active before selection. Camera node transforms include their
+  parent transforms and update when an animated transform changes. Projection
+  uses the canvas aspect ratio; orthographic height comes from `ymag`, while
+  `xmag` and perspective `aspectRatio` do not lock the projection to a fixed
+  aspect ratio.
 * `KHR_mesh_quantization` supports signed and unsigned 8-bit or 16-bit positions
   and texture coordinates, plus normalized signed 8-bit or 16-bit normals and
   tangents. Morph position deltas also accept signed quantized values; morph

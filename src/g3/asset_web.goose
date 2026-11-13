@@ -130,3 +130,19 @@ export fn g3_asset_tone_mapping(mode: i32) -> bool { return g3::set_tone_mapping
 export fn g3_asset_fxaa(enabled: i32) { g3::set_fxaa(enabled != 0); }
 export fn g3_asset_exposure(value: f32) -> bool { return g3::set_exposure(value); }
 export fn g3_asset_environment_map(texture: i32, intensity: f32) { g3::set_environment_map(texture, intensity); }
+export fn g3_asset_camera_add(px: f32, py: f32, pz: f32, tx: f32, ty: f32, tz: f32, ux: f32, uy: f32, uz: f32,
+                              fov: f32, orthographic: bool, ortho_height: f32, near: f32, far: f32) -> i32 {
+    let cam = g3::Camera { pos: float3 { px, py, pz }, target: float3 { tx, ty, tz }, up: float3 { ux, uy, uz },
+        fov: fov, orthographic: orthographic, ortho_height: ortho_height, near: near, far: far };
+    return g3::camera_add_detached(cam) as i32;
+}
+export fn g3_asset_camera_active() -> i32 { return g3::camera_active() as i32; }
+export fn g3_asset_camera_add_current() -> i32 { return g3::camera_add() as i32; }
+export fn g3_asset_camera_update(id: i32, px: f32, py: f32, pz: f32, tx: f32, ty: f32, tz: f32, ux: f32, uy: f32, uz: f32,
+                                 fov: f32, orthographic: bool, ortho_height: f32, near: f32, far: f32) -> bool {
+    let cam = g3::Camera { pos: float3 { px, py, pz }, target: float3 { tx, ty, tz }, up: float3 { ux, uy, uz },
+        fov: fov, orthographic: orthographic, ortho_height: ortho_height, near: near, far: far };
+    return g3::camera_update(id, cam);
+}
+export fn g3_asset_camera_select(id: i32) -> bool { return g3::camera_select(id); }
+export fn g3_asset_camera_remove(id: i32) -> bool { return g3::camera_remove(id); }

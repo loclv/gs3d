@@ -34,6 +34,17 @@ const multiSceneDoc = structuredClone(doc);
 multiSceneDoc.nodes.push({ translation: [9, 8, 7], mesh: 0 });
 multiSceneDoc.scenes = [{ nodes: [0] }, { nodes: [1] }];
 resources.set('http://localhost/multi-scene.gltf', bytes(multiSceneDoc));
+const cameraDoc = structuredClone(doc);
+cameraDoc.cameras = [
+  { name: 'Perspective', type: 'perspective', perspective: { yfov: 0.75, znear: 0.2, zfar: 90, aspectRatio: 1.5 } },
+  { name: 'Ortho', type: 'orthographic', orthographic: { xmag: 8, ymag: 4, znear: 0.1, zfar: 80 } },
+];
+cameraDoc.nodes = [{ translation: [2, 3, 4], camera: 0, children: [1] }, { translation: [0, 0, 2], camera: 1 }];
+cameraDoc.scenes = [{ nodes: [0] }];
+resources.set('http://localhost/cameras.gltf', bytes(cameraDoc));
+const badCameraDoc = structuredClone(cameraDoc);
+badCameraDoc.cameras[0].perspective.yfov = 0;
+resources.set('http://localhost/bad-camera.gltf', bytes(badCameraDoc));
 const variantDoc = structuredClone(doc);
 variantDoc.extensionsUsed = ['KHR_materials_variants'];
 variantDoc.extensionsRequired = ['KHR_materials_variants'];
@@ -227,8 +238,8 @@ for (const [name, expected] of [
 }
 const quantizedEngine = fakeEngine(), quantizedModel = await loadGLTF(quantizedEngine, 'http://localhost/quantized.gltf');
 assert.deepEqual(quantizedModel.nodes.map(({ index, name, parent, children, mesh, skin }) => ({ index, name, parent, children, mesh, skin })), [
-  { index: 0, name: 'Quantized root', parent: null, children: [1], mesh: 0, skin: null },
-  { index: 1, name: 'Marker', parent: 0, children: [], mesh: null, skin: null },
+  { index: 0, name: 'Quantized root', parent: null, children: [1], mesh: 0, camera: null, skin: null },
+  { index: 1, name: 'Marker', parent: 0, children: [], mesh: null, camera: null, skin: null },
 ], 'model inspection lists the selected scene hierarchy with mesh and skin references');
 assert.ok(isNodeHandleValid(quantizedEngine, quantizedModel.nodes[0].handle), 'inspected node metadata carries a checked node handle');
 assert.equal(quantizedModel.nodes[0].primitives.length, 1, 'node inspection exposes handles for each mesh primitive');
@@ -355,6 +366,14 @@ function fakeEngine() {
     };
   }
   engine._g3_asset_scene_epoch = () => engine.epoch || 0;
+  let nextCamera = 10;
+  engine.activeCamera = -1;
+  engine._g3_asset_camera_add = (...args) => { const id = nextCamera++; calls.push(['camera_add', id, ...args]); return id; };
+  engine._g3_asset_camera_add_current = () => { const id = nextCamera++; calls.push(['camera_add_current', id]); if (engine.activeCamera < 0) engine.activeCamera = id; return id; };
+  engine._g3_asset_camera_update = (...args) => { calls.push(['camera_update', ...args]); return true; };
+  engine._g3_asset_camera_active = () => engine.activeCamera;
+  engine._g3_asset_camera_select = id => { calls.push(['camera_select', id]); engine.activeCamera = id; return true; };
+  engine._g3_asset_camera_remove = id => { calls.push(['camera_remove', id]); if (engine.activeCamera === id) engine.activeCamera = -1; return true; };
   engine._g3_asset_node_generation = id => generations.get(id) || 0;
   engine._g3_asset_node_valid = (id, generation, epoch) => epoch === (engine.epoch || 0) && generations.get(id) === generation;
   engine._g3_asset_node_release = (id, generation, epoch) => {
@@ -370,6 +389,21 @@ function fakeEngine() {
   engine._free = () => {};
   return engine;
 }
+
+const cameraEngine = fakeEngine(), cameraModel = await loadGLTF(cameraEngine, 'http://localhost/cameras.gltf');
+assert.deepEqual(cameraModel.cameras, [
+  { index: 0, name: 'Perspective', type: 'perspective', node: 0 },
+  { index: 1, name: 'Ortho', type: 'orthographic', node: 1 },
+]);
+assert.equal(cameraModel.selectCamera(0), true);
+assert.deepEqual(cameraEngine.calls.find(call => call[0] === 'camera_update').slice(0, 11),
+  ['camera_update', 10, 2, 3, 4, 2, 3, 3, 0, 1, 0]);
+assert.equal(cameraModel.activeCamera, 0);
+assert.equal(cameraModel.selectCamera(null), true);
+assert.equal(cameraModel.activeCamera, -1);
+cameraModel.dispose();
+assert.equal(cameraEngine.calls.some(call => call[0] === 'camera_remove' && call[1] === 10), true);
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/bad-camera.gltf'), error => error.code === 'INVALID_GLTF');
 
 function enableFakeGpuMorph(engine, { upload = true, skin = true } = {}) {
   engine._g3_host_mesh_morph = (id, positionsPtr, normalsPtr, tangentsPtr, vertexCount, targetCount) => {
