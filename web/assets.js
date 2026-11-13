@@ -434,6 +434,31 @@ function normalize3(vector) {
   return vector.map(value => value / length);
 }
 
+function generateVertexNormals(positions, indices) {
+  const normals = new Array(positions.length).fill(0);
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = indices[i] * 3, b = indices[i + 1] * 3, c = indices[i + 2] * 3;
+    const abx = positions[b] - positions[a], aby = positions[b + 1] - positions[a + 1], abz = positions[b + 2] - positions[a + 2];
+    const acx = positions[c] - positions[a], acy = positions[c + 1] - positions[a + 1], acz = positions[c + 2] - positions[a + 2];
+    const nx = aby * acz - abz * acy, ny = abz * acx - abx * acz, nz = abx * acy - aby * acx;
+    if (![nx, ny, nz].every(Number.isFinite)) invalid('Cannot generate finite vertex normals');
+    for (const vertex of [a, b, c]) {
+      normals[vertex] += nx;
+      normals[vertex + 1] += ny;
+      normals[vertex + 2] += nz;
+    }
+  }
+  for (let i = 0; i < normals.length; i += 3) {
+    const length = Math.hypot(normals[i], normals[i + 1], normals[i + 2]);
+    if (length > 0 && Number.isFinite(length)) {
+      normals[i] /= length; normals[i + 1] /= length; normals[i + 2] /= length;
+    } else {
+      normals[i] = 0; normals[i + 1] = 0; normals[i + 2] = 1;
+    }
+  }
+  return normals;
+}
+
 function sampleChannel(channel, time) {
   const times = channel.times;
   let low = 0, high = times.length;
@@ -568,7 +593,7 @@ async function prepare(url) {
     if (Object.keys(p.attributes || {}).some(name => /^(JOINTS|WEIGHTS)_\d+$/.test(name) && Number(name.slice(name.indexOf('_') + 1)) > 1)) unsupported('At most eight skin influences are supported');
     if (Object.keys(p.attributes || {}).some(name => /^TEXCOORD_\d+$/.test(name) && Number(name.slice(9)) > 2)) unsupported('Only TEXCOORD_0, TEXCOORD_1, and TEXCOORD_2 are supported');
     const pos = accessor(doc, buffers, p.attributes?.POSITION, 'VEC3');
-    const normal = accessor(doc, buffers, p.attributes?.NORMAL, 'VEC3');
+    const normal = p.attributes?.NORMAL === undefined ? null : accessor(doc, buffers, p.attributes.NORMAL, 'VEC3');
     const uv = p.attributes?.TEXCOORD_0 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_0, 'VEC2');
     const uv1 = p.attributes?.TEXCOORD_1 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_1, 'VEC2');
     const uv2 = p.attributes?.TEXCOORD_2 === undefined ? null : accessor(doc, buffers, p.attributes.TEXCOORD_2, 'VEC2');
@@ -577,7 +602,7 @@ async function prepare(url) {
     const colorType = colorIndex === undefined ? null : item(doc.accessors, colorIndex, 'COLOR_0 accessor').type;
     if (colorType !== null && colorType !== 'VEC3' && colorType !== 'VEC4') invalid('Invalid COLOR_0 accessor type');
     const vertexColor = colorType === null ? null : accessor(doc, buffers, colorIndex, colorType);
-    if (pos.componentType !== 5126 || normal.componentType !== 5126 || pos.count !== normal.count ||
+    if (pos.componentType !== 5126 || (normal && (normal.componentType !== 5126 || normal.count !== pos.count)) ||
         [uv, uv1, uv2].some(coord => coord && (coord.count !== pos.count ||
           !((coord.componentType === 5126 && !coord.normalized) || ([5121, 5123].includes(coord.componentType) && coord.normalized)))) ||
         (vertexColor && (vertexColor.count !== pos.count ||
@@ -615,6 +640,7 @@ async function prepare(url) {
     if (indexAccessor && ![5121, 5123, 5125].includes(indexAccessor.componentType)) invalid('Indices must be unsigned integers');
     const indices = indexAccessor ? indexAccessor.values : Array.from({ length: pos.count }, (_, i) => i);
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
+    const normalValues = normal ? normal.values : generateVertexNormals(pos.values, indices);
     const material = p.material === undefined ? {} : item(doc.materials, p.material, 'material');
     let unlit = false, emissiveStrength = 1, ior = 1.5;
     let specularFactor = 1, specularColorFactor = [1, 1, 1], specularExtension = null;
@@ -721,7 +747,7 @@ async function prepare(url) {
       textureIndex = pbr.baseColorTexture.index;
     }
     // OPAQUE materials ignore baseColorFactor alpha, as required by glTF.
-    return { pos: pos.values, normal: normal.values, uv: uv?.values, uv1: uv1?.values, uv2: uv2?.values,
+    return { pos: pos.values, normal: normalValues, uv: uv?.values, uv1: uv1?.values, uv2: uv2?.values,
       vertexColor: vertexColor?.values, colorComponents: colorType === 'VEC3' ? 3 : vertexColor ? 4 : 0,
       tangent: tangent?.values, joints, weights, targets, indices,
       color: [color[0], color[1], color[2], mode === 'OPAQUE' ? 1 : color[3]], textureIndex,

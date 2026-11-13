@@ -329,6 +329,21 @@ for (const path of ['oversized-glb-padding.glb', 'unreferenced-glb-bin.glb', 'gl
   await assert.rejects(loadGLTF(engine, `http://localhost/${path}`), error => error.code === 'INVALID_GLTF');
   assert.equal(engine.calls.length, 0, `${path} is rejected before resource creation`);
 }
+const generatedNormalDoc = structuredClone(doc);
+delete generatedNormalDoc.meshes[0].primitives[0].attributes.NORMAL;
+resources.set('http://localhost/generated-normals.gltf', bytes(generatedNormalDoc));
+const generatedNormalEngine = fakeEngine(), generatedNormalModel = await loadGLTF(generatedNormalEngine, 'http://localhost/generated-normals.gltf');
+assert.deepEqual(generatedNormalEngine.calls.filter(call => call[0] === 'vertex').map(call => call.slice(4, 7)),
+  [[0,0,1],[0,0,1],[0,0,1]], 'missing normals are generated from indexed triangle winding');
+generatedNormalModel.dispose();
+const nonindexedNormalDoc = structuredClone(generatedNormalDoc);
+delete nonindexedNormalDoc.meshes[0].primitives[0].indices;
+resources.set('http://localhost/generated-nonindexed-normals.gltf', bytes(nonindexedNormalDoc));
+const nonindexedNormalEngine = fakeEngine(), nonindexedNormalModel = await loadGLTF(nonindexedNormalEngine, 'http://localhost/generated-nonindexed-normals.gltf');
+assert.deepEqual(nonindexedNormalEngine.calls.find(call => call[0] === 'triangle'), ['triangle', 0, 1, 2]);
+assert.deepEqual(nonindexedNormalEngine.calls.filter(call => call[0] === 'vertex').map(call => call.slice(4, 7)),
+  [[0,0,1],[0,0,1],[0,0,1]], 'missing normals are also generated for non-indexed triangles');
+nonindexedNormalModel.dispose();
 const engine = fakeEngine();
 const factorsDoc = structuredClone(doc);
 factorsDoc.materials[0].pbrMetallicRoughness.metallicFactor = 0.25;
