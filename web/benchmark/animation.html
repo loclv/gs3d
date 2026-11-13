@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goose 3D morph animation benchmark</title>
+<style>
+  :root { color-scheme: dark; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #10151d; color: #e0e7f1; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #panel { position: fixed; top: 16px; left: 16px; width: min(460px, calc(100vw - 64px));
+    padding: 14px 16px; background: #111923ef; border: 1px solid #3a4656; border-radius: 8px; }
+  h1 { margin: 0 0 10px; font-size: 15px; }
+  #results { white-space: pre-line; }
+  #note { margin-top: 10px; color: #95a2b4; font: 12px/1.5 system-ui, sans-serif; }
+  #status { position: fixed; inset: 0; display: grid; place-items: center; color: #e0e7f1; }
+  #status:empty { display: none; }
+</style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <section id="panel">
+    <h1>WebGL2 morph animation benchmark</h1>
+    <div id="results">warming up…</div>
+    <div id="note">Runs a glTF animation across 2,048 base vertices and 64 morph targets. Timings separate model.update() from the synchronous engine frame call; neither measures GPU completion. Browser frame rate includes display refresh and GPU execution.</div>
+  </section>
+  <div id="status">Starting WebGL2…</div>
+  <script type="module" src="./animation.js"></script>
+</body>
+</html>

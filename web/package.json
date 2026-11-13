@@ -16,7 +16,9 @@
     "README.md",
     "assets.js",
     "assets.d.ts",
-    "test_assets.mjs"
+    "test_assets.mjs",
+    "viewer/sample.glb",
+    "benchmark/morph-benchmark.glb"
   ],
   "sideEffects": false
 }

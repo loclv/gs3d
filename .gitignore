@@ -9,6 +9,9 @@ web/game/app.js.map
 web/viewer/app.js
 web/viewer/app.wasm
 web/viewer/app.js.map
+web/benchmark/animation/app.js
+web/benchmark/animation/app.wasm
+web/benchmark/animation/app.js.map
 
 # fetched toolchain (Emscripten SDK), see README
 .toolchain/

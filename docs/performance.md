@@ -171,3 +171,22 @@ comparing devices or revisions; use the same browser, window size and power
 state for before/after comparisons. The current WebGL benchmark has no browser
 automation or GPU timer query, so its results are diagnostic rather than a
 cross-device performance claim.
+
+## WebGL morph animation benchmark
+
+Build and serve the 64-target morph benchmark with:
+
+```bash
+./build_web.sh --animation-benchmark --serve
+```
+
+Regenerate its bundled GLB with `python3 web/benchmark/generate_morph_sample.py`.
+
+Open <http://localhost:8080/benchmark/animation.html>. The bundled GLB has
+2,048 vertices, 64 animated morph targets, and a linear weight
+animation. The report separates glTF `model.update()` time from the synchronous
+engine frame call and shows scene-pass draw calls. The engine call includes
+animation weight uploads and command submission; it does not measure GPU
+completion. Use browser/GPU-specific measurements for comparison, and check
+that the device accepts the GPU morph target textures before interpreting the
+frame results.

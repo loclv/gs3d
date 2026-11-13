@@ -1327,6 +1327,23 @@ assert.deepEqual(gpuMorphEngine.calls.filter(x => x[0] === 'morph_weights').at(-
 assert.equal(gpuMorphEngine.calls.filter(x => x[0] === 'mesh_update').length, 0);
 assert.deepEqual(gpuMorphEngine.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[2], [-2,-2,0, 2,-2,0, 0,2,0]);
 gpuMorphModel.dispose();
+resources.set('http://localhost/morph-benchmark.glb', await readFile(new URL('./benchmark/morph-benchmark.glb', import.meta.url)));
+const morphBenchmarkEngine = enableFakeGpuMorph(fakeEngine());
+const morphBenchmarkMemory = new ArrayBuffer(16 * 1024 * 1024);
+morphBenchmarkEngine.HEAPU8 = new Uint8Array(morphBenchmarkMemory);
+morphBenchmarkEngine.HEAPF32 = new Float32Array(morphBenchmarkMemory);
+const morphBenchmarkUploads = [], morphWeightUploadCount = () => morphBenchmarkEngine.calls.filter(call => call[0] === 'morph_weights').length;
+morphBenchmarkEngine._g3_host_mesh_morph = (_id, _positions, _normals, _tangents, vertexCount, targetCount) => {
+  morphBenchmarkUploads.push([vertexCount, targetCount]); return 1;
+};
+const morphBenchmarkModel = await loadGLTF(morphBenchmarkEngine, 'http://localhost/morph-benchmark.glb');
+assert.deepEqual(morphBenchmarkUploads, [[2048, 64]], 'the animation benchmark uploads its full morph target set once');
+assert.equal(morphBenchmarkModel.nodes[0].primitives.length, 1, 'the benchmark creates one GPU-deformed morph mesh');
+assert.equal(morphBenchmarkModel.playAnimation(0), true);
+const morphWeightUploadsBefore = morphWeightUploadCount();
+morphBenchmarkModel.update(0.125);
+assert.ok(morphWeightUploadCount() > morphWeightUploadsBefore, 'the benchmark animation updates morph weights');
+morphBenchmarkModel.dispose();
 const rejectedGpuMorph = enableFakeGpuMorph(fakeEngine(), { upload: false });
 const rejectedGpuMorphModel = await loadGLTF(rejectedGpuMorph, 'http://localhost/morph.gltf');
 assert.equal(rejectedGpuMorph.calls.some(x => x[0] === 'morph_release'), true);

@@ -5,6 +5,7 @@
 #   ./build_web.sh --serve   build, then serve web/ on http://localhost:8080
 #   ./build_web.sh --game --serve  build and serve the Beacon Run sample
 #   ./build_web.sh --viewer --serve build and serve the model viewer
+#   ./build_web.sh --animation-benchmark --serve build and serve the morph benchmark
 #
 # Emscripten is expected in .toolchain/emsdk (see README) or on PATH.
 
@@ -39,6 +40,10 @@ elif [ "${1:-}" = "--benchmark" ]; then
   root=src/benchmark_web.goose
   output=web/benchmark/app.js
   exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_benchmark_set_count","_g3_input_resize","_malloc","_free"]'
+elif [ "${1:-}" = "--animation-benchmark" ]; then
+  root=src/viewer_web.goose
+  output=web/benchmark/animation/app.js
+  exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_host_scene_draw_calls","_g3_input_resize","_malloc","_free"]'
 fi
 
 # The asset bridge is available to either browser entry point.
@@ -57,6 +62,7 @@ goose --standalone --header build/web/g3.h -o build/web/g3.c "$root"
 #    not free in a wasm heap: the engine keeps several arenas, so 64 MiB each
 #    is the difference between a 2 GiB heap and a few hundred MiB.
 echo "c -> $output and wasm"
+mkdir -p "$(dirname "$output")"
 emcc build/web/g3.c platform/g3_web.c platform/g3_input.c -o "$output" \
   -Ibuild/web -Iplatform \
   -O3 \
