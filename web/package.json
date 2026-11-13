@@ -4,19 +4,27 @@
   "description": "Browser asset helpers and TypeScript declarations for Goose 3D",
   "type": "module",
   "scripts": {
-    "test": "node ./test_assets.mjs"
+    "test": "node ./test_assets.mjs && node ./test_orbit_controls.mjs",
+    "test:build": "node ./test_build_exports.mjs"
   },
   "exports": {
     ".": {
       "types": "./assets.d.ts",
       "import": "./assets.js"
+    },
+    "./orbit-controls": {
+      "types": "./orbit-controls.d.ts",
+      "import": "./orbit-controls.js"
     }
   },
   "files": [
     "README.md",
     "assets.js",
     "assets.d.ts",
+    "orbit-controls.js",
+    "orbit-controls.d.ts",
     "test_assets.mjs",
+    "test_orbit_controls.mjs",
     "viewer/sample.glb",
     "benchmark/morph-benchmark.glb"
   ],

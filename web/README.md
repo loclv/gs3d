@@ -7,15 +7,23 @@ that initialized module to these helpers.
 
 ```js
 import { loadGLTF, setOutputColorSpace, setFXAA, AssetError } from 'goose-3d-browser-assets';
+import { createOrbitControls } from 'goose-3d-browser-assets/orbit-controls';
 
 setOutputColorSpace(engine, 'srgb');
 setFXAA(engine, true);
 try {
   const model = await loadGLTF(engine, './model.glb');
+  const controls = createOrbitControls(canvas, {
+    onOrbit: (azimuth, elevation) => orbitCamera(azimuth, elevation),
+    onZoom: factor => zoomCamera(factor),
+    onPan: (x, y) => panCamera(x, y),
+    onSelect: (x, y) => selectAt(x, y)
+  });
   // In the application's frame loop:
   model.update(deltaSeconds);
   engine._g3_app_frame(deltaSeconds);
   // On unload:
+  controls.dispose();
   model.dispose();
 } catch (error) {
   if (error instanceof AssetError) console.error(error.code, error.message);
@@ -28,8 +36,17 @@ ownership, errors, texture colour spaces and animation.
 The declarations in `assets.d.ts` cover loaders, checked handles, model
 lifecycle, animation controls and rendering options.
 
-Run `npm test` in this directory to exercise the asset parser and lifecycle
-against a fake engine. These tests do not compile shaders or verify WebGL output.
+`createOrbitControls` handles pointer orbit, right-button or shift-drag pan,
+two-finger pinch and pan, wheel zoom, keyboard camera controls, and click
+selection. Its callbacks let the application apply camera changes without
+coupling the controls to a camera implementation. Call `dispose()` when the
+canvas or viewer is removed.
+
+Run `npm test` in this directory to exercise asset parsing and lifecycle
+against a fake engine and the orbit controls against a fake canvas. Run
+`npm run test:build` from the repository's `web/` directory to check that the
+browser build exports every host function used by the asset helpers. These
+tests do not compile shaders or verify WebGL output.
 
 `model.applyLights()` opts into the selected scene's `KHR_lights_punctual`
 lights. Its optional `pointShadow` and `spotShadow` values select one caster of

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createOrbitControls } from './orbit-controls.js';
+import { createOrbitControls } from 'goose-3d-browser-assets/orbit-controls';
 
 class Canvas {
   style = { touchAction: 'pan-y' };

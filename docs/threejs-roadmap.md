@@ -21,9 +21,9 @@ reference for rendering changes.
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, hemispherical and RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL/TANGENT morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and representative deformation measurements; GPU morph targets fall back to CPU above 64 targets or device texture limits |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; asset-owned mesh descriptor reuse; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Shrinking grow-only backing arrays; ordinary mesh IDs remain permanent for compatibility |
-| Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection | Browser integration tests |
+| Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection; package subpath with TypeScript declarations and fake-canvas interaction tests | Browser integration tests |
 | Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters, FXAA-style full-screen post-processing, basic user render targets, built-in post-processing, bounded fragment shader extension | Browser shader validation; CPU reference renderer still processes draw items individually |
-| Developer experience | Goose API, custom browser host, typed browser asset helpers and a package manifest | Publish the package, examples, and automated browser rendering tests |
+| Developer experience | Goose API, custom browser host, typed browser asset and orbit-control helpers with package subpaths, and a package manifest | Publish the package, examples, and automated browser rendering tests |
 
 Three.js's [fundamentals](https://threejs.org/manual/pages/fundamentals.html),
 [glTF loader](https://threejs.org/docs/pages/GLTFLoader.html), and
@@ -200,10 +200,12 @@ Tests cover animation interpolation, skinning, and camera projection.
 * **Partly implemented:** `post_process_run(source, destination, effect)` provides copy, grayscale, invert, and FXAA passes over explicit texture inputs and render-target outputs; the fixed eight-entry queue executes built-in or custom passes in order. Add browser shader validation before expanding the shader interface. Keep the existing FXAA convenience switch as a built-in pass.
 * **Partly implemented:** WebGL2 supports a bounded fragment-body post-process with one source texture, UVs, and a colour value; shader creation, execution, and disposal are explicit, with fixed input/output resources and no custom vertex stage or uniforms. The CPU backend returns unsupported. Validate shader compile diagnostics in a browser and define a pass-list integration before expanding uniforms or stages.
 * **Partly implemented:** the browser asset package documents loading, ownership,
-  and errors, and `npm test` runs parser and lifecycle checks against a fake
-  engine. Publish the package, add more runnable examples, and add continuous
-  browser rendering tests. Add native asset loading when native interactive
-  applications are a target.
+  and errors. `npm test` runs parser and lifecycle checks against a fake engine,
+  plus orbit-control input checks against a fake canvas through the published
+  package subpath; `npm run test:build` checks that the WebAssembly build
+  exports the host functions the helpers call. Publish the package, add more
+  runnable examples, and add continuous browser rendering tests. Add native
+  asset loading when native interactive applications are a target.
 
 **Done when:** a documented benchmark demonstrates instancing and resource
 reuse, and published examples build and run through the supported API.
