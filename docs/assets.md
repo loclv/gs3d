@@ -180,6 +180,11 @@ fetches and decodes assets in JavaScript.
   vertex normals from triangle faces.
   Repeated nodes referencing the same static primitive share one uploaded mesh;
   skinned and morphed primitives keep per-node geometry for deformation.
+* `EXT_mesh_gpu_instancing` translation, rotation and scale attributes on
+  unskinned mesh nodes, up to 65,536 instances per node. Instance transforms
+  become engine nodes that share the static primitive geometry, allowing the
+  WebGL backend to batch compatible opaque copies. Custom instance attributes
+  and instanced skins are not supported.
 * Perspective and orthographic glTF cameras attached to nodes in the selected
   scene. `model.cameras` exposes camera definitions and `selectCamera(index)`
   switches the active engine camera; `selectCamera(null)` restores the view

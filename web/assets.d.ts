@@ -113,6 +113,8 @@ export interface ModelNodeInfo {
   /** Referenced KHR_lights_punctual light definition index, or null when absent. */
   readonly light: number | null;
   readonly skin: number | null;
+  /** Number of EXT_mesh_gpu_instancing transforms, or one for an ordinary node. */
+  readonly instanceCount: number;
   /** Checked engine node handle for the glTF node's transform group. */
   readonly handle: NodeHandle;
   /** Checked handles for the engine nodes created from this glTF mesh's primitives. */

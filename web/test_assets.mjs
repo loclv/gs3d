@@ -38,6 +38,16 @@ const repeatedMeshDoc = structuredClone(doc);
 repeatedMeshDoc.nodes = [{ name: 'First copy', mesh: 0 }, { name: 'Second copy', mesh: 0 }];
 repeatedMeshDoc.scenes = [{ nodes: [0, 1] }];
 resources.set('http://localhost/repeated-mesh.gltf', bytes(repeatedMeshDoc));
+const instancingDoc = structuredClone(doc), instanceBinary = new ArrayBuffer(24), instanceData = new DataView(instanceBinary);
+[-1, 0, 0, 1, 0, 0].forEach((value, index) => instanceData.setFloat32(index * 4, value, true));
+instancingDoc.buffers.push({ byteLength: 24, uri: 'instances.bin' });
+const instanceView = instancingDoc.bufferViews.push({ buffer: 1, byteLength: 24 }) - 1;
+const instanceAccessor = instancingDoc.accessors.push({ bufferView: instanceView, componentType: 5126, count: 2, type: 'VEC3' }) - 1;
+instancingDoc.extensionsUsed = ['EXT_mesh_gpu_instancing'];
+instancingDoc.nodes = [{ mesh: 0, extensions: { EXT_mesh_gpu_instancing: { attributes: { TRANSLATION: instanceAccessor } } } }];
+instancingDoc.scenes = [{ nodes: [0] }];
+resources.set('http://localhost/instancing.gltf', bytes(instancingDoc));
+resources.set('http://localhost/instances.bin', instanceBinary);
 const cameraDoc = structuredClone(doc);
 cameraDoc.cameras = [
   { name: 'Perspective', type: 'perspective', perspective: { yfov: 0.75, znear: 0.2, zfar: 90, aspectRatio: 1.5 } },
@@ -542,6 +552,16 @@ assert.deepEqual(repeatedMeshEngine.calls.filter(call => call[0] === 'node' && c
 repeatedMeshModel.dispose();
 assert.equal(repeatedMeshEngine.calls.filter(call => call[0] === 'recycle_mesh').length, 1,
   'shared geometry is released once when the owning model is disposed');
+const instancingEngine = fakeEngine(), instancingModel = await loadGLTF(instancingEngine, 'http://localhost/instancing.gltf');
+assert.equal(instancingModel.nodes[0].instanceCount, 2);
+assert.equal(instancingModel.nodes[0].primitives.length, 2);
+assert.equal(instancingModel.meshes.length, 1);
+assert.equal(instancingEngine.calls.filter(call => call[0] === 'mesh_end').length, 1,
+  'EXT_mesh_gpu_instancing uploads one shared static primitive');
+assert.deepEqual(instancingEngine.calls.filter(call => call[0] === 'matrix' && call[2] === 12).map(call => call[3]).filter(value => value !== 0), [-1, 1],
+  'instance transforms are preserved in their engine node matrices');
+instancingModel.dispose();
+assert.equal(instancingEngine.calls.filter(call => call[0] === 'recycle_mesh').length, 1);
 const invalidSceneEngine = fakeEngine();
 await assert.rejects(loadGLTF(invalidSceneEngine, 'http://localhost/multi-scene.gltf', { scene: 2 }), error => error.code === 'INVALID_GLTF');
 assert.equal(invalidSceneEngine.calls.length, 0, 'invalid scene indices fail before creating engine resources');

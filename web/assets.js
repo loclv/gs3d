@@ -742,7 +742,7 @@ async function prepare(url, requestedScene) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization', 'KHR_lights_punctual'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_materials_clearcoat', 'KHR_texture_transform', 'KHR_materials_variants', 'EXT_texture_webp', 'KHR_mesh_quantization', 'KHR_lights_punctual', 'EXT_mesh_gpu_instancing'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   if (doc.extensions !== undefined && (!doc.extensions || typeof doc.extensions !== 'object' || Array.isArray(doc.extensions))) invalid('Invalid glTF extensions');
   const variantExtension = doc.extensions?.KHR_materials_variants;
@@ -996,10 +996,36 @@ async function prepare(url, requestedScene) {
     if (depth > 63 || seen.has(index)) invalid('Invalid or overly deep node hierarchy');
     seen.add(index);
     const n = item(nodes, index, 'node');
+    let instanceTransforms = null;
     if (n.extensions !== undefined) {
       if (!n.extensions || typeof n.extensions !== 'object' || Array.isArray(n.extensions)) invalid('Invalid node extensions');
       const names = Object.keys(n.extensions);
-      if (names.some(name => name !== 'KHR_lights_punctual')) unsupported('Unsupported node feature');
+      if (names.some(name => name !== 'KHR_lights_punctual' && name !== 'EXT_mesh_gpu_instancing')) unsupported('Unsupported node feature');
+      if (n.extensions.EXT_mesh_gpu_instancing !== undefined) {
+        if (!extensionsUsed.includes('EXT_mesh_gpu_instancing')) invalid('EXT_mesh_gpu_instancing must be listed in extensionsUsed');
+        const extension = n.extensions.EXT_mesh_gpu_instancing;
+        if (!extension || typeof extension !== 'object' || Array.isArray(extension)) invalid('Invalid EXT_mesh_gpu_instancing extension');
+        const attributes = extension.attributes;
+        if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes) || !Object.keys(attributes).length) invalid('Instancing needs transform attributes');
+        if (Object.keys(attributes).some(name => !['TRANSLATION', 'ROTATION', 'SCALE'].includes(name))) unsupported('Custom EXT_mesh_gpu_instancing attributes are not supported');
+        const transformAccessors = {};
+        let instanceCount = -1;
+        for (const [semantic, type] of [['TRANSLATION', 'VEC3'], ['ROTATION', 'VEC4'], ['SCALE', 'VEC3']]) {
+          if (attributes[semantic] === undefined) continue;
+          const source = accessor(doc, buffers, attributes[semantic], type);
+          if (source.componentType !== 5126 || source.normalized || !source.values.every(Number.isFinite)) invalid(`Invalid instancing ${semantic} accessor`);
+          if (instanceCount < 0) instanceCount = source.count;
+          else if (source.count !== instanceCount) invalid('Instancing transform accessor counts must match');
+          transformAccessors[semantic] = source.values;
+        }
+        if (instanceCount < 1 || instanceCount > 65536) unsupported('EXT_mesh_gpu_instancing supports 1 through 65536 instances per node');
+        instanceTransforms = Array.from({ length: instanceCount }, (_, instance) => ({
+          translation: transformAccessors.TRANSLATION?.slice(instance * 3, instance * 3 + 3) ?? [0, 0, 0],
+          rotation: transformAccessors.ROTATION
+            ? normalizedQuaternion(transformAccessors.ROTATION.slice(instance * 4, instance * 4 + 4)) : [0, 0, 0, 1],
+          scale: transformAccessors.SCALE?.slice(instance * 3, instance * 3 + 3) ?? [1, 1, 1],
+        }));
+      }
     }
     let lightIndex = -1;
     if (n.extensions?.KHR_lights_punctual !== undefined) {
@@ -1024,6 +1050,7 @@ async function prepare(url, requestedScene) {
     if (n.skin !== undefined && (!Number.isInteger(n.skin) || n.skin < 0)) invalid('Invalid node skin index');
     const skinIndex = n.skin === undefined ? -1 : n.skin;
     if (skinIndex >= 0) {
+      if (instanceTransforms) unsupported('EXT_mesh_gpu_instancing cannot be combined with a skin');
       const skin = item(skins, skinIndex, 'skin');
       usedSkinIndices.add(skinIndex);
       if (!primitives.length || primitives.some(primitive => !primitive.joints.length)) invalid('Skinned mesh primitives require JOINTS_0 and WEIGHTS_0');
@@ -1039,7 +1066,9 @@ async function prepare(url, requestedScene) {
       }
     } else if (primitives.some(primitive => primitive.joints.length)) invalid('Skin attributes require a node skin');
     const transform = localMatrix(n);
-    return { index, name: n.name ?? null, meshIndex: n.mesh ?? null, cameraIndex, lightIndex, skinIndex, weights: [...morphWeights], ...transform, primitives,
+    if (instanceTransforms && !primitives.length) invalid('Instanced nodes must reference a mesh');
+    return { index, name: n.name ?? null, meshIndex: n.mesh ?? null, cameraIndex, lightIndex, skinIndex,
+      instanceTransforms, weights: [...morphWeights], ...transform, primitives,
       children: (n.children || []).map(child => visit(child, depth + 1)) };
   }
   const sceneRoots = roots.map(root => visit(root, 0));
@@ -1363,6 +1392,12 @@ export async function loadGLTF(engine, url, options = {}) {
     const discardNodeData = node => {
       node.matrix.length = 0;
       node.weights.length = 0;
+      for (const instance of node.instanceTransforms ?? []) {
+        instance.translation.length = 0;
+        instance.rotation.length = 0;
+        instance.scale.length = 0;
+      }
+      if (node.instanceTransforms) node.instanceTransforms.length = 0;
       for (const primitive of node.primitives) {
         primitive.pos.length = 0; primitive.normal.length = 0; if (primitive.uv) primitive.uv.length = 0; if (primitive.tangent) primitive.tangent.length = 0; primitive.indices.length = 0;
         for (const set of [...primitive.joints, ...primitive.weights]) set.length = 0;
@@ -1549,14 +1584,25 @@ export async function loadGLTF(engine, url, options = {}) {
         baseScale: node.scale ? [...node.scale] : [1, 1, 1], scale: node.scale ? [...node.scale] : [1, 1, 1],
         baseWeights: [...node.weights], weights: [...node.weights],
       });
-      for (const p of node.primitives) {
+      const instances = node.instanceTransforms ?? [null];
+      for (const instance of instances) {
+        let meshParent = group;
+        if (instance) {
+          const instanceGroup = engine._g3_asset_node(-1, group);
+          const instanceHandle = makeNodeHandle(engine, instanceGroup);
+          if (!instanceHandle) throw new AssetError('UPLOAD', 'Could not create instance node');
+          nodes.push(instanceHandle);
+          meshParent = instanceGroup;
+          localMatrix(instance).matrix.forEach((value, index) => engine._g3_asset_matrix(instanceGroup, index, value));
+        }
+        for (const p of node.primitives) {
         const canShareMesh = node.skinIndex < 0 && p.targets.length === 0;
         let meshHandle = canShareMesh ? staticPrimitiveMeshes.get(p) : null;
         if (!meshHandle) {
           meshHandle = uploadPrimitiveMesh(p, node);
           if (canShareMesh) staticPrimitiveMeshes.set(p, meshHandle);
         }
-        const id = engine._g3_asset_node(meshHandle.id, group);
+        const id = engine._g3_asset_node(meshHandle.id, meshParent);
         const nodeHandle = makeNodeHandle(engine, id);
         if (!nodeHandle) throw new AssetError('UPLOAD', 'Could not create node');
         nodes.push(nodeHandle);
@@ -1571,6 +1617,7 @@ export async function loadGLTF(engine, url, options = {}) {
         }));
         if (p.variantMaterials.size) variantBindings.push({ handle: nodeHandle, defaultMaterial: material.id,
           materials: new Map([...p.variantMaterials].map(([variantIndex, spec]) => [variantIndex, getMaterial(spec).id])) });
+        }
       }
       modelNodes.push(Object.freeze({
         index: node.index, name: node.name, parent: parentIndex,
@@ -1578,6 +1625,7 @@ export async function loadGLTF(engine, url, options = {}) {
         mesh: node.meshIndex, camera: node.cameraIndex < 0 ? null : node.cameraIndex,
         light: node.lightIndex < 0 ? null : node.lightIndex,
         skin: node.skinIndex < 0 ? null : node.skinIndex,
+        instanceCount: node.instanceTransforms?.length ?? 1,
         handle: groupHandle, primitives: Object.freeze(primitiveHandles),
         primitiveMaterials: Object.freeze(primitiveMaterials),
       }));
