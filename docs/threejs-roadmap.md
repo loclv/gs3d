@@ -167,7 +167,10 @@ Tests cover animation interpolation, skinning, and camera projection.
   for directional, point and spot shadow passes. Blended items retain their
   sorted order and draw individually. The CPU backend remains the reference
   path and does not instance. The viewer reports actual WebGL scene-pass draw
-  calls. A repeated-mesh benchmark page reports draw calls, browser frame rate,
+  calls. `EXT_mesh_gpu_instancing` creates transformed engine nodes over shared
+  static mesh geometry, and ordinary repeated glTF nodes reuse that geometry;
+  the current loader supports up to 65,536 unskinned instances per node. A
+  repeated-mesh benchmark page reports draw calls, browser frame rate,
   and engine-call median and p95; capture results across representative browser
   and GPU configurations before selecting further optimisations.
 * **Implemented:** optional FXAA-style luma edge smoothing runs as a full-screen
