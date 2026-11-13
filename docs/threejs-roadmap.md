@@ -16,7 +16,7 @@ reference for rendering changes.
 
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
-| Assets | Built-in primitives, custom geometry, a browser glTF/GLB loader, and a native static GLB primitive loader; the browser path supports shared static primitive uploads, `EXT_mesh_gpu_instancing`, selectable scenes and cameras, opt-in `KHR_lights_punctual`, WebP fallback, quantized geometry, vertex colours, materials, animations, dense and sparse accessors, and reusable asset-owned slots | Native full-scene, material, and image loading; broader glTF extension coverage, general resource ownership and fragmentation control; see [assets.md](assets.md) |
+| Assets | Built-in primitives, custom geometry, a browser glTF/GLB loader, and a native static GLB/JSON glTF primitive loader with one safe relative external buffer; the browser path supports shared static primitive uploads, `EXT_mesh_gpu_instancing`, selectable scenes and cameras, opt-in `KHR_lights_punctual`, WebP fallback, quantized geometry, vertex colours, materials, animations, dense and sparse accessors, and reusable asset-owned slots | Native full-scene, material, and image loading; broader glTF extension coverage, general resource ownership and fragmentation control; see [assets.md](assets.md) |
 | Materials | Shared glTF materials with `COLOR_0`, metallic-roughness, tangent-space normal, occlusion, emissive, specular, clearcoat, sheen and anisotropy maps, authored and morphed tangents, eight texture-coordinate sets, double-sided rendering, selectable `KHR_materials_variants`, per-material environment intensity, rotatable equirectangular environment maps, `KHR_materials_unlit`, `KHR_materials_ior`, `KHR_materials_clearcoat`, `KHR_materials_specular`, `KHR_materials_sheen`, `KHR_materials_anisotropy`, `KHR_materials_emissive_strength`, per-texture `KHR_texture_transform` on `TEXCOORD_0` through `_7`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and Reinhard/ACES tone mapping with exposure | Browser shader validation and reference images |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, browser-controllable hemispherical fill, and rotatable RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL/TANGENT morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and representative deformation measurements; GPU morph targets fall back to CPU above 64 targets or device texture limits |
@@ -83,9 +83,9 @@ and a browser integration check for behavior exposed through WebGL.
   scalar material factors and flags, plus declared `KHR_materials_unlit`,
   `KHR_materials_emissive_strength`, `KHR_materials_ior`, and factor-only
   `KHR_materials_specular`, `KHR_materials_clearcoat`, `KHR_materials_sheen`,
-  and `KHR_materials_anisotropy`. Material textures, images, full node
-  hierarchy, animations, sparse data, and external `.gltf` buffers remain
-  browser-only.
+  and `KHR_materials_anisotropy`. JSON `.gltf` documents can use one safe
+  relative external buffer. Material textures, images, full node hierarchy,
+  animations, and sparse data remain browser-only.
 * **Implemented:** glTF `doubleSided` materials disable face culling in colour
   and shadow passes and reverse back-face normals before colour lighting.
   Validate these paths against browser reference images.

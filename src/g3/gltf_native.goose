@@ -428,27 +428,34 @@ fn glb_node_world_matrix(root: json::Node?, node_index: i64) -> Mat4, bool {
     return world, true;
 }
 
-// Load one selected static primitive from an embedded-binary glTF 2.0 GLB.
+// Load one selected static primitive from a glTF 2.0 GLB or JSON glTF document.
 // Supports float32 or required KHR_mesh_quantization vertex attributes,
 // COLOR_0, TRIANGLES, u8/u16/u32 indices, and factor-only materials. Skins,
-// animation, sparse accessors, textures, and external buffers remain outside
-// this native subset. It applies the selected node instance transform.
+// animation, sparse accessors, and textures remain outside this native subset.
+// JSON glTF supports one safe relative external buffer URI. It applies the
+// selected node instance transform.
 fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primitive_index: i64, node_index: i64) -> NativeGlbModel, bool {
     var bytes: u8[>..] = [];
     guard path.len > 0 && read_file(path, bytes) && bytes.len <= 268435456 else { return NativeGlbModel { .. }, false; }
-    guard bytes.len >= 20 && glb_u32(bytes[..], 0) == 0x46546C67 && glb_u32(bytes[..], 4) == 2 && glb_u32(bytes[..], 8) == bytes.len else { return NativeGlbModel { .. }, false; }
+    let is_glb = bytes.len >= 12 && glb_u32(bytes[..], 0) == 0x46546C67;
     var json_start: i64 = -1; var json_size: i64 = 0; var bin_start: i64 = -1; var bin_size: i64 = 0;
-    var cursor: i64 = 12;
-    while cursor + 8 <= bytes.len {
-        let size = glb_u32(bytes[..], cursor);
-        let kind = glb_u32(bytes[..], cursor + 4);
-        cursor += 8;
-        guard size >= 0 && size % 4 == 0 && cursor + size <= bytes.len else { return NativeGlbModel { .. }, false; }
-        if kind == 0x4E4F534A { guard json_start < 0 else { return NativeGlbModel { .. }, false; } json_start = cursor; json_size = size; }
-        else if kind == 0x004E4942 { guard bin_start < 0 else { return NativeGlbModel { .. }, false; } bin_start = cursor; bin_size = size; }
-        cursor += size;
+    if is_glb {
+        guard bytes.len >= 20 && glb_u32(bytes[..], 4) == 2 && glb_u32(bytes[..], 8) == bytes.len else { return NativeGlbModel { .. }, false; }
+        var cursor: i64 = 12;
+        while cursor + 8 <= bytes.len {
+            let size = glb_u32(bytes[..], cursor);
+            let kind = glb_u32(bytes[..], cursor + 4);
+            cursor += 8;
+            guard size >= 0 && size % 4 == 0 && cursor + size <= bytes.len else { return NativeGlbModel { .. }, false; }
+            if kind == 0x4E4F534A { guard json_start < 0 else { return NativeGlbModel { .. }, false; } json_start = cursor; json_size = size; }
+            else if kind == 0x004E4942 { guard bin_start < 0 else { return NativeGlbModel { .. }, false; } bin_start = cursor; bin_size = size; }
+            cursor += size;
+        }
+        guard cursor == bytes.len && json_start >= 0 && bin_start >= 0 else { return NativeGlbModel { .. }, false; }
+    } else {
+        guard bytes.len > 0 else { return NativeGlbModel { .. }, false; }
+        json_start = 0; json_size = bytes.len;
     }
-    guard cursor == bytes.len && json_start >= 0 && bin_start >= 0 else { return NativeGlbModel { .. }, false; }
     var doc: json::Node[>..] = [];
     var decoded: u8[>..] = [];
     let root, parse_error = json::parse(bytes[json_start..json_start + json_size], doc, decoded);
@@ -458,7 +465,37 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     let buffers = json::member(root, "buffers");
     let buffer = glb_json_element(buffers, 0);
     let declared_bytes, declared_ok = glb_json_index(json::member(buffer, "byteLength"));
-    guard version_ok && version == "2.0" && declared_ok && declared_bytes > 0 && declared_bytes <= bin_size && bin_size - declared_bytes <= 3 else { return NativeGlbModel { .. }, false; }
+    guard version_ok && version == "2.0" && declared_ok && declared_bytes > 0 && glb_array_count(buffers) == 1 else { return NativeGlbModel { .. }, false; }
+    if is_glb {
+        guard bin_start >= 0 && !json::member(buffer, "uri") && declared_bytes <= bin_size && bin_size - declared_bytes <= 3 else { return NativeGlbModel { .. }, false; }
+    } else {
+        let uri_node = json::member(buffer, "uri");
+        let uri, uri_ok = json::as_string(uri_node);
+        guard uri_ok && uri.len > 0 && uri.len < 4096 else { return NativeGlbModel { .. }, false; }
+        // Only plain relative paths are accepted; reject URI schemes, encoded
+        // separators, query strings, fragments, and dot or empty path segments.
+        var segment_start: i64 = 0;
+        for i in 0..uri.len {
+            let c = uri[i];
+            guard c != 92 && c != 58 && c != 63 && c != 35 && c != 37 else { return NativeGlbModel { .. }, false; }
+            if c == 47 {
+                guard i > segment_start && !(i - segment_start == 1 && uri[segment_start] == 46) && !(i - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) else { return NativeGlbModel { .. }, false; }
+                segment_start = i + 1;
+            }
+        }
+        guard segment_start < uri.len && !(uri.len - segment_start == 1 && uri[segment_start] == 46) && !(uri.len - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) && uri[0] != 47 else { return NativeGlbModel { .. }, false; }
+        var external_path: u8[>..] = [];
+        var directory_end: i64 = 0;
+        for i in 0..path.len { if path[i] == 47 { directory_end = i + 1; } }
+        guard directory_end + uri.len < 4096 else { return NativeGlbModel { .. }, false; }
+        for i in 0..directory_end { external_path.push(path[i]); }
+        for i in 0..uri.len { external_path.push(uri[i]); }
+        var external: u8[>..] = [];
+        guard read_file(external_path[..], external) && external.len <= 268435456 && declared_bytes <= external.len && bytes.len + external.len <= 268435456 else { return NativeGlbModel { .. }, false; }
+        bin_start = bytes.len;
+        bin_size = external.len;
+        for i in 0..external.len { bytes.push(external[i]); }
+    }
     guard node_index >= -1 else { return NativeGlbModel { .. }, false; }
     var mesh_index = requested_mesh_index;
     let nodes = json::member(root, "nodes");
@@ -561,20 +598,22 @@ fn native_glb_load_node_primitive(path: const u8[:], node_index: i64, primitive_
 
 fn glb_node_primitive_count(path: const u8[:], node_index: i64) -> i64, bool {
     var bytes: u8[>..] = [];
-    guard path.len > 0 && read_file(path, bytes) && bytes.len >= 20 && bytes.len <= 268435456 &&
-          glb_u32(bytes[..], 0) == 0x46546C67 && glb_u32(bytes[..], 4) == 2 && glb_u32(bytes[..], 8) == bytes.len
-    else { return 0, false; }
-    var json_start: i64 = -1; var json_size: i64 = 0;
-    var cursor: i64 = 12;
-    while cursor + 8 <= bytes.len {
-        let size = glb_u32(bytes[..], cursor);
-        let kind = glb_u32(bytes[..], cursor + 4);
-        cursor += 8;
-        guard size >= 0 && size % 4 == 0 && cursor + size <= bytes.len else { return 0, false; }
-        if kind == 0x4E4F534A { guard json_start < 0 else { return 0, false; } json_start = cursor; json_size = size; }
-        cursor += size;
+    guard path.len > 0 && read_file(path, bytes) && bytes.len > 0 && bytes.len <= 268435456 else { return 0, false; }
+    var json_start: i64 = 0; var json_size: i64 = bytes.len;
+    if bytes.len >= 12 && glb_u32(bytes[..], 0) == 0x46546C67 {
+        guard bytes.len >= 20 && glb_u32(bytes[..], 4) == 2 && glb_u32(bytes[..], 8) == bytes.len else { return 0, false; }
+        json_start = -1; json_size = 0;
+        var cursor: i64 = 12;
+        while cursor + 8 <= bytes.len {
+            let size = glb_u32(bytes[..], cursor);
+            let kind = glb_u32(bytes[..], cursor + 4);
+            cursor += 8;
+            guard size >= 0 && size % 4 == 0 && cursor + size <= bytes.len else { return 0, false; }
+            if kind == 0x4E4F534A { guard json_start < 0 else { return 0, false; } json_start = cursor; json_size = size; }
+            cursor += size;
+        }
+        guard cursor == bytes.len && json_start >= 0 else { return 0, false; }
     }
-    guard cursor == bytes.len && json_start >= 0 else { return 0, false; }
     var doc: json::Node[>..] = [];
     var decoded: u8[>..] = [];
     let root, parse_error = json::parse(bytes[json_start..json_start + json_size], doc, decoded);

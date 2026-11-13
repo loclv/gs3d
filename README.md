@@ -33,7 +33,7 @@ same scene renders identically in a tab and on disk.
 | `src/g3/scene.goose` | nodes, the parent hierarchy, the camera and its orbit controls |
 | `src/g3/render.goose` | per frame: transforms, frustum cull, draw-list pack, sort, submit |
 | `src/g3/engine.goose` | `init` / `frame` / `shutdown`, input state, stats |
-| `src/g3/gltf_native.goose` | native static GLB primitive loading into checked mesh and node handles |
+| `src/g3/gltf_native.goose` | native static GLB and JSON glTF primitive loading into checked mesh and node handles |
 | `src/g3/platform.goose` | the backend contract: `DrawItem`, `ViewState`, the `g3p_*` calls |
 | `src/demo/scene.goose` | the demo scene, written against the public API only |
 | `src/app_web.goose` | the browser entry point (no `main`; exported `g3_app_*`) |
@@ -105,7 +105,7 @@ The CPU backend needs nothing but the Goose compiler and a C compiler:
 ```bash
 ./build_native.sh
 ./build/app_native --frames 8 --width 960 --height 600 --out frame.ppm
-# Load the first static GLB primitive through the native CPU backend.
+# Load the first static GLB or JSON glTF primitive through the native CPU backend.
 ./build/app_native --glb web/viewer/sample.glb --out model.ppm
 ```
 

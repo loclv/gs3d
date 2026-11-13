@@ -61,15 +61,17 @@ try {
 URLs are resolved relative to the document or, for external glTF resources,
 relative to the model URL. Resources require normal browser fetch/CORS access.
 
-## Native GLB primitive subset
+## Native glTF primitive subset
 
 Native Goose programs can import `g3.gltf_native` and load static geometry from
-an embedded-binary glTF 2.0 GLB. Load one primitive by mesh index:
+a glTF 2.0 GLB or a JSON `.gltf` document. JSON glTF accepts one external
+buffer whose URI is a plain relative path beneath the document directory. Load
+one primitive by mesh index:
 
 ```goose
 import g3.gltf_native;
 
-let loaded, ok = g3::native_glb_load_primitive("model.glb", 0, 0);
+let loaded, ok = g3::native_glb_load_primitive("model.gltf", 0, 0);
 guard ok else { print("could not load GLB mesh 0, primitive 0"); return; }
 var model = loaded;
 g3::frame(1.0 / 60.0);
@@ -86,7 +88,7 @@ import vec;
 import g3.scene;
 import g3.gltf_native;
 
-let loaded_mesh, mesh_ok = g3::native_glb_load_node_mesh("model.glb", 0);
+let loaded_mesh, mesh_ok = g3::native_glb_load_node_mesh("model.gltf", 0);
 guard mesh_ok else { print("could not load GLB node 0"); return; }
 var model_mesh = loaded_mesh;
 let root = g3::native_glb_mesh_root(model_mesh);
@@ -113,8 +115,9 @@ to emissive output and dielectric response. The factor portions of
 `KHR_materials_specular`, `KHR_materials_clearcoat`, `KHR_materials_sheen`, and
 `KHR_materials_anisotropy` are imported too; their texture maps are not.
 `NativeGlbModel` owns checked mesh, node, and material handles; dispose the model
-to release them. It does not yet
-load material textures, images, external `.gltf` buffers, skins, animations,
+to release them. External buffer paths containing schemes, absolute paths,
+encoded URI components, query strings, fragments, or dot path segments are
+rejected. It does not yet load material textures, images, skins, animations,
 sparse accessors, or the full node hierarchy as engine parent/child nodes.
 Browser applications should use the broader `web/assets.js` loader.
 

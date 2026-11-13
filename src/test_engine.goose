@@ -417,6 +417,21 @@ fn case_native_glb_load() {
                    is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
                    "native GLB decodes normalized byte COLOR_0 into rendered vertex colour");
     testing::check(g3::native_glb_dispose(color_model), "native vertex-colour GLB resources dispose cleanly");
+    let external_model, external_loaded = g3::native_glb_load_primitive("testdata/native-external/model.gltf", 0, 0);
+    g3::frame(1.0 / 60.0);
+    let external_stats = g3::stats();
+    testing::check(external_loaded && external_stats.drawn == 1 && external_stats.triangles == 12 &&
+                   is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
+                   "native JSON glTF resolves nested external buffers relative to its document");
+    testing::check(g3::native_glb_dispose(external_model), "native external-buffer glTF resources dispose cleanly");
+    let external_mesh, external_mesh_loaded = g3::native_glb_load_node_mesh("testdata/native-external/model.gltf", 0);
+    let external_mesh_ok = external_mesh_loaded && g3::native_glb_mesh_primitive_count(external_mesh) == 1;
+    testing::check(external_mesh_ok && g3::native_glb_mesh_dispose(external_mesh),
+                   "native node mesh loading accepts JSON glTF documents");
+    let traversal_model, traversal_loaded = g3::native_glb_load_primitive("testdata/native-external/traversal.gltf", 0, 0);
+    let missing_buffer_model, missing_buffer_loaded = g3::native_glb_load_primitive("testdata/native-external/missing.gltf", 0, 0);
+    testing::check(!traversal_loaded && traversal_model.mesh.id < 0 && !missing_buffer_loaded && missing_buffer_model.mesh.id < 0,
+                   "native JSON glTF rejects traversal and missing external buffer paths without allocating resources");
     let ushort_bytes: u8[8] = [0, 0, 255, 255, 0, 128, 0, 64];
     let ushort_color, ushort_color_ok = g3::glb_vertex_color(ushort_bytes[..], 0, g3::GlbAccessor { stride: 8, components: 4, .. }, 5123, 0);
     testing::check(ushort_color_ok && abs(ushort_color.x) < 0.001 && abs(ushort_color.y - 1.0) < 0.001 &&
