@@ -63,8 +63,8 @@ relative to the model URL. Resources require normal browser fetch/CORS access.
 
 ## Native GLB primitive subset
 
-Native Goose programs can import `g3.gltf_native` and load one static primitive
-from an embedded-binary glTF 2.0 GLB:
+Native Goose programs can import `g3.gltf_native` and load static geometry from
+an embedded-binary glTF 2.0 GLB. Load one primitive by mesh index:
 
 ```goose
 import g3.gltf_native;
@@ -78,7 +78,19 @@ g3::native_glb_dispose(model);
 
 `native_glb_load_primitive` uses the first node that instances the mesh. Use
 `native_glb_load_node_primitive(path, node_index, primitive_index)` to select a
-specific instance when a glTF mesh appears in multiple nodes.
+specific instance when a glTF mesh appears in multiple nodes. To load every
+primitive of that node instance, use the mesh owner API:
+
+```goose
+let loaded_mesh, mesh_ok = g3::native_glb_load_node_mesh("model.glb", 0);
+guard mesh_ok else { print("could not load GLB node 0"); return; }
+var model_mesh = loaded_mesh;
+for i in 0..g3::native_glb_mesh_primitive_count(model_mesh) {
+  let node = g3::native_glb_mesh_primitive_node(model_mesh, i);
+  // Use the checked node handle with the scene APIs.
+}
+g3::native_glb_mesh_dispose(model_mesh);
+```
 
 The loader supports float32 `POSITION`, `NORMAL`, and optional `TEXCOORD_0`
 attributes, triangle primitives, and unsigned 8-, 16-, or 32-bit indices. It
@@ -93,8 +105,8 @@ to emissive output and dielectric response. The factor portions of
 `NativeGlbModel` owns checked mesh, node, and material handles; dispose the model
 to release them. It does not yet
 load material textures, images, external `.gltf` buffers, skins, animations,
-sparse accessors, or the full node hierarchy. Browser applications should use
-the broader `web/assets.js` loader.
+sparse accessors, or the full node hierarchy as engine parent/child nodes.
+Browser applications should use the broader `web/assets.js` loader.
 
 The viewer's input controls can also be used independently of the viewer host:
 

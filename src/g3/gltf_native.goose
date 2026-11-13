@@ -14,7 +14,13 @@ import g3.platform;
 namespace g3;
 
 struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle }
+struct NativeGlbMeshHandle { id: i32 = -1, generation: i32 }
+struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, active: bool }
+struct NativeGlbPartSlot { owner_id: i32, owner_generation: i32, primitive_index: i32, model: NativeGlbModel, active: bool }
 struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64 }
+
+var g_native_glb_meshes: NativeGlbMeshSlot[>..];
+var g_native_glb_parts: NativeGlbPartSlot[>..];
 
 fn glb_u32(bytes: const u8[:], at: i64) -> i64 {
     let b0: i64 = bytes[at]; let b1: i64 = bytes[at + 1];
@@ -433,6 +439,90 @@ fn native_glb_load_node_primitive(path: const u8[:], node_index: i64, primitive_
     return native_glb_load_selected(path, -1, primitive_index, node_index);
 }
 
+fn glb_node_primitive_count(path: const u8[:], node_index: i64) -> i64, bool {
+    var bytes: u8[>..] = [];
+    guard path.len > 0 && read_file(path, bytes) && bytes.len >= 20 && bytes.len <= 268435456 &&
+          glb_u32(bytes[..], 0) == 0x46546C67 && glb_u32(bytes[..], 4) == 2 && glb_u32(bytes[..], 8) == bytes.len
+    else { return 0, false; }
+    var json_start: i64 = -1; var json_size: i64 = 0;
+    var cursor: i64 = 12;
+    while cursor + 8 <= bytes.len {
+        let size = glb_u32(bytes[..], cursor);
+        let kind = glb_u32(bytes[..], cursor + 4);
+        cursor += 8;
+        guard size >= 0 && size % 4 == 0 && cursor + size <= bytes.len else { return 0, false; }
+        if kind == 0x4E4F534A { guard json_start < 0 else { return 0, false; } json_start = cursor; json_size = size; }
+        cursor += size;
+    }
+    guard cursor == bytes.len && json_start >= 0 else { return 0, false; }
+    var doc: json::Node[>..] = [];
+    var decoded: u8[>..] = [];
+    let root, parse_error = json::parse(bytes[json_start..json_start + json_size], doc, decoded);
+    guard root && parse_error.len == 0 else { return 0, false; }
+    let nodes = json::member(root, "nodes");
+    let instance = glb_json_element(nodes, node_index);
+    let mesh_index, mesh_ok = glb_json_index(json::member(instance, "mesh"));
+    guard instance && mesh_ok && mesh_index >= 0 else { return 0, false; }
+    let mesh = glb_json_element(json::member(root, "meshes"), mesh_index);
+    let count = glb_array_count(json::member(mesh, "primitives"));
+    guard count > 0 && count <= 4096 else { return 0, false; }
+    return count, true;
+}
+
+fn native_glb_mesh_slot_add(primitive_count: i64) -> NativeGlbMeshHandle {
+    for i in 0..g_native_glb_meshes.len {
+        if !g_native_glb_meshes[i].active && g_native_glb_meshes[i].generation < 2147483647 {
+            let generation = g_native_glb_meshes[i].generation + 1;
+            g_native_glb_meshes[i] = NativeGlbMeshSlot { generation: generation, primitive_count: primitive_count as i32, active: true };
+            return NativeGlbMeshHandle { id: i as i32, generation: generation };
+        }
+    }
+    g_native_glb_meshes.push(NativeGlbMeshSlot { primitive_count: primitive_count as i32, active: true, .. });
+    return NativeGlbMeshHandle { id: (g_native_glb_meshes.len - 1) as i32, generation: 1 };
+}
+
+fn native_glb_mesh_valid(handle: NativeGlbMeshHandle) -> bool {
+    return handle.id >= 0 && handle.id < g_native_glb_meshes.len && g_native_glb_meshes[handle.id].active &&
+           g_native_glb_meshes[handle.id].generation == handle.generation;
+}
+
+// Load every static primitive of the selected node instance. Primitive nodes
+// remain independent engine nodes but share the source instance's world matrix.
+fn native_glb_load_node_mesh(path: const u8[:], node_index: i64) -> NativeGlbMeshHandle, bool {
+    let count, count_ok = glb_node_primitive_count(path, node_index);
+    guard count_ok else { return NativeGlbMeshHandle { .. }, false; }
+    let handle = native_glb_mesh_slot_add(count);
+    for primitive_index in 0..count {
+        let model, loaded = native_glb_load_node_primitive(path, node_index, primitive_index);
+        if !loaded { native_glb_mesh_dispose(handle); return NativeGlbMeshHandle { .. }, false; }
+        var slot: i64 = -1;
+        for i in 0..g_native_glb_parts.len { if !g_native_glb_parts[i].active { slot = i; break; } }
+        if slot < 0 {
+            g_native_glb_parts.push(NativeGlbPartSlot { owner_id: handle.id, owner_generation: handle.generation, primitive_index: primitive_index as i32, model: model, active: true, .. });
+        } else {
+            g_native_glb_parts[slot] = NativeGlbPartSlot { owner_id: handle.id, owner_generation: handle.generation, primitive_index: primitive_index as i32, model: model, active: true, .. };
+        }
+    }
+    return handle, true;
+}
+
+fn native_glb_mesh_primitive_count(handle: NativeGlbMeshHandle) -> i32 {
+    guard native_glb_mesh_valid(handle) else { return 0; }
+    return g_native_glb_meshes[handle.id].primitive_count;
+}
+
+fn native_glb_mesh_primitive_node(handle: NativeGlbMeshHandle, primitive_index: i32) -> NodeHandle {
+    guard native_glb_mesh_valid(handle) && primitive_index >= 0 && primitive_index < g_native_glb_meshes[handle.id].primitive_count else { return NodeHandle { .. }; }
+    for i in 0..g_native_glb_parts.len {
+        let part = g_native_glb_parts[i];
+        if part.active && part.owner_id == handle.id && part.owner_generation == handle.generation && part.primitive_index == primitive_index {
+            if node_handle_valid(part.model.node) { return part.model.node; }
+            return NodeHandle { .. };
+        }
+    }
+    return NodeHandle { .. };
+}
+
 // Release the one imported node, material, and mesh. Mesh and material storage
 // is released even if a scene reset has already invalidated the node handle.
 fn native_glb_dispose(model: NativeGlbModel&) -> bool {
@@ -443,4 +533,20 @@ fn native_glb_dispose(model: NativeGlbModel&) -> bool {
     model.mesh = MeshHandle { .. };
     model.material = MaterialHandle { .. };
     return released;
+}
+
+// Release every primitive created by native_glb_load_node_mesh. The registry
+// reuses released slots so repeated model loads do not grow without bound.
+fn native_glb_mesh_dispose(handle: NativeGlbMeshHandle) -> bool {
+    guard native_glb_mesh_valid(handle) else { return false; }
+    for i in 0..g_native_glb_parts.len {
+        if g_native_glb_parts[i].active && g_native_glb_parts[i].owner_id == handle.id &&
+           g_native_glb_parts[i].owner_generation == handle.generation {
+            native_glb_dispose(g_native_glb_parts[i].model);
+            g_native_glb_parts[i].active = false;
+        }
+    }
+    g_native_glb_meshes[handle.id].active = false;
+    g_native_glb_meshes[handle.id].primitive_count = 0;
+    return true;
 }

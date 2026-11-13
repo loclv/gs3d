@@ -75,10 +75,11 @@ and a browser integration check for behavior exposed through WebGL.
   cyclic implicit hierarchies fail before engine resource creation.
 * **Implemented:** `EXT_texture_webp` loads its WebP source when decodable and
   falls back to the core source when fetching or decoding WebP fails.
-* **Partly implemented:** native Goose programs can load and dispose one static
-  primitive from a GLB, including float vertex attributes, triangle indices,
-  a chosen node instance's world transform composed through its ancestors,
-  scalar material factors and flags, plus declared `KHR_materials_unlit`,
+* **Partly implemented:** native Goose programs can load and dispose every
+  static primitive on one selected GLB node as individually checked meshes,
+  including float vertex attributes, triangle indices, the node instance's
+  world transform composed through its ancestors, scalar material factors and
+  flags, plus declared `KHR_materials_unlit`,
   `KHR_materials_emissive_strength`, `KHR_materials_ior`, and factor-only
   `KHR_materials_specular`, `KHR_materials_clearcoat`, `KHR_materials_sheen`,
   and `KHR_materials_anisotropy`. Material textures, images, full node

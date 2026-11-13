@@ -377,6 +377,28 @@ fn case_native_glb_load() {
     testing::check(g3::native_glb_dispose(model) && !g3::mesh_handle_valid(model.mesh) &&
                    !g3::node_handle_valid(model.node) && !g3::material_handle_valid(model.material),
                    "native GLB model disposal releases checked node, mesh, and material handles");
+    let mesh_model, mesh_loaded = g3::native_glb_load_node_mesh("testdata/native-two-primitives.glb", 0);
+    let primitive_count = g3::native_glb_mesh_primitive_count(mesh_model);
+    let primitive_a = g3::native_glb_mesh_primitive_node(mesh_model, 0);
+    let primitive_b = g3::native_glb_mesh_primitive_node(mesh_model, 1);
+    g3::frame(1.0 / 60.0);
+    let batch_stats = g3::stats();
+    testing::check(mesh_loaded && primitive_count == 2 && g3::node_handle_valid(primitive_a) &&
+                   g3::node_handle_valid(primitive_b) && batch_stats.drawn == 2 && batch_stats.triangles == 24,
+                   "native GLB mesh loader creates every primitive in the selected node");
+    testing::check(g3::native_glb_mesh_dispose(mesh_model) && !g3::native_glb_mesh_valid(mesh_model) &&
+                   !g3::node_handle_valid(primitive_a) && !g3::node_handle_valid(primitive_b),
+                   "native GLB mesh disposal releases all primitive resources");
+    let reused_mesh, reused_loaded = g3::native_glb_load_node_mesh("testdata/native-two-primitives.glb", 0);
+    let reused_slot = reused_loaded && reused_mesh.id == mesh_model.id && reused_mesh.generation != mesh_model.generation &&
+                      g3::native_glb_mesh_primitive_count(reused_mesh) == 2;
+    testing::check(reused_slot && g3::native_glb_mesh_dispose(reused_mesh),
+                   "native GLB mesh owner slots are reused with a fresh generation");
+    let failed_mesh, failed_mesh_loaded = g3::native_glb_load_node_mesh("testdata/native-bad-second-primitive.glb", 0);
+    g3::frame(1.0 / 60.0);
+    let rollback_stats = g3::stats();
+    testing::check(!failed_mesh_loaded && !g3::native_glb_mesh_valid(failed_mesh) && rollback_stats.drawn == 0,
+                   "native GLB mesh load rolls back earlier primitives when a later primitive fails");
     let absent, missing_file = g3::native_glb_load_primitive("testdata/missing.glb", 0, 0);
     testing::check(!missing_file && absent.mesh.id < 0, "native GLB loader reports a missing asset without creating resources");
 }
