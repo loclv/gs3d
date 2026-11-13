@@ -72,6 +72,9 @@ typedef struct {
     g3_mat4 shadow_view_proj;
     g3_vec4 shadow_params;
     g3_vec4 view_direction; /* xyz toward viewer, w = orthographic */
+    g3_mat4 point_shadow_view_proj[6];
+    int32_t point_shadow_light_index;
+    g3_vec4 point_shadow_params;
 } g3_view_state;
 
 typedef struct { const g3_vertex *data; int64_t len; } g3_vertex_slice;
@@ -98,7 +101,7 @@ _Static_assert(offsetof(g3_draw_item, occlusion_strength) == 212, "DrawItem.occl
 _Static_assert(offsetof(g3_draw_item, emissive) == 216, "DrawItem.emissive offset");
 _Static_assert(offsetof(g3_draw_item, emissive_texture) == 232, "DrawItem.emissive_texture offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
-_Static_assert(sizeof(g3_view_state) == 448, "g3_view_state must be 448 bytes");
+_Static_assert(sizeof(g3_view_state) == 852, "g3_view_state must be 852 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");
 _Static_assert(offsetof(g3_view_state, light_count) == 308, "ViewState.light_count offset");
 _Static_assert(offsetof(g3_view_state, env_sky) == 312, "ViewState.env_sky offset");
@@ -106,6 +109,9 @@ _Static_assert(offsetof(g3_view_state, environment_texture) == 344, "ViewState.e
 _Static_assert(offsetof(g3_view_state, shadow_view_proj) == 352, "ViewState.shadow_view_proj offset");
 _Static_assert(offsetof(g3_view_state, shadow_params) == 416, "ViewState.shadow_params offset");
 _Static_assert(offsetof(g3_view_state, view_direction) == 432, "ViewState.view_direction offset");
+_Static_assert(offsetof(g3_view_state, point_shadow_view_proj) == 448, "ViewState.point_shadow_view_proj offset");
+_Static_assert(offsetof(g3_view_state, point_shadow_light_index) == 832, "ViewState.point_shadow_light_index offset");
+_Static_assert(offsetof(g3_view_state, point_shadow_params) == 836, "ViewState.point_shadow_params offset");
 _Static_assert(offsetof(g3_draw_item, mvp) == 4, "DrawItem.mvp offset");
 _Static_assert(offsetof(g3_draw_item, color) == 132, "DrawItem.color offset");
 _Static_assert(offsetof(g3_draw_item, params) == 148, "DrawItem.params offset");

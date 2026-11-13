@@ -298,8 +298,12 @@ What the API gives you:
   Point and spot lights use squared linear range falloff; spot angles are
   inner and outer half-angles in radians. `set_directional_shadows(center,
   extent, bias)` enables a 512×512 shadow map for the primary directional
-  light; `clear_shadows()` disables it. Extent bounds the map around the
-  center, and bias is in normalized depth units.
+  light; `clear_shadows()` disables it. Call `set_point_light_shadows(index,
+  bias)` after adding a point light to enable its six-face 512×512 shadow map;
+  `clear_point_light_shadows()` disables it, and `clear_lights()` also clears
+  it. Only one extra point light casts shadows at a time. Both shadow types
+  use normalized depth bias, hard edges, and opaque or masked casters; blended
+  objects do not cast shadows.
 * **Frame** — `init`, `frame(dt)`, `shutdown`, `width`/`height`/`aspect`/`time`,
   `stats()` (nodes, drawn, culled, triangles, draws), `read_pixel`,
   `save_frame` where the backend can write one.
@@ -384,11 +388,13 @@ Deliberately out of scope for now, in rough order of how much they would add:
   maps, tangent-space normal maps for surface shading, and occlusion maps for
   indirect fill, plus emissive factors and textures. GGX-prefiltered
   environment lighting, HDR, and tone mapping remain to be implemented.
-* **Limited shadows, environment lighting, and normals.** Only the primary
-  directional light casts hard shadows; blended objects do not cast them.
-  The map has fixed resolution and explicit bounds, and shadow-enabled frames
-  submit off-camera nodes so they can cast shadows. Environment textures
-  provide a diffuse approximation rather than prefiltered reflections.
+* **Limited shadows, environment lighting, and normals.** The primary
+  directional light and one selected extra point light cast hard shadows;
+  spot lights do not cast shadows, and blended objects do not cast them.
+  Maps have fixed resolution (512 pixels per face), directional shadows have
+  explicit bounds, and shadow-enabled frames submit off-camera nodes so they
+  can cast shadows. Environment textures provide a diffuse approximation
+  rather than prefiltered reflections.
 * **One draw call per node.** The draw list is batched by mesh but not
   instanced; instancing wants a per-instance buffer on the seam.
 * **Limited removal.** Ordinary nodes can be removed and reused. Browser-loaded assets recycle their owned nodes, mesh

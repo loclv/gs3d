@@ -68,6 +68,9 @@ struct ViewState {
     shadow_view_proj: Mat4,
     shadow_params: float4, // x enabled, y normalized depth bias
     view_direction: float4, // xyz toward the viewer, w = orthographic
+    point_shadow_view_proj: Mat4[6],
+    point_shadow_light_index: i32,
+    point_shadow_params: float4, // x enabled, y normalized depth bias
 }
 
 // --- the backend interface

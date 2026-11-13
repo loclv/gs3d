@@ -65,7 +65,7 @@ discarded, including in the shadow pass. Blended items read depth but do not
 write it; opaque and surviving mask fragments write depth. Texture alpha is
 ignored for opaque items.
 
-### `g3_view_state` — 448 bytes
+### `g3_view_state` — 852 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -85,6 +85,14 @@ ignored for opaque items.
 | 352 | `g3_mat4` | `shadow_view_proj` | primary directional light's world-to-shadow clip transform |
 | 416 | `g3_vec4` | `shadow_params` | x enabled, y normalized depth bias |
 | 432 | `g3_vec4` | `view_direction` | xyz direction toward viewer, w selects orthographic shading |
+| 448 | `g3_mat4[6]` | `point_shadow_view_proj` | six point-light cube-face world-to-shadow transforms |
+| 832 | `int32_t` | `point_shadow_light_index` | selected extra point light, or -1 |
+| 836 | `g3_vec4` | `point_shadow_params` | x enabled, y normalized depth bias |
+
+Only one extra point light can cast shadows per frame. The WebGL backend stores
+its six depth faces in a cube texture; the CPU backend stores six depth arrays.
+Both use 512×512 hard-shadow maps, discard blended casters, and include masked
+alpha cutouts.
 
 Each packed `g3_light` is 52 bytes: position and type in a `vec4`, direction
 and range in a `vec4`, colour and outer-cone cosine in a `vec4`, followed by

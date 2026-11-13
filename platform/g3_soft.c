@@ -54,6 +54,7 @@ static soft_texture *textures;
 static int32_t texture_count;
 #define SHADOW_SIZE 512
 static float shadow_depth[SHADOW_SIZE * SHADOW_SIZE];
+static float point_shadow_depth[6][SHADOW_SIZE * SHADOW_SIZE];
 
 /* --- the frame's scratch
 
@@ -343,6 +344,7 @@ int g3_backend_resize(int w, int h) {
 static void sample_texture(int32_t id, float u, float v, float rho, float out[4]);
 static void sample_environment_lod(int32_t id, float u, float v, float lod, float out[4]);
 static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
+static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int light_index);
 
 /* glTF metallic-roughness direct BRDF: GGX, correlated Smith, Schlick. */
 static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
@@ -468,6 +470,8 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
             if (cone > 1.0f) cone = 1.0f;
             falloff *= cone * cone * (3.0f - 2.0f * cone);
         }
+        if (vs->point_shadow_params.x > 0.5f && i == vs->point_shadow_light_index && light->position.w > 0.5f && light->position.w < 1.5f)
+            falloff *= point_shadow_visibility(vs, wp, i);
         float d = n.x * ex + n.y * ey + n.z * ez;
         if (d < 0.0f) d = 0.0f;
         float ax = ex + vx, ay = ey + vy, az = ez + vz;
@@ -752,6 +756,24 @@ static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
     return z - vs->shadow_params.y <= shadow_depth[py * SHADOW_SIZE + px] ? 1.0f : 0.0f;
 }
 
+static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int light_index) {
+    (void)light_index;
+    const g3_light *light = &vs->lights[vs->point_shadow_light_index];
+    float dx=wp.x-light->position.x, dy=wp.y-light->position.y, dz=wp.z-light->position.z;
+    float ax=fabsf(dx), ay=fabsf(dy), az=fabsf(dz);
+    int face = ax >= ay && ax >= az ? (dx >= 0.0f ? 0 : 1) : ay >= az ? (dy >= 0.0f ? 2 : 3) : (dz >= 0.0f ? 4 : 5);
+    const float *m=vs->point_shadow_view_proj[face].m;
+    float x=m[0]*wp.x+m[4]*wp.y+m[8]*wp.z+m[12];
+    float y=m[1]*wp.x+m[5]*wp.y+m[9]*wp.z+m[13];
+    float z=m[2]*wp.x+m[6]*wp.y+m[10]*wp.z+m[14];
+    float w=m[3]*wp.x+m[7]*wp.y+m[11]*wp.z+m[15];
+    if (w <= 0.0f) return 1.0f;
+    x=x/w*0.5f+0.5f; y=y/w*0.5f+0.5f; z=z/w*0.5f+0.5f;
+    if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
+    int px=(int)(x*SHADOW_SIZE), py=SHADOW_SIZE-1-(int)(y*SHADOW_SIZE);
+    return z-vs->point_shadow_params.y <= point_shadow_depth[face][py*SHADOW_SIZE+px] ? 1.0f : 0.0f;
+}
+
 /* Perspective-correct UV at a neighboring pixel, even if it lies just
    outside this triangle. These finite differences approximate GPU LOD. */
 static float texture_footprint(const soft_tri *t, int32_t id, float l0, float l1, float l2, float u, float v) {
@@ -779,8 +801,8 @@ static float texture_footprint(const soft_tri *t, int32_t id, float l0, float l1
 
 /* Rasterize the same opaque draw items from the light before the colour pass.
    Shadow map rows are top-first, like the main software framebuffer. */
-static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs) {
-    for (int i = 0; i < SHADOW_SIZE * SHADOW_SIZE; i++) shadow_depth[i] = 1.0f;
+static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs, const g3_mat4 *light_matrix, float *target_depth) {
+    for (int i = 0; i < SHADOW_SIZE * SHADOW_SIZE; i++) target_depth[i] = 1.0f;
     int old_w = fb_w, old_h = fb_h;
     fb_w = fb_h = SHADOW_SIZE;
     for (int64_t i = 0; i < items.len; i++) {
@@ -791,7 +813,7 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs)
         g3_draw_item item = *source;
         for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) {
             float sum = 0.0f;
-            for (int k = 0; k < 4; k++) sum += vs->shadow_view_proj.m[k * 4 + r] * source->model.m[c * 4 + k];
+            for (int k = 0; k < 4; k++) sum += light_matrix->m[k * 4 + r] * source->model.m[c * 4 + k];
             item.mvp.m[c * 4 + r] = sum;
         }
         for (int64_t j = 0; j + 2 < mesh->icount; j += 3) {
@@ -823,7 +845,7 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs)
                     if (tex[3] * source->color.w < source->alpha_cutoff) continue;
                 }
                 float z = l0*t.sz[0] + l1*t.sz[1] + l2*t.sz[2];
-                float *dst = &shadow_depth[y * SHADOW_SIZE + x];
+                float *dst = &target_depth[y * SHADOW_SIZE + x];
                 if (z < *dst) *dst = z;
             }
             }
@@ -1045,7 +1067,9 @@ static void clear_frame(const g3_view_state *view) {
 
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (!fb) return;
-    if (view->shadow_params.x > 0.5f) render_shadow_map(items, view);
+    if (view->shadow_params.x > 0.5f) render_shadow_map(items, view, &view->shadow_view_proj, shadow_depth);
+    if (view->point_shadow_params.x > 0.5f && view->point_shadow_light_index >= 0 && view->point_shadow_light_index < view->light_count)
+        for (int face=0; face<6; face++) render_shadow_map(items, view, &view->point_shadow_view_proj[face], point_shadow_depth[face]);
     prof.frames += 1;
     const double t0 = prof.on ? now_seconds() : 0.0;
 
