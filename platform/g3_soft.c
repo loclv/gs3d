@@ -43,6 +43,8 @@ typedef struct {
 
 static int32_t fb_w, fb_h;
 static uint8_t *fb;      /* rgb, top row first */
+static uint8_t *fxaa_buffer;
+static size_t fxaa_capacity;
 static float *hdr_fb;     /* linear RGB, unbounded until tone mapping */
 static float *depth;     /* [0, 1], 1 is far */
 static soft_mesh *meshes;
@@ -88,6 +90,7 @@ typedef struct {
 
 static void transform_uv(const g3_uv_transform *transform, float u, float v, float *out_u, float *out_v);
 static int uv_transform_identity(const g3_uv_transform *transform);
+static void apply_fxaa(void);
 static void interpolate_uv(const soft_tri *triangle, int set, float b0, float b1, float b2, float *u, float *v);
 
 typedef struct {
@@ -206,6 +209,8 @@ void g3p_shutdown(void) {
     queue = NULL;
     queue_len = queue_cap = 0;
     free(fb);
+    free(fxaa_buffer);
+    fxaa_buffer = NULL; fxaa_capacity = 0;
     free(hdr_fb);
     free(depth);
     fb = NULL;
@@ -1620,12 +1625,48 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         for (size_t i = 0; i < components; i++)
             fb[i] = (uint8_t)(srgb_encode(fb[i] / 255.0f) * 255.0f + 0.5f);
     }
+    if (view->post_process & 1) apply_fxaa();
     const double t3 = prof.on ? now_seconds() : 0.0;
     if (prof.on) {
         prof.clear += t1 - t0;
         prof.setup += t2 - t1;
         prof.raster += t3 - t2;
         prof.wall += t3 - t0;
+    }
+}
+
+/* A small FXAA-style post-process: detect a luma edge and blend each edge
+   pixel with its two neighbours across the edge. Reads from a snapshot so
+   results do not depend on traversal order. */
+static float fxaa_luma(const uint8_t *pixels, size_t at) {
+    return (0.299f*pixels[at] + 0.587f*pixels[at+1] + 0.114f*pixels[at+2])*(1.0f/255.0f);
+}
+
+static void apply_fxaa(void) {
+    size_t components=(size_t)fb_w*(size_t)fb_h*3;
+    if (components > fxaa_capacity) {
+        uint8_t *grown=(uint8_t *)realloc(fxaa_buffer,components);
+        if (!grown) return;
+        fxaa_buffer=grown; fxaa_capacity=components;
+    }
+    memcpy(fxaa_buffer,fb,components);
+    for (int y=0;y<fb_h;y++) for (int x=0;x<fb_w;x++) {
+        int left=x>0?x-1:x, right=x+1<fb_w?x+1:x;
+        int up=y>0?y-1:y, down=y+1<fb_h?y+1:y;
+        size_t center=((size_t)y*fb_w+x)*3;
+        size_t l=((size_t)y*fb_w+left)*3, r=((size_t)y*fb_w+right)*3;
+        size_t u=((size_t)up*fb_w+x)*3, d=((size_t)down*fb_w+x)*3;
+        float lc=fxaa_luma(fxaa_buffer,center), ll=fxaa_luma(fxaa_buffer,l), lr=fxaa_luma(fxaa_buffer,r);
+        float lu=fxaa_luma(fxaa_buffer,u), ld=fxaa_luma(fxaa_buffer,d);
+        float lo=fminf(lc,fminf(fminf(ll,lr),fminf(lu,ld)));
+        float hi=fmaxf(lc,fmaxf(fmaxf(ll,lr),fmaxf(lu,ld)));
+        if (hi-lo < 0.125f) continue;
+        int across_horizontal=fabsf(lr-ll)>=fabsf(ld-lu);
+        size_t a=across_horizontal?l:u, b=across_horizontal?r:d;
+        for (int c=0;c<3;c++) {
+            float across=0.5f*((float)fxaa_buffer[a+c]+fxaa_buffer[b+c]);
+            fb[center+c]=(uint8_t)(((float)fxaa_buffer[center+c]+across)*0.5f+0.5f);
+        }
     }
 }
 

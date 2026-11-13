@@ -272,6 +272,7 @@ What the API gives you:
   in linear space before encoding the finished frame. Output encoding is opt-in
   for compatibility with existing scenes. `set_tone_mapping_mode(mode)` selects
   none, Reinhard, or ACES; `set_tone_mapping(true)` remains an ACES alias.
+  `set_fxaa(true)` adds an optional full-screen edge-smoothing pass.
   `set_exposure(value)` sets the linear exposure multiplier (0–32). The CPU backend composites into a floating-point buffer;
   WebGL uses an RGBA16F target when floating-point color rendering and blending
   are available, and otherwise maps each fragment before blending. Tone mapping
@@ -433,7 +434,7 @@ Deliberately out of scope for now, in rough order of how much they would add:
   indirect fill, plus emissive factors and textures. Static, non-deformed
   glTF meshes use authored tangent attributes for normal maps; skinned or
   morphed meshes still use the UV-derived frame. GGX-prefiltered
-  environment lighting, Reinhard and ACES tone mapping, exposure controls, and
+  environment lighting, Reinhard and ACES tone mapping, FXAA-style edge smoothing, exposure controls, and
   Radiance RGBE environment image loading are available. Full colour
   management remains incomplete.
 * **Limited shadows, environment lighting, and normals.** The primary

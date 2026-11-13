@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, setToneMapping, AssetError } from './assets.js';
+import { loadGLTF, loadImage, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, setToneMapping, setFXAA, AssetError } from './assets.js';
 
 const binary = new ArrayBuffer(78);
 const view = new DataView(binary);
@@ -223,6 +223,7 @@ function fakeEngine() {
   engine._g3_asset_pick = (...args) => { calls.push(['pick', ...args]); return engine.picked ?? -1; };
   engine._g3_asset_output_srgb = value => calls.push(['output_srgb', value]);
   engine._g3_asset_tone_mapping = value => { calls.push(['tone_mapping', value]); return value >= 0 && value <= 2; };
+  engine._g3_asset_fxaa = value => calls.push(['fxaa', value]);
   let heapCursor = 16;
   engine._malloc = size => { const ptr = heapCursor; heapCursor = (heapCursor + size + 7) & ~7; return ptr; };
   engine._free = () => {};
@@ -695,4 +696,8 @@ setToneMapping(toneMappingEngine, 'reinhard');
 setToneMapping(toneMappingEngine, 'aces');
 assert.deepEqual(toneMappingEngine.calls.filter(x => x[0] === 'tone_mapping').map(x => x[1]), [0, 1, 2]);
 assert.throws(() => setToneMapping(toneMappingEngine, 'filmic'), error => error.code === 'TONE_MAPPING');
+setFXAA(toneMappingEngine, true);
+setFXAA(toneMappingEngine, false);
+assert.deepEqual(toneMappingEngine.calls.filter(x => x[0] === 'fxaa').map(x => x[1]), [1, 0]);
+assert.throws(() => setFXAA(toneMappingEngine, 1), error => error.code === 'POST_PROCESS');
 console.log('asset loading checks passed');

@@ -4,7 +4,7 @@ export type TextureColorSpace = 'linear' | 'srgb';
 export type ToneMappingMode = 'none' | 'reinhard' | 'aces';
 export type AssetErrorCode =
   | 'FETCH' | 'IMAGE' | 'HDR' | 'ENVIRONMENT' | 'EXPOSURE' | 'COLOR_SPACE'
-  | 'TONE_MAPPING' | 'INVALID_GLTF' | 'UNSUPPORTED' | 'MEMORY' | 'UPLOAD';
+  | 'TONE_MAPPING' | 'POST_PROCESS' | 'INVALID_GLTF' | 'UNSUPPORTED' | 'MEMORY' | 'UPLOAD';
 
 /** The memory and allocator surface shared by the generated WebAssembly module. */
 export interface Goose3DEngine {
@@ -108,6 +108,8 @@ export function pickNode(
 export function setOutputColorSpace(engine: Goose3DEngine, space: TextureColorSpace): void;
 /** Booleans are retained for compatibility: true selects ACES, false disables mapping. */
 export function setToneMapping(engine: Goose3DEngine, mode: ToneMappingMode | boolean): void;
+/** Enable the built-in FXAA-style edge smoothing output pass. */
+export function setFXAA(engine: Goose3DEngine, enabled: boolean): void;
 export function setExposure(engine: Goose3DEngine, exposure: number): void;
 
 /** Load a glTF 2.0 JSON or GLB model. The caller owns and must dispose the result. */

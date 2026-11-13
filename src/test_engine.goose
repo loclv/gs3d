@@ -461,6 +461,26 @@ fn case_tone_mapping() {
     g3::set_tone_mapping(false);
 }
 
+fn case_fxaa() {
+    g3::scene_clear();
+    flat_camera();
+    g3::set_tone_mapping_mode(g3::TONE_MAPPING_NONE);
+    g3::set_output_srgb(false);
+    g3::set_fxaa(false);
+    let cube .= g3::node(g3::node_add(g3::mesh_cube(1.0)));
+    cube.color = float4_1;
+    cube.unlit = true;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(303, 200), 255, 255, 255, 1) &&
+          is_color(g3::read_pixel(305, 200), 255, 0, 255, 1), "FXAA starts disabled with a hard silhouette");
+    g3::set_fxaa(true);
+    g3::frame(1.0 / 60.0);
+    let edge = g3::read_pixel(303, 200);
+    testing::check(channel(edge, 8) < 250 && is_color(g3::read_pixel(280, 200), 255, 255, 255, 1) &&
+          is_color(g3::read_pixel(310, 200), 255, 0, 255, 1), "FXAA smooths only high-contrast silhouette pixels");
+    g3::set_fxaa(false);
+}
+
 fn case_lights() {
     g3::scene_clear();
     flat_camera();
@@ -1281,6 +1301,7 @@ fn main() {
     case_texture_filter();
     case_color_space();
     case_tone_mapping();
+    case_fxaa();
     case_lights();
     case_shadow();
     case_clipping();

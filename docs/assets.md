@@ -12,10 +12,11 @@ their declarations. Applications still build and initialize their own Goose
 WebAssembly engine before calling the helpers.
 
 ```js
-import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setToneMapping, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
+import { loadGLTF, loadImage, loadHDRImage, setEnvironmentMap, setToneMapping, setFXAA, setExposure, pickNode, isNodeHandleValid, isMeshHandleValid, isTextureHandleValid, isMaterialHandleValid, setOutputColorSpace, AssetError } from './assets.js';
 
 try {
   setOutputColorSpace(engine, 'srgb'); // after engine startup
+  setFXAA(engine, true); // optional output edge smoothing
   const model = await loadGLTF(engine, './model.glb');
   if (model.animations.length) {
     model.playAnimation(0, { loop: true });
@@ -231,7 +232,8 @@ fog, and material RGB values must be supplied in linear space in sRGB output
   and uses a floating point environment prefilter when `EXT_color_buffer_float`
   is available; otherwise rough reflections use
   the unfiltered HDR source map. The display intermediate is not multisampled,
-  so antialiasing differs from the default path.
+  so antialiasing differs from the default path. `setFXAA(engine, true)` runs an
+  optional edge-smoothing post-process after tone mapping and output encoding.
 
 glTF animation clips expose `name` and `duration` in `model.animations`.
 `playAnimation(index, { loop })`, `pauseAnimation()`, `resumeAnimation()`,

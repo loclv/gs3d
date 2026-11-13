@@ -241,6 +241,11 @@ export function setToneMapping(engine, mode) {
   }
 }
 
+export function setFXAA(engine, enabled) {
+  if (typeof enabled !== 'boolean') throw new AssetError('POST_PROCESS', 'FXAA must be enabled or disabled with a boolean');
+  engine._g3_asset_fxaa(enabled ? 1 : 0);
+}
+
 export function setExposure(engine, exposure) {
   if (!Number.isFinite(exposure) || !engine._g3_asset_exposure(exposure)) {
     throw new AssetError('EXPOSURE', 'Exposure must be a finite number from 0 to 32');

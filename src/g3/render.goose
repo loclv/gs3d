@@ -37,6 +37,7 @@ var g_view_proj: Mat4;
 var g_frustum: Frustum;
 var g_output_srgb: bool;
 var g_tone_mapping: i32;
+var g_fxaa: bool;
 var g_exposure: f32 = 1.0;
 var g_shadow_center: float3;
 var g_shadow_extent: f32;
@@ -240,6 +241,9 @@ fn set_tone_mapping_mode(mode: i32) -> bool {
 // Kept for existing callers: true selects ACES and false disables mapping.
 fn set_tone_mapping(enabled: bool) { g_tone_mapping = if enabled { TONE_MAPPING_ACES } else { TONE_MAPPING_NONE }; }
 
+// Apply a fast edge-aware antialiasing pass after scene rendering.
+fn set_fxaa(enabled: bool) { g_fxaa = enabled; }
+
 // Linear exposure multiplier applied before tone mapping.
 fn set_exposure(exposure: f32) -> bool {
     guard exposure >= 0.0 && exposure <= 32.0 else { return false; }
@@ -269,6 +273,7 @@ fn begin_frame(time: f64, width: i32, height: i32) {
     // The third row of look-at points from the scene toward the camera.
     g_view_state.view_direction = float4 { g_view.m[2], g_view.m[6], g_view.m[10], if g_camera.orthographic { 1.0 } else { 0.0 } };
     g_view_state.params = float4 { time as f32, if g_output_srgb { 1.0 } else { 0.0 }, g_tone_mapping, g_exposure };
+    g_view_state.post_process = if g_fxaa { 1 } else { 0 };
 }
 
 // Where an item sorts. Opaque items sort by mesh id, so the backend sees runs

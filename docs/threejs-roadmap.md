@@ -21,7 +21,7 @@ and pixel tests provide a useful reference for rendering changes.
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and deformation benchmarks; GPU morph targets fall back to CPU above 64 targets or device texture limits |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Mesh descriptor reclamation and shrinking arena backing arrays |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection | Browser integration tests |
-| Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters | Render targets, post-processing, custom shaders and colour management; CPU reference renderer still processes draw items individually |
+| Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters, FXAA-style full-screen post-processing | User render targets, general post-processing and custom shaders; CPU reference renderer still processes draw items individually |
 | Developer experience | Goose API, custom browser host, typed browser asset helpers and a package manifest | Publish the package, examples, and automated browser rendering tests |
 
 Three.js's [fundamentals](https://threejs.org/manual/pages/fundamentals.html),
@@ -134,7 +134,9 @@ Tests cover animation interpolation, skinning, and camera projection.
   calls. A repeated-mesh benchmark page reports draw calls, browser frame rate,
   and engine-call median and p95; capture results across representative browser
   and GPU configurations before selecting further optimisations.
-* Add render targets, post-processing, and a supported custom-shader interface.
+* **Implemented:** optional FXAA-style luma edge smoothing runs as a full-screen
+  WebGL output pass and in the CPU reference renderer.
+* Add user render targets, general post-processing, and a supported custom-shader interface.
 * Package and document the browser API, including lifecycle and errors; add
   examples and continuous browser tests. Add native asset loading when native
   interactive applications are a target.

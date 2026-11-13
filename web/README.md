@@ -6,9 +6,10 @@ contain an engine build: create the Goose 3D WebAssembly module with
 that initialized module to these helpers.
 
 ```js
-import { loadGLTF, setOutputColorSpace, AssetError } from 'goose-3d-browser-assets';
+import { loadGLTF, setOutputColorSpace, setFXAA, AssetError } from 'goose-3d-browser-assets';
 
 setOutputColorSpace(engine, 'srgb');
+setFXAA(engine, true);
 try {
   const model = await loadGLTF(engine, './model.glb');
   // In the application's frame loop:

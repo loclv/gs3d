@@ -120,7 +120,7 @@ static GLint shadow_morph_enabled, shadow_morph_positions;
 static GLint shadow_morph_weights, shadow_morph_target_count;
 static GLint shadow_uv_transform, shadow_uv_rotation, shadow_uv_set;
 static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
-static GLint output_sampler, output_tone_map, output_exposure, output_encode_srgb;
+static GLint output_sampler, output_tone_map, output_exposure, output_encode_srgb, output_fxaa;
 static int output_width, output_height;
 static int output_is_hdr, float_color_buffer_supported, hdr_color_buffer_supported, tone_map_inline_frame;
 static int shadow_map_size = 512;
@@ -1628,7 +1628,7 @@ static void report_first_gl_error(void) {
 static int ensure_output_target(int hdr) {
     if (!output_program) {
         const char *vs_src = "#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}\n";
-        const char *fs_src = "#version 300 es\nprecision highp float;\nuniform sampler2D u_linear;uniform int u_tone_map;uniform float u_exposure;uniform bool u_encode_srgb;out vec4 color;\nvec3 tone_map_color(vec3 x,int mode){x=max(x,vec3(0.0));if(mode==1)return x/(vec3(1.0)+x);if(mode==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\nvoid main(){vec3 c=texelFetch(u_linear,ivec2(gl_FragCoord.xy),0).rgb;if(u_tone_map!=0)c=tone_map_color(c*u_exposure,u_tone_map);if(u_encode_srgb){vec3 lo=c*12.92;vec3 hi=1.055*pow(c,vec3(1.0/2.4))-0.055;c=mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}color=vec4(c,1.0);}\n";
+        const char *fs_src = "#version 300 es\nprecision highp float;\nuniform sampler2D u_linear;uniform int u_tone_map;uniform float u_exposure;uniform bool u_encode_srgb,u_fxaa;out vec4 color;\nvec3 tone_map_color(vec3 x,int mode){x=max(x,vec3(0.0));if(mode==1)return x/(vec3(1.0)+x);if(mode==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\nvec3 display_color(ivec2 p){vec3 c=texelFetch(u_linear,p,0).rgb;if(u_tone_map!=0)c=tone_map_color(c*u_exposure,u_tone_map);if(u_encode_srgb){vec3 lo=c*12.92;vec3 hi=1.055*pow(c,vec3(1.0/2.4))-0.055;c=mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}return c;}\nfloat luma(vec3 c){return dot(c,vec3(0.299,0.587,0.114));}\nvoid main(){ivec2 size=textureSize(u_linear,0),p=clamp(ivec2(gl_FragCoord.xy),ivec2(0),size-1);vec3 c=display_color(p);if(u_fxaa){vec3 l=display_color(clamp(p+ivec2(-1,0),ivec2(0),size-1)),r=display_color(clamp(p+ivec2(1,0),ivec2(0),size-1)),n=display_color(clamp(p+ivec2(0,-1),ivec2(0),size-1)),s=display_color(clamp(p+ivec2(0,1),ivec2(0),size-1));float lc=luma(c),ll=luma(l),lr=luma(r),ln=luma(n),ls=luma(s),lo=min(lc,min(min(ll,lr),min(ln,ls))),hi=max(lc,max(max(ll,lr),max(ln,ls)));if(hi-lo>=0.125){vec3 across=abs(lr-ll)>=abs(ls-ln)?0.5*(l+r):0.5*(n+s);c=0.5*(c+across);}}color=vec4(c,1.0);}\n";
         GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "output vertex");
         GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "output fragment");
         if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); return 0; }
@@ -1642,6 +1642,7 @@ static int ensure_output_target(int hdr) {
         output_tone_map = glGetUniformLocation(program,"u_tone_map");
         output_exposure = glGetUniformLocation(program,"u_exposure");
         output_encode_srgb = glGetUniformLocation(program,"u_encode_srgb");
+        output_fxaa = glGetUniformLocation(program,"u_fxaa");
         glGenVertexArrays(1, &output_vao);
         glGenFramebuffers(1, &output_fbo);
         glGenTextures(1, &output_color);
@@ -1677,6 +1678,7 @@ static void present_output(const g3_view_state *view) {
     glUniform1i(output_tone_map,tone_map_inline_frame ? 0 : tone_mode);
     glUniform1f(output_exposure,view->params.w);
     glUniform1i(output_encode_srgb,view->params.y>0.5f);
+    glUniform1i(output_fxaa,(view->post_process&1)!=0);
     glBindVertexArray(output_vao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindVertexArray(0);
@@ -1710,7 +1712,7 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         encode=ensure_output_target(1);
         if(!encode) tone_map_inline_frame=tone_mode;
     }
-    if (!encode && view->params.y>0.5f) encode=ensure_output_target(0);
+    if (!encode && (view->params.y>0.5f || (view->post_process&1))) encode=ensure_output_target(0);
     glBindFramebuffer(GL_FRAMEBUFFER, encode ? output_fbo : 0);
     glViewport(0, 0, surf_w, surf_h);
     float cr=view->clear.x,cg=view->clear.y,cb=view->clear.z;

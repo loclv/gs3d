@@ -88,6 +88,7 @@ struct ViewState {
     spot_shadow_light_index: i32,
     spot_shadow_params: float4, // x enabled, y depth bias, z PCF radius in texels
     shadow_resolution: i32, // 256, 512, or 1024 square shadow maps
+    post_process: i32, // bit 0 enables the FXAA output pass
 }
 
 // --- the backend interface
