@@ -830,16 +830,26 @@ async function prepare(url, requestedScene) {
     }
   }
   const decodeImageDefinition = async image => {
-    if (image.uri !== undefined) return decodeImage(await fetchBytes(new URL(image.uri, absolute)), image.mimeType || '');
+    if (!image || typeof image !== 'object' || Array.isArray(image) ||
+        (image.mimeType !== undefined && (typeof image.mimeType !== 'string' || !image.mimeType))) invalid('Invalid glTF image');
+    const hasUri = image.uri !== undefined, hasBufferView = image.bufferView !== undefined;
+    if (hasUri === hasBufferView) invalid('A glTF image must use exactly one of uri or bufferView');
+    if (hasUri) {
+      if (typeof image.uri !== 'string' || !image.uri) invalid('Invalid glTF image URI');
+      return decodeImage(await fetchBytes(new URL(image.uri, absolute)), image.mimeType || '');
+    }
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(image.mimeType)) invalid('Buffer-view images require a supported mimeType');
     const bv = item(doc.bufferViews, image.bufferView, 'image bufferView');
     const data = item(buffers, bv.buffer, 'image buffer');
-    const start = bv.byteOffset || 0, end = start + bv.byteLength;
-    if (!Number.isInteger(start) || start < 0 || !Number.isInteger(end) || end > data.byteLength) invalid('Image exceeds its buffer');
-    return decodeImage(data.slice(start, end), image.mimeType || '');
+    const start = bv.byteOffset ?? 0, length = bv.byteLength, end = start + length;
+    if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(length) || length < 0 ||
+        !Number.isSafeInteger(end) || end > data.byteLength) invalid('Image exceeds its buffer');
+    return decodeImage(data.slice(start, end), image.mimeType);
   };
   const images = await Promise.all(imageDefinitions.map(async (image, index) => {
     try { return await decodeImageDefinition(image); }
     catch (error) {
+      if (error instanceof AssetError && error.code === 'INVALID_GLTF') throw error;
       const fallback = webpFallbacks.get(index);
       if (fallback === undefined || fallback === null) throw error;
       return decodeImageDefinition(item(imageDefinitions, fallback, 'fallback image'));

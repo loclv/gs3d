@@ -165,7 +165,9 @@ fetches and decodes assets in JavaScript.
 ## Supported model subset
 
 * `.gltf` JSON and `.glb` version 2, with external, data-URI, or GLB binary
-  buffers; images may be external, data-URI, or stored in buffer views.
+  buffers; images use one external/data-URI source or a buffer view with a
+  supported `mimeType`, and the full byte range must lie inside the source
+  buffer.
   `EXT_texture_webp` selects its WebP image and falls back to the core image
   source if WebP fetching or decoding fails; WebP-only textures must declare
   the extension as required.

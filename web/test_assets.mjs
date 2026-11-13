@@ -1137,6 +1137,19 @@ for (const [name, mutate] of [
   await assert.rejects(loadGLTF(untouchedEngine, `http://localhost/${name}.gltf`), error => error.code === 'INVALID_GLTF');
   assert.equal(untouchedEngine.calls.length, 0, `${name} is rejected before engine resource creation`);
 }
+for (const [name, image, mutateView] of [
+  ['image-uri-and-bufferView', { uri: 'image.png', bufferView: 2, mimeType: 'image/png' }],
+  ['bufferView-image-missing-mime', { bufferView: 2 }],
+  ['bufferView-image-negative-length', { bufferView: 2, mimeType: 'image/png' }, document => { document.bufferViews[2].byteLength = -1; }],
+]) {
+  const malformed = structuredClone(doc);
+  malformed.images = [image]; malformed.textures = [{ source: 0 }];
+  mutateView?.(malformed);
+  resources.set(`http://localhost/${name}.gltf`, bytes(malformed));
+  const untouchedEngine = fakeEngine();
+  await assert.rejects(loadGLTF(untouchedEngine, `http://localhost/${name}.gltf`), error => error.code === 'INVALID_GLTF');
+  assert.equal(untouchedEngine.calls.length, 0, `${name} is rejected before engine resource creation`);
+}
 const skinEngine = fakeEngine(), skinnedModel = await loadGLTF(skinEngine, 'http://localhost/skinned.gltf');
 assert.equal(skinnedModel.animations.length, 1);
 assert.equal(skinnedModel.playAnimation(0, { loop: false }), true);
