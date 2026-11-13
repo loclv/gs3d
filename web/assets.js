@@ -766,6 +766,13 @@ async function prepare(url, requestedScene) {
   try { doc = JSON.parse(new TextDecoder().decode(json)); }
   catch (error) { throw new AssetError('INVALID_GLTF', 'Invalid glTF JSON', error); }
   if (doc.asset?.version !== '2.0') unsupported('Only glTF 2.0 is supported');
+  if (doc.asset.minVersion !== undefined) {
+    const version = /^(\d+)\.(\d+)$/.exec(doc.asset.minVersion);
+    if (!version || !version.slice(1).every(part => Number.isSafeInteger(Number(part)))) invalid('Invalid minimum glTF version');
+    if (Number(version[1]) > 2 || Number(version[1]) === 2 && Number(version[2]) > 0) {
+      unsupported(`Requires glTF ${doc.asset.minVersion} or later`);
+    }
+  }
   const extensionsUsed = doc.extensionsUsed ?? [], extensionsRequired = doc.extensionsRequired ?? [];
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');

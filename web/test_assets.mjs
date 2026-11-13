@@ -1123,6 +1123,16 @@ resources.set('http://localhost/bad.gltf', bytes(invalid));
 const untouched = fakeEngine();
 await assert.rejects(loadGLTF(untouched, 'http://localhost/bad.gltf'), e => e.code === 'UNSUPPORTED');
 assert.equal(untouched.calls.length, 0);
+const invalidMinVersion = structuredClone(doc);
+invalidMinVersion.asset.minVersion = 'two.zero';
+resources.set('http://localhost/invalid-min-version.gltf', bytes(invalidMinVersion));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/invalid-min-version.gltf'), error => error.code === 'INVALID_GLTF');
+const unsupportedMinVersion = structuredClone(doc);
+unsupportedMinVersion.asset.minVersion = '2.1';
+resources.set('http://localhost/unsupported-min-version.gltf', bytes(unsupportedMinVersion));
+const newerVersionEngine = fakeEngine();
+await assert.rejects(loadGLTF(newerVersionEngine, 'http://localhost/unsupported-min-version.gltf'), error => error.code === 'UNSUPPORTED');
+assert.equal(newerVersionEngine.calls.length, 0);
 for (const [name, mutate] of [
   ['bad-stride-alignment', document => { document.bufferViews[0].byteStride = 13; }],
   ['bad-stride-limit', document => { document.bufferViews[0].byteStride = 256; }],
