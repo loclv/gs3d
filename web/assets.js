@@ -1708,6 +1708,10 @@ export async function loadGLTF(engine, url, options = {}) {
         baseScale: node.scale ? [...node.scale] : [1, 1, 1], scale: node.scale ? [...node.scale] : [1, 1, 1],
         baseWeights: [...node.weights], weights: [...node.weights],
       });
+      // Instances belonging to one glTF node share the node's morph weights, so
+      // upload their deformed geometry once. Keep this cache local to the node:
+      // another node may animate the same mesh with independent weights.
+      const instancedMorphMeshes = new Map();
       const instances = node.instanceTransforms ?? [null];
       for (const instance of instances) {
         let meshParent = group;
@@ -1720,27 +1724,30 @@ export async function loadGLTF(engine, url, options = {}) {
           localMatrix(instance).matrix.forEach((value, index) => engine._g3_asset_matrix(instanceGroup, index, value));
         }
         for (const p of node.primitives) {
-        const canShareMesh = node.skinIndex < 0 && p.targets.length === 0;
-        let meshHandle = canShareMesh ? staticPrimitiveMeshes.get(p) : null;
-        if (!meshHandle) {
-          meshHandle = uploadPrimitiveMesh(p, node);
-          if (canShareMesh) staticPrimitiveMeshes.set(p, meshHandle);
-        }
-        const id = engine._g3_asset_node(meshHandle.id, meshParent);
-        const nodeHandle = makeNodeHandle(engine, id);
-        if (!nodeHandle) throw new AssetError('UPLOAD', 'Could not create node');
-        nodes.push(nodeHandle);
-        primitiveHandles.push(nodeHandle);
-        const material = getMaterial(p);
-        engine._g3_asset_node_material(id, material.id);
-        primitiveMaterials.push(Object.freeze({
-          default: inspectMaterial(p),
-          variants: Object.freeze([...p.variantMaterials].map(([index, spec]) => Object.freeze({
-            index, name: data.variantNames[index], material: inspectMaterial(spec),
-          }))),
-        }));
-        if (p.variantMaterials.size) variantBindings.push({ handle: nodeHandle, defaultMaterial: material.id,
-          materials: new Map([...p.variantMaterials].map(([variantIndex, spec]) => [variantIndex, getMaterial(spec).id])) });
+          const canShareStaticMesh = node.skinIndex < 0 && p.targets.length === 0;
+          const canShareInstancedMorph = node.skinIndex < 0 && p.targets.length > 0 && !!node.instanceTransforms;
+          let meshHandle = canShareStaticMesh ? staticPrimitiveMeshes.get(p) :
+            canShareInstancedMorph ? instancedMorphMeshes.get(p) : null;
+          if (!meshHandle) {
+            meshHandle = uploadPrimitiveMesh(p, node);
+            if (canShareStaticMesh) staticPrimitiveMeshes.set(p, meshHandle);
+            else if (canShareInstancedMorph) instancedMorphMeshes.set(p, meshHandle);
+          }
+          const id = engine._g3_asset_node(meshHandle.id, meshParent);
+          const nodeHandle = makeNodeHandle(engine, id);
+          if (!nodeHandle) throw new AssetError('UPLOAD', 'Could not create node');
+          nodes.push(nodeHandle);
+          primitiveHandles.push(nodeHandle);
+          const material = getMaterial(p);
+          engine._g3_asset_node_material(id, material.id);
+          primitiveMaterials.push(Object.freeze({
+            default: inspectMaterial(p),
+            variants: Object.freeze([...p.variantMaterials].map(([index, spec]) => Object.freeze({
+              index, name: data.variantNames[index], material: inspectMaterial(spec),
+            }))),
+          }));
+          if (p.variantMaterials.size) variantBindings.push({ handle: nodeHandle, defaultMaterial: material.id,
+            materials: new Map([...p.variantMaterials].map(([variantIndex, spec]) => [variantIndex, getMaterial(spec).id])) });
         }
       }
       modelNodes.push(Object.freeze({

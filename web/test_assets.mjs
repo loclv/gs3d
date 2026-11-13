@@ -202,6 +202,25 @@ morphDoc.animations[0].channels[0].target = { node: 0, path: 'weights' };
 morphDoc.animations[0].samplers[0].output = skinTimes;
 resources.set('http://localhost/morph.gltf', bytes(morphDoc));
 resources.set('http://localhost/morph.bin', skinBinary);
+const instancedMorphDoc = structuredClone(morphDoc), instancedMorphBinary = new ArrayBuffer(80), instancedMorphData = new DataView(instancedMorphBinary);
+[-1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, Math.SQRT1_2, Math.SQRT1_2, 2, 1, 1, 0.5, 0.5, 0.5]
+  .forEach((value, index) => instancedMorphData.setFloat32(index * 4, value, true));
+instancedMorphDoc.buffers.push({ byteLength: 80, uri: 'instanced-morph.bin' });
+const instancedMorphViews = [
+  instancedMorphDoc.bufferViews.push({ buffer: 1, byteLength: 24 }) - 1,
+  instancedMorphDoc.bufferViews.push({ buffer: 1, byteOffset: 24, byteLength: 32 }) - 1,
+  instancedMorphDoc.bufferViews.push({ buffer: 1, byteOffset: 56, byteLength: 24 }) - 1,
+];
+const instancedMorphAccessors = instancedMorphViews.map((bufferView, index) => instancedMorphDoc.accessors.push({
+  bufferView, componentType: 5126, count: 2, type: index === 1 ? 'VEC4' : 'VEC3',
+}) - 1);
+instancedMorphDoc.extensionsUsed = ['EXT_mesh_gpu_instancing'];
+instancedMorphDoc.nodes[0].weights = [0.5];
+instancedMorphDoc.nodes[0].extensions = { EXT_mesh_gpu_instancing: { attributes: {
+  TRANSLATION: instancedMorphAccessors[0], ROTATION: instancedMorphAccessors[1], SCALE: instancedMorphAccessors[2],
+} } };
+resources.set('http://localhost/instanced-morph.gltf', bytes(instancedMorphDoc));
+resources.set('http://localhost/instanced-morph.bin', instancedMorphBinary);
 const combinedMorphSkinDoc = structuredClone(skinDoc);
 combinedMorphSkinDoc.meshes[0].primitives[0].targets = [{ POSITION: skinPosition, NORMAL: skinNormal }];
 combinedMorphSkinDoc.meshes[0].weights = [0];
@@ -1320,6 +1339,13 @@ const morphedTangents = morphEngine.calls.filter(x => x[0] === 'mesh_update').at
 assert.deepEqual(morphedTangents.map(value => Math.round(value * 1e6) / 1e6),
   [0.707107,0.707107,0,-1, 0.707107,0.707107,0,-1, 0.707107,0.707107,0,-1]);
 morphModel.dispose();
+const instancedMorphEngine = fakeEngine(), instancedMorphModel = await loadGLTF(instancedMorphEngine, 'http://localhost/instanced-morph.gltf');
+assert.equal(instancedMorphEngine.calls.filter(call => call[0] === 'mesh_end').length, 1,
+  'instances of a morph node share one CPU mesh upload');
+assert.equal(instancedMorphEngine.calls.filter(call => call[0] === 'mesh_update').length, 1,
+  'shared CPU morph geometry is deformed once for all instances');
+assert.equal(instancedMorphModel.nodes[0].primitives.length, 2, 'each instance retains its own scene node');
+instancedMorphModel.dispose();
 const gpuMorphEngine = enableFakeGpuMorph(fakeEngine());
 const gpuMorphModel = await loadGLTF(gpuMorphEngine, 'http://localhost/morph.gltf');
 assert.equal(gpuMorphModel.playAnimation(0, { loop: false }), true);
@@ -1332,6 +1358,13 @@ assert.deepEqual(gpuMorphEngine.calls.filter(x => x[0] === 'morph_weights').at(-
 assert.equal(gpuMorphEngine.calls.filter(x => x[0] === 'mesh_update').length, 0);
 assert.deepEqual(gpuMorphEngine.calls.filter(x => x[0] === 'mesh_update_cpu').at(-1)[2], [-2,-2,0, 2,-2,0, 0,2,0]);
 gpuMorphModel.dispose();
+const instancedGpuMorphEngine = enableFakeGpuMorph(fakeEngine());
+const instancedGpuMorphModel = await loadGLTF(instancedGpuMorphEngine, 'http://localhost/instanced-morph.gltf');
+assert.equal(instancedGpuMorphEngine.calls.filter(call => call[0] === 'mesh_end').length, 1,
+  'instances of a morph node share one GPU mesh upload');
+assert.equal(instancedGpuMorphEngine.calls.filter(call => call[0] === 'mesh_morph').length, 1,
+  'instances of a morph node upload one GPU morph texture');
+instancedGpuMorphModel.dispose();
 resources.set('http://localhost/morph-benchmark.glb', await readFile(new URL('./benchmark/morph-benchmark.glb', import.meta.url)));
 const morphBenchmarkEngine = enableFakeGpuMorph(fakeEngine());
 const morphBenchmarkMemory = new ArrayBuffer(16 * 1024 * 1024);
