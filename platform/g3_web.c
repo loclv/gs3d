@@ -731,6 +731,15 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
         return 0;
     }
     emscripten_webgl_make_context_current(ctx);
+    GLint max_fragment_texture_units = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &max_fragment_texture_units);
+    if (max_fragment_texture_units < 22) {
+        fprintf(stderr, "g3_web: WebGL2 exposes %d fragment texture units; 22 are required\n", max_fragment_texture_units);
+        report("This goose-3d build requires at least 22 WebGL2 fragment texture units.");
+        emscripten_webgl_destroy_context(ctx);
+        ctx = 0;
+        return 0;
+    }
     GLint max_texture_size = 0;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_texture_size);
     gpu_max_texture_size = max_texture_size;

@@ -152,6 +152,9 @@ emissive texture is applied. `KHR_materials_specular` scales and tints
 dielectric reflections with factors and optional textures. Required extensions outside this supported set are
 reported as `UNSUPPORTED`; optional extensions that the loader does not
 recognize are also rejected when present on a material or texture.
+The WebGL renderer requires at least 22 fragment texture units for its current
+material, environment, skinning, and shadow samplers; startup reports this limit
+when a device exposes fewer.
 
 Native Goose programs can call `texture_load_hdr(path)` from `g3.texture` to
 load a Radiance `.hdr` file into the CPU backend. It accepts the same canonical
