@@ -503,7 +503,7 @@ async function prepare(url) {
   if (!Array.isArray(extensionsUsed) || !extensionsUsed.every(extension => typeof extension === 'string') ||
       !Array.isArray(extensionsRequired) || !extensionsRequired.every(extension => typeof extension === 'string')) invalid('Invalid glTF extension declarations');
   if (extensionsRequired.some(extension => !extensionsUsed.includes(extension))) invalid('Required glTF extensions must also be listed as used');
-  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_texture_transform'];
+  const supportedRequiredExtensions = ['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular', 'KHR_texture_transform'];
   if (extensionsRequired.some(extension => !supportedRequiredExtensions.includes(extension))) unsupported('Required glTF extensions are not supported');
   const buffers = await Promise.all((doc.buffers || []).map(async (buffer, i) => {
     const data = buffer.uri !== undefined ? await fetchBytes(new URL(buffer.uri, absolute)) : i === 0 ? bin : undefined;
@@ -590,10 +590,11 @@ async function prepare(url) {
     if (indices.length % 3 || indices.some(i => !Number.isInteger(i) || i < 0 || i >= pos.count)) invalid('Invalid triangle indices');
     const material = p.material === undefined ? {} : item(doc.materials, p.material, 'material');
     let unlit = false, emissiveStrength = 1, ior = 1.5;
+    let specularFactor = 1, specularColorFactor = [1, 1, 1], specularExtension = null;
     if (material.extensions !== undefined) {
       if (!material.extensions || typeof material.extensions !== 'object' || Array.isArray(material.extensions)) invalid('Invalid material extensions');
       const materialExtensions = Object.keys(material.extensions);
-      if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior'].includes(extension))) unsupported('Unsupported material feature');
+      if (materialExtensions.some(extension => !['KHR_materials_unlit', 'KHR_materials_emissive_strength', 'KHR_materials_ior', 'KHR_materials_specular'].includes(extension))) unsupported('Unsupported material feature');
       if (materialExtensions.includes('KHR_materials_unlit')) {
         if (!extensionsUsed.includes('KHR_materials_unlit')) invalid('KHR_materials_unlit must be listed in extensionsUsed');
         const unlitExtension = material.extensions.KHR_materials_unlit;
@@ -614,6 +615,17 @@ async function prepare(url) {
         ior = iorExtension.ior ?? 1.5;
         if (!Number.isFinite(ior) || ior < 1 || ior > 2.333) invalid('Invalid index of refraction');
       }
+      if (materialExtensions.includes('KHR_materials_specular')) {
+        if (!extensionsUsed.includes('KHR_materials_specular')) invalid('KHR_materials_specular must be listed in extensionsUsed');
+        specularExtension = material.extensions.KHR_materials_specular;
+        if (!specularExtension || typeof specularExtension !== 'object' || Array.isArray(specularExtension)) invalid('Invalid KHR_materials_specular extension');
+        specularFactor = specularExtension.specularFactor ?? 1;
+        specularColorFactor = specularExtension.specularColorFactor ?? [1, 1, 1];
+        if (!Number.isFinite(specularFactor) || specularFactor < 0 || specularFactor > 1) invalid('Invalid specular factor');
+        if (!Array.isArray(specularColorFactor) || specularColorFactor.length !== 3 ||
+            !specularColorFactor.every(value => Number.isFinite(value) && value >= 0)) invalid('Invalid specular color factor');
+        if (unlit) invalid('KHR_materials_specular cannot be combined with KHR_materials_unlit');
+      }
     }
     if (material.doubleSided !== undefined && typeof material.doubleSided !== 'boolean') invalid('Invalid doubleSided material flag');
     const alphaModes = { OPAQUE: 0, MASK: 1, BLEND: 2 };
@@ -627,6 +639,8 @@ async function prepare(url) {
     const occlusionUvTransform = material.occlusionTexture ? parseTextureTransform(material.occlusionTexture, extensionsUsed) : identityUvTransform();
     const emissiveUvTransform = material.emissiveTexture ? parseTextureTransform(material.emissiveTexture, extensionsUsed) : identityUvTransform();
     const metallicRoughnessUvTransform = pbr.metallicRoughnessTexture ? parseTextureTransform(pbr.metallicRoughnessTexture, extensionsUsed) : identityUvTransform();
+    const specularUvTransform = specularExtension?.specularTexture ? parseTextureTransform(specularExtension.specularTexture, extensionsUsed) : identityUvTransform();
+    const specularColorUvTransform = specularExtension?.specularColorTexture ? parseTextureTransform(specularExtension.specularColorTexture, extensionsUsed) : identityUvTransform();
     const availableUvSets = [uv, uv1];
     let normalTextureIndex = -1;
     const normalScale = material.normalTexture?.scale ?? 1;
@@ -658,6 +672,17 @@ async function prepare(url) {
       item(textureSpecs, pbr.metallicRoughnessTexture.index, 'metallic-roughness texture');
       metallicRoughnessTextureIndex = pbr.metallicRoughnessTexture.index;
     }
+    let specularTextureIndex = -1, specularColorTextureIndex = -1;
+    if (specularExtension?.specularTexture) {
+      if (!availableUvSets[specularUvTransform.texcoord]) unsupported('Unsupported specular texture coordinates');
+      item(textureSpecs, specularExtension.specularTexture.index, 'specular texture');
+      specularTextureIndex = specularExtension.specularTexture.index;
+    }
+    if (specularExtension?.specularColorTexture) {
+      if (!availableUvSets[specularColorUvTransform.texcoord]) unsupported('Unsupported specular color texture coordinates');
+      item(textureSpecs, specularExtension.specularColorTexture.index, 'specular color texture');
+      specularColorTextureIndex = specularExtension.specularColorTexture.index;
+    }
     const metallic = pbr.metallicFactor ?? 1, roughness = pbr.roughnessFactor ?? 1;
     if (![metallic, roughness].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) invalid('Invalid metallic or roughness factor');
     const color = pbr.baseColorFactor || [1, 1, 1, 1];
@@ -674,7 +699,8 @@ async function prepare(url) {
       alphaMode: alphaModes[mode], alphaCutoff: cutoff, metallic, roughness, metallicRoughnessTextureIndex,
       normalTextureIndex, normalScale, occlusionTextureIndex, occlusionStrength,
       emissive: emissive.map(value => value * emissiveStrength), emissiveTextureIndex, doubleSided: material.doubleSided ?? false, unlit, ior,
-      uvTransforms: [baseUvTransform, metallicRoughnessUvTransform, normalUvTransform, occlusionUvTransform, emissiveUvTransform], materialIndex: p.material ?? -1 };
+      specularFactor, specularColorFactor, specularTextureIndex, specularColorTextureIndex,
+      uvTransforms: [baseUvTransform, metallicRoughnessUvTransform, normalUvTransform, occlusionUvTransform, emissiveUvTransform, specularUvTransform, specularColorUvTransform], materialIndex: p.material ?? -1 };
     });
     if (!primitives.length) invalid(`Mesh ${meshIndex} has no primitives`);
     const targetCount = primitives[0].targets.length;
@@ -1081,6 +1107,10 @@ export async function loadGLTF(engine, url) {
             p.metallic, p.roughness, getTexture(p.metallicRoughnessTextureIndex, false), getTexture(p.normalTextureIndex, false), p.normalScale,
             getTexture(p.occlusionTextureIndex, false), p.occlusionStrength, ...p.emissive,
             getTexture(p.emissiveTextureIndex, true), p.doubleSided ? 1 : 0, p.unlit ? 1 : 0, p.ior);
+          if (!engine._g3_asset_material_specular(materialId, p.specularFactor, ...p.specularColorFactor,
+            getTexture(p.specularTextureIndex, false), getTexture(p.specularColorTextureIndex, true))) {
+            throw new AssetError('UPLOAD', 'Could not set material specular properties');
+          }
           for (let slot = 0; slot < p.uvTransforms.length; slot++) {
             const transform = p.uvTransforms[slot];
             if (!engine._g3_asset_material_uv_transform(materialId, slot, ...transform.offset, ...transform.scale, transform.rotation, transform.texcoord)) {

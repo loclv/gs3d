@@ -52,6 +52,11 @@ struct DrawItem {
     normal_uv: UvTransform,
     occlusion_uv: UvTransform,
     emissive_uv: UvTransform,
+    specular: float4, // rgb specular colour factor, w specular strength factor
+    specular_texture: i32, // alpha channel controls dielectric reflection strength
+    specular_color_texture: i32, // sRGB RGB controls dielectric F0 colour
+    specular_uv: UvTransform,
+    specular_color_uv: UvTransform,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

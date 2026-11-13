@@ -114,10 +114,11 @@ driver failures may still be reported separately through the backend's error
 mechanism.
 
 The glTF loader supports `KHR_materials_unlit`, `KHR_materials_ior`,
-`KHR_materials_emissive_strength`, and per-texture
+`KHR_materials_specular`, `KHR_materials_emissive_strength`, and per-texture
 `KHR_texture_transform` on `TEXCOORD_0` or `TEXCOORD_1`. Unlit selects the engine's unlit material path;
 emissive strength multiplies the material's `emissiveFactor` before the
-emissive texture is applied. Required extensions outside this supported set are
+emissive texture is applied. `KHR_materials_specular` scales and tints
+dielectric reflections with factors and optional textures. Required extensions outside this supported set are
 reported as `UNSUPPORTED`; optional extensions that the loader does not
 recognize are also rejected when present on a material or texture.
 
@@ -166,6 +167,11 @@ fetches and decodes assets in JavaScript.
   `KHR_materials_ior` sets the dielectric Fresnel reflectance used by direct
   and environment lighting; its supported range is 1.0 to 2.333, with a
   default index of refraction of 1.5.
+  `KHR_materials_specular` applies `specularFactor` and its linear alpha map to
+  dielectric specular strength, and applies `specularColorFactor` and its sRGB
+  RGB map to dielectric F0. The colour factor may exceed 1; resulting F0 is
+  clamped to 1. Metallic specular response remains driven by base colour. Both
+  texture slots support independent `KHR_texture_transform` settings.
   `KHR_materials_emissive_strength` scales `emissiveFactor`, including values
   above 1 for HDR emission.
   `KHR_texture_transform` applies an independent offset, rotation and scale to

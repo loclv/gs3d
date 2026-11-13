@@ -60,6 +60,17 @@ export fn g3_asset_material(r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_
     m.unlit = unlit;
     return id;
 }
+export fn g3_asset_material_specular(id: i32, factor: f32, color_r: f32, color_g: f32, color_b: f32, texture: i32, color_texture: i32) -> bool {
+    guard g3::material_valid(id) && factor >= 0.0 && factor <= 1.0 &&
+          color_r >= 0.0 && color_r <= 3.4e38 && color_g >= 0.0 && color_g <= 3.4e38 && color_b >= 0.0 && color_b <= 3.4e38
+    else { return false; }
+    let m .= g3::material(id);
+    m.specular_factor = factor;
+    m.specular_color_factor = float3 { color_r, color_g, color_b };
+    m.specular_texture = texture;
+    m.specular_color_texture = color_texture;
+    return true;
+}
 export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offset_y: f32, scale_x: f32, scale_y: f32, rotation: f32, texcoord: i32) -> bool {
     guard g3::material_valid(id) && (texcoord == 0 || texcoord == 1) else { return false; }
     let transform = g3::UvTransform { offset: float2 { offset_x, offset_y }, scale: float2 { scale_x, scale_y }, rotation: rotation, texcoord: texcoord };
@@ -68,6 +79,8 @@ export fn g3_asset_material_uv_transform(id: i32, slot: i32, offset_x: f32, offs
     else if slot == 2 { g3::material(id).normal_uv = transform; }
     else if slot == 3 { g3::material(id).occlusion_uv = transform; }
     else if slot == 4 { g3::material(id).emissive_uv = transform; }
+    else if slot == 5 { g3::material(id).specular_uv = transform; }
+    else if slot == 6 { g3::material(id).specular_color_uv = transform; }
     else { return false; }
     return true;
 }

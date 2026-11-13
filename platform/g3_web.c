@@ -73,7 +73,8 @@ typedef struct {
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
-    GLint uv_transform[5], uv_rotation[5], uv_set[5];
+    GLint specular, specular_tex, specular_textured, specular_color_tex, specular_color_textured;
+    GLint uv_transform[7], uv_rotation[7], uv_set[7];
     GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
@@ -220,9 +221,14 @@ static const char *FRAGMENT_SRC =
     "uniform vec4 u_emissive;\n"
     "uniform sampler2D u_emissive_tex;\n"
     "uniform bool u_emissive_textured;\n"
-    "uniform vec4 u_uv_transform[5];\n"
-    "uniform float u_uv_rotation[5];\n"
-    "uniform int u_uv_set[5];\n"
+    "uniform vec4 u_specular;\n"
+    "uniform sampler2D u_specular_tex;\n"
+    "uniform bool u_specular_textured;\n"
+    "uniform sampler2D u_specular_color_tex;\n"
+    "uniform bool u_specular_color_textured;\n"
+    "uniform vec4 u_uv_transform[7];\n"
+    "uniform float u_uv_rotation[7];\n"
+    "uniform int u_uv_set[7];\n"
     "uniform int u_alpha_mode;\n"
     "uniform float u_alpha_cutoff;\n"
     "uniform bool u_double_sided;\n"
@@ -259,7 +265,7 @@ static const char *FRAGMENT_SRC =
     "out vec4 out_color;\n"
     "vec2 material_uv(int slot) { vec2 coord=u_uv_set[slot]==1?v_uv1:v_uv; vec2 scaled=coord*u_uv_transform[slot].zw; float c=cos(u_uv_rotation[slot]), s=sin(u_uv_rotation[slot]); return u_uv_transform[slot].xy+vec2(c*scaled.x-s*scaled.y,s*scaled.x+c*scaled.y); }\n"
     "float dielectric_f0(float ior) { float ratio=(clamp(ior,1.0,2.333)-1.0)/(clamp(ior,1.0,2.333)+1.0); return ratio*ratio; }\n"
-    "vec3 pbr_light(vec3 n, vec3 v, vec3 l, vec3 base, float metal, float rough, float ior) {\n"
+    "vec3 pbr_light(vec3 n, vec3 v, vec3 l, vec3 base, float metal, float rough, float ior, float specular_strength, vec3 specular_color) {\n"
     "    float nl = max(dot(n,l), 0.0), nv = max(dot(n,v), 0.0);\n"
     "    vec3 sum = l + v; float len = length(sum);\n"
     "    if (nl <= 0.0 || nv <= 0.0 || len <= 1e-12) return vec3(0.0);\n"
@@ -268,9 +274,12 @@ static const char *FRAGMENT_SRC =
     "    float denom = nh*nh*(a2-1.0)+1.0; float d = a2 / (3.14159265359*denom*denom);\n"
     "    float gv = nl*sqrt(nv*nv*(1.0-a2)+a2), gl = nv*sqrt(nl*nl*(1.0-a2)+a2);\n"
     "    float vis = 0.5/max(gv+gl, 1e-6); metal = clamp(metal, 0.0, 1.0);\n"
-    "    vec3 f0 = mix(vec3(dielectric_f0(ior)), base, metal);\n"
-    "    vec3 f = f0 + (1.0-f0)*pow(1.0-min(vh, 1.0), 5.0);\n"
-    "    return ((1.0-f)*(1.0-metal)*base/3.14159265359 + d*vis*f)*nl;\n"
+    "    vec3 dielectric = clamp(vec3(dielectric_f0(ior))*specular_color,0.0,1.0);\n"
+    "    vec3 f0 = mix(dielectric, base, metal);\n"
+    "    float strength = mix(clamp(specular_strength,0.0,1.0),1.0,metal);\n"
+    "    vec3 f = (f0 + (1.0-f0)*pow(1.0-min(vh, 1.0), 5.0))*strength;\n"
+    "    float diffuse_energy = 1.0-max(f.r,max(f.g,f.b));\n"
+    "    return (diffuse_energy*(1.0-metal)*base/3.14159265359 + d*vis*f)*nl;\n"
     "}\n"
     "void main() {\n"
     "    vec2 base_uv = material_uv(0);\n"
@@ -278,6 +287,8 @@ static const char *FRAGMENT_SRC =
     "    vec2 normal_uv = material_uv(2);\n"
     "    vec2 occlusion_uv = material_uv(3);\n"
     "    vec2 emissive_uv = material_uv(4);\n"
+    "    vec2 specular_uv = material_uv(5);\n"
+    "    vec2 specular_color_uv = material_uv(6);\n"
     "    float normal_length = length(v_normal);\n"
     "    vec3 n = normal_length > 1e-12 ? v_normal / normal_length : vec3(0.0);\n"
     "    if (u_normal_textured && normal_length > 1e-12) {\n"
@@ -322,6 +333,15 @@ static const char *FRAGMENT_SRC =
     "    if (u_occlusion_textured) ao = 1.0 + u_occlusion_strength*(texture(u_occlusion_tex, occlusion_uv).r-1.0);\n"
     "    vec2 mr = u_pbr.yz;\n"
     "    if (u_mr_textured) { vec4 packed_mr = texture(u_mr_tex, mr_uv); mr *= packed_mr.bg; }\n"
+    "    float specular_strength = u_specular.w*(u_specular_textured?texture(u_specular_tex,specular_uv).a:1.0);\n"
+    "    vec3 specular_color = u_specular.rgb*(u_specular_color_textured?texture(u_specular_color_tex,specular_color_uv).rgb:vec3(1.0));\n"
+    "    float metal = clamp(mr.x,0.0,1.0);\n"
+    "    vec3 dielectric = clamp(vec3(dielectric_f0(u_pbr.w))*specular_color,0.0,1.0);\n"
+    "    vec3 f0 = mix(dielectric,base,metal);\n"
+    "    float specular_weight = mix(clamp(specular_strength,0.0,1.0),1.0,metal);\n"
+    "    float fresnel_weight = pow(1.0-max(dot(n,v),0.0),5.0);\n"
+    "    vec3 fresnel = (f0+(1.0-f0)*fresnel_weight)*specular_weight;\n"
+    "    float diffuse_energy = 1.0-max(fresnel.r,max(fresnel.g,fresnel.b));\n"
     "    float visibility = 1.0;\n"
     "    if (u_shadow_params.x > 0.5) {\n"
     "        vec4 light_pos = u_shadow_matrix * vec4(v_world, 1.0);\n"
@@ -337,8 +357,8 @@ static const char *FRAGMENT_SRC =
     "    }\n"
     "    vec3 col = base * (u_ambient.rgb * u_ambient.a * ao + u_light_color * diff * visibility)\n"
     "             + u_light_color * spec * visibility;\n"
-    "    float env_scale = u_pbr.x > 0.5 ? 1.0-clamp(mr.x,0.0,1.0) : 1.0;\n"
-    "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale*ao + pbr_light(n,v,l,base,mr.x,mr.y,u_pbr.w)*u_light_color*visibility;\n"
+    "    float env_scale = u_pbr.x > 0.5 ? (1.0-metal)*diffuse_energy : 1.0;\n"
+    "    if (u_pbr.x > 0.5) col = base*u_ambient.rgb*u_ambient.a*env_scale*ao + pbr_light(n,v,l,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color)*u_light_color*visibility;\n"
     "    float sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n"
     "    col += base * mix(u_env_ground.rgb, u_env_sky.rgb, sky) * u_env_sky.a * env_scale * ao;\n"
     "    if (u_env_map_enabled) {\n"
@@ -348,9 +368,8 @@ static const char *FRAGMENT_SRC =
     "            vec3 reflected = reflect(-v, n);\n"
     "            vec2 spec_uv = vec2(atan(reflected.z, reflected.x) / 6.28318530718 + 0.5, acos(clamp(reflected.y, -1.0, 1.0)) / 3.14159265359);\n"
     "            float rough = clamp(mr.y, 0.045, 1.0);\n"
-    "            vec3 f0 = mix(vec3(dielectric_f0(u_pbr.w)), base, clamp(mr.x, 0.0, 1.0));\n"
     "            vec2 brdf = texture(u_brdf_lut, vec2(max(dot(n,v),0.0),rough)).rg;\n"
-    "            col += textureLod(u_env_map, spec_uv, rough*u_env_map_max_lod).rgb * (f0*brdf.x+brdf.y) * u_env_map_intensity * ao;\n"
+    "            col += textureLod(u_env_map, spec_uv, rough*u_env_map_max_lod).rgb * (f0*brdf.x+vec3(brdf.y)) * specular_weight * u_env_map_intensity * ao;\n"
     "        }\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
@@ -398,7 +417,7 @@ static const char *FRAGMENT_SRC =
     "        float d = max(dot(n, ld), 0.0);\n"
     "        vec3 halfdir = normalize(ld + v);\n"
     "        float s = pow(max(dot(n, halfdir), 0.0), max(u_params.z, 1.0)) * u_params.y;\n"
-    "        col += (u_pbr.x > 0.5 ? pbr_light(n,v,ld,base,mr.x,mr.y,u_pbr.w) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
+    "        col += (u_pbr.x > 0.5 ? pbr_light(n,v,ld,base,mr.x,mr.y,u_pbr.w,specular_strength,specular_color) : base*d + vec3(s)) * light.color.rgb * falloff;\n"
     "    }\n"
     "    if (u_params.x > 0.5) col = base;\n"
     "    vec3 emissive_texel = u_emissive_textured ? texture(u_emissive_tex, emissive_uv).rgb : vec3(1.0);\n"
@@ -471,7 +490,12 @@ static void find_uniforms(void) {
     shader.emissive = glGetUniformLocation(shader.program, "u_emissive");
     shader.emissive_tex = glGetUniformLocation(shader.program, "u_emissive_tex");
     shader.emissive_textured = glGetUniformLocation(shader.program, "u_emissive_textured");
-    for (int i = 0; i < 5; i++) {
+    shader.specular = glGetUniformLocation(shader.program, "u_specular");
+    shader.specular_tex = glGetUniformLocation(shader.program, "u_specular_tex");
+    shader.specular_textured = glGetUniformLocation(shader.program, "u_specular_textured");
+    shader.specular_color_tex = glGetUniformLocation(shader.program, "u_specular_color_tex");
+    shader.specular_color_textured = glGetUniformLocation(shader.program, "u_specular_color_textured");
+    for (int i = 0; i < 7; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_uv_transform[%d]", i); shader.uv_transform[i] = glGetUniformLocation(shader.program, name);
         snprintf(name, sizeof(name), "u_uv_rotation[%d]", i); shader.uv_rotation[i] = glGetUniformLocation(shader.program, name);
@@ -968,12 +992,17 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            a->occlusion_strength == b->occlusion_strength &&
            same_vec4(a->emissive, b->emissive) &&
            a->emissive_texture == b->emissive_texture &&
+           same_vec4(a->specular, b->specular) &&
+           a->specular_texture == b->specular_texture &&
+           a->specular_color_texture == b->specular_color_texture &&
            a->double_sided == b->double_sided &&
            same_uv_transform(a->base_color_uv, b->base_color_uv) &&
            same_uv_transform(a->metallic_roughness_uv, b->metallic_roughness_uv) &&
            same_uv_transform(a->normal_uv, b->normal_uv) &&
            same_uv_transform(a->occlusion_uv, b->occlusion_uv) &&
-           same_uv_transform(a->emissive_uv, b->emissive_uv);
+           same_uv_transform(a->emissive_uv, b->emissive_uv) &&
+           same_uv_transform(a->specular_uv, b->specular_uv) &&
+           same_uv_transform(a->specular_color_uv, b->specular_color_uv);
 }
 
 EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_calls; }
@@ -1491,9 +1520,9 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
     glUniform4f(shader.pbr, it->pbr.x, it->pbr.y, it->pbr.z, it->pbr.w);
-    const g3_uv_transform *uv_transforms[5] = { &it->base_color_uv, &it->metallic_roughness_uv,
-        &it->normal_uv, &it->occlusion_uv, &it->emissive_uv };
-    for (int uv = 0; uv < 5; uv++) {
+    const g3_uv_transform *uv_transforms[7] = { &it->base_color_uv, &it->metallic_roughness_uv,
+        &it->normal_uv, &it->occlusion_uv, &it->emissive_uv, &it->specular_uv, &it->specular_color_uv };
+    for (int uv = 0; uv < 7; uv++) {
         glUniform4f(shader.uv_transform[uv], uv_transforms[uv]->offset.x, uv_transforms[uv]->offset.y,
                     uv_transforms[uv]->scale.x, uv_transforms[uv]->scale.y);
         glUniform1f(shader.uv_rotation[uv], uv_transforms[uv]->rotation);
@@ -1516,7 +1545,8 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
 
     /* Keep shader samplers on separate units: base 0, environment 1,
        shadow 2, metallic-roughness 3, normal 4, occlusion 5, emissive 6,
-       point shadow 7, spot shadow 8, BRDF 9, joint matrices 10. */
+       point shadow 7, spot shadow 8, BRDF 9, joint matrices 10,
+       morph textures 11-13, specular strength 14, specular color 15. */
     int normal_textured = it->normal_texture >= 0 && it->normal_texture < texture_count && textures[it->normal_texture];
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, normal_textured ? textures[it->normal_texture] : 0);
@@ -1537,6 +1567,18 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform1i(shader.emissive_tex, 6);
     glUniform1i(shader.emissive_textured, emissive_textured);
     glUniform4f(shader.emissive, it->emissive.x, it->emissive.y, it->emissive.z, it->emissive.w);
+
+    glUniform4f(shader.specular, it->specular.x, it->specular.y, it->specular.z, it->specular.w);
+    int specular_textured = it->specular_texture >= 0 && it->specular_texture < texture_count && textures[it->specular_texture];
+    glActiveTexture(GL_TEXTURE14);
+    glBindTexture(GL_TEXTURE_2D, specular_textured ? textures[it->specular_texture] : 0);
+    glUniform1i(shader.specular_tex, 14);
+    glUniform1i(shader.specular_textured, specular_textured);
+    int specular_color_textured = it->specular_color_texture >= 0 && it->specular_color_texture < texture_count && textures[it->specular_color_texture];
+    glActiveTexture(GL_TEXTURE15);
+    glBindTexture(GL_TEXTURE_2D, specular_color_textured ? textures[it->specular_color_texture] : 0);
+    glUniform1i(shader.specular_color_tex, 15);
+    glUniform1i(shader.specular_color_textured, specular_color_textured);
 
     glUniform1i(shader.skin_enabled, m->joint_count > 0 && m->joint_texture != 0);
     glUniform1i(shader.joint_count, m->joint_count);

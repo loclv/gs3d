@@ -302,6 +302,12 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         normal_uv: surface.normal_uv,
         occlusion_uv: surface.occlusion_uv,
         emissive_uv: surface.emissive_uv,
+        specular: float4 { surface.specular_color_factor.x, surface.specular_color_factor.y,
+                           surface.specular_color_factor.z, surface.specular_factor },
+        specular_texture: surface.specular_texture,
+        specular_color_texture: surface.specular_color_texture,
+        specular_uv: surface.specular_uv,
+        specular_color_uv: surface.specular_color_uv,
     };
 }
 

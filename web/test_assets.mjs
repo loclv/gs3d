@@ -178,6 +178,7 @@ function fakeEngine() {
   engine.meshGenerations = meshGenerations; engine.textureGenerations = textureGenerations;
   engine.materialGenerations = materialGenerations;
   engine._g3_asset_material = (...args) => { const id = nextMaterial++; materialGenerations.set(id, 1); calls.push(['material', id, ...args]); return id; };
+  engine._g3_asset_material_specular = (...args) => { calls.push(['material_specular', ...args]); return true; };
   engine._g3_asset_material_uv_transform = (...args) => { calls.push(['material_uv_transform', ...args]); return true; };
   engine._g3_asset_mesh_end = () => { calls.push(['mesh_end']); const id = nextMesh++; meshGenerations.set(id, 1); return id; };
   engine._g3_host_mesh_update = (id, positions, normals, count) => {
@@ -315,6 +316,36 @@ missingIorDeclaration.materials[0].extensions.KHR_materials_ior.ior = 1.6;
 delete missingIorDeclaration.extensionsUsed;
 resources.set('http://localhost/missing-ior-declaration.gltf', bytes(missingIorDeclaration));
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/missing-ior-declaration.gltf'), e => e.code === 'INVALID_GLTF');
+const specularDoc = structuredClone(doc);
+specularDoc.images = [{ uri: 'image.png' }];
+specularDoc.textures = [{ source: 0 }];
+specularDoc.accessors.push({ bufferView: 0, componentType: 5126, count: 3, type: 'VEC2' });
+specularDoc.meshes[0].primitives[0].attributes.TEXCOORD_0 = 3;
+specularDoc.materials[0].pbrMetallicRoughness.baseColorTexture = { index: 0 };
+specularDoc.extensionsUsed = ['KHR_materials_specular', 'KHR_texture_transform'];
+specularDoc.extensionsRequired = ['KHR_materials_specular'];
+specularDoc.materials[0].extensions = { KHR_materials_specular: {
+  specularFactor: 0.35, specularColorFactor: [0.7, 0.5, 1.2],
+  specularTexture: { index: 0, extensions: { KHR_texture_transform: { offset: [0.25, 0.5] } } },
+  specularColorTexture: { index: 0, extensions: { KHR_texture_transform: { texCoord: 0, scale: [2, 3] } } },
+} };
+resources.set('http://localhost/specular.gltf', bytes(specularDoc));
+const specularEngine = fakeEngine(), specularModel = await loadGLTF(specularEngine, 'http://localhost/specular.gltf');
+assert.deepEqual(specularEngine.calls.find(call => call[0] === 'material_specular'), ['material_specular', 1, 0.35, 0.7, 0.5, 1.2, 6, 5]);
+assert.equal(specularEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 5).at(-1), 0);
+assert.equal(specularEngine.calls.find(call => call[0] === 'material_uv_transform' && call[2] === 6).at(-1), 0);
+assert.equal(specularEngine.calls.filter(call => call[0] === 'texture').length, 1, 'specular strength texture uploads as linear data');
+assert.equal(specularEngine.calls.filter(call => call[0] === 'texture_srgb').length, 1, 'specular color shares its sRGB upload with base color');
+specularModel.dispose();
+specularDoc.materials[0].extensions.KHR_materials_specular.specularFactor = 1.1;
+resources.set('http://localhost/invalid-specular-factor.gltf', bytes(specularDoc));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/invalid-specular-factor.gltf'), e => e.code === 'INVALID_GLTF');
+const missingSpecularDeclaration = structuredClone(specularDoc);
+missingSpecularDeclaration.materials[0].extensions.KHR_materials_specular.specularFactor = 0.5;
+missingSpecularDeclaration.extensionsUsed = ['KHR_texture_transform'];
+delete missingSpecularDeclaration.extensionsRequired;
+resources.set('http://localhost/missing-specular-declaration.gltf', bytes(missingSpecularDeclaration));
+await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/missing-specular-declaration.gltf'), e => e.code === 'INVALID_GLTF');
 const unlitDoc = structuredClone(doc);
 unlitDoc.extensionsUsed = ['KHR_materials_unlit'];
 unlitDoc.extensionsRequired = ['KHR_materials_unlit'];

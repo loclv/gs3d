@@ -374,7 +374,7 @@ near, so they are drawn after everything opaque and read the depth they should.
 
 **One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
 `Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings,
-a double-sided flag and five texture-coordinate transforms, 357 bytes.
+a double-sided flag and seven texture-coordinate transforms, 429 bytes.
 `g3p_draw_frame` hands the backend a slice
 of them plus the frame's `ViewState`, and `platform/g3_abi.h`
 static-asserts every offset, so the Goose and C sides cannot drift apart

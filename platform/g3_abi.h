@@ -60,6 +60,11 @@ typedef struct {
     g3_uv_transform normal_uv;
     g3_uv_transform occlusion_uv;
     g3_uv_transform emissive_uv;
+    g3_vec4 specular; /* rgb colour factor, w strength factor */
+    int32_t specular_texture;
+    int32_t specular_color_texture;
+    g3_uv_transform specular_uv;
+    g3_uv_transform specular_color_uv;
 } g3_draw_item;
 
 typedef struct { g3_vec4 position, direction, color; float inner; } g3_light;
@@ -104,7 +109,7 @@ _Static_assert(offsetof(g3_vertex, uv) == 24, "Vertex.uv offset");
 _Static_assert(offsetof(g3_vertex, uv1) == 32, "Vertex.uv1 offset");
 _Static_assert(offsetof(g3_vertex, tangent) == 40, "Vertex.tangent offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
-_Static_assert(sizeof(g3_draw_item) == 357, "g3_draw_item must be 357 bytes");
+_Static_assert(sizeof(g3_draw_item) == 429, "g3_draw_item must be 429 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
 _Static_assert(offsetof(g3_draw_item, alpha_mode) == 172, "DrawItem.alpha_mode offset");
 _Static_assert(offsetof(g3_draw_item, alpha_cutoff) == 176, "DrawItem.alpha_cutoff offset");
@@ -123,6 +128,11 @@ _Static_assert(offsetof(g3_draw_item, metallic_roughness_uv) == 261, "DrawItem.m
 _Static_assert(offsetof(g3_draw_item, normal_uv) == 285, "DrawItem.normal_uv offset");
 _Static_assert(offsetof(g3_draw_item, occlusion_uv) == 309, "DrawItem.occlusion_uv offset");
 _Static_assert(offsetof(g3_draw_item, emissive_uv) == 333, "DrawItem.emissive_uv offset");
+_Static_assert(offsetof(g3_draw_item, specular) == 357, "DrawItem.specular offset");
+_Static_assert(offsetof(g3_draw_item, specular_texture) == 373, "DrawItem.specular_texture offset");
+_Static_assert(offsetof(g3_draw_item, specular_color_texture) == 377, "DrawItem.specular_color_texture offset");
+_Static_assert(offsetof(g3_draw_item, specular_uv) == 381, "DrawItem.specular_uv offset");
+_Static_assert(offsetof(g3_draw_item, specular_color_uv) == 405, "DrawItem.specular_color_uv offset");
 _Static_assert(sizeof(g3_light) == 52, "g3_light must be 52 bytes");
 _Static_assert(sizeof(g3_view_state) == 940, "g3_view_state must be 940 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");

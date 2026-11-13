@@ -547,7 +547,8 @@ static float dielectric_f0(float ior) {
 }
 
 static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
-                      float metallic, float roughness, float ior, float out[3]) {
+                      float metallic, float roughness, float ior, float specular_strength,
+                      const float specular_color[3], float out[3]) {
     float nl = fmaxf(n.x*l.x + n.y*l.y + n.z*l.z, 0.0f);
     float nv = fmaxf(n.x*v.x + n.y*v.y + n.z*v.z, 0.0f);
     if (nl <= 0.0f || nv <= 0.0f) { out[0] = out[1] = out[2] = 0.0f; return; }
@@ -567,10 +568,17 @@ static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
     float m = fmaxf(0.0f, fminf(metallic, 1.0f));
     float dielectric = dielectric_f0(ior);
     float fresnel_weight = powf(1.0f - fminf(vh, 1.0f), 5.0f);
+    float f_values[3], max_f=0.0f;
     for (int i = 0; i < 3; i++) {
-        float f0 = dielectric*(1.0f-m) + base[i]*m;
-        float f = f0 + (1.0f-f0)*fresnel_weight;
-        out[i] = ((1.0f-f)*(1.0f-m)*base[i]/3.14159265359f + distribution*visibility*f)*nl;
+        float dc = fmaxf(0.0f, fminf(dielectric*specular_color[i], 1.0f));
+        float f0 = dc*(1.0f-m) + base[i]*m;
+        float strength = specular_strength*(1.0f-m)+m;
+        f_values[i] = (f0 + (1.0f-f0)*fresnel_weight)*strength;
+        if (f_values[i] > max_f) max_f=f_values[i];
+    }
+    float diffuse_energy=1.0f-max_f;
+    for (int i = 0; i < 3; i++) {
+        out[i] = (diffuse_energy*(1.0f-m)*base[i]/3.14159265359f + distribution*visibility*f_values[i])*nl;
     }
 }
 
@@ -601,7 +609,7 @@ static void sample_brdf_lut(float nv, float roughness, float *a, float *b) {
 
 static void shade(const g3_draw_item *it, const g3_view_state *vs,
                   const g3_vec3 wp, g3_vec3 n, const float tex[3], const float mr[4], float ao,
-                  const float emission[3], float *out_rgb) {
+                  const float emission[3], float specular_strength, const float specular_color[3], float *out_rgb) {
     float len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
     if (len > 1e-12f) { n.x /= len; n.y /= len; n.z /= len; }
     else { n.x = n.y = n.z = 0.0f; }
@@ -632,14 +640,36 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
     float metallic = it->pbr.y * mr[2], roughness = it->pbr.z * mr[1];
     if (it->pbr.x > 0.5f) {
         float brdf[3];
-        pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, metallic, roughness, it->pbr.w, brdf);
-        float diffuse = 1.0f - fmaxf(0.0f, fminf(metallic, 1.0f));
+        pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){lx,ly,lz}, base, metallic, roughness, it->pbr.w, specular_strength, specular_color, brdf);
+        float metal = fmaxf(0.0f, fminf(metallic, 1.0f));
+        float nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f), fw=powf(1.0f-nv,5.0f), dielectric=dielectric_f0(it->pbr.w);
+        float diffuse_energy=1.0f;
+        for (int c=0;c<3;c++) {
+            float dc=fmaxf(0.0f,fminf(dielectric*specular_color[c],1.0f));
+            float f0=dc*(1.0f-metal)+base[c]*metal;
+            float f=(f0+(1.0f-f0)*fw)*(specular_strength*(1.0f-metal)+metal);
+            float energy=1.0f-f;
+            if (energy<diffuse_energy) diffuse_energy=energy;
+        }
+        if (diffuse_energy<0.0f) diffuse_energy=0.0f;
+        float diffuse = (1.0f-metal)*diffuse_energy;
         r = base[0]*vs->ambient.x*amb*diffuse*ao + brdf[0]*vs->light_color.x*visible;
         g = base[1]*vs->ambient.y*amb*diffuse*ao + brdf[1]*vs->light_color.y*visible;
         b = base[2]*vs->ambient.z*amb*diffuse*ao + brdf[2]*vs->light_color.z*visible;
     }
     float sky = n.y * 0.5f + 0.5f;
     float env_scale = it->pbr.x > 0.5f ? 1.0f - fmaxf(0.0f, fminf(metallic, 1.0f)) : 1.0f;
+    if (it->pbr.x > 0.5f) {
+        float nv=fmaxf(n.x*vx+n.y*vy+n.z*vz,0.0f), fw=powf(1.0f-nv,5.0f), dielectric=dielectric_f0(it->pbr.w);
+        float metal=fmaxf(0.0f,fminf(metallic,1.0f)), max_f=0.0f;
+        for (int c=0;c<3;c++) {
+            float dc=fmaxf(0.0f,fminf(dielectric*specular_color[c],1.0f));
+            float f0=dc*(1.0f-metal)+base[c]*metal;
+            float f=(f0+(1.0f-f0)*fw)*(specular_strength*(1.0f-metal)+metal);
+            if (f>max_f) max_f=f;
+        }
+        env_scale *= 1.0f-max_f;
+    }
     if (sky < 0.0f) sky = 0.0f;
     if (sky > 1.0f) sky = 1.0f;
     r += base[0] * (vs->env_ground.x * (1.0f - sky) + vs->env_sky.x * sky) * vs->env_sky.w * env_scale * ao;
@@ -670,8 +700,10 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
             sample_brdf_lut(nv,rough,&brdf_a,&brdf_b);
             for (int c=0;c<3;c++) {
                 float metal=fmaxf(0.0f,fminf(metallic,1.0f));
-                float f0=dielectric_f0(it->pbr.w)*(1.0f-metal)+base[c]*metal;
-                float specular=reflected[c]*(f0*brdf_a+brdf_b)*vs->environment_intensity*ao;
+                float dc=fmaxf(0.0f,fminf(dielectric_f0(it->pbr.w)*specular_color[c],1.0f));
+                float f0=dc*(1.0f-metal)+base[c]*metal;
+                float strength=specular_strength*(1.0f-metal)+metal;
+                float specular=reflected[c]*(f0*brdf_a+brdf_b)*strength*vs->environment_intensity*ao;
                 if (c==0) r+=specular; else if (c==1) g+=specular; else b+=specular;
             }
         }
@@ -711,7 +743,7 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
         float s = powf(nh2, shine) * it->params.y;
         if (it->pbr.x > 0.5f) {
             float brdf[3];
-            pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){ex,ey,ez}, base, metallic, roughness, it->pbr.w, brdf);
+            pbr_light(n, (g3_vec3){vx,vy,vz}, (g3_vec3){ex,ey,ez}, base, metallic, roughness, it->pbr.w, specular_strength, specular_color, brdf);
             r += brdf[0]*light->color.x*falloff; g += brdf[1]*light->color.y*falloff; b += brdf[2]*light->color.z*falloff;
         } else {
             r += (base[0] * d + s) * light->color.x * falloff;
@@ -1378,12 +1410,28 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             emission[0] = it->emissive.x * emissive_tex[0];
             emission[1] = it->emissive.y * emissive_tex[1];
             emission[2] = it->emissive.z * emissive_tex[2];
+            float specular_strength=it->specular.w;
+            float specular_color[3]={it->specular.x,it->specular.y,it->specular.z};
+            if (it->specular_texture >= 0) {
+                float su,sv,sample[4],raw_u,raw_v;
+                interpolate_uv(t,it->specular_uv.texcoord,b0,b1,b2,&raw_u,&raw_v);
+                transform_uv(&it->specular_uv,raw_u,raw_v,&su,&sv);
+                sample_texture(it->specular_texture,su,sv,texture_footprint(t,it->specular_texture,&it->specular_uv,l0,l1,l2,raw_u,raw_v),sample);
+                specular_strength*=sample[3];
+            }
+            if (it->specular_color_texture >= 0) {
+                float su,sv,sample[4],raw_u,raw_v;
+                interpolate_uv(t,it->specular_color_uv.texcoord,b0,b1,b2,&raw_u,&raw_v);
+                transform_uv(&it->specular_color_uv,raw_u,raw_v,&su,&sv);
+                sample_texture(it->specular_color_texture,su,sv,texture_footprint(t,it->specular_color_texture,&it->specular_color_uv,l0,l1,l2,raw_u,raw_v),sample);
+                for (int c=0;c<3;c++) specular_color[c]*=sample[c];
+            }
             float alpha = it->color.w * tex[3];
             if (it->alpha_mode == 1 && alpha < it->alpha_cutoff) continue;
             if (it->double_sided && t->normal_sign < 0.0f) {
                 n.x = -n.x; n.y = -n.y; n.z = -n.z;
             }
-            shade(it, vs, wp, n, tex, mr, ao, emission, rgb);
+            shade(it, vs, wp, n, tex, mr, ao, emission, specular_strength, specular_color, rgb);
             if (counting) shaded += 1;
             if (vs->params.z > 0.5f) blend_pixel_hdr(hdr_fb + at * 3, rgb, alpha, blended);
             else blend_pixel(fb + at * 3, rgb, alpha, blended);
