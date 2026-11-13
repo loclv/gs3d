@@ -71,6 +71,9 @@ struct ViewState {
     point_shadow_view_proj: Mat4[6],
     point_shadow_light_index: i32,
     point_shadow_params: float4, // x enabled, y normalized depth bias
+    spot_shadow_view_proj: Mat4,
+    spot_shadow_light_index: i32,
+    spot_shadow_params: float4, // x enabled, y normalized depth bias
 }
 
 // --- the backend interface

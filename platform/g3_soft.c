@@ -55,6 +55,7 @@ static int32_t texture_count;
 #define SHADOW_SIZE 512
 static float shadow_depth[SHADOW_SIZE * SHADOW_SIZE];
 static float point_shadow_depth[6][SHADOW_SIZE * SHADOW_SIZE];
+static float spot_shadow_depth[SHADOW_SIZE * SHADOW_SIZE];
 
 /* --- the frame's scratch
 
@@ -345,6 +346,7 @@ static void sample_texture(int32_t id, float u, float v, float rho, float out[4]
 static void sample_environment_lod(int32_t id, float u, float v, float lod, float out[4]);
 static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int light_index);
+static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
 
 /* glTF metallic-roughness direct BRDF: GGX, correlated Smith, Schlick. */
 static void pbr_light(g3_vec3 n, g3_vec3 v, g3_vec3 l, const float base[3],
@@ -472,6 +474,8 @@ static void shade(const g3_draw_item *it, const g3_view_state *vs,
         }
         if (vs->point_shadow_params.x > 0.5f && i == vs->point_shadow_light_index && light->position.w > 0.5f && light->position.w < 1.5f)
             falloff *= point_shadow_visibility(vs, wp, i);
+        if (vs->spot_shadow_params.x > 0.5f && i == vs->spot_shadow_light_index && light->position.w > 1.5f)
+            falloff *= spot_shadow_visibility(vs, wp);
         float d = n.x * ex + n.y * ey + n.z * ez;
         if (d < 0.0f) d = 0.0f;
         float ax = ex + vx, ay = ey + vy, az = ez + vz;
@@ -774,6 +778,19 @@ static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int li
     return z-vs->point_shadow_params.y <= point_shadow_depth[face][py*SHADOW_SIZE+px] ? 1.0f : 0.0f;
 }
 
+static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
+    const float *m=vs->spot_shadow_view_proj.m;
+    float x=m[0]*wp.x+m[4]*wp.y+m[8]*wp.z+m[12];
+    float y=m[1]*wp.x+m[5]*wp.y+m[9]*wp.z+m[13];
+    float z=m[2]*wp.x+m[6]*wp.y+m[10]*wp.z+m[14];
+    float w=m[3]*wp.x+m[7]*wp.y+m[11]*wp.z+m[15];
+    if (w <= 0.0f) return 1.0f;
+    x=x/w*0.5f+0.5f; y=y/w*0.5f+0.5f; z=z/w*0.5f+0.5f;
+    if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
+    int px=(int)(x*SHADOW_SIZE), py=SHADOW_SIZE-1-(int)(y*SHADOW_SIZE);
+    return z-vs->spot_shadow_params.y <= spot_shadow_depth[py*SHADOW_SIZE+px] ? 1.0f : 0.0f;
+}
+
 /* Perspective-correct UV at a neighboring pixel, even if it lies just
    outside this triangle. These finite differences approximate GPU LOD. */
 static float texture_footprint(const soft_tri *t, int32_t id, float l0, float l1, float l2, float u, float v) {
@@ -1070,6 +1087,8 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (view->shadow_params.x > 0.5f) render_shadow_map(items, view, &view->shadow_view_proj, shadow_depth);
     if (view->point_shadow_params.x > 0.5f && view->point_shadow_light_index >= 0 && view->point_shadow_light_index < view->light_count)
         for (int face=0; face<6; face++) render_shadow_map(items, view, &view->point_shadow_view_proj[face], point_shadow_depth[face]);
+    if (view->spot_shadow_params.x > 0.5f && view->spot_shadow_light_index >= 0 && view->spot_shadow_light_index < view->light_count && view->lights[view->spot_shadow_light_index].position.w > 1.5f)
+        render_shadow_map(items, view, &view->spot_shadow_view_proj, spot_shadow_depth);
     prof.frames += 1;
     const double t0 = prof.on ? now_seconds() : 0.0;
 

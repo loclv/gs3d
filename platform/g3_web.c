@@ -44,6 +44,7 @@ typedef struct {
     GLint env_map, env_map_enabled, env_map_intensity;
     GLint shadow_map, shadow_matrix, shadow_params;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
+    GLint spot_shadow_map, spot_shadow_matrix, spot_shadow_index, spot_shadow_params;
     GLint alpha_mode, alpha_cutoff;
 } web_shader;
 
@@ -59,6 +60,7 @@ static GLuint env_sampler;
 static int checked_gl;
 static GLuint shadow_program, shadow_fbo, shadow_texture;
 static GLuint point_shadow_texture;
+static GLuint spot_shadow_texture;
 static GLint shadow_light_matrix, shadow_model_matrix;
 static GLint shadow_mask, shadow_cutoff, shadow_alpha, shadow_tex, shadow_textured;
 static GLuint output_program, output_fbo, output_color, output_depth, output_vao;
@@ -129,6 +131,10 @@ static const char *FRAGMENT_SRC =
     "uniform mat4 u_point_shadow_matrices[6];\n"
     "uniform int u_point_shadow_index;\n"
     "uniform vec4 u_point_shadow_params;\n"
+    "uniform sampler2DShadow u_spot_shadow_map;\n"
+    "uniform mat4 u_spot_shadow_matrix;\n"
+    "uniform int u_spot_shadow_index;\n"
+    "uniform vec4 u_spot_shadow_params;\n"
     "uniform vec4 u_ambient;\n"
     "uniform vec4 u_fog;\n"
     "out vec4 out_color;\n"
@@ -224,6 +230,10 @@ static const char *FRAGMENT_SRC =
     "            vec4 lp = u_point_shadow_matrices[face] * vec4(v_world, 1.0);\n"
     "            float refz = lp.z / lp.w * 0.5 + 0.5 - u_point_shadow_params.y;\n"
     "            if (lp.w > 0.0 && refz >= 0.0 && refz <= 1.0) falloff *= texture(u_point_shadow_map, vec4(delta, refz));\n"
+    "        }\n"
+    "        if (u_spot_shadow_params.x > 0.5 && i == u_spot_shadow_index && light.position.w > 1.5) {\n"
+    "            vec4 lp = u_spot_shadow_matrix * vec4(v_world, 1.0); vec3 uvz = lp.xyz / lp.w * 0.5 + 0.5;\n"
+    "            if (lp.w > 0.0 && all(greaterThanEqual(uvz, vec3(0.0))) && all(lessThan(uvz.xy, vec2(1.0))) && uvz.z <= 1.0) falloff *= texture(u_spot_shadow_map, vec3(uvz.xy, uvz.z-u_spot_shadow_params.y));\n"
     "        }\n"
     "        float d = max(dot(n, ld), 0.0);\n"
     "        vec3 halfdir = normalize(ld + v);\n"
@@ -321,6 +331,10 @@ static void find_uniforms(void) {
     shader.point_shadow_matrices = glGetUniformLocation(shader.program, "u_point_shadow_matrices[0]");
     shader.point_shadow_index = glGetUniformLocation(shader.program, "u_point_shadow_index");
     shader.point_shadow_params = glGetUniformLocation(shader.program, "u_point_shadow_params");
+    shader.spot_shadow_map = glGetUniformLocation(shader.program, "u_spot_shadow_map");
+    shader.spot_shadow_matrix = glGetUniformLocation(shader.program, "u_spot_shadow_matrix");
+    shader.spot_shadow_index = glGetUniformLocation(shader.program, "u_spot_shadow_index");
+    shader.spot_shadow_params = glGetUniformLocation(shader.program, "u_spot_shadow_params");
     shader.alpha_mode = glGetUniformLocation(shader.program, "u_alpha_mode");
     shader.alpha_cutoff = glGetUniformLocation(shader.program, "u_alpha_cutoff");
     for (int i = 0; i < 4; i++) {
@@ -406,8 +420,10 @@ void g3p_shutdown(void) {
     if (shadow_fbo) glDeleteFramebuffers(1, &shadow_fbo);
     if (shadow_texture) glDeleteTextures(1, &shadow_texture);
     if (point_shadow_texture) glDeleteTextures(1, &point_shadow_texture);
+    if (spot_shadow_texture) glDeleteTextures(1, &spot_shadow_texture);
     shadow_program = shadow_fbo = shadow_texture = 0;
     point_shadow_texture = 0;
+    spot_shadow_texture = 0;
     for (int32_t i = 0; i < texture_count; i++) glDeleteTextures(1, &textures[i]);
     free(textures); textures = NULL; texture_count = 0;
     if (env_sampler) glDeleteSamplers(1, &env_sampler);
@@ -608,6 +624,12 @@ static void bind_view(const g3_view_state *view) {
     glUniformMatrix4fv(shader.point_shadow_matrices, 6, GL_FALSE, view->point_shadow_view_proj[0].m);
     glUniform1i(shader.point_shadow_index, view->point_shadow_light_index);
     glUniform4f(shader.point_shadow_params, point_shadow_texture ? view->point_shadow_params.x : 0.0f, view->point_shadow_params.y, 0.0f, 0.0f);
+    glActiveTexture(GL_TEXTURE8);
+    glBindTexture(GL_TEXTURE_2D, spot_shadow_texture);
+    glUniform1i(shader.spot_shadow_map, 8);
+    glUniformMatrix4fv(shader.spot_shadow_matrix, 1, GL_FALSE, view->spot_shadow_view_proj.m);
+    glUniform1i(shader.spot_shadow_index, view->spot_shadow_light_index);
+    glUniform4f(shader.spot_shadow_params, spot_shadow_texture ? view->spot_shadow_params.x : 0.0f, view->spot_shadow_params.y, 0.0f, 0.0f);
     int count = view->light_count < 0 ? 0 : view->light_count > 4 ? 4 : view->light_count;
     glUniform1i(shader.light_count, count);
     for (int i = 0; i < count; i++) {
@@ -679,13 +701,29 @@ static int ensure_point_shadow_map(void) {
     return 1;
 }
 
-static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *view) {
+static int ensure_spot_shadow_map(void) {
+    if (spot_shadow_texture) return 1;
+    if (!ensure_shadow_map()) return 0;
+    glGenTextures(1,&spot_shadow_texture);
+    glBindTexture(GL_TEXTURE_2D,spot_shadow_texture);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_DEPTH_COMPONENT24,SHADOW_SIZE,SHADOW_SIZE,0,GL_DEPTH_COMPONENT,GL_UNSIGNED_INT,NULL);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_COMPARE_MODE,GL_COMPARE_REF_TO_TEXTURE);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_COMPARE_FUNC,GL_LEQUAL);
+    if (glGetError()!=GL_NO_ERROR) { glDeleteTextures(1,&spot_shadow_texture); spot_shadow_texture=0; return 0; }
+    return 1;
+}
+
+static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *view, const g3_mat4 *light_matrix, GLuint depth_texture) {
     glBindFramebuffer(GL_FRAMEBUFFER, shadow_fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadow_texture, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth_texture, 0);
     glViewport(0, 0, SHADOW_SIZE, SHADOW_SIZE);
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glClear(GL_DEPTH_BUFFER_BIT);
     glUseProgram(shadow_program);
-    glUniformMatrix4fv(shadow_light_matrix, 1, GL_FALSE, view->shadow_view_proj.m);
+    glUniformMatrix4fv(shadow_light_matrix, 1, GL_FALSE, light_matrix->m);
     for (int64_t i = 0; i < items.len; i++) {
         const g3_draw_item *it = &items.data[i];
         if (it->params.w > 0.5f || it->mesh < 0 || it->mesh >= mesh_count) continue;
@@ -859,9 +897,11 @@ static void present_srgb(void) {
 
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (!ctx || !shader.program) return;
-    if (view->shadow_params.x > 0.5f && ensure_shadow_map()) render_shadow_map(items, view);
+    if (view->shadow_params.x > 0.5f && ensure_shadow_map()) render_shadow_map(items, view, &view->shadow_view_proj, shadow_texture);
     if (view->point_shadow_params.x > 0.5f && view->point_shadow_light_index >= 0 && view->point_shadow_light_index < view->light_count)
         render_point_shadow_maps(items, view);
+    if (view->spot_shadow_params.x > 0.5f && view->spot_shadow_light_index >= 0 && view->spot_shadow_light_index < view->light_count && view->lights[view->spot_shadow_light_index].position.w > 1.5f && ensure_spot_shadow_map())
+        render_shadow_map(items, view, &view->spot_shadow_view_proj, spot_shadow_texture);
     int encode = view->params.y > 0.5f && ensure_output_target();
     glBindFramebuffer(GL_FRAMEBUFFER, encode ? output_fbo : 0);
     glViewport(0, 0, surf_w, surf_h);

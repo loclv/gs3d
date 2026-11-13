@@ -52,7 +52,7 @@ fn set_light(dir: float3, color: float3) {
 }
 
 // The original directional light is independent of these four extra lights.
-fn clear_lights() { g_view_state.light_count = 0; clear_point_light_shadows(); }
+fn clear_lights() { g_view_state.light_count = 0; clear_point_light_shadows(); clear_spot_light_shadows(); }
 
 fn add_directional_light(dir: float3, color: float3) -> bool {
     guard length(dir) > 0.0 && g_view_state.light_count < 4 else { return false; }
@@ -99,6 +99,27 @@ fn set_point_light_shadows(light_index: i32, bias: f32) -> bool {
 fn clear_point_light_shadows() {
     g_view_state.point_shadow_light_index = -1;
     g_view_state.point_shadow_params.x = 0.0;
+}
+
+// One extra spot light can cast a single-perspective hard shadow. Spot angles
+// wider than a hemisphere cannot be represented by this perspective map.
+fn set_spot_light_shadows(light_index: i32, bias: f32) -> bool {
+    guard light_index >= 0 && light_index < g_view_state.light_count && bias >= 0.0 else { return false; }
+    let light = g_view_state.lights[light_index];
+    guard light.position.w > 1.5 && light.direction.w > 0.01 && light.color.w > 0.0 else { return false; }
+    let eye = float3 { light.position.x, light.position.y, light.position.z };
+    let dir = float3 { light.direction.x, light.direction.y, light.direction.z };
+    let up = if abs(dir.y) > 0.95 { float3 { 1.0, 0.0, 0.0 } } else { float3 { 0.0, 1.0, 0.0 } };
+    let projection = mat4_perspective(2.0 * acos(light.color.w), 1.0, 0.01, light.direction.w);
+    g_view_state.spot_shadow_view_proj = mat4_mul(projection, mat4_look_at(eye, eye + dir, up));
+    g_view_state.spot_shadow_light_index = light_index;
+    g_view_state.spot_shadow_params = float4 { 1.0, bias, 0.0, 0.0 };
+    return true;
+}
+
+fn clear_spot_light_shadows() {
+    g_view_state.spot_shadow_light_index = -1;
+    g_view_state.spot_shadow_params.x = 0.0;
 }
 
 // Angles are half-angles in radians, with a smooth falloff between them.
@@ -231,7 +252,7 @@ fn render_scene() {
         g_stats.nodes += 1;
         let m .= mesh(n.mesh);
         let box = aabb_transform(m.bounds, n.world);
-        if !frustum_intersects(g_frustum, box) && g_view_state.shadow_params.x < 0.5 && g_view_state.point_shadow_params.x < 0.5 {
+        if !frustum_intersects(g_frustum, box) && g_view_state.shadow_params.x < 0.5 && g_view_state.point_shadow_params.x < 0.5 && g_view_state.spot_shadow_params.x < 0.5 {
             g_stats.culled += 1;
             continue;
         }

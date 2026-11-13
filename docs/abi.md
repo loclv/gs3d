@@ -65,7 +65,7 @@ discarded, including in the shadow pass. Blended items read depth but do not
 write it; opaque and surviving mask fragments write depth. Texture alpha is
 ignored for opaque items.
 
-### `g3_view_state` — 852 bytes
+### `g3_view_state` — 936 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -88,11 +88,15 @@ ignored for opaque items.
 | 448 | `g3_mat4[6]` | `point_shadow_view_proj` | six point-light cube-face world-to-shadow transforms |
 | 832 | `int32_t` | `point_shadow_light_index` | selected extra point light, or -1 |
 | 836 | `g3_vec4` | `point_shadow_params` | x enabled, y normalized depth bias |
+| 852 | `g3_mat4` | `spot_shadow_view_proj` | selected spot light's world-to-shadow clip transform |
+| 916 | `int32_t` | `spot_shadow_light_index` | selected extra spot light, or -1 |
+| 920 | `g3_vec4` | `spot_shadow_params` | x enabled, y normalized depth bias |
 
-Only one extra point light can cast shadows per frame. The WebGL backend stores
-its six depth faces in a cube texture; the CPU backend stores six depth arrays.
-Both use 512×512 hard-shadow maps, discard blended casters, and include masked
-alpha cutouts.
+One extra point light and one extra spot light can cast shadows per frame. The
+WebGL backend stores point depth in a cube texture and spot depth in a 2D
+texture; the CPU backend stores six point depth arrays and one spot depth
+array. All maps use 512×512 hard shadows, discard blended casters, and include
+masked alpha cutouts. Spot projection supports outer half-angles below 90°.
 
 Each packed `g3_light` is 52 bytes: position and type in a `vec4`, direction
 and range in a `vec4`, colour and outer-cone cosine in a `vec4`, followed by
