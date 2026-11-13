@@ -78,7 +78,8 @@ and a browser integration check for behavior exposed through WebGL.
 * **Partly implemented:** native Goose programs can load and dispose one static
   primitive from a GLB, including float vertex attributes, triangle indices,
   the first matching node's world transform composed through its ancestors,
-  scalar material factors and flags, and declared `KHR_materials_unlit`.
+  scalar material factors and flags, plus declared `KHR_materials_unlit`,
+  `KHR_materials_emissive_strength`, and `KHR_materials_ior`.
   Material textures, images, full node hierarchy, animations, sparse data, and
   external `.gltf` buffers remain browser-only.
 * **Implemented:** glTF `doubleSided` materials disable face culling in colour

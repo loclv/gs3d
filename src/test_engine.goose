@@ -321,12 +321,14 @@ fn case_native_glb_load() {
                    "native GLB rejects nodes with multiple parents");
     var unlit_doc: json::Node[>..] = [];
     var unlit_decoded: u8[>..] = [];
-    let unlit_root, unlit_error = json::parse("{\"extensionsUsed\":[\"KHR_materials_unlit\"],\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.2,0.3,0.4,1]},\"extensions\":{\"KHR_materials_unlit\":{}}}],\"primitive\":{\"material\":0}}", unlit_doc, unlit_decoded);
+    let unlit_root, unlit_error = json::parse("{\"extensionsUsed\":[\"KHR_materials_unlit\",\"KHR_materials_emissive_strength\",\"KHR_materials_ior\"],\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.2,0.3,0.4,1]},\"emissiveFactor\":[0.1,0.2,0.3],\"extensions\":{\"KHR_materials_unlit\":{},\"KHR_materials_emissive_strength\":{\"emissiveStrength\":4},\"KHR_materials_ior\":{\"ior\":1.33}}}],\"primitive\":{\"material\":0}}", unlit_doc, unlit_decoded);
     let unlit_material, unlit_ok = g3::glb_material(unlit_root, json::member(unlit_root, "primitive"));
     let unlit_live = unlit_ok && g3::material_handle_valid(unlit_material) && g3::material(unlit_material.id).unlit &&
-                     abs(g3::material(unlit_material.id).color.x - 0.2) < 0.001;
+                     abs(g3::material(unlit_material.id).color.x - 0.2) < 0.001 &&
+                     abs(g3::material(unlit_material.id).emissive.z - 1.2) < 0.001 &&
+                     abs(g3::material(unlit_material.id).ior - 1.33) < 0.001;
     testing::check(unlit_root && unlit_error.len == 0 && unlit_live,
-                   "native GLB imports declared KHR_materials_unlit materials");
+                   "native GLB imports declared unlit, emissive-strength, and IOR material extensions");
     if g3::material_handle_valid(unlit_material) { g3::material_asset_release(unlit_material); }
     var undeclared_doc: json::Node[>..] = [];
     var undeclared_decoded: u8[>..] = [];

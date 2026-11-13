@@ -66,6 +66,14 @@ fn glb_array_has_string(node: json::Node?, value: const u8[:]) -> bool {
     return false;
 }
 
+fn glb_material_extension(root: json::Node?, source: json::Node?, name: const u8[:]) -> json::Node?, bool {
+    let extension = json::member(json::member(source, "extensions"), name);
+    if extension {
+        guard glb_array_has_string(json::member(root, "extensionsUsed"), name) else { return null, false; }
+    }
+    return extension, true;
+}
+
 fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bool {
     let material_node = json::member(primitive, "material");
     if !material_node { return MaterialHandle { .. }, true; }
@@ -96,6 +104,15 @@ fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bo
         guard a && b && c && r >= 0.0 && r <= 3.4e38 && g >= 0.0 && g <= 3.4e38 && blue >= 0.0 && blue <= 3.4e38 else { return MaterialHandle { .. }, false; }
         emissive = float3 { r as f32, g as f32, blue as f32 };
     }
+    let emissive_extension, emissive_extension_ok = glb_material_extension(root, source, "KHR_materials_emissive_strength");
+    guard emissive_extension_ok else { return MaterialHandle { .. }, false; }
+    let emissive_strength, emissive_strength_ok = glb_number(json::member(emissive_extension, "emissiveStrength"), 1.0);
+    guard emissive_strength_ok && emissive_strength >= 0.0 && emissive_strength <= 3.4e38 else { return MaterialHandle { .. }, false; }
+    emissive = emissive * (emissive_strength as f32);
+    let ior_extension, ior_extension_ok = glb_material_extension(root, source, "KHR_materials_ior");
+    guard ior_extension_ok else { return MaterialHandle { .. }, false; }
+    let ior, ior_ok = glb_number(json::member(ior_extension, "ior"), 1.5);
+    guard ior_ok && ior >= 1.0 && ior <= 2.333 else { return MaterialHandle { .. }, false; }
     var alpha_mode: i32 = 0;
     let mode_node = json::member(source, "alphaMode");
     if mode_node {
@@ -121,7 +138,7 @@ fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bo
     let m .= material(id);
     m.color = if alpha_mode == 0 { float4 { color.x, color.y, color.z, 1.0 } } else { color };
     m.alpha_mode = alpha_mode; m.alpha_cutoff = cutoff as f32; m.pbr = true;
-    m.metallic = metallic_value as f32; m.roughness = roughness_value as f32;
+    m.metallic = metallic_value as f32; m.roughness = roughness_value as f32; m.ior = ior as f32;
     m.emissive = emissive; m.double_sided = double_sided; m.unlit = unlit;
     return material_handle(id), true;
 }

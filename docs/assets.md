@@ -82,6 +82,8 @@ applies the first matching node instance's matrix or TRS transform composed
 with its ancestors. It imports
 material base colour, metallic and roughness factors, emissive factor, alpha
 mode and cutoff, the double-sided flag, and declared `KHR_materials_unlit`.
+Declared `KHR_materials_emissive_strength` and `KHR_materials_ior` are applied
+to emissive output and dielectric response.
 `NativeGlbModel` owns checked mesh, node, and material handles; dispose the model
 to release them. It does not yet
 load material textures, images, external `.gltf` buffers, skins, animations,
