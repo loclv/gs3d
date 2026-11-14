@@ -194,9 +194,11 @@ and a browser integration check for behavior exposed through WebGL.
   Chrome runner consumes its machine-readable result; run it with
   `npm run test:browser` from `web/`. The runner builds and serves the reference
   page locally, uses SwiftShader, and fails on a failed check, page exception,
-  or timeout. `.github/workflows/browser-reference.yml` runs it on pushes and
-  pull requests with a checksum-verified Goose compiler and a headless Chrome
-  install. Capture additional reference images on representative target GPUs.
+  or timeout. The same runner opens the model viewer and checks camera, clip,
+  shadow, variant and environment controls, textured mesh selection, previews,
+  and model reload. `.github/workflows/browser-reference.yml` runs it on pushes
+  and pull requests with a checksum-verified Goose compiler and a headless
+  Chrome install. Capture additional reference images on representative target GPUs.
   The browser model API
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material

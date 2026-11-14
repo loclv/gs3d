@@ -202,7 +202,108 @@ async function run() {
       .filter(event => event.method === 'Runtime.exceptionThrown')
       .map(event => event.params.exceptionDetails?.text ?? event.params.exceptionDetails?.exception?.description ?? 'uncaught page exception');
     if (runtimeErrors.length) throw new Error(`Browser raised uncaught exceptions: ${runtimeErrors.join('; ')}`);
-    console.log(`browser reference checks passed (${result.results.length} checks) with ${version.Browser}`);
+
+    await page.send('Page.navigate', { url: `http://127.0.0.1:${port}/viewer/` });
+    const waitFor = async (expression, description) => {
+      const viewerDeadline = Date.now() + timeoutMs;
+      while (Date.now() < viewerDeadline) {
+        const value = await page.evaluate(expression);
+        if (value) return value;
+        await delay(200);
+      }
+      throw new Error(`Timed out waiting for ${description}`);
+    };
+    const initialViewer = await waitFor(`(() => {
+      const status = document.querySelector('#status')?.textContent ?? '';
+      return !document.querySelector('#reload')?.disabled && /^(Playing|Model loaded)/.test(status)
+        ? { status, cameras: document.querySelector('#camera')?.options.length,
+          lights: document.querySelector('#shadow-light')?.options.length,
+          variants: document.querySelector('#variant')?.options.length,
+          clips: document.querySelector('#animation-clip')?.options.length }
+        : null;
+    })()`, 'the bundled viewer model to load');
+    assert.match(initialViewer.status, /^Playing Turntable/, 'viewer starts the bundled animation');
+    assert.equal(initialViewer.cameras, 3, 'viewer exposes its default and two glTF cameras');
+    assert.equal(initialViewer.lights, 3, 'viewer exposes point and spot shadow choices');
+    assert.equal(initialViewer.variants, 2, 'viewer exposes the Blue paint material variant');
+    assert.equal(initialViewer.clips, 2, 'viewer exposes both animation clips');
+
+    const animationState = await page.evaluate(`(() => {
+      const toggle = document.querySelector('#animation-toggle');
+      toggle.click();
+      const paused = toggle.getAttribute('aria-pressed') === 'false' && toggle.textContent === 'Play';
+      toggle.click();
+      const resumed = toggle.getAttribute('aria-pressed') === 'true' && toggle.textContent === 'Pause';
+      const clip = document.querySelector('#animation-clip');
+      clip.value = '1'; clip.dispatchEvent(new Event('change', { bubbles: true }));
+      const switched = clip.value === '1';
+      const time = document.querySelector('#animation-time');
+      time.value = String(Number(time.max) * 0.4);
+      time.dispatchEvent(new Event('input', { bubbles: true }));
+      const sought = Number(time.value) > 0 && document.querySelector('#animation-time-value').value.includes('/');
+      return { paused, resumed, switched, sought };
+    })()`);
+    assert.deepEqual(animationState, { paused: true, resumed: true, switched: true, sought: true },
+      'viewer animation controls pause, resume, switch clips, and seek');
+
+    const viewerControls = await page.evaluate(`(() => {
+      const change = (selector, value, eventName = 'change') => {
+        const element = document.querySelector(selector);
+        element.value = value;
+        element.dispatchEvent(new Event(eventName, { bubbles: true }));
+        return element.value === value;
+      };
+      const camera = document.querySelector('#camera').options[1].value;
+      const point = [...document.querySelector('#shadow-light').options].find(option => option.value.startsWith('point:'))?.value;
+      const spot = [...document.querySelector('#shadow-light').options].find(option => option.value.startsWith('spot:'))?.value;
+      return {
+        camera: change('#camera', camera), point: point && change('#shadow-light', point),
+        spot: spot && change('#shadow-light', spot), noShadow: change('#shadow-light', 'none'),
+        variant: change('#variant', '0') && change('#variant', '-1'),
+        yaw: change('#environment-rotation', '47', 'input'),
+        hemisphere: change('#hemisphere-intensity', '0.8', 'input'),
+      };
+    })()`);
+    assert.deepEqual(viewerControls, {
+      camera: true, point: true, spot: true, noShadow: true,
+      variant: true, yaw: true, hemisphere: true,
+    }, 'viewer camera, shadow, variant, and environment controls respond');
+
+    const canvasPoint = await page.evaluate(`(() => {
+      const rect = document.querySelector('#canvas').getBoundingClientRect();
+      return { x: rect.left + rect.width * 0.52, y: rect.top + rect.height * 0.52 };
+    })()`);
+    const clickOffsets = [
+      [0, 0], [35, 0], [-35, 0], [0, 35], [0, -35], [70, 25], [-70, 25],
+      [35, 55], [-35, 55], [70, -25], [-70, -25], [0, 70], [0, -70],
+    ];
+    let selection = null;
+    for (const [dx, dy] of clickOffsets) {
+      const x = canvasPoint.x + dx;
+      const y = canvasPoint.y + dy;
+      await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+      selection = await page.evaluate(`(() => ({ status: document.querySelector('#status').textContent,
+        inspection: document.querySelector('#inspection').textContent,
+        previews: document.querySelector('#texture-previews').childElementCount }))()`);
+      if (selection.status.startsWith('Selected ') && selection.previews > 0) break;
+    }
+    assert.ok(selection?.status.startsWith('Selected ') && selection.previews > 0,
+      'clicking the textured sample selects a mesh with material texture previews');
+    assert.notEqual(selection.inspection, 'Click a mesh to inspect its material.', 'mesh selection updates material inspection');
+
+    await page.evaluate("document.querySelector('#reload').click()");
+    const reloaded = await waitFor(`(() => {
+      const status = document.querySelector('#status')?.textContent ?? '';
+      return !document.querySelector('#reload')?.disabled && /^Playing Turntable/.test(status) ? status : null;
+    })()`, 'the viewer to finish reloading the model');
+    assert.match(reloaded, /imported lights active/, 'reload restores the sample and its imported lights');
+
+    const viewerExceptions = page.events
+      .filter(event => event.method === 'Runtime.exceptionThrown')
+      .map(event => event.params.exceptionDetails?.text ?? event.params.exceptionDetails?.exception?.description ?? 'uncaught page exception');
+    if (viewerExceptions.length) throw new Error(`Viewer raised uncaught exceptions: ${viewerExceptions.join('; ')}`);
+    console.log(`browser reference checks passed (${result.results.length} rendering checks); viewer integration checks passed with ${version.Browser}`);
   } finally {
     socket?.close();
     child.kill('SIGTERM');
