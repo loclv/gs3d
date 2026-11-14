@@ -36,11 +36,14 @@ skeletal animation. Prioritize work in this order:
    lighting, point and spot shadows, animation, camera switching, and asset
    disposal. Keep CPU pixel tests as fast regression checks; browser checks
    catch shader, upload, and presentation failures they cannot cover.
-2. **Close the native scene contract.** Document the supported glTF
-   subset and error behavior in one place, add fixtures for each supported
-   buffer and image source, and keep scene disposal and repeated-load resource
-   reuse covered by native tests. Native CPU skinning updates retained geometry
-   and bounds; the browser path uses GPU palettes.
+2. **Complete — native scene contract.** The supported glTF subset and
+   failure behavior are documented in [assets.md](assets.md). Native tests
+   cover GLB binary data, external and base64 buffers, GLB buffer-view,
+   external and data-URI images, malformed and unsafe paths, PPM/PNG/JPEG/HDR
+   image loading, rollback, scene disposal, and repeated-load reuse. Native CPU
+   skinning updates retained geometry and bounds; the browser path uses GPU
+   palettes. Add matching fixtures and lifecycle checks when expanding this
+   supported subset.
 3. **Finish package adoption.** Publish the package with its existing
    subpaths and TypeScript declarations, then provide a minimal browser example
    that loads a remote textured model, reports load errors, and disposes it
