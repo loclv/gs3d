@@ -40,6 +40,11 @@ assert.ok(exampleSource.includes('if (pageClosed) { next.dispose(); return; }'),
   'the package consumer releases a model that finishes after page teardown');
 assert.ok(exampleSource.includes('pendingModelLoads === 0) engine?._g3_app_shutdown()'),
   'the package consumer defers engine shutdown until pending model loads finish');
+assert.ok(exampleSource.includes('const request = ++latestLoadRequest') &&
+  exampleSource.includes('if (request !== latestLoadRequest) { next.dispose(); return; }'),
+  'the package consumer disposes results from superseded model requests');
+assert.ok(exampleSource.includes('pageClosed || request !== latestLoadRequest'),
+  'the package consumer ignores errors from superseded model requests');
 assert.ok(exampleSource.includes('raw.githubusercontent.com/mrdoob/three.js') &&
   exampleHtml.includes('licensed CC0 1.0'), 'the consumer example identifies its remote sample and license');
 for (const control of ['animation-controls', 'animation-clip', 'animation-toggle', 'animation-time']) {

@@ -16,6 +16,7 @@ let controls = null;
 let lastFrame = 0;
 let pageClosed = false;
 let pendingModelLoads = 0;
+let latestLoadRequest = 0;
 
 window.addEventListener('pagehide', event => {
   if (event.persisted) return;
@@ -43,12 +44,14 @@ function updateCameras() {
 
 async function loadModel(url) {
   if (pageClosed) return;
+  const request = ++latestLoadRequest;
   pendingModelLoads++;
   loadButton.disabled = true;
   status.textContent = `Loading ${url}…`;
   try {
     const next = await loadGLTF(engine, url);
     if (pageClosed) { next.dispose(); return; }
+    if (request !== latestLoadRequest) { next.dispose(); return; }
     if (model) model.dispose();
     model = next;
     updateCameras();
@@ -57,12 +60,12 @@ async function loadModel(url) {
     status.textContent = `Loaded ${model.nodes.length} nodes, ${model.meshes.length} meshes, ` +
       `${model.textures.length} textures, and ${model.animations.length} animations.`;
   } catch (error) {
-    if (pageClosed) return;
+    if (pageClosed || request !== latestLoadRequest) return;
     const detail = error instanceof AssetError ? `${error.code}: ${error.message}` : error.message;
     status.textContent = `Could not load model. ${detail}`;
   } finally {
     pendingModelLoads--;
-    loadButton.disabled = false;
+    if (request === latestLoadRequest) loadButton.disabled = false;
     if (pageClosed && pendingModelLoads === 0) engine?._g3_app_shutdown();
   }
 }

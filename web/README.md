@@ -77,7 +77,8 @@ defaults to the remote [RobotExpressive sample](https://github.com/mrdoob/three.
 licensed CC0 1.0, and accepts `?model=<URL>` or an entered URL for another
 remote glTF/GLB with CORS enabled. Use **Use bundled sample** for an offline
 asset. The page shows asset errors, keeps the current model if a replacement
-fails, and disposes model and control resources when replacing or unloading.
+fails, disposes results from superseded loads, and releases model and control
+resources when replacing or unloading.
 
 `createOrbitControls` handles pointer orbit, right-button or shift-drag pan,
 two-finger pinch and pan, wheel zoom, keyboard camera controls, and click

@@ -46,8 +46,10 @@ skeletal animation. Prioritize work in this order:
    supported subset.
 3. **Finish package adoption.** The local consumer example at
    `web/examples/model-loader/` uses both package subpaths, accepts a CORS-
-   enabled remote model URL, reports load errors, and disposes resources. It
-   defaults to the RobotExpressive remote GLB, with CC0 1.0 source and license
+   enabled remote model URL, reports load errors, preserves the current model
+   after failed replacements, disposes superseded results, and protects
+   in-flight loads during page teardown. It defaults to the RobotExpressive
+   remote GLB, with CC0 1.0 source and license
    attribution beside the viewer, and offers the bundled textured sample for
    offline use. Still publish the package with its existing subpaths and
    TypeScript declarations.
