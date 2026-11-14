@@ -130,6 +130,19 @@ diagnostics. Frame-call timings measure CPU work and GPU command submission;
 GPU-query timings measure rendering commands and exclude browser compositing
 and display refresh. Playwright reported no browser errors.
 
+A subsequent texture-specialization experiment compiles absent base-color and
+emissive texture paths out of unlit shaders, allowing unused UV inputs to be
+removed by the shader compiler. At the same 1,024 cubes and 1280×720, two
+optimized runs measured GPU medians of 15.34 and 15.30 ms (p95 16.44 and
+16.48 ms), compared with 15.87 ms (p95 17.86 ms) for the previous committed
+shader. CPU median remained 0.20 ms. The paired Three.js sample measured
+15.27 ms GPU median and 16.37 ms p95. These sequential SwiftShader samples
+suggest a small gain; they do not establish a physical-GPU speedup.
+All web targets passed compilation and the texture-budget checks. Browser
+reference checks passed texture and output-color assertions, then failed at
+`point shadow changes rendered pixels`; the previous committed renderer
+failed the same assertion in this environment.
+
 ### Engine demo
 
 ```bash

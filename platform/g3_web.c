@@ -306,7 +306,7 @@ static const char *UNLIT_FRAGMENT_SRC =
     "in vec2 v_uv;in vec2 v_uv1;in vec2 v_uv2;in vec2 v_uv3;"
     "in vec2 v_uv4;in vec2 v_uv5;in vec2 v_uv6;in vec2 v_uv7;in vec4 v_color;\n"
     "uniform sampler2D u_tex;uniform sampler2D u_emissive_tex;"
-    "uniform bool u_textured;uniform bool u_emissive_textured;uniform vec4 u_color;uniform vec4 u_emissive;\n"
+    "uniform vec4 u_color;uniform vec4 u_emissive;\n"
     "uniform vec4 u_uv_transform[13];uniform float u_uv_rotation[13];uniform int u_uv_set[13];"
     "uniform int u_alpha_mode;uniform float u_alpha_cutoff;\n"
     "#ifndef G3_NO_FOG\nuniform vec3 u_eye;uniform vec4 u_fog;\n#endif\n"
@@ -318,9 +318,11 @@ static const char *UNLIT_FRAGMENT_SRC =
     "if(m==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\n"
     "vec3 encode_srgb(vec3 c){vec3 lo=c*12.92;vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055;"
     "return mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}\n"
-    "void main(){vec2 uv=material_uv(0);vec4 texel=u_textured?texture(u_tex,uv):vec4(1.0);"
+    "void main(){vec4 texel=vec4(1.0);\n#ifdef G3_BASE_TEXTURE\n"
+    "texel=texture(u_tex,material_uv(0));\n#endif\n"
     "float alpha=u_color.a*v_color.a*texel.a;if(u_alpha_mode==1&&alpha<u_alpha_cutoff)discard;"
-    "vec3 col=u_color.rgb*v_color.rgb*texel.rgb;vec3 em= u_emissive_textured?texture(u_emissive_tex,material_uv(4)).rgb:vec3(1.0);"
+    "vec3 col=u_color.rgb*v_color.rgb*texel.rgb;vec3 em=vec3(1.0);\n#ifdef G3_EMISSIVE_TEXTURE\n"
+    "em=texture(u_emissive_tex,material_uv(4)).rgb;\n#endif\n"
     "col+=u_emissive.rgb*em;\n#ifndef G3_NO_FOG\n"
     "if(u_fog.a>0.0){float dist=length(u_eye-v_world);"
     "float fog=clamp(1.0-exp(-dist*u_fog.a),0.0,1.0);col=mix(col,u_fog.rgb,fog);}\n#endif\n"
@@ -793,6 +795,8 @@ static int build_program(unsigned mask, int fast_unlit, int no_fog) {
         memcpy(fragment, fragment_source, version_length);
         char *out = fragment + version_length;
         if (no_fog) out += sprintf(out, "#define G3_NO_FOG 1\n");
+        if (mask & 1u) out += sprintf(out, "#define G3_BASE_TEXTURE 1\n");
+        if (mask & (1u << 4)) out += sprintf(out, "#define G3_EMISSIVE_TEXTURE 1\n");
         strcpy(out, version_end);
     } else {
         char *out = fragment;
