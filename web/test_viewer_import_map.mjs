@@ -46,4 +46,8 @@ assert.deepEqual(sample.extensions.KHR_materials_variants.variants.map(variant =
   'the browser sample provides a real material variant');
 assert.deepEqual(sample.meshes[0].primitives[0].extensions.KHR_materials_variants.mappings[0].variants, [0],
   'the textured turntable primitive maps the Blue paint variant');
+assert.ok(sample.extensionsUsed.includes('KHR_materials_clearcoat') &&
+  sample.extensionsUsed.includes('KHR_materials_specular'), 'the sample declares its advanced material extensions');
+assert.equal(sample.materials[2].extensions.KHR_materials_clearcoat.clearcoatFactor, 0.8);
+assert.equal(sample.materials[2].extensions.KHR_materials_specular.specularFactor, 0.9);
 console.log(`viewer package import map checks passed (${packageImports.length} imports)`);

@@ -61,7 +61,11 @@ doc = {
     "materials": [
         {"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}, "metallicFactor": 0.05, "roughnessFactor": 0.35}},
         {"name": "Shadow receiver", "pbrMetallicRoughness": {"baseColorFactor": [0.24, 0.29, 0.34, 1], "metallicFactor": 0, "roughnessFactor": 1}, "doubleSided": True},
-        {"name": "Blue paint", "pbrMetallicRoughness": {"baseColorFactor": [0.12, 0.34, 0.92, 1], "metallicFactor": 0.35, "roughnessFactor": 0.24}},
+        {"name": "Blue paint", "pbrMetallicRoughness": {"baseColorFactor": [0.12, 0.34, 0.92, 1], "metallicFactor": 0.35, "roughnessFactor": 0.24},
+         "extensions": {
+             "KHR_materials_clearcoat": {"clearcoatFactor": 0.8, "clearcoatRoughnessFactor": 0.12},
+             "KHR_materials_specular": {"specularFactor": 0.9, "specularColorFactor": [0.9, 0.95, 1]},
+         }},
     ],
     "meshes": [
         {"primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2}, "indices": 3, "material": 0,
@@ -72,7 +76,7 @@ doc = {
         {"name": "Perspective", "type": "perspective", "perspective": {"yfov": 0.75, "znear": 0.1, "zfar": 100, "aspectRatio": 1.6}},
         {"name": "Orthographic", "type": "orthographic", "orthographic": {"xmag": 5.5, "ymag": 3.5, "znear": 0.1, "zfar": 100}},
     ],
-    "extensionsUsed": ["KHR_lights_punctual", "KHR_materials_variants"],
+    "extensionsUsed": ["KHR_lights_punctual", "KHR_materials_variants", "KHR_materials_clearcoat", "KHR_materials_specular"],
     "extensions": {
         "KHR_lights_punctual": {"lights": [
             {"name": "Point key", "type": "point", "color": [1, 0.78, 0.58], "intensity": 45, "range": 18},

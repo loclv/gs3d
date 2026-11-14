@@ -237,6 +237,10 @@ async function run() {
   check(changedPixels(animationStart, restoredCamera) < changedPixels(animationStart, fallbackCamera),
     'reselecting the imported camera restores its rendered view');
   check(model.variants.includes('Blue paint'), 'sample imports its material variant');
+  const turntable = model.nodes.find(node => node.name === 'Textured turntable');
+  const bluePaint = turntable?.primitiveMaterials[0].variants.find(variant => variant.name === 'Blue paint')?.material;
+  check(bluePaint?.clearcoatFactor === 0.8 && bluePaint.specularFactor === 0.9,
+    'Blue paint imports clearcoat and specular material factors');
   check(model.setVariant('Blue paint') && model.activeVariant === 0, 'material variant switches on');
   const variantFrame = renderAndCheck(gl, engine, 'sample with Blue paint material variant');
   check(changedPixels(animationStart, variantFrame) > 0, 'material variant changes rendered pixels');

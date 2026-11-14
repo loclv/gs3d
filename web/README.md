@@ -42,7 +42,8 @@ lifecycle, animation controls and rendering options.
 From the repository root, run `./build_web.sh --viewer --serve` and open
 `http://localhost:8080/viewer/`. The bundled textured turntable scene includes
 perspective and orthographic cameras, point and spot lights, a shadow-receiving
-ground plane, animation clips, and a Blue paint material variant. Use the
+ground plane, animation clips, and a Blue paint variant with clearcoat and
+specular extensions. Use the
 Camera and Shadow caster selectors to switch cameras and opt into one point or
 spot shadow map; Reload model repeats loading and disposal. This is a convenient
 local reference scene, while actual browser rendering checks are still needed

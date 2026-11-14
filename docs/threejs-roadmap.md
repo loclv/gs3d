@@ -193,8 +193,9 @@ and a browser integration check for behavior exposed through WebGL.
   primitive handles plus default and variant material summaries; material
   summaries expose texture bindings and a bounded preview API, and the viewer
   displays maps for the selected material and variant. The bundled turntable
-  offers a Blue paint `KHR_materials_variants` choice, and the browser reference
-  check compares its rendered output with the default material. The material
+  offers a Blue paint `KHR_materials_variants` choice with clearcoat and
+  specular extensions, and the browser reference check compares its factors and
+  rendered output with the default material. The material
   selector controls per-material environment intensity, hemisphere fill
   intensity, and HDR equirectangular environment yaw. Validate these controls
   and actual WebGL output in a browser.
