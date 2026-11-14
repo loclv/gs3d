@@ -31,11 +31,13 @@ The browser renderer and asset API are the primary product surface. The native
 loader also supports core node transform, morph-weight, and four-influence
 skeletal animation. Prioritize work in this order:
 
-1. **Make the browser viewer a dependable reference application.** Add
-   repeatable browser rendering checks for textured materials, environment
+1. **Close the browser validation gaps.** Repeatable headless rendering and
+   viewer interaction checks now run in CI for textured materials, environment
    lighting, point and spot shadows, animation, camera switching, and asset
-   disposal. Keep CPU pixel tests as fast regression checks; browser checks
-   catch shader, upload, and presentation failures they cannot cover.
+   disposal. Keep CPU pixel tests as fast regression checks; still capture
+   reference images on target GPUs and validate touch behavior on physical
+   devices, since SwiftShader cannot establish hardware-specific output or
+   touch ergonomics.
 2. **Complete — native scene contract.** The supported glTF subset and
    failure behavior are documented in [assets.md](assets.md). Native tests
    cover GLB binary data, external and base64 buffers, GLB buffer-view,
@@ -51,8 +53,9 @@ skeletal animation. Prioritize work in this order:
    in-flight loads during page teardown. It defaults to the RobotExpressive
    remote GLB, with CC0 1.0 source and license
    attribution beside the viewer, and offers the bundled textured sample for
-   offline use. Still publish the package with its existing subpaths and
-   TypeScript declarations.
+   offline use. Package files, subpaths, declarations, and prepublish tests are
+   ready. Before publishing, choose and record the package license; then publish
+   and verify an installed consumer against the registry artifact.
 4. **Expand Three.js coverage from demonstrated use cases.** Add renderer or
    asset features when a concrete viewer or game needs them. Record unsupported
    extensions and rendering differences in the docs instead of implying full
