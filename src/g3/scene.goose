@@ -40,6 +40,13 @@ struct Node {
     world: Mat4,                // filled by `node_update_worlds`, do not set
     local_matrix: Mat4,         // optional imported affine transform
     use_local_matrix: bool,
+    cached_local: Mat4,          // local transform cache for unparented nodes
+    cached_pos: float3,
+    cached_rot: float3,
+    cached_scale: float3,
+    cached_local_matrix: Mat4,
+    cached_use_local_matrix: bool,
+    local_cache_valid: bool,
     asset_owned: bool,
     asset_free: bool,
     generation: i32 = 1,
@@ -305,10 +312,36 @@ fn node_local(n: Node&) -> Mat4 {
     return mat4_trs(n.pos, n.rot, n.scale);
 }
 
+fn node_local_cache_changed(n: Node&) -> bool {
+    if !n.local_cache_valid || n.cached_use_local_matrix != n.use_local_matrix { return true; }
+    if n.use_local_matrix {
+        for i in 16 { if n.cached_local_matrix.m[i] != n.local_matrix.m[i] { return true; } }
+        return false;
+    }
+    return n.cached_pos.x != n.pos.x || n.cached_pos.y != n.pos.y || n.cached_pos.z != n.pos.z ||
+           n.cached_rot.x != n.rot.x || n.cached_rot.y != n.rot.y || n.cached_rot.z != n.rot.z ||
+           n.cached_scale.x != n.scale.x || n.cached_scale.y != n.scale.y || n.cached_scale.z != n.scale.z;
+}
+
+fn node_cache_local(n: Node&) {
+    n.cached_local = node_local(n);
+    n.cached_pos = n.pos;
+    n.cached_rot = n.rot;
+    n.cached_scale = n.scale;
+    n.cached_local_matrix = n.local_matrix;
+    n.cached_use_local_matrix = n.use_local_matrix;
+    n.local_cache_valid = true;
+}
+
 // Multiplied out from the root down, into every node's `world`. A chain
 // longer than 64 is treated as a loop and stops there rather than hanging.
 fn node_update_worlds() {
     for &n in g_nodes {
+        if n.parent < 0 {
+            if node_local_cache_changed(n) { node_cache_local(n); }
+            n.world = n.cached_local;
+            continue;
+        }
         var w = node_local(n);
         var p = n.parent;
         var up = 0;

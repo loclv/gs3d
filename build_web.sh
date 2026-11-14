@@ -43,6 +43,7 @@ mkdir -p build/web
 
 root=src/app_web.goose
 output=web/app.js
+backend_cflags=()
 exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_app_drawn","_g3_app_culled","_g3_app_triangles","_g3_app_meshes","_g3_app_nodes","_g3_input_key","_g3_input_mouse","_g3_input_resize","_malloc","_free"]'
 if [ "${1:-}" = "--game" ]; then
   root=src/game_web.goose
@@ -59,7 +60,8 @@ elif [ "${1:-}" = "--viewer" ]; then
 elif [ "${1:-}" = "--benchmark" ]; then
   root=src/benchmark_web.goose
   output=web/benchmark/app.js
-  exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_benchmark_set_count","_g3_input_resize","_malloc","_free"]'
+  backend_cflags=(-DG3_BENCHMARK_TIMING)
+  exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_benchmark_set_count","_g3_host_scene_draw_calls","_g3_host_scene_draw_ms","_g3_input_resize","_malloc","_free"]'
 elif [ "${1:-}" = "--animation-benchmark" ]; then
   root=src/viewer_web.goose
   output=web/benchmark/animation/app.js
@@ -89,6 +91,7 @@ echo "c -> $output and wasm"
 mkdir -p "$(dirname "$output")"
 emcc build/web/g3.c platform/g3_web.c platform/g3_input.c -o "$output" \
   -Ibuild/web -Iplatform \
+  "${backend_cflags[@]}" \
   -O3 \
   -DGS_STACK_RESERVE='(64ull<<20)' \
   -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 \

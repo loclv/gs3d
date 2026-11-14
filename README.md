@@ -102,18 +102,23 @@ comparing the reported frame-call median and p95.
 
 #### Headless Playwright result
 
-One comparison run with Playwright, Chrome for Testing 159.0.8154.6, a 1280×720
-canvas, and 1,024 cubes produced:
+Headless Playwright runs with Chrome for Testing 159.0.8154.6, a 1280×720
+canvas, and 1,024 cubes produced these before and after results:
 
-| Backend | Scene draw calls | Browser FPS | Frame-call median | Frame-call p95 |
-|---|---:|---:|---:|---:|
-| Goose 3D | 1 | 21.4 | 45.60 ms | 54.00 ms |
-| Three.js 0.180.0 | 1 | 46.0 | 0.10 ms | 0.20 ms |
+| Backend / revision | Scene draw calls | Browser FPS | Frame-call median | Frame-call p95 | WebGL backend median / p95 |
+|---|---:|---:|---:|---:|---:|
+| Goose 3D before | 1 | 21.4 | 45.60 ms | 54.00 ms | — |
+| Goose 3D optimized | 1 | 39.6 | 24.90 ms | 27.90 ms | 24.80 / 27.80 ms |
+| Three.js 0.180.0 | 1 | 43.8 | 0.10 ms | 0.20 ms | — |
 
-Each row uses 120 warmup frames followed by 300 sampled frames. The run used
-headless SwiftShader software WebGL rather than a physical GPU; treat these as
-environment-specific diagnostics. Frame-call timings measure CPU work and GPU
-command submission, not GPU completion. Playwright reported no browser errors.
+Each row uses 120 warmup frames followed by 300 sampled frames. Goose's opaque
+unlit path now skips the full-screen color-encoding pass and uses a smaller
+shader. The engine also reuses unchanged root transforms and static instance
+uploads. Goose improved from 21.4 to 39.6 FPS (1.85×) in this run, reaching
+about 90% of Three.js's measured frame rate. The run used headless SwiftShader
+software WebGL rather than a physical GPU; treat these as environment-specific
+diagnostics. Frame-call timings measure CPU work and GPU command submission, not
+GPU completion. Playwright reported no browser errors.
 
 ### Engine demo
 

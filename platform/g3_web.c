@@ -93,6 +93,7 @@ static void upload_matrix4(GLint location, GLsizei count, GLboolean transpose,
 typedef struct {
     GLuint program;
     unsigned texture_mask;
+    int fast_unlit;
     GLint texture_units[13];
     GLint mvp, view_proj, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
     GLint light_count, light_position[8], light_direction[8], light_color_extra[8], light_inner[8], light_attenuation[8];
@@ -107,7 +108,7 @@ typedef struct {
     GLint sheen_roughness_tex, sheen_roughness_textured;
     GLint anisotropy, anisotropy_tex, anisotropy_textured;
     GLint uv_transform[13], uv_rotation[13], uv_set[13];
-    GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut;
+    GLint env_map, env_map_enabled, env_map_intensity, env_map_max_lod, brdf_lut, srgb_output;
     GLint env_rotation;
     GLint shadow_map, shadow_matrix, shadow_params, shadow_resolution;
     GLint point_shadow_map, point_shadow_matrices, point_shadow_index, point_shadow_params;
@@ -141,7 +142,15 @@ static int32_t mesh_count, mesh_cap;
 static GLuint instance_vbo;
 static float *instance_data;
 static size_t instance_capacity;
+static int32_t instance_data_count;
+static int instance_data_valid;
 static int32_t scene_draw_calls;
+static g3_draw_item cached_material_item;
+static GLuint cached_material_program;
+static int cached_material_valid;
+#ifdef G3_BENCHMARK_TIMING
+static double last_scene_draw_ms;
+#endif
 static GLuint *textures;
 static int32_t *texture_widths, *texture_heights, *texture_is_hdr;
 static int32_t texture_count;
@@ -171,6 +180,7 @@ static GLuint output_program, output_fbo, output_color, output_depth, output_vao
 static GLint output_sampler, output_tone_map, output_exposure, output_encode_srgb, output_fxaa, output_effect, output_size;
 static int output_width, output_height;
 static int output_is_hdr, float_color_buffer_supported, hdr_color_buffer_supported, tone_map_inline_frame;
+static int output_srgb_inline_frame;
 static int shadow_map_size = 512;
 static int allocated_shadow_size;
 
@@ -267,6 +277,49 @@ static const char *VERTEX_SRC =
     "    gl_Position = mvp * position;\n"
     "}\n";
 
+/* Minimal vertex path for opaque, unlit meshes without skinning or morphs. */
+static const char *UNLIT_VERTEX_SRC =
+    "#version 300 es\n"
+    "layout(location=0) in vec3 a_pos; layout(location=2) in vec4 a_uv01;\n"
+    "layout(location=7) in vec4 a_color; layout(location=8) in vec4 a_uv45;\n"
+    "layout(location=9) in vec4 a_uv67; layout(location=14) in vec4 a_uv23;\n"
+    "layout(location=11) in vec4 a_instance_model_row0; layout(location=12) in vec4 a_instance_model_row1;\n"
+    "layout(location=13) in vec4 a_instance_model_row2;\n"
+    "uniform mat4 u_mvp; uniform mat4 u_view_proj; uniform mat4 u_model; uniform bool u_instanced;\n"
+    "out vec3 v_world; out vec2 v_uv; out vec2 v_uv1; out vec2 v_uv2; out vec2 v_uv3;\n"
+    "out vec2 v_uv4; out vec2 v_uv5; out vec2 v_uv6; out vec2 v_uv7; out vec4 v_color;\n"
+    "void main(){mat4 im=mat4(vec4(a_instance_model_row0.x,a_instance_model_row1.x,a_instance_model_row2.x,0.0),"
+    "vec4(a_instance_model_row0.y,a_instance_model_row1.y,a_instance_model_row2.y,0.0),"
+    "vec4(a_instance_model_row0.z,a_instance_model_row1.z,a_instance_model_row2.z,0.0),"
+    "vec4(a_instance_model_row0.w,a_instance_model_row1.w,a_instance_model_row2.w,1.0));"
+    "mat4 model=u_instanced?im:u_model;vec4 p=vec4(a_pos,1.0);v_world=(model*p).xyz;"
+    "v_uv=a_uv01.xy;v_uv1=a_uv01.zw;v_uv2=a_uv23.xy;v_uv3=a_uv23.zw;"
+    "v_uv4=a_uv45.xy;v_uv5=a_uv45.zw;v_uv6=a_uv67.xy;v_uv7=a_uv67.zw;v_color=a_color;"
+    "gl_Position=(u_instanced?u_view_proj*im:u_mvp)*p;}\n";
+
+static const char *UNLIT_FRAGMENT_SRC =
+    "#version 300 es\nprecision highp float;\n"
+    "in vec3 v_world;in vec2 v_uv;in vec2 v_uv1;in vec2 v_uv2;in vec2 v_uv3;"
+    "in vec2 v_uv4;in vec2 v_uv5;in vec2 v_uv6;in vec2 v_uv7;in vec4 v_color;\n"
+    "uniform sampler2D u_tex;uniform sampler2D u_emissive_tex;"
+    "uniform bool u_textured;uniform bool u_emissive_textured;uniform vec4 u_color;uniform vec4 u_emissive;\n"
+    "uniform vec4 u_uv_transform[13];uniform float u_uv_rotation[13];uniform int u_uv_set[13];"
+    "uniform int u_alpha_mode;uniform float u_alpha_cutoff;uniform vec3 u_eye;uniform vec4 u_fog;"
+    "uniform int u_tone_map_inline;uniform float u_exposure_inline;uniform bool u_srgb_output;out vec4 out_color;\n"
+    "vec2 material_uv(int slot){int s=u_uv_set[slot];vec2 c=s==7?v_uv7:s==6?v_uv6:s==5?v_uv5:s==4?v_uv4:s==3?v_uv3:s==2?v_uv2:s==1?v_uv1:v_uv;"
+    "vec2 q=c*u_uv_transform[slot].zw;float a=cos(u_uv_rotation[slot]),b=sin(u_uv_rotation[slot]);"
+    "return u_uv_transform[slot].xy+vec2(a*q.x-b*q.y,b*q.x+a*q.y);}\n"
+    "vec3 tone_map_color(vec3 x,int m){x=max(x,vec3(0.0));if(m==1)return x/(vec3(1.0)+x);"
+    "if(m==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\n"
+    "vec3 encode_srgb(vec3 c){vec3 lo=c*12.92;vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055;"
+    "return mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}\n"
+    "void main(){vec2 uv=material_uv(0);vec4 texel=u_textured?texture(u_tex,uv):vec4(1.0);"
+    "float alpha=u_color.a*v_color.a*texel.a;if(u_alpha_mode==1&&alpha<u_alpha_cutoff)discard;"
+    "vec3 col=u_color.rgb*v_color.rgb*texel.rgb;vec3 em= u_emissive_textured?texture(u_emissive_tex,material_uv(4)).rgb:vec3(1.0);"
+    "col+=u_emissive.rgb*em;float dist=length(u_eye-v_world);float fog=clamp(1.0-exp(-dist*u_fog.a),0.0,1.0);"
+    "col=mix(col,u_fog.rgb,fog);if(u_tone_map_inline!=0)col=tone_map_color(col*u_exposure_inline,u_tone_map_inline);"
+    "if(u_srgb_output)col=encode_srgb(col);out_color=vec4(col,u_alpha_mode==2?alpha:1.0);}\n";
+
 /* Keep this in step with shade() in g3_soft.c. */
 static const char *FRAGMENT_SRC =
     "#version 300 es\n"
@@ -358,11 +411,13 @@ static const char *FRAGMENT_SRC =
     "uniform vec4 u_fog;\n"
     "uniform int u_tone_map_inline;\n"
     "uniform float u_exposure_inline;\n"
+    "uniform bool u_srgb_output;\n"
     "out vec4 out_color;\n"
     "vec2 material_uv(int slot) { int set=u_uv_set[slot]; vec2 coord=set==7?v_uv7:set==6?v_uv6:set==5?v_uv5:set==4?v_uv4:set==3?v_uv3:set==2?v_uv2:set==1?v_uv1:v_uv; vec2 scaled=coord*u_uv_transform[slot].zw; float c=cos(u_uv_rotation[slot]), s=sin(u_uv_rotation[slot]); return u_uv_transform[slot].xy+vec2(c*scaled.x-s*scaled.y,s*scaled.x+c*scaled.y); }\n"
     "vec2 environment_uv(vec3 d) { d=vec3(d.x*u_env_rotation.x+d.z*u_env_rotation.y,d.y,-d.x*u_env_rotation.y+d.z*u_env_rotation.x); return vec2(atan(d.z,d.x)/6.28318530718+0.5,acos(clamp(d.y,-1.0,1.0))/3.14159265359); }\n"
     "float dielectric_f0(float ior) { float ratio=(clamp(ior,1.0,2.333)-1.0)/(clamp(ior,1.0,2.333)+1.0); return ratio*ratio; }\n"
     "vec3 tone_map_color(vec3 x,int mode) { x=max(x,vec3(0.0)); if(mode==1) return x/(vec3(1.0)+x); if(mode==2) return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); return x; }\n"
+    "vec3 encode_srgb(vec3 c) { vec3 lo=c*12.92; vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055; return mix(hi,lo,lessThanEqual(c,vec3(0.0031308))); }\n"
     "vec3 pbr_light(vec3 n, vec3 v, vec3 l, vec3 base, float metal, float rough, float ior, float specular_strength, vec3 specular_color) {\n"
     "    float nl = max(dot(n,l), 0.0), nv = max(dot(n,v), 0.0);\n"
     "    vec3 sum = l + v; float len = length(sum);\n"
@@ -567,6 +622,7 @@ static const char *FRAGMENT_SRC =
     "    float fog = clamp(1.0 - exp(-dist * u_fog.a), 0.0, 1.0);\n"
     "    col = mix(col, u_fog.rgb, fog);\n"
     "    if (u_tone_map_inline!=0) col=tone_map_color(col*u_exposure_inline,u_tone_map_inline);\n"
+    "    if (u_srgb_output) col=encode_srgb(col);\n"
     "    out_color = vec4(col, u_alpha_mode == 2 ? alpha : 1.0);\n"
     "}\n";
 
@@ -668,6 +724,7 @@ static void find_uniforms(void) {
     shader.fog = glGetUniformLocation(shader.program, "u_fog");
     shader.tone_map_inline = glGetUniformLocation(shader.program, "u_tone_map_inline");
     shader.exposure_inline = glGetUniformLocation(shader.program, "u_exposure_inline");
+    shader.srgb_output = glGetUniformLocation(shader.program, "u_srgb_output");
     shader.tex = glGetUniformLocation(shader.program, "u_tex");
     shader.textured = glGetUniformLocation(shader.program, "u_textured");
     shader.light_count = glGetUniformLocation(shader.program, "u_light_count");
@@ -716,33 +773,38 @@ static void find_uniforms(void) {
 
 /* Compile both stages, link them, and look the uniforms up. 0 on any failure,
    after telling the page why. */
-static int build_program(unsigned mask) {
+static int build_program(unsigned mask, int fast_unlit) {
     /* Compile only the material samplers this draw actually uses. Disabled
        maps alias the environment sampler but their existing boolean guards
        stay false. No material/shading terms are approximated or dropped. */
-    char *fragment = malloc(strlen(FRAGMENT_SRC) + 1024);
+    const char *fragment_source = fast_unlit ? UNLIT_FRAGMENT_SRC : FRAGMENT_SRC;
+    char *fragment = malloc(strlen(fragment_source) + 1024);
     if (!fragment) return 0;
-    char *out = fragment;
-    const char *line = FRAGMENT_SRC;
-    while (*line) {
-        const char *end = strchr(line, '\n');
-        size_t len = end ? (size_t)(end - line + 1) : strlen(line);
-        int replaced = 0;
-        for (int i = 0; i < 13; i++) {
-            char declaration[96];
-            snprintf(declaration, sizeof(declaration), "uniform sampler2D %s;\n", material_samplers[i]);
-            if (!(mask & (1u << i)) && len == strlen(declaration) && !strncmp(line, declaration, len)) {
-                out += sprintf(out, "#define %s u_env_map\n", material_samplers[i]);
-                replaced = 1; break;
+    if (fast_unlit) {
+        strcpy(fragment, fragment_source);
+    } else {
+        char *out = fragment;
+        const char *line = fragment_source;
+        while (*line) {
+            const char *end = strchr(line, '\n');
+            size_t len = end ? (size_t)(end - line + 1) : strlen(line);
+            int replaced = 0;
+            for (int i = 0; i < 13; i++) {
+                char declaration[96];
+                snprintf(declaration, sizeof(declaration), "uniform sampler2D %s;\n", material_samplers[i]);
+                if (!(mask & (1u << i)) && len == strlen(declaration) && !strncmp(line, declaration, len)) {
+                    out += sprintf(out, "#define %s u_env_map\n", material_samplers[i]);
+                    replaced = 1; break;
+                }
             }
+            if (!replaced) { memcpy(out, line, len); out += len; }
+            line += len;
         }
-        if (!replaced) { memcpy(out, line, len); out += len; }
-        line += len;
+        *out = 0;
     }
-    *out = 0;
-    GLuint vs = compile_shader(GL_VERTEX_SHADER, VERTEX_SRC, "vertex");
+    GLuint vs = compile_shader(GL_VERTEX_SHADER, fast_unlit ? UNLIT_VERTEX_SRC : VERTEX_SRC, "vertex");
     if (!vs) { free(fragment); return 0; }
-    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fragment, "fragment");
+    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fragment, fast_unlit ? "unlit fragment" : "fragment");
     free(fragment);
     if (!fs) {
         glDeleteShader(vs);
@@ -754,6 +816,7 @@ static int build_program(unsigned mask) {
     if (!ok) return 0;
     find_uniforms();
     shader.texture_mask = mask;
+    shader.fast_unlit = fast_unlit;
     int unit = 5; /* environment, directional shadow, point, spot, BRDF: 0..4 */
     for (int i = 0; i < 13; i++)
         shader.texture_units[i] = mask & (1u << i) ? unit++ : -1;
@@ -807,6 +870,7 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
         return 0;
     }
     emscripten_webgl_make_context_current(ctx);
+    cached_material_valid = 0;
     GLint max_fragment_texture_units = 0;
     glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &max_fragment_texture_units);
     fragment_texture_units = max_fragment_texture_units;
@@ -826,7 +890,7 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     hdr_color_buffer_supported=float_color_buffer_supported;
     set_surface_size(width, height);
 
-    if (!build_program(0) || !ensure_brdf_lut()) return 0;
+    if (!build_program(0, 0) || !ensure_brdf_lut()) return 0;
     shader_cache[0] = shader; shader_cache_next = 1;
 
     /* The state the CPU backend also sets: depth LESS, back faces culled,
@@ -859,7 +923,9 @@ void g3p_shutdown(void) {
     if (spot_shadow_texture) glDeleteTextures(1, &spot_shadow_texture);
     if (instance_vbo) glDeleteBuffers(1, &instance_vbo);
     free(instance_data); instance_data = NULL; instance_capacity = 0;
+    instance_data_count = 0; instance_data_valid = 0;
     instance_vbo = 0; scene_draw_calls = 0;
+    cached_material_valid = 0; cached_material_program = 0;
     if (brdf_lut_texture) glDeleteTextures(1,&brdf_lut_texture);
     shadow_program = shadow_fbo = shadow_texture = 0;
     point_shadow_texture = 0;
@@ -885,7 +951,7 @@ void g3p_shutdown(void) {
     if (env_source_sampler) glDeleteSamplers(1,&env_source_sampler);
     env_sampler = 0;
     env_source_sampler=0;
-    output_is_hdr=0;float_color_buffer_supported=0;hdr_color_buffer_supported=0;tone_map_inline_frame=0;
+    output_is_hdr=0;float_color_buffer_supported=0;hdr_color_buffer_supported=0;tone_map_inline_frame=0;output_srgb_inline_frame=0;
     for (int32_t i = 0; i < mesh_count; i++) {
         glDeleteVertexArrays(1, &meshes[i].vao);
         glDeleteBuffers(1, &meshes[i].vbo);
@@ -1153,21 +1219,30 @@ static int upload_instance_data(g3_draw_item_slice items, int64_t first, int32_t
         if (!grown) return 0;
         instance_data = grown;
         instance_capacity = float_count;
+        instance_data_valid = 0;
     }
+    int changed = !instance_data_valid || instance_data_count != count;
     for (int32_t i = 0; i < count; i++) {
         float *dst = instance_data + (size_t)i * 12;
         const float *m = items.data[first + i].model.m;
         for (int row = 0; row < 3; row++) {
-            dst[row * 4 + 0] = m[row];
-            dst[row * 4 + 1] = m[4 + row];
-            dst[row * 4 + 2] = m[8 + row];
-            dst[row * 4 + 3] = m[12 + row];
+            const float values[4] = { m[row], m[4 + row], m[8 + row], m[12 + row] };
+            for (int column = 0; column < 4; column++) {
+                size_t at = (size_t)row * 4 + column;
+                if (!instance_data_valid || dst[at] != values[column]) changed = 1;
+                dst[at] = values[column];
+            }
         }
     }
     if (!instance_vbo) glGenBuffers(1, &instance_vbo);
     if (!instance_vbo) return 0;
     glBindBuffer(GL_ARRAY_BUFFER, instance_vbo);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(float_count * sizeof(float)), instance_data, GL_STREAM_DRAW);
+    if (changed) {
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(float_count * sizeof(float)), instance_data, GL_STREAM_DRAW);
+        if (glGetError() != GL_NO_ERROR) return 0;
+        instance_data_valid = 1;
+        instance_data_count = count;
+    }
     return glGetError() == GL_NO_ERROR;
 }
 
@@ -1246,9 +1321,13 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
 }
 
 EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_calls; }
+#ifdef G3_BENCHMARK_TIMING
+EMSCRIPTEN_KEEPALIVE double g3_host_scene_draw_ms(void) { return last_scene_draw_ms; }
+#endif
 
 static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int srgb) {
     if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
+    cached_material_valid = 0;
     if (id >= texture_count) {
         size_t count=(size_t)id+1;
         GLuint *grown = realloc(textures, count * sizeof(*textures));
@@ -1286,6 +1365,7 @@ static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_
 
 static void upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height) {
     if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
+    cached_material_valid = 0;
     if (id >= texture_count) {
         size_t count=(size_t)id+1;
         GLuint *grown=realloc(textures,count*sizeof(*textures)); if(!grown)return; textures=grown;
@@ -1553,6 +1633,7 @@ EMSCRIPTEN_KEEPALIVE void g3_host_texture_hdr(int32_t id, const float *pixels, i
 
 void g3p_release_texture(int32_t id) {
     if (id < 0 || id >= texture_count) return;
+    cached_material_valid = 0;
     if (env_prefilter_source_id==id) {
         if (env_prefilter_texture) glDeleteTextures(1,&env_prefilter_texture);
         env_prefilter_texture=0;env_prefilter_source_id=-1;env_prefilter_max_lod=0;
@@ -1579,9 +1660,22 @@ static int item_samples_texture(const g3_draw_item *it, int32_t id) {
 
 /* --- a frame --- */
 
+static float encode_srgb_channel(float value) {
+    value = fmaxf(value, 0.0f);
+    return value <= 0.0031308f ? value * 12.92f : 1.055f * powf(value, 1.0f / 2.4f) - 0.055f;
+}
+
 /* What every item of this frame shares. */
 static void bind_view(const g3_view_state *view) {
     upload_matrix4(shader.view_proj, 1, GL_FALSE, view->view_proj.m);
+    if (shader.fast_unlit) {
+        glUniform3f(shader.eye, view->eye.x, view->eye.y, view->eye.z);
+        glUniform4f(shader.fog, view->fog.x, view->fog.y, view->fog.z, view->fog.w);
+        glUniform1i(shader.tone_map_inline, tone_map_inline_frame);
+        glUniform1f(shader.exposure_inline, view->params.w);
+        glUniform1i(shader.srgb_output, output_srgb_inline_frame);
+        return;
+    }
     glUniform3f(shader.eye, view->eye.x, view->eye.y, view->eye.z);
     glUniform4f(shader.view_direction, view->view_direction.x, view->view_direction.y, view->view_direction.z, view->view_direction.w);
     glUniform3f(shader.light_dir, view->light_dir.x, view->light_dir.y, view->light_dir.z);
@@ -1592,6 +1686,7 @@ static void bind_view(const g3_view_state *view) {
     glUniform4f(shader.fog, view->fog.x, view->fog.y, view->fog.z, view->fog.w);
     glUniform1i(shader.tone_map_inline,tone_map_inline_frame);
     glUniform1f(shader.exposure_inline,view->params.w);
+    glUniform1i(shader.srgb_output,output_srgb_inline_frame);
     glUniform4f(shader.env_sky, view->env_sky.x, view->env_sky.y, view->env_sky.z, view->env_sky.w);
     glUniform4f(shader.env_ground, view->env_ground.x, view->env_ground.y, view->env_ground.z, view->env_ground.w);
     int env = view->environment_texture;
@@ -1842,28 +1937,42 @@ static void render_point_shadow_maps(g3_draw_item_slice items, const g3_view_sta
 }
 
 static int select_material_shader(const g3_draw_item *it) {
-    const int32_t ids[13] = { it->texture, it->metallic_roughness_texture,
-        it->normal_texture, it->occlusion_texture, it->emissive_texture,
-        it->specular_texture, it->specular_color_texture, it->clearcoat_texture,
-        it->clearcoat_roughness_texture, it->clearcoat_normal_texture,
-        it->sheen_color_texture, it->sheen_roughness_texture, it->anisotropy_texture };
+    int fast_unlit = it->params.x > 0.5f && it->clearcoat.x == 0.0f &&
+        it->mesh >= 0 && it->mesh < mesh_count &&
+        meshes[it->mesh].joint_count == 0 && meshes[it->mesh].morph_target_count == 0;
     unsigned mask = 0; int units = 5;
-    for (int i = 0; i < 13; i++)
-        if (ids[i] >= 0 && ids[i] < texture_count && textures[ids[i]]) {
-            mask |= 1u << i; units++;
+    if (fast_unlit) {
+        if (it->texture >= 0 && it->texture < texture_count && textures[it->texture]) mask |= 1u;
+        if (it->emissive_texture >= 0 && it->emissive_texture < texture_count && textures[it->emissive_texture]) mask |= 1u << 4;
+        units += (mask & 1u) != 0;
+        units += (mask & (1u << 4)) != 0;
+    } else {
+        const int32_t ids[13] = { it->texture, it->metallic_roughness_texture,
+            it->normal_texture, it->occlusion_texture, it->emissive_texture,
+            it->specular_texture, it->specular_color_texture, it->clearcoat_texture,
+            it->clearcoat_roughness_texture, it->clearcoat_normal_texture,
+            it->sheen_color_texture, it->sheen_roughness_texture, it->anisotropy_texture };
+        for (int i = 0; i < 13; i++)
+            if (ids[i] >= 0 && ids[i] < texture_count && textures[ids[i]]) {
+                mask |= 1u << i; units++;
+            }
         }
     if (units > fragment_texture_units) {
         report("This material exceeds the device's fragment texture budget (including lighting maps).");
         return 0;
     }
     for (int i = 0; i < 64; i++)
-        if (shader_cache[i].program && shader_cache[i].texture_mask == mask) {
+        if (shader_cache[i].program && shader_cache[i].texture_mask == mask &&
+            shader_cache[i].fast_unlit == fast_unlit) {
             shader = shader_cache[i]; return 1;
         }
     web_shader previous = shader;
-    if (!build_program(mask)) { shader = previous; return 0; }
+    if (!build_program(mask, fast_unlit)) { shader = previous; return 0; }
     unsigned slot = shader_cache_next++ % 64;
-    if (shader_cache[slot].program) glDeleteProgram(shader_cache[slot].program);
+    if (shader_cache[slot].program) {
+        glDeleteProgram(shader_cache[slot].program);
+        cached_material_valid = 0;
+    }
     shader_cache[slot] = shader;
     return 1;
 }
@@ -1886,9 +1995,42 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     }
     upload_matrix4(shader.mvp, 1, GL_FALSE, it->mvp.m);
     upload_matrix4(shader.model, 1, GL_FALSE, it->model.m);
-    float normal_matrix[9];
-    g3_normal_matrix(&it->model, normal_matrix);
-    glUniformMatrix3fv(shader.normal_matrix, 1, GL_FALSE, normal_matrix);
+    if (!shader.fast_unlit) {
+        float normal_matrix[9];
+        g3_normal_matrix(&it->model, normal_matrix);
+        glUniformMatrix3fv(shader.normal_matrix, 1, GL_FALSE, normal_matrix);
+    }
+    int update_material = !cached_material_valid || cached_material_program != shader.program ||
+                          !scene_compatible(it, &cached_material_item);
+    if (update_material) {
+    if (shader.fast_unlit) {
+        glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
+        glUniform4f(shader.emissive, it->emissive.x, it->emissive.y, it->emissive.z, it->emissive.w);
+        glUniform1i(shader.alpha_mode, it->alpha_mode);
+        glUniform1f(shader.alpha_cutoff, it->alpha_cutoff);
+        const g3_uv_transform *uv = &it->base_color_uv;
+        glUniform4f(shader.uv_transform[0], uv->offset.x, uv->offset.y, uv->scale.x, uv->scale.y);
+        glUniform1f(shader.uv_rotation[0], uv->rotation);
+        glUniform1i(shader.uv_set[0], uv->texcoord);
+        uv = &it->emissive_uv;
+        glUniform4f(shader.uv_transform[4], uv->offset.x, uv->offset.y, uv->scale.x, uv->scale.y);
+        glUniform1f(shader.uv_rotation[4], uv->rotation);
+        glUniform1i(shader.uv_set[4], uv->texcoord);
+        int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];
+        glUniform1i(shader.textured, textured);
+        if (shader.texture_units[0] >= 0) {
+            glActiveTexture(GL_TEXTURE0 + shader.texture_units[0]);
+            glBindTexture(GL_TEXTURE_2D, textured ? textures[it->texture] : 0);
+            glUniform1i(shader.tex, shader.texture_units[0]);
+        }
+        int emissive_textured = it->emissive_texture >= 0 && it->emissive_texture < texture_count && textures[it->emissive_texture];
+        glUniform1i(shader.emissive_textured, emissive_textured);
+        if (shader.texture_units[4] >= 0) {
+            glActiveTexture(GL_TEXTURE0 + shader.texture_units[4]);
+            glBindTexture(GL_TEXTURE_2D, emissive_textured ? textures[it->emissive_texture] : 0);
+            glUniform1i(shader.emissive_tex, shader.texture_units[4]);
+        }
+    } else {
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
     glUniform4f(shader.pbr, it->pbr.x, it->pbr.y, it->pbr.z, it->pbr.w);
@@ -2011,7 +2153,13 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
         glUniform1i(shader.specular_color_tex, shader.texture_units[6]);
     }
     glUniform1i(shader.specular_color_textured, specular_color_textured);
+    }
+        cached_material_item = *it;
+        cached_material_program = shader.program;
+        cached_material_valid = 1;
+    }
 
+    if (!shader.fast_unlit) {
     glUniform1i(shader.skin_enabled, m->joint_count > 0 && m->joint_texture != 0);
     glUniform1i(shader.joint_count, m->joint_count);
     glUniform1i(shader.joint_palette, 24);
@@ -2034,6 +2182,7 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform1i(shader.morph_weights, 28);
     glActiveTexture(GL_TEXTURE28);
     glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_weight_texture : 0);
+    }
 
     glBindVertexArray(m->vao);
     if (count > 1 && upload_instance_data(items, first, count)) {
@@ -2218,6 +2367,9 @@ uint8_t g3p_post_process_shader_run(int32_t shader_id, int32_t source, int32_t d
 
 void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     if (!ctx || !shader.program) return;
+#ifdef G3_BENCHMARK_TIMING
+    double scene_draw_start_ms = emscripten_get_now();
+#endif
     scene_draw_calls = 0;
     int requested = view->shadow_resolution == 256 || view->shadow_resolution == 512 || view->shadow_resolution == 1024 ? view->shadow_resolution : 512;
     if (allocated_shadow_size && allocated_shadow_size != requested) {
@@ -2244,15 +2396,26 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         render_point_shadow_maps(items, view);
     if (view->spot_shadow_params.x > 0.5f && view->spot_shadow_light_index >= 0 && view->spot_shadow_light_index < view->light_count && view->lights[view->spot_shadow_light_index].position.w > 1.5f && ensure_spot_shadow_map())
         render_shadow_map(items, view, &view->spot_shadow_view_proj, spot_shadow_texture);
+    /* Shadow passes bind their own maps on texture units also used by materials. */
+    if (view->shadow_params.x > 0.5f || view->point_shadow_params.x > 0.5f || view->spot_shadow_params.x > 0.5f)
+        cached_material_valid = 0;
     int tone_mode=target ? 0 : (int)(view->params.z+0.5f);
     int tone=tone_mode!=0;
     int encode=0;
+    int has_blended = 0;
+    if (!target && view->params.y > 0.5f) {
+        for (int64_t i = 0; i < items.len; i++) {
+            if (items.data[i].params.w > 0.5f) { has_blended = 1; break; }
+        }
+    }
     tone_map_inline_frame=!target && tone && !hdr_color_buffer_supported ? tone_mode : 0;
     if (tone && hdr_color_buffer_supported) {
         encode=ensure_output_target(1);
         if(!encode) tone_map_inline_frame=tone_mode;
     }
-    if (!target && !encode && (view->params.y>0.5f || (view->post_process&1))) encode=ensure_output_target(0);
+    if (!target && !encode && ((view->post_process&1) || (view->params.y>0.5f && has_blended)))
+        encode=ensure_output_target(0);
+    output_srgb_inline_frame = !target && !encode && view->params.y > 0.5f;
     glBindFramebuffer(GL_FRAMEBUFFER, target ? target->fbo : (encode ? output_fbo : 0));
     glViewport(0, 0, target ? view->target_width : surf_w, target ? view->target_height : surf_h);
     float cr=view->clear.x,cg=view->clear.y,cb=view->clear.z;
@@ -2260,6 +2423,9 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         cr*=view->params.w;cg*=view->params.w;cb*=view->params.w;
         if(tone_map_inline_frame==1){cr=cr/(1.0f+cr);cg=cg/(1.0f+cg);cb=cb/(1.0f+cb);}
         else {cr=fminf(1.0f,fmaxf(0.0f,(cr*(2.51f*cr+0.03f))/(cr*(2.43f*cr+0.59f)+0.14f)));cg=fminf(1.0f,fmaxf(0.0f,(cg*(2.51f*cg+0.03f))/(cg*(2.43f*cg+0.59f)+0.14f)));cb=fminf(1.0f,fmaxf(0.0f,(cb*(2.51f*cb+0.03f))/(cb*(2.43f*cb+0.59f)+0.14f)));}
+    }
+    if (output_srgb_inline_frame) {
+        cr=encode_srgb_channel(cr);cg=encode_srgb_channel(cg);cb=encode_srgb_channel(cb);
     }
     glClearColor(cr,cg,cb,1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -2296,6 +2462,9 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     }
 
     report_first_gl_error();
+#ifdef G3_BENCHMARK_TIMING
+    last_scene_draw_ms = emscripten_get_now() - scene_draw_start_ms;
+#endif
 }
 
 /* --- the surface, queried and resized by the host --- */

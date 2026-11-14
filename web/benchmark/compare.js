@@ -24,16 +24,19 @@ document.getElementById(`${BACKEND}-link`).setAttribute('aria-current', 'page');
 
 let frameCall;
 let getDrawCalls;
+let getBackendFrameMs;
 let resizeRenderer;
 let previous = 0;
 let warmup = 0;
 let cpuTimes = [];
 let rafTimes = [];
+let backendTimes = [];
 
 function resetSample() {
   warmup = 0;
   cpuTimes = [];
   rafTimes = [];
+  backendTimes = [];
   results.textContent = 'warming up…';
 }
 
@@ -45,11 +48,15 @@ function percentile(values, p) {
 function report() {
   const meanRaf = rafTimes.reduce((sum, value) => sum + value, 0) / rafTimes.length;
   const label = BACKEND === 'three' ? 'Three.js' : 'Goose 3D';
+  const backendLine = backendTimes.length
+    ? `\nWebGL backend median ${percentile(backendTimes, 0.5).toFixed(2)} ms · ` +
+      `p95 ${percentile(backendTimes, 0.95).toFixed(2)} ms`
+    : '';
   results.textContent =
     `${label} · ${slider.value} visible cubes · ${getDrawCalls()} scene draw call(s)\n` +
     `${(1000 / meanRaf).toFixed(1)} browser frames/s\n` +
     `frame call median ${percentile(cpuTimes, 0.5).toFixed(2)} ms · ` +
-    `p95 ${percentile(cpuTimes, 0.95).toFixed(2)} ms\n` +
+    `p95 ${percentile(cpuTimes, 0.95).toFixed(2)} ms${backendLine}\n` +
     `sample: ${SAMPLE_FRAMES} frames after ${WARMUP_FRAMES} warmup frames`;
 }
 
@@ -65,6 +72,7 @@ function frame(now) {
     warmup++;
   } else {
     cpuTimes.push(elapsed);
+    if (getBackendFrameMs) backendTimes.push(getBackendFrameMs());
     if (cpuTimes.length === SAMPLE_FRAMES) report();
   }
   requestAnimationFrame(frame);
@@ -122,6 +130,7 @@ async function start() {
       const benchmark = makeThreeScene(THREE, size.width, size.height);
       frameCall = benchmark.frame;
       getDrawCalls = benchmark.drawCalls;
+      getBackendFrameMs = null;
       resizeRenderer = benchmark.resize;
       slider.addEventListener('input', () => {
         const count = Number(slider.value);
@@ -141,6 +150,7 @@ async function start() {
       engine._g3_benchmark_set_count(Number(slider.value));
       frameCall = dt => engine._g3_app_frame(dt);
       getDrawCalls = () => engine._g3_host_scene_draw_calls();
+      getBackendFrameMs = () => engine._g3_host_scene_draw_ms();
       resizeRenderer = (width, height) => engine._g3_input_resize(width, height);
       slider.addEventListener('input', () => {
         const count = Number(slider.value);
