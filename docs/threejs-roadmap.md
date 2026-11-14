@@ -178,7 +178,10 @@ and a browser integration check for behavior exposed through WebGL.
   orbit, pan and pinch controls, selection, camera switching, selectable point
   or spot shadow casters, and reload. Its bundled textured animation sample
   includes perspective and orthographic cameras, point and spot lights, and a
-  shadow receiver. The browser model API
+  shadow receiver. A local browser check page exercises WebGL frame output,
+  texture decoding, environment fill, animation, camera selection, point and
+  spot shadows, and repeated disposal. It exposes a machine-readable result for
+  a future browser automation runner. The browser model API
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material
   summaries expose texture bindings and a bounded preview API, and the viewer
@@ -286,10 +289,10 @@ Tests cover animation interpolation, skinning, and camera projection.
   package subpath; the repository-only `test_build_exports.mjs` check verifies
   that the WebAssembly build exports the host functions the helpers call.
   Publish the package, add more runnable examples, and add continuous browser
-  rendering tests. The bundled viewer sample provides manual coverage inputs
-  for texture, lighting, shadows, animation, and camera switching, but does not
-  replace automated browser rendering checks. Add native asset loading when
-  native interactive applications are a target.
+  rendering tests. The bundled sample and local browser check page now exercise
+  the core integration paths, but are not yet run continuously in browser
+  automation. Add native asset loading when native interactive applications
+  are a target.
 
 **Done when:** a documented benchmark demonstrates instancing and resource
 reuse, and published examples build and run through the supported API.

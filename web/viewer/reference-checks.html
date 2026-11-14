@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Goose 3D browser reference checks</title>
+<style>
+  body { margin: 0; background: #111820; color: #edf3f3; font: 14px/1.5 system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: 65vh; touch-action: none; }
+  pre { margin: 16px; white-space: pre-wrap; font: 13px/1.5 ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<canvas id="canvas" aria-label="WebGL browser reference test scene"></canvas>
+<pre id="results" role="status">Running browser reference checks…</pre>
+<script type="module" src="./reference-checks.js"></script>
+</body>
+</html>

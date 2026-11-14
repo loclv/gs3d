@@ -47,6 +47,11 @@ repeats loading and disposal. This is a convenient local reference scene, while
 actual browser rendering checks are still needed to validate WebGL output.
 
 Regenerate the sample asset with `python3 web/viewer/generate_sample.py`.
+For browser-side checks of WebGL frame output, texture decoding, environment
+fill, animation, camera selection, point and spot shadows, and repeated asset
+disposal, open `/viewer/reference-checks.html` from that local server. Results
+are reported in the page and in `window.__g3ReferenceChecks` for a browser
+automation runner.
 
 `createOrbitControls` handles pointer orbit, right-button or shift-drag pan,
 two-finger pinch and pan, wheel zoom, keyboard camera controls, and click
