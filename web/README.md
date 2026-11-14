@@ -1,9 +1,10 @@
 # Goose 3D browser asset helpers
 
-This package contains `assets.js` and its TypeScript declarations. It does not
-contain an engine build: create the Goose 3D WebAssembly module with
-`build_web.sh`, initialize it with `_g3_host_start(width, height)`, then pass
-that initialized module to these helpers.
+This package publishes the browser helpers in `assets.js` and their TypeScript
+declarations. It does not contain the Goose 3D engine build. Build the WebAssembly
+module for your application, initialize it with `_g3_host_start(width, height)`,
+then pass that initialized module to these helpers. In this repository, use
+`./build_web.sh` to build the sample applications.
 
 ```js
 import { loadGLTF, setOutputColorSpace, setFXAA, AssetError } from 'goose-3d-browser-assets';
@@ -31,7 +32,7 @@ try {
 }
 ```
 
-The repository's `docs/assets.md` describes supported glTF features, asset
+In this repository, `docs/assets.md` describes supported glTF features, asset
 ownership, errors, texture colour spaces and animation.
 The declarations in `assets.d.ts` cover loaders, checked handles, model
 lifecycle, animation controls and rendering options.
@@ -63,8 +64,8 @@ and in `window.__g3ReferenceChecks` for a browser automation runner. After the
 build, run `node web/test_reference_wasm_exports.mjs` to confirm the page's
 engine calls are exported by the generated WebAssembly module.
 
-The package consumer example is at `/examples/model-loader/`. It defaults to
-the remote [RobotExpressive sample](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf/RobotExpressive),
+The repository's package consumer example is at `/examples/model-loader/`. It
+defaults to the remote [RobotExpressive sample](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf/RobotExpressive),
 licensed CC0 1.0, and accepts `?model=<URL>` or an entered URL for another
 remote glTF/GLB with CORS enabled. Use **Use bundled sample** for an offline
 asset. The page shows asset errors, keeps the current model if a replacement
@@ -78,11 +79,15 @@ canvas or viewer is removed.
 
 Run `npm test` in this directory to exercise asset parsing and lifecycle
 against a fake engine, orbit controls against a fake canvas, and package
-subpath/type-declaration resolution. Run
-These tests do not compile shaders or verify WebGL output. From the repository
-checkout, run `node test_build_exports.mjs` to check the browser build's host
-exports and `node test_viewer_import_map.mjs` to check that the local viewer
-maps its public package imports to the checked-in helpers.
+subpath/type-declaration resolution. These tests do not compile shaders or
+verify WebGL output. From the repository checkout, run
+`node test_build_exports.mjs` to check the browser build's host exports and
+`node test_viewer_import_map.mjs` to check that the local viewer maps its public
+package imports to the checked-in helpers.
+
+Publishing runs the package tests through the `prepublishOnly` script. The
+published file allowlist contains only the asset and orbit-control modules and
+their declarations; repository tests and sample GLBs stay in the checkout.
 
 `model.applyLights()` opts into the selected scene's `KHR_lights_punctual`
 lights. Its optional `pointShadow` and `spotShadow` values select one caster of

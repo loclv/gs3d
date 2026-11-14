@@ -293,7 +293,9 @@ Tests cover animation interpolation, skinning, and camera projection.
   package subpath; the repository-only `test_build_exports.mjs` check verifies
   that the WebAssembly build exports the host functions the helpers call.
   A runnable consumer example loads a CC0 remote model and accepts other remote
-  URLs; it documents CORS and lifecycle behavior. Publish the package. The
+  URLs; it documents CORS and lifecycle behavior. Publication is prepared: the
+  npm file allowlist ships only the two browser helper subpaths and declarations,
+  and `prepublishOnly` runs the package tests. Publishing remains to do. The
   bundled sample and local browser check page now exercise
   the core integration paths, but are not yet run continuously in browser
   automation. Add native asset loading when native interactive applications
