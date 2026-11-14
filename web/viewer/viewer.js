@@ -22,7 +22,7 @@ const rotationInput = document.getElementById('environment-rotation');
 const rotationValue = document.getElementById('environment-rotation-value');
 const hemisphereInput = document.getElementById('hemisphere-intensity');
 const hemisphereValue = document.getElementById('hemisphere-value');
-let engine, model, last = 0;
+let engine, model, controls, last = 0;
 let animationPlaying = false;
 let selectedPrimitive = null;
 let environmentIntensities = new Map();
@@ -205,7 +205,7 @@ async function start() {
         environmentValue.value = intensity.toFixed(2);
       }
     });
-    createOrbitControls(canvas, {
+    controls = createOrbitControls(canvas, {
       onOrbit: (yaw, pitch) => engine._g3_viewer_orbit(yaw, pitch),
       onZoom: factor => engine._g3_viewer_zoom(factor),
       onPan: (dx, dy) => engine._g3_viewer_pan(dx, dy, canvas.clientHeight),
@@ -233,6 +233,11 @@ async function start() {
         }
       },
     });
+    window.addEventListener('pagehide', () => {
+      controls?.dispose();
+      model?.dispose();
+      engine?._g3_app_shutdown();
+    }, { once: true });
     requestAnimationFrame(frame);
     await loadModel();
   } catch (error) { status.textContent = error.message; }

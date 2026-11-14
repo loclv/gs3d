@@ -38,6 +38,11 @@ for (const method of ['playAnimation', 'pauseAnimation', 'resumeAnimation', 'see
   assert.ok(source.includes(`.${method}(`), `the viewer wires ${method} to its animation controls`);
 }
 assert.ok(source.includes('model?.animationTime'), 'the time control follows the active clip');
+const teardown = source.match(/window\.addEventListener\('pagehide', \(\) => \{([\s\S]*?)\}, \{ once: true \}\);/)?.[1];
+assert.ok(teardown, 'the reference viewer registers page teardown');
+for (const release of ['controls?.dispose()', 'model?.dispose()', 'engine?._g3_app_shutdown()']) {
+  assert.ok(teardown.includes(release), `the viewer page teardown releases ${release}`);
+}
 assert.equal(sampleGlb.readUInt32LE(0), 0x46546c67, 'the viewer sample is a GLB');
 const jsonChunkLength = sampleGlb.readUInt32LE(12);
 const sample = JSON.parse(sampleGlb.subarray(20, 20 + jsonChunkLength).toString('utf8'));
