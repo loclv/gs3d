@@ -1,8 +1,8 @@
 # Asset loading
 
-`web/assets.js` loads a limited glTF 2.0 subset, including node transform
-animation, into either browser build after `g3_host_start` has succeeded. It
-uses browser fetch and image decoding.
+`web/assets.js` loads a limited glTF 2.0 subset, including node transform,
+morph-weight, and skeletal animation, into either browser build after
+`g3_host_start` has succeeded. It uses browser fetch and image decoding.
 
 The ES module API has TypeScript declarations in `web/assets.d.ts`. The
 `web/package.json` manifest exports this helper module as
@@ -142,8 +142,9 @@ containing schemes, absolute paths, encoded URI components, query strings,
 fragments, or dot path segments are rejected. Data URIs must use base64
 encoding. Dense and sparse POSITION, NORMAL, TANGENT, TEXCOORD_0, COLOR_0, and
 index accessors are supported, including sparse-only zero-initialized data.
-The primitive APIs do not load skins or animations; use the scene API below
-when the source node hierarchy must be retained.
+The primitive APIs apply default morph weights to `POSITION`, `NORMAL`, and
+`TANGENT` target deltas, but do not load skins or animation clips; use the scene
+API below when the source node hierarchy or animation must be retained.
 Browser applications should use the broader `web/assets.js` loader.
 
 For multi-node content, `native_glb_load_scene(path, scene_index)` loads
@@ -162,17 +163,23 @@ with declared `KHR_lights_punctual` extensions import directional, point, and
 spot lights using physical inverse-square attenuation; a missing light range
 means no cutoff. Scene disposal restores the previous light set. Shadows remain
 opt-in through the existing light-shadow APIs. Core glTF translation, rotation,
-and scale animation channels are imported for selected scene nodes. LINEAR,
-STEP, and CUBICSPLINE sampling are supported; morph-weight and skeletal
-animation are not. Query clips with `native_glb_scene_animation_count` and
-`native_glb_scene_animation_duration`; call
+scale, and morph-weight animation channels are imported for selected scene
+nodes. LINEAR, STEP, and CUBICSPLINE sampling are supported. Morph weights
+deform retained CPU vertices and update the mesh and bounds; native skeletal
+animation is not supported. Query clips with
+`native_glb_scene_animation_count` and `native_glb_scene_animation_duration`; call
 `native_glb_scene_apply_animation(scene, clip, elapsed_seconds)` from the
 application frame loop. Sampling clamps to the clip's key range. Call
 `native_glb_scene_reset_animation` before switching clips or restoring authored
-node transforms. Applying a clip that contains a morph-weight channel returns
-`false`, since native morph deformation is not yet supported. Animation changes
-the selected scene's node hierarchy; the native imported cameras and punctual
-lights remain static.
+node transforms. Morph animation updates all primitives on the targeted node;
+when changing clips or restoring authored values, call
+`native_glb_scene_reset_animation` to restore both transforms and default morph
+weights. Animation changes the selected scene's node hierarchy; the native
+imported cameras and punctual lights remain static. Native glTF loaders return
+an invalid handle and `false` for malformed or unsupported data. Failed scene
+loads roll back previously created nodes, meshes, cameras, lights, animation
+tracks, and morph data. Unlike native image loading, native glTF loading does
+not currently expose a detailed last-error code.
 
 ```goose
 let loaded_scene, scene_ok = g3::native_glb_load_scene("model.glb", -1);

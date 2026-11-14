@@ -16,7 +16,7 @@ reference for rendering changes.
 
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
-| Assets | Built-in primitives, custom geometry, a browser glTF/GLB loader, a native GLB/JSON glTF loader with selected scene hierarchy, mesh instances, selectable perspective/orthographic cameras, `KHR_lights_punctual`, core TRS animation clips with LINEAR/STEP/CUBICSPLINE sampling, up to 16 external or base64 data-URI buffers, native PPM P6/PNG/JPEG decoding with checked handles and queryable errors, dense and sparse geometry/color/index accessors, automatic core and supported extension material texture import from GLB buffer views, safe external URIs or data URIs, sampler state and independent UV0 transforms, plus Radiance HDR image loading; the browser path supports shared static primitive uploads, `EXT_mesh_gpu_instancing`, selectable scenes and cameras, opt-in `KHR_lights_punctual`, WebP fallback, quantized geometry, vertex colours, materials, morph and skeletal animations, dense and sparse accessors, and reusable asset-owned slots | Native morph-weight and skeletal animation, broader glTF extension coverage, general resource ownership and fragmentation control; see [assets.md](assets.md) |
+| Assets | Built-in primitives, custom geometry, a browser glTF/GLB loader, a native GLB/JSON glTF loader with selected scene hierarchy, mesh instances, selectable perspective/orthographic cameras, `KHR_lights_punctual`, TRS and morph-weight animation clips with LINEAR/STEP/CUBICSPLINE sampling, up to 16 external or base64 data-URI buffers, native PPM P6/PNG/JPEG decoding with checked handles and queryable errors, dense and sparse geometry/color/index accessors, automatic core and supported extension material texture import from GLB buffer views, safe external URIs or data URIs, sampler state and independent UV0 transforms, plus Radiance HDR image loading; the browser path supports shared static primitive uploads, `EXT_mesh_gpu_instancing`, selectable scenes and cameras, opt-in `KHR_lights_punctual`, WebP fallback, quantized geometry, vertex colours, materials, morph and skeletal animations, dense and sparse accessors, and reusable asset-owned slots | Native skeletal animation, broader glTF extension coverage, general resource ownership and fragmentation control; see [assets.md](assets.md) |
 | Materials | Shared glTF materials with `COLOR_0`, metallic-roughness, tangent-space normal, occlusion, emissive, specular, clearcoat, sheen and anisotropy maps, authored and morphed tangents, eight texture-coordinate sets, double-sided rendering, selectable `KHR_materials_variants`, per-material environment intensity, rotatable equirectangular environment maps, `KHR_materials_unlit`, `KHR_materials_ior`, `KHR_materials_clearcoat`, `KHR_materials_specular`, `KHR_materials_sheen`, `KHR_materials_anisotropy`, `KHR_materials_emissive_strength`, per-texture `KHR_texture_transform` on `TEXCOORD_0` through `_7`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and Reinhard/ACES tone mapping with exposure | Browser shader validation and reference images |
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, browser-controllable hemispherical fill, and rotatable RGB or HDR equirectangular fill | Browser reference validation |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL/TANGENT morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and representative deformation measurements; GPU morph targets fall back to CPU above 64 targets or device texture limits |
@@ -28,8 +28,8 @@ reference for rendering changes.
 ## Recommended next sequence
 
 The browser renderer and asset API are the primary product surface. The native
-loader also supports core node transform animation, with morph-weight and
-skeletal animation still outstanding. Prioritize work in this order:
+loader also supports core node transform and morph-weight animation; skeletal
+animation remains outstanding. Prioritize work in this order:
 
 1. **Make the browser viewer a dependable reference application.** Add
    repeatable browser rendering checks for textured materials, environment
@@ -39,8 +39,8 @@ skeletal animation still outstanding. Prioritize work in this order:
 2. **Close the native scene contract.** Document the supported glTF
    subset and error behavior in one place, add fixtures for each supported
    buffer and image source, and keep scene disposal and repeated-load resource
-   reuse covered by native tests. Core node transform clips now load natively;
-   morph-weight and skeletal animation remain separate capabilities.
+   reuse covered by native tests. Core node transform and morph-weight clips
+   now load natively; skeletal animation remains a separate capability.
 3. **Finish package adoption.** Publish the package with its existing
    subpaths and TypeScript declarations, then provide a minimal browser example
    that loads a remote textured model, reports load errors, and disposes it
