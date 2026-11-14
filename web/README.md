@@ -71,7 +71,8 @@ Pass `--timeout-ms N` to `node test_browser_reference.mjs` to change the default
 two-minute limit. This command launches a local browser; it does not contact
 external sites. The repository's GitHub Actions workflow runs this suite on
 pushes and pull requests after installing a checksum-verified Goose compiler,
-Emscripten 7.0.0, and headless Chrome. It also opens the bundled model viewer
+Emscripten 7.0.0, and headless Chrome. The same workflow runs native CPU renderer
+tests. It also opens the bundled model viewer
 and exercises its camera, animation, shadow, variant, environment, orbit,
 selection, preview, and reload controls. It also opens the package consumer
 with the bundled sample and checks malformed replacement and reload behavior

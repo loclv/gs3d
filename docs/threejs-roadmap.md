@@ -199,9 +199,10 @@ and a browser integration check for behavior exposed through WebGL.
   selection, previews, and model reload. It also opens the package consumer
   with the offline sample, verifies a malformed replacement keeps the current
   model usable, and reloads the sample without contacting the remote default.
-  `.github/workflows/browser-reference.yml` runs it on pushes and pull requests
-  with a checksum-verified Goose compiler and a headless Chrome install. Capture
-  additional reference images on representative target GPUs.
+  `.github/workflows/browser-reference.yml` runs CPU renderer tests and this
+  browser suite on pushes and pull requests with a checksum-verified Goose
+  compiler and a headless Chrome install. Capture additional reference images
+  on representative target GPUs.
   The browser model API
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material
