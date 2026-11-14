@@ -560,3 +560,26 @@ address space per data stack by default, which costs nothing natively but is
 real memory in a wasm heap; the engine keeps five arenas, so capping each at
 64 MiB is the difference between a 2 GiB heap and a few hundred MiB. Raise it if
 a scene needs more geometry than that.
+
+### Rift Siege — combat framework trial
+
+Run `./build_web.sh --siege --serve`, then open
+[localhost:8080/siege/](http://localhost:8080/siege/).
+WASD moves, arrows aim and fire, Space fires along the last aim, and Shift
+dashes with a brief shield (1.8 second cooldown). Keyboard required.
+
+Five waves increase enemy count from 8 to 24, introduce ranged enemies in
+wave two and armored enemies in wave four. Clear the arena to advance, repair
+one hull point between waves, and survive wave five to win. Cyan pylons block
+movement and shots. The game uses a 120 Hz simulation, bounded catch-up, and
+128 reusable projectile nodes; restarts allocate no scene objects.
+`g3::segment_sphere_intersects` supplies swept projectile collision, including
+stationary and tangent contact. It accepts the combined projectile/target radius.
+
+`./build_native.sh --test` includes combat/state regression checks and writes
+`build/siege.ppm` through the CPU backend.
+
+The browser renderer currently requires 23 fragment texture units. Some
+headless/software WebGL implementations expose fewer and cannot boot this
+build; the startup screen reports that requirement. Native tests cover combat
+and rendering independently of this browser capability limit.

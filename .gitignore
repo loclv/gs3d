@@ -15,3 +15,7 @@ web/benchmark/animation/app.js.map
 
 # fetched toolchain (Emscripten SDK), see README
 .toolchain/
+
+web/siege/app.js
+web/siege/app.wasm
+web/siege/app.js.map

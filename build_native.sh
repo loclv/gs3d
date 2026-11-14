@@ -30,7 +30,9 @@ goose build --cc "$native_cc" -o build/test_engine src/test_engine.goose
 echo "goose -> build/test_game"
 goose build --cc "$native_cc" -o build/test_game src/test_game.goose
 
-echo "built build/app_native, build/test_math, build/test_engine and build/test_game"
+goose build --cc "$native_cc" -o build/test_siege src/test_siege.goose
+
+echo "built build/app_native, build/test_math, build/test_engine build/test_game and build/test_siege"
 
 if [ "${1:-}" = "--test" ]; then
   echo
@@ -38,10 +40,11 @@ if [ "${1:-}" = "--test" ]; then
   echo
   ./build/test_engine
   ./build/test_game
+  ./build/test_siege
 
   echo
   echo "== zero-warning check (ideal 11) =="
-  for f in src/test_math.goose src/test_engine.goose src/test_game.goose src/app_native.goose src/app_web.goose src/game_web.goose src/viewer_web.goose; do
+  for f in src/test_siege.goose src/siege_web.goose src/test_math.goose src/test_engine.goose src/test_game.goose src/app_native.goose src/app_web.goose src/game_web.goose src/viewer_web.goose; do
     log="build/check_$(basename "$f").log"
     goose check "$f" >"$log" 2>&1
     if grep -qi "warning" "$log"; then

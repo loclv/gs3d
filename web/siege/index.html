@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rift Siege · goose-3d</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#030914;color:#e6f9ff;font:14px system-ui}canvas{width:100vw;height:100vh;display:block}
+header{position:fixed;top:24px;left:28px;pointer-events:none}small{color:#5ce1ef;letter-spacing:.22em}h1{font-size:32px;letter-spacing:-.05em;margin:5px 0}#hud{color:#ffda88;font-variant-numeric:tabular-nums}
+footer{position:fixed;bottom:22px;left:28px;right:28px;display:flex;justify-content:space-between;gap:16px;color:#91acbe;pointer-events:none}
+#overlay{position:fixed;inset:0;display:grid;place-content:center;text-align:center;background:#030914d9;padding:24px}#overlay[hidden]{display:none}h2{font-size:44px;margin:0 0 12px}p{max-width:460px;line-height:1.8}button{background:#68eafa;color:#062337;border:0;padding:14px 24px;font:700 15px system-ui;cursor:pointer}button:focus-visible{outline:3px solid white;outline-offset:4px}
+@media(max-width:600px){header{top:12px;left:16px}h1{font-size:24px}footer{left:16px;font-size:12px}}
+</style>
+<canvas id="canvas" tabindex="0" aria-label="Rift Siege 3D arena"></canvas>
+<header><small>GOOSE-3D / COMBAT TRIAL 02</small><h1>RIFT SIEGE</h1><div id="hud">Connecting…</div></header>
+<footer><span>WASD move · Arrows aim & fire · Space fire · Shift dash</span><span id="stats"></span></footer>
+<div id="overlay" role="status"><h2>Rift Siege</h2><p id="detail">Loading the arena…</p><button id="action" hidden>Enter arena</button></div>
+<script type="module" src="./siege.js"></script></html>
