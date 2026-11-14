@@ -31,12 +31,27 @@ let warmup = 0;
 let cpuTimes = [];
 let rafTimes = [];
 let backendTimes = [];
+let gpuGl;
+let gpuTimerExt;
+let gpuPending = [];
+let gpuTimes = [];
+let gpuDisjointCount = 0;
+let gpuSkippedCount = 0;
+let gpuWaitFrames = 0;
+let sampleReported = false;
 
 function resetSample() {
+  if (gpuGl) for (const item of gpuPending) gpuGl.deleteQuery(item.query);
+  gpuPending = [];
   warmup = 0;
   cpuTimes = [];
   rafTimes = [];
   backendTimes = [];
+  gpuTimes = [];
+  gpuDisjointCount = 0;
+  gpuSkippedCount = 0;
+  gpuWaitFrames = 0;
+  sampleReported = false;
   results.textContent = 'warming up…';
 }
 
@@ -52,28 +67,91 @@ function report() {
     ? `\nWebGL backend median ${percentile(backendTimes, 0.5).toFixed(2)} ms · ` +
       `p95 ${percentile(backendTimes, 0.95).toFixed(2)} ms`
     : '';
+  const gpuLine = !gpuTimerExt
+    ? '\nGPU timer query unavailable'
+    : gpuTimes.length
+      ? `\nGPU median ${percentile(gpuTimes, 0.5).toFixed(2)} ms · ` +
+        `p95 ${percentile(gpuTimes, 0.95).toFixed(2)} ms (${gpuTimes.length}/${SAMPLE_FRAMES} samples)` +
+        (gpuDisjointCount ? ` · ${gpuDisjointCount} disjoint samples` : '') +
+        (gpuSkippedCount ? ` · ${gpuSkippedCount} skipped` : '')
+      : `\nGPU timing unavailable (${gpuDisjointCount} disjoint, ${gpuSkippedCount} skipped)`;
   results.textContent =
     `${label} · ${slider.value} visible cubes · ${getDrawCalls()} scene draw call(s)\n` +
     `${(1000 / meanRaf).toFixed(1)} browser frames/s\n` +
     `frame call median ${percentile(cpuTimes, 0.5).toFixed(2)} ms · ` +
-    `p95 ${percentile(cpuTimes, 0.95).toFixed(2)} ms${backendLine}\n` +
+    `p95 ${percentile(cpuTimes, 0.95).toFixed(2)} ms${backendLine}${gpuLine}\n` +
     `sample: ${SAMPLE_FRAMES} frames after ${WARMUP_FRAMES} warmup frames`;
 }
 
+function pollGpuQueries() {
+  if (!gpuTimerExt) return false;
+  if (gpuGl.getParameter(gpuTimerExt.GPU_DISJOINT_EXT)) {
+    const invalidated = gpuPending.length + gpuTimes.length;
+    for (const item of gpuPending) gpuGl.deleteQuery(item.query);
+    gpuDisjointCount += invalidated;
+    gpuPending = [];
+    gpuTimes = [];
+    return false;
+  }
+  const waiting = [];
+  for (const item of gpuPending) {
+    if (!gpuGl.getQueryParameter(item.query, gpuGl.QUERY_RESULT_AVAILABLE)) {
+      waiting.push(item);
+      continue;
+    }
+    const elapsedNs = Number(gpuGl.getQueryParameter(item.query, gpuGl.QUERY_RESULT));
+    if (Number.isFinite(elapsedNs) && elapsedNs >= 0) gpuTimes.push(elapsedNs / 1e6);
+    else gpuSkippedCount++;
+    gpuGl.deleteQuery(item.query);
+  }
+  gpuPending = waiting;
+  return true;
+}
+
+function beginGpuQuery() {
+  if (!gpuTimerExt || cpuTimes.length >= SAMPLE_FRAMES) return null;
+  if (gpuPending.length >= 64) {
+    gpuSkippedCount++;
+    return null;
+  }
+  const query = gpuGl.createQuery();
+  if (!query) {
+    gpuSkippedCount++;
+    return null;
+  }
+  gpuGl.beginQuery(gpuTimerExt.TIME_ELAPSED_EXT, query);
+  return query;
+}
+
 function frame(now) {
+  const gpuCanMeasure = pollGpuQueries();
   const dt = previous ? Math.min((now - previous) / 1000, 0.1) : 1 / 60;
-  if (previous && warmup >= WARMUP_FRAMES) rafTimes.push(now - previous);
+  if (previous && warmup >= WARMUP_FRAMES && cpuTimes.length < SAMPLE_FRAMES) rafTimes.push(now - previous);
   previous = now;
   const start = performance.now();
+  const gpuQuery = gpuCanMeasure && warmup >= WARMUP_FRAMES ? beginGpuQuery() : null;
   frameCall(dt);
+  if (gpuQuery) {
+    gpuGl.endQuery(gpuTimerExt.TIME_ELAPSED_EXT);
+    gpuPending.push({ query: gpuQuery });
+  }
   const elapsed = performance.now() - start;
 
   if (warmup < WARMUP_FRAMES) {
     warmup++;
-  } else {
+  } else if (cpuTimes.length < SAMPLE_FRAMES) {
     cpuTimes.push(elapsed);
     if (getBackendFrameMs) backendTimes.push(getBackendFrameMs());
-    if (cpuTimes.length === SAMPLE_FRAMES) report();
+  }
+  if (cpuTimes.length >= SAMPLE_FRAMES && !sampleReported) {
+    gpuWaitFrames++;
+    if (gpuPending.length === 0 || gpuWaitFrames >= 180) {
+      gpuSkippedCount += gpuPending.length;
+      for (const item of gpuPending) gpuGl.deleteQuery(item.query);
+      gpuPending = [];
+      report();
+      sampleReported = true;
+    }
   }
   requestAnimationFrame(frame);
 }
@@ -132,6 +210,8 @@ async function start() {
       getDrawCalls = benchmark.drawCalls;
       getBackendFrameMs = null;
       resizeRenderer = benchmark.resize;
+      gpuGl = canvas.getContext('webgl2');
+      gpuTimerExt = gpuGl?.getExtension('EXT_disjoint_timer_query_webgl2') ?? null;
       slider.addEventListener('input', () => {
         const count = Number(slider.value);
         countLabel.value = String(count);
@@ -147,6 +227,8 @@ async function start() {
       const { default: createGoose3D } = await import('./app.js');
       const engine = await createGoose3D();
       if (!engine._g3_host_start(size.width, size.height)) throw new Error('The Goose WebGL2 renderer could not start.');
+      gpuGl = canvas.getContext('webgl2');
+      gpuTimerExt = gpuGl?.getExtension('EXT_disjoint_timer_query_webgl2') ?? null;
       engine._g3_benchmark_set_count(Number(slider.value));
       frameCall = dt => engine._g3_app_frame(dt);
       getDrawCalls = () => engine._g3_host_scene_draw_calls();

@@ -105,22 +105,26 @@ comparing the reported frame-call median and p95.
 Headless Playwright runs with Chrome for Testing 159.0.8154.6, a 1280×720
 canvas, and 1,024 cubes produced these before and after results:
 
-| Backend / revision | Scene draw calls | Browser FPS | Frame-call median | Frame-call p95 | WebGL backend median / p95 |
+| Backend / revision | Scene draw calls | Browser FPS | Frame-call median / p95 | WebGL backend median / p95 | GPU median / p95 |
 |---|---:|---:|---:|---:|---:|
-| Goose 3D before | 1 | 21.4 | 45.60 ms | 54.00 ms | — |
-| Goose 3D optimized | 1 | 41.7 | 0.20 ms | 0.30 ms | 0.10 / 0.20 ms |
-| Three.js 0.180.0 | 1 | 47.4 | 0.10 ms | 0.20 ms | — |
+| Goose 3D before | 1 | 21.4 | 45.60 / 54.00 ms | — | — |
+| Goose 3D optimized | 1 | 42.3 | 0.30 / 0.30 ms | 0.10 / 0.20 ms | 16.36 / 18.24 ms |
+| Three.js 0.180.0 | 1 | 44.4 | 0.10 / 0.20 ms | — | 16.32 / 17.83 ms |
 
-Each row uses 120 warmup frames followed by 300 sampled frames. Goose's opaque
+Each row uses 120 warmup frames followed by 300 sampled frames. GPU time uses
+the asynchronous `EXT_disjoint_timer_query_webgl2` extension; unavailable and
+disjoint results are omitted. Goose's opaque
 unlit path now skips the full-screen color-encoding pass and uses a smaller
 shader. The engine also reuses unchanged root transforms and static instance
 uploads, retains instanced vertex bindings, skips per-frame GL error polling,
 and avoids sorting an already ordered draw list. Goose improved from 21.4 to
-41.7 FPS (1.95×) in this run, reaching about 88% of Three.js's measured frame
-rate. The run used headless SwiftShader
-software WebGL rather than a physical GPU; treat these as environment-specific
-diagnostics. Frame-call timings measure CPU work and GPU command submission, not
-GPU completion. Playwright reported no browser errors.
+42.3 FPS (1.98×) in this run, reaching about 95% of Three.js's measured frame
+rate. The query reported nearly identical GPU times for both renderers. This run
+used headless SwiftShader software WebGL rather than a physical GPU; treat
+these as environment-specific diagnostics. Frame-call timings measure CPU work
+and GPU command submission; GPU-query timings measure rendering commands and
+exclude browser compositing and display refresh. Playwright reported no browser
+errors.
 
 ### Engine demo
 

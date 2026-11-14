@@ -34,7 +34,7 @@
     <label for="nodes"><span>Visible repeated cubes</span><output id="count">1024</output></label>
     <input id="nodes" type="range" min="1" max="1024" step="1" value="1024">
     <div id="results">warming up…</div>
-    <div id="note">Same cube grid, camera, canvas size, and opaque color. Only the selected renderer runs. Median and p95 time the synchronous frame call; they include CPU scene work and GPU command submission, not GPU completion. FPS follows display refresh.</div>
+    <div id="note">Same cube grid, camera, canvas size, and opaque color. Only the selected renderer runs. Frame-call timing measures CPU work and command submission. GPU timing uses asynchronous WebGL timer queries for rendering commands; it excludes browser compositing and display refresh. Unsupported or disjoint GPU samples are omitted. FPS follows browser frame cadence.</div>
   </section>
   <div id="status">Starting WebGL2…</div>
   <script type="module" src="./compare.js"></script>
