@@ -77,9 +77,11 @@ typedef struct {
     GLsizei morph_target_count;
 } web_mesh;
 
-/* The one program every item draws with, and where its uniforms live. */
+/* A material shader variant and its uniform locations. */
 typedef struct {
     GLuint program;
+    unsigned texture_mask;
+    GLint texture_units[13];
     GLint mvp, view_proj, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
     GLint light_count, light_position[8], light_direction[8], light_color_extra[8], light_inner[8], light_attenuation[8];
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
@@ -108,6 +110,15 @@ typedef struct {
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
 static web_shader shader;
+static web_shader shader_cache[64];
+static unsigned shader_cache_next;
+static GLint fragment_texture_units;
+static const char *material_samplers[13] = {
+    "u_tex", "u_mr_tex", "u_normal_tex", "u_occlusion_tex", "u_emissive_tex",
+    "u_specular_tex", "u_specular_color_tex", "u_clearcoat_tex",
+    "u_clearcoat_roughness_tex", "u_clearcoat_normal_tex", "u_sheen_color_tex",
+    "u_sheen_roughness_tex", "u_anisotropy_tex"
+};
 
 static int32_t surf_w = 1280, surf_h = 720;
 static int32_t gpu_max_texture_size = 0;
@@ -323,11 +334,11 @@ static const char *FRAGMENT_SRC =
     "uniform mat4 u_shadow_matrix;\n"
     "uniform vec4 u_shadow_params;\n"
     "uniform float u_shadow_resolution;\n"
-    "uniform samplerCubeShadow u_point_shadow_map;\n"
+    "uniform highp samplerCubeShadow u_point_shadow_map;\n"
     "uniform mat4 u_point_shadow_matrices[6];\n"
     "uniform int u_point_shadow_index;\n"
     "uniform vec4 u_point_shadow_params;\n"
-    "uniform sampler2DShadow u_spot_shadow_map;\n"
+    "uniform highp sampler2DShadow u_spot_shadow_map;\n"
     "uniform mat4 u_spot_shadow_matrix;\n"
     "uniform int u_spot_shadow_index;\n"
     "uniform vec4 u_spot_shadow_params;\n"
@@ -693,10 +704,34 @@ static void find_uniforms(void) {
 
 /* Compile both stages, link them, and look the uniforms up. 0 on any failure,
    after telling the page why. */
-static int build_program(void) {
+static int build_program(unsigned mask) {
+    /* Compile only the material samplers this draw actually uses. Disabled
+       maps alias the environment sampler but their existing boolean guards
+       stay false. No material/shading terms are approximated or dropped. */
+    char *fragment = malloc(strlen(FRAGMENT_SRC) + 1024);
+    if (!fragment) return 0;
+    char *out = fragment;
+    const char *line = FRAGMENT_SRC;
+    while (*line) {
+        const char *end = strchr(line, '\n');
+        size_t len = end ? (size_t)(end - line + 1) : strlen(line);
+        int replaced = 0;
+        for (int i = 0; i < 13; i++) {
+            char declaration[96];
+            snprintf(declaration, sizeof(declaration), "uniform sampler2D %s;\n", material_samplers[i]);
+            if (!(mask & (1u << i)) && len == strlen(declaration) && !strncmp(line, declaration, len)) {
+                out += sprintf(out, "#define %s u_env_map\n", material_samplers[i]);
+                replaced = 1; break;
+            }
+        }
+        if (!replaced) { memcpy(out, line, len); out += len; }
+        line += len;
+    }
+    *out = 0;
     GLuint vs = compile_shader(GL_VERTEX_SHADER, VERTEX_SRC, "vertex");
-    if (!vs) return 0;
-    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, FRAGMENT_SRC, "fragment");
+    if (!vs) { free(fragment); return 0; }
+    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fragment, "fragment");
+    free(fragment);
     if (!fs) {
         glDeleteShader(vs);
         return 0;
@@ -706,6 +741,10 @@ static int build_program(void) {
     glDeleteShader(fs);
     if (!ok) return 0;
     find_uniforms();
+    shader.texture_mask = mask;
+    int unit = 5; /* environment, directional shadow, point, spot, BRDF: 0..4 */
+    for (int i = 0; i < 13; i++)
+        shader.texture_units[i] = mask & (1u << i) ? unit++ : -1;
     return 1;
 }
 
@@ -758,9 +797,10 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     emscripten_webgl_make_context_current(ctx);
     GLint max_fragment_texture_units = 0;
     glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &max_fragment_texture_units);
-    if (max_fragment_texture_units < 23) {
-        fprintf(stderr, "g3_web: WebGL2 exposes %d fragment texture units; 23 are required\n", max_fragment_texture_units);
-        report("This goose-3d build requires at least 23 WebGL2 fragment texture units.");
+    fragment_texture_units = max_fragment_texture_units;
+    if (max_fragment_texture_units < 16) {
+        fprintf(stderr, "g3_web: WebGL2 exposes %d fragment texture units; 16 are required\n", max_fragment_texture_units);
+        report("This goose-3d build requires at least 16 WebGL2 fragment texture units.");
         emscripten_webgl_destroy_context(ctx);
         ctx = 0;
         return 0;
@@ -774,7 +814,8 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     hdr_color_buffer_supported=float_color_buffer_supported;
     set_surface_size(width, height);
 
-    if (!build_program() || !ensure_brdf_lut()) return 0;
+    if (!build_program(0) || !ensure_brdf_lut()) return 0;
+    shader_cache[0] = shader; shader_cache_next = 1;
 
     /* The state the CPU backend also sets: depth LESS, back faces culled,
        counterclockwise front, and a blend that is switched on per item. */
@@ -847,7 +888,10 @@ void g3p_shutdown(void) {
     free(meshes);
     meshes = NULL;
     mesh_count = mesh_cap = 0;
-    if (shader.program) glDeleteProgram(shader.program);
+    for (int i = 0; i < 64; i++)
+        if (shader_cache[i].program) glDeleteProgram(shader_cache[i].program);
+    memset(shader_cache, 0, sizeof(shader_cache));
+    shader_cache_next = 0;
     shader.program = 0;
     if (ctx) emscripten_webgl_destroy_context(ctx);
     ctx = 0;
@@ -1438,6 +1482,7 @@ void g3p_texture_generate_env_mips(int32_t id) {
     if(width<=0 || height<=0) return;
     int levels=1,w=width,h=height;
     while((w>1||h>1)&&levels<32){w=w>1?w/2:1;h=h>1?h/2:1;levels++;}
+    glActiveTexture(GL_TEXTURE1);
     glGenTextures(1,&env_prefilter_texture);glBindTexture(GL_TEXTURE_2D,env_prefilter_texture);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
@@ -1449,6 +1494,7 @@ void g3p_texture_generate_env_mips(int32_t id) {
     glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,textures[id]);glBindSampler(0,ensure_env_source_sampler());
     glUniform1i(env_prefilter_source,0);glBindVertexArray(env_prefilter_vao);
     for(int level=0;level<levels;level++){
+        glActiveTexture(GL_TEXTURE1); /* Allocate the destination, preserving source unit 0. */
         glTexImage2D(GL_TEXTURE_2D,level,texture_is_hdr[id]?GL_RGBA16F:GL_RGBA8,w,h,0,GL_RGBA,texture_is_hdr[id]?GL_FLOAT:GL_UNSIGNED_BYTE,NULL);
         glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,env_prefilter_texture,level);
         GLenum color_attachment=GL_COLOR_ATTACHMENT0;glDrawBuffers(1,&color_attachment);glReadBuffer(GL_COLOR_ATTACHMENT0);
@@ -1456,6 +1502,7 @@ void g3p_texture_generate_env_mips(int32_t id) {
             glBindFramebuffer(GL_FRAMEBUFFER,0);glBindSampler(0,0);glDeleteTextures(1,&env_prefilter_texture);env_prefilter_texture=0;
             glEnable(GL_DEPTH_TEST);glEnable(GL_CULL_FACE);return;
         }
+        glActiveTexture(GL_TEXTURE0);
         glViewport(0,0,w,h);glUniform1f(env_prefilter_roughness,levels>1?(float)level/(float)(levels-1):0.0f);
         glUniform2f(env_prefilter_resolution,(float)w,(float)h);glDrawArrays(GL_TRIANGLES,0,3);
         w=w>1?w/2:1;h=h>1?h/2:1;
@@ -1538,35 +1585,35 @@ static void bind_view(const g3_view_state *view) {
     int env = view->environment_texture;
     int has_env = env >= 0 && env < texture_count && textures[env];
     int has_prefilter = has_env && env_prefilter_source_id == env && env_prefilter_texture;
-    glActiveTexture(GL_TEXTURE1);
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, has_env ? (has_prefilter ? env_prefilter_texture : textures[env]) : 0);
-    glBindSampler(1, has_prefilter ? ensure_env_sampler() : ensure_env_source_sampler());
-    glUniform1i(shader.env_map, 1);
+    glBindSampler(0, has_prefilter ? ensure_env_sampler() : ensure_env_source_sampler());
+    glUniform1i(shader.env_map, 0);
     glUniform1i(shader.env_map_enabled, has_env);
     glUniform1f(shader.env_map_intensity, view->environment_intensity);
     glUniform1f(shader.env_map_max_lod, has_prefilter ? (float)env_prefilter_max_lod : 0.0f);
     glUniform2f(shader.env_rotation, view->env_rotation.x, view->env_rotation.y);
-    glActiveTexture(GL_TEXTURE2);
+    glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
-    glUniform1i(shader.shadow_map, 2);
+    glUniform1i(shader.shadow_map, 1);
     glUniformMatrix4fv(shader.shadow_matrix, 1, GL_FALSE, view->shadow_view_proj.m);
     glUniform4f(shader.shadow_params, shadow_texture ? view->shadow_params.x : 0.0f, view->shadow_params.y, view->shadow_params.z, 0.0f);
     glUniform1f(shader.shadow_resolution, (float)shadow_map_size);
-    glActiveTexture(GL_TEXTURE7);
+    glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_CUBE_MAP, point_shadow_texture);
-    glUniform1i(shader.point_shadow_map, 7);
+    glUniform1i(shader.point_shadow_map, 2);
     glUniformMatrix4fv(shader.point_shadow_matrices, 6, GL_FALSE, view->point_shadow_view_proj[0].m);
     glUniform1i(shader.point_shadow_index, view->point_shadow_light_index);
     glUniform4f(shader.point_shadow_params, point_shadow_texture ? view->point_shadow_params.x : 0.0f, view->point_shadow_params.y, view->point_shadow_params.z, 0.0f);
-    glActiveTexture(GL_TEXTURE8);
+    glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, spot_shadow_texture);
-    glUniform1i(shader.spot_shadow_map, 8);
+    glUniform1i(shader.spot_shadow_map, 3);
     glUniformMatrix4fv(shader.spot_shadow_matrix, 1, GL_FALSE, view->spot_shadow_view_proj.m);
     glUniform1i(shader.spot_shadow_index, view->spot_shadow_light_index);
     glUniform4f(shader.spot_shadow_params, spot_shadow_texture ? view->spot_shadow_params.x : 0.0f, view->spot_shadow_params.y, view->spot_shadow_params.z, 0.0f);
-    glActiveTexture(GL_TEXTURE9);
+    glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D,brdf_lut_texture);
-    glUniform1i(shader.brdf_lut,9);
+    glUniform1i(shader.brdf_lut,4);
     int count = view->light_count < 0 ? 0 : view->light_count > 8 ? 8 : view->light_count;
     glUniform1i(shader.light_count, count);
     for (int i = 0; i < count; i++) {
@@ -1782,6 +1829,33 @@ static void render_point_shadow_maps(g3_draw_item_slice items, const g3_view_sta
     glBindFramebuffer(GL_FRAMEBUFFER,0);
 }
 
+static int select_material_shader(const g3_draw_item *it) {
+    const int32_t ids[13] = { it->texture, it->metallic_roughness_texture,
+        it->normal_texture, it->occlusion_texture, it->emissive_texture,
+        it->specular_texture, it->specular_color_texture, it->clearcoat_texture,
+        it->clearcoat_roughness_texture, it->clearcoat_normal_texture,
+        it->sheen_color_texture, it->sheen_roughness_texture, it->anisotropy_texture };
+    unsigned mask = 0; int units = 5;
+    for (int i = 0; i < 13; i++)
+        if (ids[i] >= 0 && ids[i] < texture_count && textures[ids[i]]) {
+            mask |= 1u << i; units++;
+        }
+    if (units > fragment_texture_units) {
+        report("This material exceeds the device's fragment texture budget (including lighting maps).");
+        return 0;
+    }
+    for (int i = 0; i < 64; i++)
+        if (shader_cache[i].program && shader_cache[i].texture_mask == mask) {
+            shader = shader_cache[i]; return 1;
+        }
+    web_shader previous = shader;
+    if (!build_program(mask)) { shader = previous; return 0; }
+    unsigned slot = shader_cache_next++ % 64;
+    if (shader_cache[slot].program) glDeleteProgram(shader_cache[slot].program);
+    shader_cache[slot] = shader;
+    return 1;
+}
+
 /* Draw one compatible run, or one item when ordering/state prevents batching. */
 static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     const g3_draw_item *it = &items.data[first];
@@ -1821,40 +1895,45 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform1i(shader.double_sided, it->double_sided);
     int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];
     glUniform1i(shader.textured, textured);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, textured ? textures[it->texture] : 0);
-    glUniform1i(shader.tex, 0);
+    if (shader.texture_units[0] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[0]);
+        glBindTexture(GL_TEXTURE_2D, textured ? textures[it->texture] : 0);
+        glUniform1i(shader.tex, shader.texture_units[0]);
+    }
 
     int mr_textured = it->metallic_roughness_texture >= 0 && it->metallic_roughness_texture < texture_count && textures[it->metallic_roughness_texture];
-    glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, mr_textured ? textures[it->metallic_roughness_texture] : 0);
-    glUniform1i(shader.mr_tex, 3);
+    if (shader.texture_units[1] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[1]);
+        glBindTexture(GL_TEXTURE_2D, mr_textured ? textures[it->metallic_roughness_texture] : 0);
+        glUniform1i(shader.mr_tex, shader.texture_units[1]);
+    }
     glUniform1i(shader.mr_textured, mr_textured);
 
-    /* Keep shader samplers on separate units: base 0, environment 1,
-       shadow 2, metallic-roughness 3, normal 4, occlusion 5, emissive 6,
-       point shadow 7, spot shadow 8, BRDF 9, joint matrices 10,
-       morph textures 11-13, specular strength 14, specular color 15,
-       morph tangents 16, clearcoat 17, clearcoat roughness 18,
-       clearcoat normal 19. */
+    /* Material maps use densely packed fragment units from this variant. */
     int normal_textured = it->normal_texture >= 0 && it->normal_texture < texture_count && textures[it->normal_texture];
-    glActiveTexture(GL_TEXTURE4);
-    glBindTexture(GL_TEXTURE_2D, normal_textured ? textures[it->normal_texture] : 0);
-    glUniform1i(shader.normal_tex, 4);
+    if (shader.texture_units[2] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[2]);
+        glBindTexture(GL_TEXTURE_2D, normal_textured ? textures[it->normal_texture] : 0);
+        glUniform1i(shader.normal_tex, shader.texture_units[2]);
+    }
     glUniform1i(shader.normal_textured, normal_textured);
     glUniform1f(shader.normal_scale, it->normal_scale);
 
     int occlusion_textured = it->occlusion_texture >= 0 && it->occlusion_texture < texture_count && textures[it->occlusion_texture];
-    glActiveTexture(GL_TEXTURE5);
-    glBindTexture(GL_TEXTURE_2D, occlusion_textured ? textures[it->occlusion_texture] : 0);
-    glUniform1i(shader.occlusion_tex, 5);
+    if (shader.texture_units[3] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[3]);
+        glBindTexture(GL_TEXTURE_2D, occlusion_textured ? textures[it->occlusion_texture] : 0);
+        glUniform1i(shader.occlusion_tex, shader.texture_units[3]);
+    }
     glUniform1i(shader.occlusion_textured, occlusion_textured);
     glUniform1f(shader.occlusion_strength, it->occlusion_strength);
 
     int emissive_textured = it->emissive_texture >= 0 && it->emissive_texture < texture_count && textures[it->emissive_texture];
-    glActiveTexture(GL_TEXTURE6);
-    glBindTexture(GL_TEXTURE_2D, emissive_textured ? textures[it->emissive_texture] : 0);
-    glUniform1i(shader.emissive_tex, 6);
+    if (shader.texture_units[4] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[4]);
+        glBindTexture(GL_TEXTURE_2D, emissive_textured ? textures[it->emissive_texture] : 0);
+        glUniform1i(shader.emissive_tex, shader.texture_units[4]);
+    }
     glUniform1i(shader.emissive_textured, emissive_textured);
     glUniform4f(shader.emissive, it->emissive.x, it->emissive.y, it->emissive.z, it->emissive.w);
 
@@ -1862,70 +1941,86 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform4f(shader.clearcoat, it->clearcoat.x, it->clearcoat.y, 0.0f, 0.0f);
     glUniform1f(shader.material_environment, it->environment_intensity);
     int clearcoat_textured = it->clearcoat_texture >= 0 && it->clearcoat_texture < texture_count && textures[it->clearcoat_texture];
-    glActiveTexture(GL_TEXTURE17);
-    glBindTexture(GL_TEXTURE_2D, clearcoat_textured ? textures[it->clearcoat_texture] : 0);
-    glUniform1i(shader.clearcoat_tex, 17);
+    if (shader.texture_units[7] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[7]);
+        glBindTexture(GL_TEXTURE_2D, clearcoat_textured ? textures[it->clearcoat_texture] : 0);
+        glUniform1i(shader.clearcoat_tex, shader.texture_units[7]);
+    }
     glUniform1i(shader.clearcoat_textured, clearcoat_textured);
     int clearcoat_roughness_textured = it->clearcoat_roughness_texture >= 0 && it->clearcoat_roughness_texture < texture_count && textures[it->clearcoat_roughness_texture];
-    glActiveTexture(GL_TEXTURE18);
-    glBindTexture(GL_TEXTURE_2D, clearcoat_roughness_textured ? textures[it->clearcoat_roughness_texture] : 0);
-    glUniform1i(shader.clearcoat_roughness_tex, 18);
+    if (shader.texture_units[8] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[8]);
+        glBindTexture(GL_TEXTURE_2D, clearcoat_roughness_textured ? textures[it->clearcoat_roughness_texture] : 0);
+        glUniform1i(shader.clearcoat_roughness_tex, shader.texture_units[8]);
+    }
     glUniform1i(shader.clearcoat_roughness_textured, clearcoat_roughness_textured);
     int clearcoat_normal_textured = it->clearcoat_normal_texture >= 0 && it->clearcoat_normal_texture < texture_count && textures[it->clearcoat_normal_texture];
-    glActiveTexture(GL_TEXTURE19);
-    glBindTexture(GL_TEXTURE_2D, clearcoat_normal_textured ? textures[it->clearcoat_normal_texture] : 0);
-    glUniform1i(shader.clearcoat_normal_tex, 19);
+    if (shader.texture_units[9] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[9]);
+        glBindTexture(GL_TEXTURE_2D, clearcoat_normal_textured ? textures[it->clearcoat_normal_texture] : 0);
+        glUniform1i(shader.clearcoat_normal_tex, shader.texture_units[9]);
+    }
     glUniform1i(shader.clearcoat_normal_textured, clearcoat_normal_textured);
     glUniform1f(shader.clearcoat_normal_scale, it->clearcoat_normal_scale);
     glUniform4f(shader.sheen, it->sheen.x, it->sheen.y, it->sheen.z, it->sheen.w);
     int sheen_color_textured = it->sheen_color_texture >= 0 && it->sheen_color_texture < texture_count && textures[it->sheen_color_texture];
-    glActiveTexture(GL_TEXTURE20);
-    glBindTexture(GL_TEXTURE_2D, sheen_color_textured ? textures[it->sheen_color_texture] : 0);
-    glUniform1i(shader.sheen_color_tex, 20);
+    if (shader.texture_units[10] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[10]);
+        glBindTexture(GL_TEXTURE_2D, sheen_color_textured ? textures[it->sheen_color_texture] : 0);
+        glUniform1i(shader.sheen_color_tex, shader.texture_units[10]);
+    }
     glUniform1i(shader.sheen_color_textured, sheen_color_textured);
     int sheen_roughness_textured = it->sheen_roughness_texture >= 0 && it->sheen_roughness_texture < texture_count && textures[it->sheen_roughness_texture];
-    glActiveTexture(GL_TEXTURE21);
-    glBindTexture(GL_TEXTURE_2D, sheen_roughness_textured ? textures[it->sheen_roughness_texture] : 0);
-    glUniform1i(shader.sheen_roughness_tex, 21);
+    if (shader.texture_units[11] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[11]);
+        glBindTexture(GL_TEXTURE_2D, sheen_roughness_textured ? textures[it->sheen_roughness_texture] : 0);
+        glUniform1i(shader.sheen_roughness_tex, shader.texture_units[11]);
+    }
     glUniform1i(shader.sheen_roughness_textured, sheen_roughness_textured);
     glUniform4f(shader.anisotropy, it->anisotropy.x, it->anisotropy.y, 0.0f, 0.0f);
     int anisotropy_textured = it->anisotropy_texture >= 0 && it->anisotropy_texture < texture_count && textures[it->anisotropy_texture];
-    glActiveTexture(GL_TEXTURE22);
-    glBindTexture(GL_TEXTURE_2D, anisotropy_textured ? textures[it->anisotropy_texture] : 0);
-    glUniform1i(shader.anisotropy_tex, 22);
+    if (shader.texture_units[12] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[12]);
+        glBindTexture(GL_TEXTURE_2D, anisotropy_textured ? textures[it->anisotropy_texture] : 0);
+        glUniform1i(shader.anisotropy_tex, shader.texture_units[12]);
+    }
     glUniform1i(shader.anisotropy_textured, anisotropy_textured);
     int specular_textured = it->specular_texture >= 0 && it->specular_texture < texture_count && textures[it->specular_texture];
-    glActiveTexture(GL_TEXTURE14);
-    glBindTexture(GL_TEXTURE_2D, specular_textured ? textures[it->specular_texture] : 0);
-    glUniform1i(shader.specular_tex, 14);
+    if (shader.texture_units[5] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[5]);
+        glBindTexture(GL_TEXTURE_2D, specular_textured ? textures[it->specular_texture] : 0);
+        glUniform1i(shader.specular_tex, shader.texture_units[5]);
+    }
     glUniform1i(shader.specular_textured, specular_textured);
     int specular_color_textured = it->specular_color_texture >= 0 && it->specular_color_texture < texture_count && textures[it->specular_color_texture];
-    glActiveTexture(GL_TEXTURE15);
-    glBindTexture(GL_TEXTURE_2D, specular_color_textured ? textures[it->specular_color_texture] : 0);
-    glUniform1i(shader.specular_color_tex, 15);
+    if (shader.texture_units[6] >= 0) {
+        glActiveTexture(GL_TEXTURE0 + shader.texture_units[6]);
+        glBindTexture(GL_TEXTURE_2D, specular_color_textured ? textures[it->specular_color_texture] : 0);
+        glUniform1i(shader.specular_color_tex, shader.texture_units[6]);
+    }
     glUniform1i(shader.specular_color_textured, specular_color_textured);
 
     glUniform1i(shader.skin_enabled, m->joint_count > 0 && m->joint_texture != 0);
     glUniform1i(shader.joint_count, m->joint_count);
-    glUniform1i(shader.joint_palette, 10);
-    glActiveTexture(GL_TEXTURE10);
+    glUniform1i(shader.joint_palette, 24);
+    glActiveTexture(GL_TEXTURE24);
     glBindTexture(GL_TEXTURE_2D, m->joint_texture);
 
     int morph_enabled = m->morph_target_count > 0 && m->morph_position_texture &&
                         m->morph_normal_texture && m->morph_tangent_texture && m->morph_weight_texture;
     glUniform1i(shader.morph_enabled, morph_enabled);
     glUniform1i(shader.morph_target_count, morph_enabled ? m->morph_target_count : 0);
-    glUniform1i(shader.morph_positions, 11);
-    glActiveTexture(GL_TEXTURE11);
+    glUniform1i(shader.morph_positions, 25);
+    glActiveTexture(GL_TEXTURE25);
     glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_position_texture : 0);
-    glUniform1i(shader.morph_normals, 12);
-    glActiveTexture(GL_TEXTURE12);
+    glUniform1i(shader.morph_normals, 26);
+    glActiveTexture(GL_TEXTURE26);
     glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_normal_texture : 0);
-    glUniform1i(shader.morph_tangents, 16);
-    glActiveTexture(GL_TEXTURE16);
+    glUniform1i(shader.morph_tangents, 27);
+    glActiveTexture(GL_TEXTURE27);
     glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_tangent_texture : 0);
-    glUniform1i(shader.morph_weights, 13);
-    glActiveTexture(GL_TEXTURE13);
+    glUniform1i(shader.morph_weights, 28);
+    glActiveTexture(GL_TEXTURE28);
     glBindTexture(GL_TEXTURE_2D, morph_enabled ? m->morph_weight_texture : 0);
 
     glBindVertexArray(m->vao);
@@ -2157,8 +2252,7 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     glClearColor(cr,cg,cb,1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    glUseProgram(shader.program);
-    bind_view(view);
+    GLuint bound_program = 0;
     if (target) glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
     for (int64_t i = 0; i < items.len;) {
         if (target && item_samples_texture(&items.data[i], view->render_target)) { i++; continue; }
@@ -2166,10 +2260,18 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
         if (items.data[i].params.w <= 0.5f && items.data[i].mesh >= 0 && items.data[i].mesh < mesh_count) {
             while (i + count < items.len && scene_compatible(&items.data[i], &items.data[i + count])) count++;
         }
-        draw_item(items, i, count);
+        if (select_material_shader(&items.data[i])) {
+            if (bound_program != shader.program) {
+                glUseProgram(shader.program);
+                bind_view(view);
+                bound_program = shader.program;
+            }
+            draw_item(items, i, count);
+        }
         i += count;
     }
     glBindVertexArray(0);
+    glBindSampler(0, 0); /* Do not leak the environment sampler into later passes. */
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
     if (target) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

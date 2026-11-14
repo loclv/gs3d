@@ -579,7 +579,19 @@ stationary and tangent contact. It accepts the combined projectile/target radius
 `./build_native.sh --test` includes combat/state regression checks and writes
 `build/siege.ppm` through the CPU backend.
 
-The browser renderer currently requires 23 fragment texture units. Some
-headless/software WebGL implementations expose fewer and cannot boot this
-build; the startup screen reports that requirement. Native tests cover combat
-and rendering independently of this browser capability limit.
+The browser renderer starts on WebGL2 devices with 16 fragment texture units.
+Material shaders are compiled on demand and kept in a bounded 64-program cache.
+Five fragment units are reserved for lighting maps; material maps occupy only
+the remaining units they actually use. On a 16-unit device a single material
+can use up to 11 maps; an over-budget material is skipped with a visible error.
+Vertex skin/morph textures use separate combined units 24–28.
+
+Run `./build_web.sh --reference-checks` followed by
+`node web/test_browser_reference.mjs --render-only` for browser pixel checks
+covering textures, render targets, lighting, shadows, and skinning.
+
+The focused game regression page is `/siege/checks.html`; it checks WebGL
+startup, scene pixels, combat input, dash, restart, and GL errors.
+The broader renderer reference suite currently reaches and fails the
+`point shadow changes rendered pixels` assertion on headless SwiftShader;
+this is separate from the fixed 16-unit startup failure.

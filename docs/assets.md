@@ -349,9 +349,12 @@ emissive texture is applied. `KHR_materials_specular` scales and tints
 dielectric reflections with factors and optional textures. Required extensions outside this supported set are
 reported as `UNSUPPORTED`; optional extensions that the loader does not
 recognize are also rejected when present on a material or texture.
-The WebGL renderer requires at least 23 fragment texture units for its current
-material, environment, skinning, and shadow samplers; startup reports this limit
-when a device exposes fewer.
+The WebGL renderer supports devices with 16 fragment texture units. It caches
+material shader variants and assigns slots only to maps used by each material.
+Five fragment slots are reserved for lighting; up to 11 material maps fit on a
+16-unit device. Materials exceeding the device budget report an error instead
+of silently losing maps. Vertex skinning and morph textures use separate
+combined texture units.
 
 Native Goose programs can call `texture_load_hdr(path)` from `g3.texture` to
 load a Radiance `.hdr` file into the CPU backend. It accepts the same canonical

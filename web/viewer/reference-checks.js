@@ -107,9 +107,13 @@ function runRenderTargetChecks(gl, engine) {
     'render target draws a known linear colour with screen effects enabled');
   check(engine._g3_reference_show_texture(target), 'render target can be bound as a scene texture');
   check(!engine._g3_reference_target_remove(target), 'referenced render target cannot be removed');
-  check(engine._g3_reference_target_feedback(target), 'sampling the active render target is suppressed');
   checkPixel(readCenterPixel(gl, engine, 'sample render target'), [64, 128, 191, 255],
     'render target preserves linear values without screen tone mapping, sRGB encoding, or FXAA');
+  // The feedback test clears its target. Restore the known source afterwards.
+  check(engine._g3_reference_target_feedback(target), 'sampling the active render target is suppressed');
+  check(engine._g3_reference_target_fill(target, 0.25, 0.5, 0.75),
+    'known target colour is restored after the feedback test');
+
 
   check(engine._g3_reference_post_process(target, processed, 0), 'copy post-process pass executes');
   check(engine._g3_reference_show_texture(processed), 'copied target can be sampled on a later frame');
@@ -155,6 +159,12 @@ function runRenderTargetChecks(gl, engine) {
   engine._g3_reference_post_process_queue_clear();
   check(engine._g3_reference_post_process_queue_add_shader(shader, target, processed),
     'live custom shader can be queued');
+  check(engine._g3_reference_post_process_queue_execute(), 'queued custom shader executes');
+  check(engine._g3_reference_show_texture(processed), 'queued custom shader output can be sampled');
+  checkPixel(readCenterPixel(gl, engine, 'sample queued custom shader'), [26, 204, 51, 255],
+    'queue dispatches the custom shader rather than a built-in effect');
+  check(engine._g3_reference_post_process_queue_add_shader(shader, target, processed),
+    'custom shader can be queued again before release');
   check(engine._g3_reference_shader_remove(shader), 'custom fragment shader releases');
   check(!engine._g3_reference_post_process_queue_execute(), 'queue reports a released shader pass as failed');
   check(engine._g3_reference_show_texture(target), 'default scene rendering recovers after a failed queue');

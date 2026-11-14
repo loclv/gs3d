@@ -19,3 +19,7 @@ web/benchmark/animation/app.js.map
 web/siege/app.js
 web/siege/app.wasm
 web/siege/app.js.map
+
+web/viewer/reference/app.js
+web/viewer/reference/app.wasm
+web/viewer/reference/app.js.map

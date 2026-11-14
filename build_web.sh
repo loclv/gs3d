@@ -82,6 +82,7 @@ emcc build/web/g3.c platform/g3_web.c platform/g3_input.c -o "$output" \
   -sEXIT_RUNTIME=0 \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createGoose3D \
   -sENVIRONMENT=web,node \
+  -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAPF32 \
   -sEXPORTED_FUNCTIONS="$exports"
 
 echo "built $output"

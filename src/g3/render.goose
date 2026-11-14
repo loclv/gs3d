@@ -424,7 +424,7 @@ fn post_process_queue_add_shader(shader: i32, source: i32, destination: i32) -> 
     guard g_post_process_queue.len < POST_PROCESS_MAX_PASSES && shader >= 0 &&
           shader < g_post_process_shader_live.len && g_post_process_shader_live[shader] && source != destination &&
           texture_slot_live(source) && texture_slot_live(destination) && g_texture_slots[destination].render_target else { return false; }
-    g_post_process_queue.push(QueuedPostProcessPass { source, destination, shader });
+    g_post_process_queue.push(QueuedPostProcessPass { source: source, destination: destination, shader: shader, .. });
     return true;
 }
 

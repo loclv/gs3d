@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -22,7 +23,7 @@ function argument(name) {
 }
 
 function usage() {
-  console.log('Usage: node web/test_browser_reference.mjs [--chrome PATH] [--timeout-ms N]');
+  console.log('Usage: node web/test_browser_reference.mjs [--chrome PATH] [--timeout-ms N] [--render-only]');
   console.log('Build first with ./build_web.sh --reference-checks. Uses headless Chrome and local WebGL checks.');
 }
 
@@ -101,12 +102,16 @@ class DevtoolsPage {
 }
 
 async function run() {
-  for (const path of [
+  const renderingOnly = process.argv.includes("--render-only");
+  for (const path of (renderingOnly ? [
+    "viewer/reference-checks.html", "viewer/reference-checks.js", "viewer/reference/app.js",
+    "viewer/reference/app.wasm", "viewer/sample.glb",
+  ] : [
     'viewer/reference-checks.html', 'viewer/reference-checks.js', 'viewer/reference/app.js',
     'viewer/reference/app.wasm', 'viewer/sample.glb', 'benchmark/animation.html',
     'benchmark/animation.js', 'benchmark/animation/app.js', 'benchmark/animation/app.wasm',
     'benchmark/morph-benchmark.glb',
-  ]) {
+  ])) {
     try {
       await access(join(webDir, path));
     } catch {
@@ -167,6 +172,10 @@ async function run() {
       .map(event => event.params.exceptionDetails?.text ?? event.params.exceptionDetails?.exception?.description ?? 'uncaught page exception');
     if (runtimeErrors.length) throw new Error(`Browser raised uncaught exceptions: ${runtimeErrors.join('; ')}`);
 
+    if (renderingOnly) {
+      console.log(`browser reference checks passed (${result.results.length} rendering checks) with ${version.Browser}`);
+      return;
+    }
     await page.send('Page.navigate', { url: `http://127.0.0.1:${port}/viewer/` });
     const waitFor = async (expression, description) => {
       const viewerDeadline = Date.now() + timeoutMs;
