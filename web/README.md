@@ -85,7 +85,9 @@ subpath/type-declaration resolution. These tests do not compile shaders or
 verify WebGL output. From the repository checkout, run
 `node test_build_exports.mjs` to check the browser build's host exports and
 `node test_viewer_import_map.mjs` to check that the local viewer maps its public
-package imports to the checked-in helpers.
+package imports to the checked-in helpers. The package suite also packs and
+installs the generated archive offline in a temporary consumer project, then
+checks its JavaScript and TypeScript export paths.
 
 Publishing runs the package tests through the `prepublishOnly` script. The
 published file allowlist contains only the asset and orbit-control modules and

@@ -295,7 +295,8 @@ Tests cover animation interpolation, skinning, and camera projection.
   A runnable consumer example loads a CC0 remote model and accepts other remote
   URLs; it documents CORS and lifecycle behavior. Publication is prepared: the
   npm file allowlist ships only the two browser helper subpaths and declarations,
-  and `prepublishOnly` runs the package tests. Publishing remains to do. The
+  package tests install the generated tarball in an offline consumer project,
+  and `prepublishOnly` runs the package suite. Publishing remains to do. The
   bundled sample and local browser check page now exercise
   the core integration paths, but are not yet run continuously in browser
   automation. Add native asset loading when native interactive applications
