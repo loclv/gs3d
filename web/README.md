@@ -69,7 +69,9 @@ result. The runner uses SwiftShader and needs no npm dependencies. Set
 `G3_CHROME=/path/to/chrome` when the browser is not in a standard location.
 Pass `--timeout-ms N` to `node test_browser_reference.mjs` to change the default
 two-minute limit. This command launches a local browser; it does not contact
-external sites.
+external sites. The repository's GitHub Actions workflow runs this suite on
+pushes and pull requests after installing a pinned Goose compiler, Emscripten,
+and headless Chrome.
 
 It compares rendered pixels for linear and sRGB output, Reinhard and ACES tone
 mapping, exposure, animation, hemisphere fill, HDR environment maps, shadows,

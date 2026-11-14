@@ -1,0 +1,48 @@
+name: Browser reference checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  webgl-reference:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Goose v2026.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/goose-v2026.3-linux-x64.tar.gz"
+          curl --fail --location --silent --show-error \
+            https://github.com/aardappel/goose/releases/download/v2026.3/goose-v2026.3-linux-x64.tar.gz \
+            --output "$archive"
+          echo "06ac30284338269d3996d457412bf4f2b47c1f9a5601de65b6317187fe78d5c9  $archive" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/goose"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/goose"
+          goose_bin="$(find "$RUNNER_TEMP/goose" -type f -name goose -perm -u+x -print -quit)"
+          test -n "$goose_bin"
+          echo "$(dirname "$goose_bin")" >> "$GITHUB_PATH"
+          "$goose_bin" version
+
+      - uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: 7.0.0
+
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+
+      - name: Run package and browser reference checks
+        env:
+          G3_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          npm --prefix web test
+          npm --prefix web run test:browser
