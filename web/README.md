@@ -83,8 +83,10 @@ without contacting the remote default model.
 It compares rendered pixels for linear and sRGB output, Reinhard and ACES tone
 mapping, exposure, animation, hemisphere fill, HDR environment maps, shadows,
 camera selection and restoration, target sampling, individual post-process effects,
-an ordered pass queue, and an animated skin pose. It also checks typed image, HDR, and glTF errors,
-invalid-shader diagnostics, and recovery after a queued shader pass fails.
+an ordered pass queue, and an animated skin pose. The 64-target morph benchmark
+also compares WebGL output across animation frames. It checks typed image, HDR,
+and glTF errors, invalid-shader diagnostics, and recovery after a queued shader
+pass fails.
 Results are reported in the page and in `window.__g3ReferenceChecks` for a browser
 automation runner. After the
 build, run `node web/test_reference_wasm_exports.mjs` to confirm the page's

@@ -207,8 +207,9 @@ and a browser integration check for behavior exposed through WebGL.
   browser suite on pushes and pull requests with a checksum-verified Goose
   compiler and a headless Chrome install. Capture additional reference images
   on representative target GPUs. The reference page checks that an animated
-  skinned mesh changes WebGL pixels; CI also loads the 64-target morph benchmark
-  and records its model-update and engine-frame timing sample.
+  skinned mesh changes WebGL pixels; CI also compares rendered pixels across
+  animation frames in the 64-target morph benchmark and records its model-update
+  and engine-frame timing sample.
   The browser model API
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material

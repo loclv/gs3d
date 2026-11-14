@@ -423,6 +423,15 @@ async function run() {
       'morph benchmark reports model update timings');
     assert.match(morphResults.results, /engine frame median [\d.]+ ms · p95 [\d.]+ ms/,
       'morph benchmark reports engine frame timings');
+    const morphCanvasClip = await page.evaluate(`(() => {
+      const rect = document.querySelector('#canvas').getBoundingClientRect();
+      return { x: rect.left, y: rect.top, width: rect.width, height: rect.height, scale: 1 };
+    })()`);
+    const beforeMorphFrame = await page.send('Page.captureScreenshot', { format: 'png', clip: morphCanvasClip });
+    await delay(300);
+    const afterMorphFrame = await page.send('Page.captureScreenshot', { format: 'png', clip: morphCanvasClip });
+    assert.notEqual(afterMorphFrame.data, beforeMorphFrame.data,
+      '64-target morph animation changes rendered WebGL pixels between frames');
     const finalPageExceptions = page.events
       .filter(event => event.method === 'Runtime.exceptionThrown')
       .map(event => event.params.exceptionDetails?.text ?? event.params.exceptionDetails?.exception?.description ?? 'uncaught page exception');
