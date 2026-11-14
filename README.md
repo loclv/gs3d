@@ -31,6 +31,7 @@ same scene renders identically in a tab and on disk.
 | `src/g3/math.goose` | column-major `Mat4`, transforms, perspective, AABB, frustum planes |
 | `src/g3/mesh.goose` | the geometry arena and its primitives: cube, sphere, plane |
 | `src/g3/scene.goose` | nodes, the parent hierarchy, the camera and its orbit controls |
+| `src/g3/physics.goose` | gravity, forces, static and dynamic AABB bodies, collision response |
 | `src/g3/render.goose` | per frame: transforms, frustum cull, draw-list pack, sort, submit |
 | `src/g3/engine.goose` | `init` / `frame` / `shutdown`, input state, stats |
 | `src/g3/gltf_native.goose` | native static GLB and JSON glTF scene and primitive loading into checked handles |
@@ -209,6 +210,7 @@ import g3.mesh;
 import g3.scene;
 import g3.render;
 import g3.engine;
+import g3.physics;
 
 fn main() {
     guard g3::init(1280, 720, "hello") else { return; }
@@ -216,6 +218,15 @@ fn main() {
     // Ordinary meshes live in two arenas and keep their numeric IDs.
     let cube = g3::mesh_cube(1.0);
     let ball = g3::mesh_sphere(0.5, 16, 24);
+
+    // Attach a dynamic box and a static floor to scene nodes. Step physics
+    // before rendering each frame; body positions are copied to their nodes.
+    let player = g3::node_add(cube);
+    let player_body = g3::physics_body_add(player, float3 { 0.5, 0.5, 0.5 }, 1.0);
+    let floor = g3::node_add(g3::mesh_plane(10.0, 10.0));
+    let floor_body = g3::physics_body_add(floor, float3 { 5.0, 0.1, 5.0 }, 0.0);
+    g3::physics_body_set_restitution(player_body, 0.1);
+    g3::physics_body_set_restitution(floor_body, 0.0);
 
     // `node` returns a reference into the scene's arena: keep it and write
     // through it. `.=` binds the reference; `=` would copy the node.
@@ -237,6 +248,7 @@ fn main() {
 
     loop {
         n.rot.y += 0.01;
+        g3::physics_step(1.0 / 60.0);
         g3::frame(1.0 / 60.0);        // input, transforms, cull, sort, draw
         if g3::key_pressed(g3::KEY_ESCAPE) { break; }
     }
@@ -250,6 +262,14 @@ calls them (`src/app_web.goose` is 30 lines long).
 
 What the API gives you:
 
+* **Physics** — `import g3.physics`, attach an axis-aligned box to a node with
+  `physics_body_add(node, half_extents, mass)`, and call `physics_step(dt)`
+  before `frame(dt)`. Mass zero makes a static collider. Gravity defaults to
+  `(0, -9.81, 0)` and can be changed with `physics_set_gravity`; apply forces
+  for one step with `physics_apply_force`, set velocity directly, and tune
+  restitution from 0 to 1. Pairwise AABB overlap uses positional correction
+  and a normal impulse. Bodies have no angular motion, friction, or capsule/
+  sphere colliders; `physics_clear()` removes all bodies.
 * **Meshes** — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
   for your own geometry. Pushes stage one mesh and `mesh_close(fv, fi)` closes
