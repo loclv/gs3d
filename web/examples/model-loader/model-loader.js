@@ -1,7 +1,7 @@
 import createGoose3D from '../../viewer/app.js';
 import { fitToDisplay } from '../../canvas.js';
-import { AssetError, loadGLTF, setEnvironmentLighting } from 'goose-3d-browser-assets';
-import { createOrbitControls } from 'goose-3d-browser-assets/orbit-controls';
+import { AssetError, loadGLTF, setEnvironmentLighting } from 'goose3d';
+import { createOrbitControls } from 'goose3d/orbit-controls';
 
 const canvas = document.getElementById('canvas');
 const form = document.getElementById('loader-form');

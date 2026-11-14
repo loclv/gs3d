@@ -1,5 +1,5 @@
 {
-  "name": "goose-3d-browser-assets",
+  "name": "goose3d",
   "version": "0.1.0",
   "description": "Browser asset helpers and TypeScript declarations for Goose 3D",
   "license": "Apache-2.0",

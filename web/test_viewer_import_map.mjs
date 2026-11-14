@@ -9,7 +9,7 @@ const sampleGlb = await readFile(new URL('./viewer/sample.glb', import.meta.url)
 const importMapBlock = html.match(/<script\s+type="importmap">([\s\S]*?)<\/script>/i)?.[1];
 assert.ok(importMapBlock, 'the viewer page provides an import map');
 const importMap = JSON.parse(importMapBlock).imports;
-const packageImports = [...new Set([...source.matchAll(/from\s+['"](goose-3d-browser-assets(?:\/[^'"]*)?)['"]/g)].map(match => match[1]))];
+const packageImports = [...new Set([...source.matchAll(/from\s+['"](goose3d(?:\/[^'"]*)?)['"]/g)].map(match => match[1]))];
 assert.ok(packageImports.length > 0, 'the viewer imports the browser package');
 for (const specifier of packageImports) {
   const target = importMap[specifier];
@@ -19,8 +19,8 @@ for (const specifier of packageImports) {
 const exampleImportMapBlock = exampleHtml.match(/<script\s+type="importmap">([\s\S]*?)<\/script>/i)?.[1];
 assert.ok(exampleImportMapBlock, 'the package consumer example provides an import map');
 const exampleImportMap = JSON.parse(exampleImportMapBlock).imports;
-const exampleImports = [...new Set([...exampleSource.matchAll(/from\s+['"](goose-3d-browser-assets(?:\/[^'"]*)?)['"]/g)].map(match => match[1]))];
-assert.ok(exampleImports.includes('goose-3d-browser-assets') && exampleImports.includes('goose-3d-browser-assets/orbit-controls'),
+const exampleImports = [...new Set([...exampleSource.matchAll(/from\s+['"](goose3d(?:\/[^'"]*)?)['"]/g)].map(match => match[1]))];
+assert.ok(exampleImports.includes('goose3d') && exampleImports.includes('goose3d/orbit-controls'),
   'the package consumer example imports both public package subpaths');
 for (const specifier of exampleImports) {
   assert.ok(exampleImportMap[specifier], `the package consumer import map resolves ${specifier}`);

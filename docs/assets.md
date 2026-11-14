@@ -6,7 +6,7 @@ morph-weight, and skeletal animation, into either browser build after
 
 The ES module API has TypeScript declarations in `web/assets.d.ts`. The
 `web/package.json` manifest exports this helper module as
-`goose-3d-browser-assets`; the package contains only the browser helpers and
+`goose3d`; the package contains only the browser helpers and
 their declarations. Applications still build and initialize their own Goose
 WebAssembly engine before calling the helpers.
 
@@ -241,7 +241,7 @@ outside the base-colour material slot. Native Radiance HDR environments use
 The viewer's input controls can also be used independently of the viewer host:
 
 ```js
-import { createOrbitControls } from 'goose-3d-browser-assets/orbit-controls';
+import { createOrbitControls } from 'goose3d/orbit-controls';
 
 const controls = createOrbitControls(canvas, {
   onOrbit: (yawDelta, pitchDelta) => engine._g3_viewer_orbit(yawDelta, pitchDelta),

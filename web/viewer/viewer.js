@@ -1,7 +1,7 @@
 import createGoose3D from './app.js';
 import { fitToDisplay } from '../canvas.js';
-import { loadGLTF, setEnvironmentLighting, setEnvironmentRotation } from 'goose-3d-browser-assets';
-import { createOrbitControls } from 'goose-3d-browser-assets/orbit-controls';
+import { loadGLTF, setEnvironmentLighting, setEnvironmentRotation } from 'goose3d';
+import { createOrbitControls } from 'goose3d/orbit-controls';
 
 const canvas = document.getElementById('canvas');
 const status = document.getElementById('status');

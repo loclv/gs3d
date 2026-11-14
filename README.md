@@ -58,7 +58,7 @@ same scene renders identically in a tab and on disk.
 
 Run `./build_web.sh --viewer --serve` and open <http://localhost:8080/viewer/>.
 The viewer imports the asset loader and typed orbit controls through the
-`goose-3d-browser-assets` package subpaths, mapped to the local package files
+`goose3d` package subpaths, mapped to the local package files
 for this repository example. Their callback API and cleanup are documented in
 [assets.md](docs/assets.md).
 Drag to orbit, scroll to zoom, click the model to select a mesh, and use Reload
