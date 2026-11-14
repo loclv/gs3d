@@ -100,6 +100,21 @@ tabs; only that renderer runs at a time. The Three.js mode downloads pinned
 version 0.180.0 from jsDelivr. Match browser, window size, and cube count when
 comparing the reported frame-call median and p95.
 
+#### Headless Playwright result
+
+One comparison run with Playwright, Chrome for Testing 159.0.8154.6, a 1280×720
+canvas, and 1,024 cubes produced:
+
+| Backend | Scene draw calls | Browser FPS | Frame-call median | Frame-call p95 |
+|---|---:|---:|---:|---:|
+| Goose 3D | 1 | 21.4 | 45.60 ms | 54.00 ms |
+| Three.js 0.180.0 | 1 | 46.0 | 0.10 ms | 0.20 ms |
+
+Each row uses 120 warmup frames followed by 300 sampled frames. The run used
+headless SwiftShader software WebGL rather than a physical GPU; treat these as
+environment-specific diagnostics. Frame-call timings measure CPU work and GPU
+command submission, not GPU completion. Playwright reported no browser errors.
+
 ### Engine demo
 
 ```bash
