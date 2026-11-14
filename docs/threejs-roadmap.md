@@ -28,9 +28,8 @@ reference for rendering changes.
 ## Recommended next sequence
 
 The browser renderer and asset API are the primary product surface. The native
-loader is useful for Goose programs and deterministic CPU rendering, but it
-currently imports static scenes; matching browser animation and extension
-coverage is a separate goal. Prioritize work in this order:
+loader also supports core node transform animation, with morph-weight and
+skeletal animation still outstanding. Prioritize work in this order:
 
 1. **Make the browser viewer a dependable reference application.** Add
    repeatable browser rendering checks for textured materials, environment
