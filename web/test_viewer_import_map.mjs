@@ -34,6 +34,20 @@ assert.ok(exampleSource.includes('raw.githubusercontent.com/mrdoob/three.js') &&
 for (const control of ['animation-controls', 'animation-clip', 'animation-toggle', 'animation-time']) {
   assert.ok(html.includes(`id="${control}"`), `the viewer has a ${control} control`);
 }
+for (const control of ['camera', 'shadow-light', 'variant', 'environment-intensity', 'environment-rotation', 'hemisphere-intensity']) {
+  assert.ok(html.includes(`id="${control}"`), `the viewer has a ${control} control`);
+}
+for (const [element, event, operation] of [
+  ['cameraSelect', 'change', 'model.selectCamera'],
+  ['shadowSelect', 'change', 'model.applyLights'],
+  ['variantSelect', 'change', 'model.setVariant'],
+  ['environmentInput', 'input', 'model.setMaterialEnvironmentIntensity'],
+  ['rotationInput', 'input', 'setEnvironmentRotation'],
+  ['hemisphereInput', 'input', 'setEnvironmentLighting'],
+]) {
+  assert.ok(source.includes(`${element}.addEventListener('${event}'`) && source.includes(operation),
+    `the viewer wires ${element} to ${operation}`);
+}
 for (const method of ['playAnimation', 'pauseAnimation', 'resumeAnimation', 'seekAnimation']) {
   assert.ok(source.includes(`.${method}(`), `the viewer wires ${method} to its animation controls`);
 }
