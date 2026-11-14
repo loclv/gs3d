@@ -146,7 +146,7 @@ The primitive APIs do not load skins or animations; use the scene API below
 when the source node hierarchy must be retained.
 Browser applications should use the broader `web/assets.js` loader.
 
-For static multi-node content, `native_glb_load_scene(path, scene_index)` loads
+For multi-node content, `native_glb_load_scene(path, scene_index)` loads
 every mesh instance in the selected scene beneath one checked group node. Pass
 `-1` to choose the document's default scene (or scene 0 when no default is
 declared). `native_glb_scene_mesh_count` and `native_glb_scene_mesh` expose the
@@ -161,8 +161,16 @@ removes its cameras and restores the view that was active before loading. Nodes
 with declared `KHR_lights_punctual` extensions import directional, point, and
 spot lights using physical inverse-square attenuation; a missing light range
 means no cutoff. Scene disposal restores the previous light set. Shadows remain
-opt-in through the existing light-shadow APIs. Skins and animations are not
-imported.
+opt-in through the existing light-shadow APIs. Core glTF translation, rotation,
+and scale animation channels are imported for selected scene nodes. LINEAR,
+STEP, and CUBICSPLINE sampling are supported; morph-weight and skeletal
+animation are not. Query clips with `native_glb_scene_animation_count` and
+`native_glb_scene_animation_duration`; call
+`native_glb_scene_apply_animation(scene, clip, elapsed_seconds)` from the
+application frame loop. Sampling clamps to the clip's key range. Call
+`native_glb_scene_reset_animation` before switching clips or restoring authored
+node transforms. Animation changes the selected scene's node hierarchy; the
+native imported cameras and punctual lights remain static.
 
 ```goose
 let loaded_scene, scene_ok = g3::native_glb_load_scene("model.glb", -1);
@@ -170,6 +178,12 @@ guard scene_ok else { print("could not load the default scene"); return; }
 var scene = loaded_scene;
 let root = g3::native_glb_scene_root(scene);
 g3::node(root.index).pos = float3 { 0.0, 1.0, 0.0 };
+if g3::native_glb_scene_animation_count(scene) > 0 {
+  let duration = g3::native_glb_scene_animation_duration(scene, 0);
+  g3::native_glb_scene_apply_animation(scene, 0, duration * 0.5);
+  // In the frame loop, pass elapsed clip time; reset before switching clips.
+  g3::native_glb_scene_reset_animation(scene);
+}
 for i in 0..g3::native_glb_scene_mesh_count(scene) {
   let mesh = g3::native_glb_scene_mesh(scene, i);
   // Inspect the checked per-node owner or its primitive nodes.

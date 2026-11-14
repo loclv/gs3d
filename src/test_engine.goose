@@ -519,6 +519,47 @@ fn case_native_glb_load() {
                    selected_stats.drawn == 2 && selected_stats.triangles == 24,
                    "native glTF scene selection preserves parent hierarchy and composed world transforms");
     testing::check(g3::native_glb_scene_dispose(selected_scene), "selected native glTF scene disposes cleanly");
+    let animation_scene, animation_scene_loaded = g3::native_glb_load_scene("testdata/native-animation.glb", -1);
+    let animated_node = g3::native_glb_scene_node(animation_scene, 0);
+    let animation_metadata = animation_scene_loaded && g3::native_glb_scene_animation_count(animation_scene) == 4 &&
+                             abs(g3::native_glb_scene_animation_duration(animation_scene, 0) - 1.0) < 0.001;
+    let linear_applied = g3::native_glb_scene_apply_animation(animation_scene, 0, 0.5);
+    let linear_translation_ok = linear_applied && abs(g3::node(animated_node.index).local_matrix.m[12] - 1.0) < 0.001;
+    let step_mid_applied = g3::native_glb_scene_apply_animation(animation_scene, 1, 0.5);
+    let step_mid_ok = step_mid_applied && abs(g3::node(animated_node.index).local_matrix.m[0] - 1.0) < 0.001;
+    let step_end_applied = g3::native_glb_scene_apply_animation(animation_scene, 1, 1.0);
+    let step_end_ok = step_end_applied && abs(g3::node(animated_node.index).local_matrix.m[0] - 3.0) < 0.001;
+    let rotation_applied = g3::native_glb_scene_apply_animation(animation_scene, 2, 0.5);
+    let rotation_ok = rotation_applied && abs(g3::node(animated_node.index).local_matrix.m[0]) < 0.002 &&
+                      abs(g3::node(animated_node.index).local_matrix.m[1] - 2.0) < 0.002;
+    let cubic_applied = g3::native_glb_scene_apply_animation(animation_scene, 3, 0.5);
+    let cubic_ok = cubic_applied && abs(g3::node(animated_node.index).local_matrix.m[12] - 1.0) < 0.002;
+    let animation_reset = g3::native_glb_scene_reset_animation(animation_scene);
+    testing::check(animation_metadata, "native glTF animation metadata exposes clip count and duration");
+    testing::check(linear_translation_ok, "native glTF LINEAR translation animation samples its midpoint");
+    testing::check(step_mid_ok && step_end_ok, "native glTF STEP scale animation holds and advances at keys");
+    testing::check(rotation_ok, "native glTF LINEAR quaternion animation uses spherical interpolation");
+    testing::check(cubic_ok, "native glTF CUBICSPLINE transform animation evaluates Hermite tangents");
+    testing::check(animation_reset && abs(g3::node(animated_node.index).local_matrix.m[12] - 0.25) < 0.001 &&
+                   abs(g3::node(animated_node.index).local_matrix.m[0] - 2.0) < 0.001,
+                   "native glTF scene animation resets animated nodes to base transforms");
+    testing::check(g3::native_glb_scene_dispose(animation_scene) && !g3::native_glb_scene_valid(animation_scene),
+                   "native glTF scene disposal releases animation tracks and checked node handles");
+    let animation_reloaded, animation_reloaded_ok = g3::native_glb_load_scene("testdata/native-animation.glb", -1);
+    let animation_reused_ok = animation_reloaded_ok && g3::native_glb_scene_animation_count(animation_reloaded) == 4 &&
+                              g3::native_glb_scene_apply_animation(animation_reloaded, 0, 0.5) &&
+                              abs(g3::node(g3::native_glb_scene_node(animation_reloaded, 0).index).local_matrix.m[12] - 1.0) < 0.001;
+    testing::check(animation_reused_ok && g3::native_glb_scene_dispose(animation_reloaded),
+                   "native glTF animation key slots are reusable after scene disposal");
+    let external_animation, external_animation_ok = g3::native_glb_load_scene("testdata/native-animation-external/model.gltf", -1);
+    let external_animation_node = g3::native_glb_scene_node(external_animation, 0);
+    let external_animation_sampled = external_animation_ok && g3::native_glb_scene_apply_animation(external_animation, 0, 0.5) &&
+                                     abs(g3::node(external_animation_node.index).local_matrix.m[12] - 1.0) < 0.001;
+    testing::check(external_animation_sampled && g3::native_glb_scene_dispose(external_animation),
+                   "native JSON glTF animation loads keyframes from a safe relative buffer URI");
+    let bad_animation, bad_animation_ok = g3::native_glb_load_scene("testdata/native-animation-bad-time.glb", -1);
+    testing::check(!bad_animation_ok && !g3::native_glb_scene_valid(bad_animation),
+                   "native glTF animation rejects duplicate key times and rolls back the scene");
     let invalid_scene, invalid_scene_loaded = g3::native_glb_load_scene("testdata/native-two-scenes.glb", 99);
     testing::check(!invalid_scene_loaded && !g3::native_glb_scene_valid(invalid_scene),
                    "native glTF scene loader rejects invalid scene indices before allocating scene resources");
