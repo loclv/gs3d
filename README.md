@@ -64,8 +64,10 @@ for this repository example. Their callback API and cleanup are documented in
 Drag to orbit, scroll to zoom, click the model to select a mesh, and use Reload
 to load and dispose it again. The selected material shows previews of its
 texture maps, updates when you switch variants, and has a slider for its
-environment fill and reflection. The bundled GLB uses the CC0 Ground Grey texture
-credited below; `web/viewer/generate_sample.py` regenerates it.
+environment fill and reflection. The animation controls switch between a
+turntable and a vertical bob, pause or resume playback, and seek within the
+active clip. The bundled GLB uses the CC0 Ground Grey texture credited below;
+`web/viewer/generate_sample.py` regenerates it.
 
 ### Play Beacon Run
 

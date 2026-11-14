@@ -14,6 +14,9 @@
   select { width: 100%; padding: 7px; border-radius: 4px; }
   input[type="range"] { width: 100%; accent-color: #7ac8ff; }
   #status { color: #ffe6a5; }
+  #animation-controls { margin: 12px 0; padding: 10px; border: 1px solid #40515a; border-radius: 6px; }
+  #animation-controls[hidden] { display: none; }
+  #animation-controls button { margin-top: 8px; }
   #inspection { white-space: pre-wrap; font: 12px/1.55 ui-monospace, monospace; color: #c6d5d5; }
   #texture-previews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; max-height: 210px; overflow: auto; }
   #texture-previews figure { margin: 0; min-width: 0; text-align: center; }
@@ -25,8 +28,16 @@
 <canvas id="canvas" aria-label="3D model viewer"></canvas>
 <section class="panel">
   <h1>Model viewer</h1>
-  <p>The sample plays its turntable clip. Drag to orbit, right-drag or Shift+drag to pan, scroll or pinch to zoom, and click or tap a mesh to inspect it. Focus the canvas for arrow-key orbit, WASD pan, and +/- zoom.</p>
+  <p>Choose, play, pause, or seek a clip. Drag to orbit, right-drag or Shift+drag to pan, scroll or pinch to zoom, and click or tap a mesh to inspect it. Focus the canvas for arrow-key orbit, WASD pan, and +/- zoom.</p>
   <button id="reload" type="button">Reload model</button>
+  <fieldset id="animation-controls" hidden>
+    <legend>Animation</legend>
+    <label for="animation-clip">Clip</label>
+    <select id="animation-clip" aria-label="Choose an animation clip"></select>
+    <button id="animation-toggle" type="button" aria-pressed="true">Pause</button>
+    <label for="animation-time">Time <output id="animation-time-value">0.00 / 0.00 s</output></label>
+    <input id="animation-time" type="range" min="0" max="0" step="0.01" value="0" aria-label="Seek animation time">
+  </fieldset>
   <p><label for="hemisphere-intensity">Sky and ground fill <output id="hemisphere-value">0.55</output></label><br><input id="hemisphere-intensity" type="range" min="0" max="2" step="0.05" value="0.55" aria-label="Set diffuse sky and ground environment fill"></p>
   <p><label for="environment-rotation">Environment yaw <output id="environment-rotation-value">0°</output></label><br><input id="environment-rotation" type="range" min="0" max="360" step="1" value="0" aria-label="Rotate the equirectangular environment"></p>
   <p><label for="variant">Material variant</label><br><select id="variant" disabled><option value="-1">Default materials</option></select></p>

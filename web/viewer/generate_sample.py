@@ -35,6 +35,7 @@ append(struct.pack(f"<{len(indices)}H", *indices))
 append(image)
 append(struct.pack("<3f", 0, 2, 4))
 append(struct.pack("<12f", 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, -1))
+append(struct.pack("<9f", 0, 0, 0, 0, 0.6, 0, 0, 0, 0))
 doc = {
     "asset": {"version": "2.0", "generator": "goose-3d sample generator"},
     "buffers": [{"byteLength": len(binary)}], "bufferViews": views,
@@ -45,14 +46,19 @@ doc = {
         {"bufferView": 3, "componentType": 5123, "count": 36, "type": "SCALAR"},
         {"bufferView": 5, "componentType": 5126, "count": 3, "type": "SCALAR", "min": [0], "max": [4]},
         {"bufferView": 6, "componentType": 5126, "count": 3, "type": "VEC4"},
+        {"bufferView": 7, "componentType": 5126, "count": 3, "type": "VEC3"},
     ],
     "images": [{"bufferView": 4, "mimeType": "image/jpeg"}],
     "textures": [{"source": 0}],
     "materials": [{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}, "metallicFactor": 0.05, "roughnessFactor": 0.35}}],
     "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2}, "indices": 3, "material": 0}]}],
     "nodes": [{"mesh": 0}], "scenes": [{"nodes": [0]}], "scene": 0,
-    "animations": [{"name": "Turntable", "samplers": [{"input": 4, "output": 5}],
-                    "channels": [{"sampler": 0, "target": {"node": 0, "path": "rotation"}}]}],
+    "animations": [
+        {"name": "Turntable", "samplers": [{"input": 4, "output": 5}],
+         "channels": [{"sampler": 0, "target": {"node": 0, "path": "rotation"}}]},
+        {"name": "Bob", "samplers": [{"input": 4, "output": 6}],
+         "channels": [{"sampler": 0, "target": {"node": 0, "path": "translation"}}]},
+    ],
 }
 json_data = json.dumps(doc, separators=(",", ":")).encode()
 json_data += b" " * (-len(json_data) % 4)

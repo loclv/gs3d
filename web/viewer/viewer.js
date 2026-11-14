@@ -6,6 +6,11 @@ import { createOrbitControls } from 'goose-3d-browser-assets/orbit-controls';
 const canvas = document.getElementById('canvas');
 const status = document.getElementById('status');
 const reload = document.getElementById('reload');
+const animationControls = document.getElementById('animation-controls');
+const animationClip = document.getElementById('animation-clip');
+const animationToggle = document.getElementById('animation-toggle');
+const animationTime = document.getElementById('animation-time');
+const animationTimeValue = document.getElementById('animation-time-value');
 const inspection = document.getElementById('inspection');
 const previews = document.getElementById('texture-previews');
 const variantSelect = document.getElementById('variant');
@@ -16,6 +21,7 @@ const rotationValue = document.getElementById('environment-rotation-value');
 const hemisphereInput = document.getElementById('hemisphere-intensity');
 const hemisphereValue = document.getElementById('hemisphere-value');
 let engine, model, last = 0;
+let animationPlaying = false;
 let selectedPrimitive = null;
 let environmentIntensities = new Map();
 
@@ -71,6 +77,18 @@ function updateInspection() {
   }
 }
 
+function updateAnimationControls() {
+  const info = model?.animations[model.activeAnimation] ?? null;
+  animationControls.hidden = !model?.animations.length;
+  animationToggle.disabled = !info;
+  animationToggle.textContent = animationPlaying ? 'Pause' : 'Play';
+  animationToggle.setAttribute('aria-pressed', String(animationPlaying));
+  const duration = info?.duration ?? 0;
+  animationTime.max = String(duration);
+  if (document.activeElement !== animationTime) animationTime.value = String(Math.min(model?.animationTime ?? 0, duration));
+  animationTimeValue.value = `${(model?.animationTime ?? 0).toFixed(2)} / ${duration.toFixed(2)} s`;
+}
+
 window.gooseError = message => { status.textContent = message; };
 window.gooseSurfaceFailed = () => window.gooseError('WebGL2 could not be started.');
 
@@ -81,18 +99,25 @@ async function loadModel() {
     const next = await loadGLTF(engine, './sample.glb');
     if (model) model.dispose();
     model = next;
+    animationPlaying = false;
     environmentIntensities = new Map();
     selectedPrimitive = null;
     updateInspection();
     variantSelect.replaceChildren(new Option('Default materials', '-1'));
     for (const [index, name] of model.variants.entries()) variantSelect.add(new Option(name, String(index)));
     variantSelect.disabled = model.variants.length === 0;
+    animationClip.replaceChildren();
+    for (const animation of model.animations) animationClip.add(new Option(animation.name, String(animation.index)));
     const lightStatus = model.lights.length === 0 ? '' : model.applyLights()
       ? ` ${model.lights.length} imported lights active.` : ' Could not apply imported lights.';
     if (model.animations.length) {
-      model.playAnimation(0);
+      animationPlaying = model.playAnimation(0);
+      updateAnimationControls();
       status.textContent = `Playing ${model.animations[0].name}.${lightStatus} Click a face to select it.`;
-    } else status.textContent = `Model loaded.${lightStatus} Click a face to select it.`;
+    } else {
+      updateAnimationControls();
+      status.textContent = `Model loaded.${lightStatus} Click a face to select it.`;
+    }
   } catch (error) { status.textContent = `Could not load model: ${error.message}`; }
   finally { reload.disabled = false; }
 }
@@ -108,6 +133,21 @@ async function start() {
       engine._g3_input_resize(next.width, next.height);
     });
     reload.addEventListener('click', loadModel);
+    animationClip.addEventListener('change', () => {
+      if (!model) return;
+      animationPlaying = model.playAnimation(Number(animationClip.value));
+      updateAnimationControls();
+    });
+    animationToggle.addEventListener('click', () => {
+      if (!model) return;
+      if (animationPlaying) animationPlaying = !model.pauseAnimation();
+      else animationPlaying = model.activeAnimation < 0
+        ? model.playAnimation(Number(animationClip.value)) : model.resumeAnimation();
+      updateAnimationControls();
+    });
+    animationTime.addEventListener('input', () => {
+      if (model?.seekAnimation(Number(animationTime.value))) updateAnimationControls();
+    });
     rotationInput.addEventListener('input', () => {
       const degrees = Number(rotationInput.value);
       setEnvironmentRotation(engine, degrees * Math.PI / 180);
@@ -170,7 +210,10 @@ async function start() {
 function frame(now) {
   const dt = last ? Math.min((now - last) / 1000, 0.1) : 1 / 60;
   last = now;
-  if (model) model.update(dt);
+  if (model) {
+    model.update(dt);
+    updateAnimationControls();
+  }
   engine._g3_app_frame(dt);
   requestAnimationFrame(frame);
 }
