@@ -108,14 +108,16 @@ canvas, and 1,024 cubes produced these before and after results:
 | Backend / revision | Scene draw calls | Browser FPS | Frame-call median | Frame-call p95 | WebGL backend median / p95 |
 |---|---:|---:|---:|---:|---:|
 | Goose 3D before | 1 | 21.4 | 45.60 ms | 54.00 ms | — |
-| Goose 3D optimized | 1 | 39.6 | 24.90 ms | 27.90 ms | 24.80 / 27.80 ms |
-| Three.js 0.180.0 | 1 | 43.8 | 0.10 ms | 0.20 ms | — |
+| Goose 3D optimized | 1 | 41.7 | 0.20 ms | 0.30 ms | 0.10 / 0.20 ms |
+| Three.js 0.180.0 | 1 | 47.4 | 0.10 ms | 0.20 ms | — |
 
 Each row uses 120 warmup frames followed by 300 sampled frames. Goose's opaque
 unlit path now skips the full-screen color-encoding pass and uses a smaller
 shader. The engine also reuses unchanged root transforms and static instance
-uploads. Goose improved from 21.4 to 39.6 FPS (1.85×) in this run, reaching
-about 90% of Three.js's measured frame rate. The run used headless SwiftShader
+uploads, retains instanced vertex bindings, skips per-frame GL error polling,
+and avoids sorting an already ordered draw list. Goose improved from 21.4 to
+41.7 FPS (1.95×) in this run, reaching about 88% of Three.js's measured frame
+rate. The run used headless SwiftShader
 software WebGL rather than a physical GPU; treat these as environment-specific
 diagnostics. Frame-call timings measure CPU work and GPU command submission, not
 GPU completion. Playwright reported no browser errors.

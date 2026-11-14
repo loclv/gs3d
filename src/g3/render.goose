@@ -572,7 +572,11 @@ fn render_scene() {
         g_stats.drawn += 1;
         g_stats.triangles += m.index_count / 3;
     }
-    sort(g_draws) { a, b => a.key < b.key };
+    var needs_sort = false;
+    for i in 1..g_draws.len {
+        if g_draws[i].key < g_draws[i - 1].key { needs_sort = true; break; }
+    }
+    if needs_sort { sort(g_draws) { a, b => a.key < b.key }; }
     if g_render_target >= 0 {
         for item in g_draws {
             if item_samples_texture(item, g_render_target) { g_stats.feedback_items_suppressed += 1; }

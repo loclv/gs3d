@@ -70,6 +70,7 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_update_cpu(int32_t id, uint32_t positi
 
 typedef struct {
     GLuint vao, vbo, ebo;
+    int instance_attributes_enabled;
     GLuint skin_vbo, joint_texture;
     GLuint morph_position_texture, morph_normal_texture, morph_tangent_texture, morph_weight_texture;
     GLsizei count, vertex_count;
@@ -1239,15 +1240,17 @@ static int upload_instance_data(g3_draw_item_slice items, int64_t first, int32_t
     glBindBuffer(GL_ARRAY_BUFFER, instance_vbo);
     if (changed) {
         glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(float_count * sizeof(float)), instance_data, GL_STREAM_DRAW);
-        if (glGetError() != GL_NO_ERROR) return 0;
         instance_data_valid = 1;
         instance_data_count = count;
     }
-    return glGetError() == GL_NO_ERROR;
+    /* Polling GL errors here stalls the driver every frame. The backend
+       already checks and reports the first frame's error after drawing. */
+    return 1;
 }
 
 /* Locations 11-13 carry affine model rows; the shared camera matrix builds MVP. */
-static void bind_instance_attributes(void) {
+static void bind_instance_attributes(web_mesh *mesh) {
+    if (mesh->instance_attributes_enabled) return;
     glBindBuffer(GL_ARRAY_BUFFER, instance_vbo);
     for (GLuint row = 0; row < 3; row++) {
         glEnableVertexAttribArray(11 + row);
@@ -1255,14 +1258,17 @@ static void bind_instance_attributes(void) {
                               12 * (GLsizei)sizeof(float), (const void *)((uintptr_t)(row * 4) * sizeof(float)));
         glVertexAttribDivisor(11 + row, 1);
     }
+    mesh->instance_attributes_enabled = 1;
 }
 
-static void clear_instance_attributes(const web_mesh *mesh) {
+static void clear_instance_attributes(web_mesh *mesh) {
+    if (!mesh->instance_attributes_enabled) return;
     glBindVertexArray(mesh->vao);
     for (GLuint location = 11; location <= 13; location++) {
         glVertexAttribDivisor(location, 0);
         glDisableVertexAttribArray(location);
     }
+    mesh->instance_attributes_enabled = 0;
 }
 
 static int same_vec4(g3_vec4 a, g3_vec4 b) {
@@ -1833,7 +1839,7 @@ static int shadow_run_length(g3_draw_item_slice items, int64_t first) {
 
 static void draw_shadow_run(g3_draw_item_slice items, int64_t first, int32_t count) {
     const g3_draw_item *it = &items.data[first];
-    const web_mesh *m = &meshes[it->mesh];
+    web_mesh *m = &meshes[it->mesh];
     if (it->double_sided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
     glUniform1i(shadow_instanced, count > 1);
     if (count == 1) upload_matrix4(shadow_model_matrix, 1, GL_FALSE, it->model.m);
@@ -1853,10 +1859,10 @@ static void draw_shadow_run(g3_draw_item_slice items, int64_t first, int32_t cou
     bind_shadow_morph(m);
     glBindVertexArray(m->vao);
     if (count > 1 && upload_instance_data(items, first, count)) {
-        bind_instance_attributes();
+        bind_instance_attributes(m);
         glDrawElementsInstanced(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, 0, count);
-        clear_instance_attributes(m);
     } else {
+        clear_instance_attributes(m);
         glUniform1i(shadow_instanced, 0);
         if (count > 1) upload_matrix4(shadow_model_matrix, 1, GL_FALSE, it->model.m);
         glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, 0);
@@ -1981,7 +1987,7 @@ static int select_material_shader(const g3_draw_item *it) {
 static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     const g3_draw_item *it = &items.data[first];
     if (it->mesh < 0 || it->mesh >= mesh_count) return;
-    const web_mesh *m = &meshes[it->mesh];
+    web_mesh *m = &meshes[it->mesh];
     if (!m->vao || m->count == 0) return;
 
     if (it->double_sided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
@@ -2187,10 +2193,10 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glBindVertexArray(m->vao);
     if (count > 1 && upload_instance_data(items, first, count)) {
         glUniform1i(shader.instanced, 1);
-        bind_instance_attributes();
+        bind_instance_attributes(m);
         glDrawElementsInstanced(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0, count);
-        clear_instance_attributes(m);
     } else {
+        clear_instance_attributes(m);
         glUniform1i(shader.instanced, 0);
         glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0);
     }
