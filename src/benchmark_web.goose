@@ -13,6 +13,7 @@ var nodes: i64[BENCHMARK_MAX_NODES];
 var moving_count: i32;
 var visible_count: i32 = 1024;
 var motion_frame: i64;
+var rotating: bool;
 
 export fn g3_app_init(width: i32, height: i32) -> bool {
     guard g3::init(width, height, "Goose 3D instancing benchmark") else { return false; }
@@ -40,11 +41,16 @@ export fn g3_app_frame(dt: f32) {
         for i in min(moving_count, visible_count) {
             g3::node(nodes[i]).pos.x = ((i % GRID_SIDE) - (GRID_SIDE - 1) * 0.5 +
                 sin(motion_frame * 0.03 + i * 0.1) * 0.2) as f32;
+            if rotating {
+                let angle: f32 = motion_frame * 0.01 + i * 0.001;
+                g3::node(nodes[i]).rot = float3 { angle, angle * 0.7, angle * 0.3 };
+            }
         }
     }
     g3::frame(dt);
 }
 export fn g3_app_shutdown() { g3::shutdown(); }
+export fn g3_benchmark_set_rotation(enabled: bool) { rotating = enabled; }
 
 export fn g3_benchmark_set_motion(requested: i32) {
     moving_count = max(0, min(requested, BENCHMARK_MAX_NODES));

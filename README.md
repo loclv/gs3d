@@ -188,6 +188,18 @@ after five frames was byte-identical to the committed baseline. Native tests,
 all web builds, and a Playwright animated-homepage smoke check passed. This
 isolated CPU microbenchmark does not establish a whole-frame FPS gain.
 
+For a browser rotation workload, enable **Rotate moving instances** or add
+`&rotate=1&motion=1024&count=1024` to the comparison URL. Both backends use
+the same three Euler angles and `Rz * Ry * Rx` order. At 1280×720 in headless
+Playwright, the original TRS chain measured CPU median/p95 0.40/0.40 ms and
+GPU median/p95 15.52/17.71 ms. Direct TRS measured CPU 0.30/0.40 ms and GPU
+15.51/16.30 ms. Three.js measured CPU 0.20/0.30 ms and GPU 15.24/16.66 ms.
+Each used 120 warmup frames and 300 samples; the paired optimized renderer
+runs reported no browser errors. This confirms lower CPU median in the rotating
+workload, while overall cadence remains dominated by software GPU execution
+(43.3 FPS before, 43.7 FPS after, 47.2 FPS for Three.js). It does not establish
+a general advantage over Three.js or a physical-GPU speedup.
+
 ### Engine demo
 
 ```bash

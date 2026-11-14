@@ -10,6 +10,14 @@ const slider = document.getElementById('nodes');
 const countLabel = document.getElementById('count');
 const results = document.getElementById('results');
 const params = new URLSearchParams(location.search);
+const rotating = params.get('rotate') === '1';
+document.getElementById('rotate').checked = rotating;
+document.getElementById('rotate').addEventListener('change', event => {
+  const target = new URL(location.href);
+  target.searchParams.set('rotate', event.target.checked ? '1' : '0');
+  target.searchParams.set('count', slider.value);
+  location.href = target.href;
+});
 const requestedMotion = Number(params.get('motion'));
 const movingCount = Number.isInteger(requestedMotion) && requestedMotion >= 0
   ? Math.min(requestedMotion, MAX_INSTANCES) : 0;
@@ -33,6 +41,7 @@ for (const link of document.querySelectorAll('nav a')) {
   const target = new URL(link.href);
   target.searchParams.set('count', slider.value);
   target.searchParams.set('motion', String(movingCount));
+  target.searchParams.set('rotate', rotating ? '1' : '0');
   link.href = target;
 }
 document.getElementById(`${BACKEND}-link`).setAttribute('aria-current', 'page');
@@ -92,7 +101,7 @@ function report() {
       : `\nGPU timing unavailable (${gpuDisjointCount} disjoint, ${gpuSkippedCount} skipped)`;
   results.textContent =
     `${label} · ${slider.value} visible cubes · ${getDrawCalls()} scene draw call(s)\n` +
-    `${Math.min(movingCount, Number(slider.value))} moving instances/frame\n` +
+    `${Math.min(movingCount, Number(slider.value))} moving instances/frame${rotating ? ' · rotating' : ''}\n` +
     `${(1000 / meanRaf).toFixed(1)} browser frames/s\n` +
     `frame call median ${percentile(cpuTimes, 0.5).toFixed(2)} ms · ` +
     `p95 ${percentile(cpuTimes, 0.95).toFixed(2)} ms${backendLine}${gpuLine}\n` +
@@ -202,6 +211,7 @@ function makeThreeScene(THREE, width, height) {
   cubes.count = Number(slider.value);
   scene.add(cubes);
   let motionFrame = 0;
+  const rotation = new THREE.Euler(0, 0, 0, 'ZYX');
 
   return {
     frame: () => {
@@ -211,6 +221,13 @@ function makeThreeScene(THREE, width, height) {
         for (let i = 0; i < count; i++) {
           matrix.makeTranslation((i % 32) - 15.5 + Math.sin(motionFrame * 0.03 + i * 0.1) * 0.2,
             Math.floor(i / 32) - 15.5, 0);
+          if (rotating) {
+            const x = matrix.elements[12], y = matrix.elements[13];
+            const angle = Math.fround(motionFrame * 0.01 + i * 0.001);
+            rotation.set(angle, Math.fround(angle * 0.7), Math.fround(angle * 0.3), 'ZYX');
+            matrix.makeRotationFromEuler(rotation);
+            matrix.setPosition(x, y, 0);
+          }
           cubes.setMatrixAt(i, matrix);
         }
         cubes.instanceMatrix.clearUpdateRanges();
@@ -263,6 +280,7 @@ async function start() {
       gpuTimerExt = gpuGl?.getExtension('EXT_disjoint_timer_query_webgl2') ?? null;
       engine._g3_benchmark_set_count(Number(slider.value));
       engine._g3_benchmark_set_motion(movingCount);
+      engine._g3_benchmark_set_rotation(rotating);
       frameCall = dt => engine._g3_app_frame(dt);
       getDrawCalls = () => engine._g3_host_scene_draw_calls();
       getBackendFrameMs = () => engine._g3_host_scene_draw_ms();

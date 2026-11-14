@@ -36,6 +36,7 @@
     <label for="motion">Moving instances per frame
       <select id="motion"><option value="0">Static</option><option value="32">32</option><option value="1024">All visible</option></select>
     </label>
+    <label for="rotate">Rotate moving instances <input id="rotate" type="checkbox"></label>
     <div id="results">warming up…</div>
     <div id="note">Same cube grid, camera, canvas size, and opaque color. Only the selected renderer runs. Frame-call timing measures CPU work and command submission. GPU timing uses asynchronous WebGL timer queries for rendering commands; it excludes browser compositing and display refresh. Unsupported or disjoint GPU samples are omitted. FPS follows browser frame cadence.</div>
   </section>
