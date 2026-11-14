@@ -19,18 +19,22 @@ struct GlbTextureSet {
     specular: TextureHandle, specular_color: TextureHandle, clearcoat: TextureHandle, clearcoat_roughness: TextureHandle,
     clearcoat_normal: TextureHandle, sheen_color: TextureHandle, sheen_roughness: TextureHandle, anisotropy: TextureHandle
 }
-struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle, texture: TextureHandle, textures: GlbTextureSet }
+struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle, texture: TextureHandle, textures: GlbTextureSet, morph_vertex_start: i32, morph_vertex_count: i32, morph_delta_start: i32, morph_target_count: i32, morph_weight_start: i32 }
 struct NativeGlbMeshHandle { id: i32 = -1, generation: i32 }
 struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
 struct NativeGlbPartSlot { owner_id: i32, owner_generation: i32, primitive_index: i32, model: NativeGlbModel, active: bool }
 struct NativeGlbSceneHandle { id: i32 = -1, generation: i32 }
 struct NativeGlbSceneSlot { generation: i32 = 1, mesh_count: i32, node_count: i32, camera_count: i32, animation_count: i32, root: NodeHandle = NodeHandle { .. }, light_set_id: i32 = -1, previous_camera_id: i64 = -1, previous_camera: Camera, active: bool }
-struct NativeGlbScenePartSlot { scene_id: i32, scene_generation: i32, mesh_index: i32, mesh: NativeGlbMeshHandle, active: bool }
+struct NativeGlbScenePartSlot { scene_id: i32, scene_generation: i32, gltf_node_index: i32, mesh_index: i32, mesh: NativeGlbMeshHandle, active: bool }
 struct NativeGlbSceneNodeSlot { scene_id: i32, scene_generation: i32, gltf_index: i32, node: NodeHandle, translation: float3, rotation: float4 = float4 { 0.0, 0.0, 0.0, 1.0 }, scale: float3 = float3_1, base_translation: float3, base_rotation: float4 = float4 { 0.0, 0.0, 0.0, 1.0 }, base_scale: float3 = float3_1, has_trs: bool = true, animated: bool, active: bool }
 struct NativeGlbSceneCameraSlot { scene_id: i32, scene_generation: i32, camera_index: i32, camera_id: i64, active: bool }
 struct NativeGlbSceneLight { kind: i32, position: float3, direction: float3, color: float3, range: f32, inner: f32, outer: f32 }
-struct NativeGlbAnimationTrack { scene_id: i32, scene_generation: i32, animation_index: i32, gltf_node_index: i32, node_slot_index: i32, path: i32, interpolation: i32, key_start: i32, key_count: i32, duration: f32, unsupported: bool, active: bool }
+struct NativeGlbAnimationTrack { scene_id: i32, scene_generation: i32, animation_index: i32, gltf_node_index: i32, node_slot_index: i32, path: i32, interpolation: i32, key_start: i32, key_count: i32, duration: f32, weight_start: i32, weight_value_count: i32, weight_target_count: i32, active: bool }
 struct NativeGlbAnimationKey { time: f32, incoming: float4, value: float4, outgoing: float4, active: bool }
+struct NativeGlbBaseVertex { vertex: Vertex, active: bool }
+struct NativeGlbMorphDelta { position: float3, normal: float3, tangent: float3, active: bool }
+struct NativeGlbMorphWeight { base: f32, value: f32, active: bool }
+struct NativeGlbAnimationWeightValue { value: f32, active: bool }
 struct GlbSparseAccessor { count: i64, indices_offset: i64, indices_type: i64, values_offset: i64 }
 struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64, has_base: bool, sparse: GlbSparseAccessor }
 struct GlbAttribute { offset: i64, stride: i64, count: i64, components: i64, component_type: i64, normalized: bool, has_base: bool, sparse: GlbSparseAccessor }
@@ -43,6 +47,10 @@ var g_native_glb_scene_nodes: NativeGlbSceneNodeSlot[>..];
 var g_native_glb_scene_cameras: NativeGlbSceneCameraSlot[>..];
 var g_native_glb_animation_tracks: NativeGlbAnimationTrack[>..];
 var g_native_glb_animation_keys: NativeGlbAnimationKey[>..];
+var g_native_glb_base_vertices: NativeGlbBaseVertex[>..];
+var g_native_glb_morph_deltas: NativeGlbMorphDelta[>..];
+var g_native_glb_morph_weights: NativeGlbMorphWeight[>..];
+var g_native_glb_animation_weight_values: NativeGlbAnimationWeightValue[>..];
 
 fn glb_u32(bytes: const u8[:], at: i64) -> i64 {
     let b0: i64 = bytes[at]; let b1: i64 = bytes[at + 1];
@@ -1226,17 +1234,120 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
         }
     }
     if transform_node >= 0 { let matrix, valid = glb_node_world_matrix(root, transform_node); guard valid else { return NativeGlbModel { .. }, false; } transform = matrix; }
+    let primitive_targets = json::member(primitive, "targets");
+    let morph_target_count = glb_array_count(primitive_targets);
+    guard morph_target_count <= 65536 && morph_target_count * positions.count <= 4194304 else { return NativeGlbModel { .. }, false; }
+    var base_vertices: Vertex[>..] = [];
+    for i in 0..vertices.len { base_vertices.push(vertices[i]); }
+    var morph_deltas: NativeGlbMorphDelta[>..] = [];
+    for target_index in 0..morph_target_count {
+        let target = glb_json_element(primitive_targets, target_index);
+        guard target else { return NativeGlbModel { .. }, false; }
+        let target_position_node = json::member(target, "POSITION");
+        let target_normal_node = json::member(target, "NORMAL");
+        let target_tangent_node = json::member(target, "TANGENT");
+        var target_positions = GlbAttribute { .. }; var target_normals = GlbAttribute { .. }; var target_tangents = GlbAttribute { .. };
+        if target_position_node {
+            let index, index_ok = glb_json_index(target_position_node);
+            let value, value_ok = glb_attribute_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], index, "POSITION", "VEC3", 3);
+            guard index_ok && value_ok && value.count == positions.count else { return NativeGlbModel { .. }, false; }
+            target_positions = value;
+        }
+        if target_normal_node {
+            let index, index_ok = glb_json_index(target_normal_node);
+            let value, value_ok = glb_attribute_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], index, "NORMAL", "VEC3", 3);
+            guard index_ok && value_ok && value.count == positions.count else { return NativeGlbModel { .. }, false; }
+            target_normals = value;
+        }
+        if target_tangent_node {
+            let index, index_ok = glb_json_index(target_tangent_node);
+            let value, value_ok = glb_attribute_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], index, "TANGENT", "VEC3", 3);
+            guard index_ok && value_ok && value.count == positions.count else { return NativeGlbModel { .. }, false; }
+            target_tangents = value;
+        }
+        for vertex_index in 0..positions.count {
+            var delta_position = float3_0; var delta_normal = float3_0; var delta_tangent = float3_0;
+            if target_position_node {
+                let x, a = glb_attribute_value(bytes[..], 0, target_positions, vertex_index, 0); let y, b = glb_attribute_value(bytes[..], 0, target_positions, vertex_index, 1); let z, c = glb_attribute_value(bytes[..], 0, target_positions, vertex_index, 2);
+                guard a && b && c else { return NativeGlbModel { .. }, false; } delta_position = float3 { x, y, z };
+            }
+            if target_normal_node {
+                let x, a = glb_attribute_value(bytes[..], 0, target_normals, vertex_index, 0); let y, b = glb_attribute_value(bytes[..], 0, target_normals, vertex_index, 1); let z, c = glb_attribute_value(bytes[..], 0, target_normals, vertex_index, 2);
+                guard a && b && c else { return NativeGlbModel { .. }, false; } delta_normal = float3 { x, y, z };
+            }
+            if target_tangent_node {
+                let x, a = glb_attribute_value(bytes[..], 0, target_tangents, vertex_index, 0); let y, b = glb_attribute_value(bytes[..], 0, target_tangents, vertex_index, 1); let z, c = glb_attribute_value(bytes[..], 0, target_tangents, vertex_index, 2);
+                guard a && b && c else { return NativeGlbModel { .. }, false; } delta_tangent = float3 { x, y, z };
+            }
+            morph_deltas.push(NativeGlbMorphDelta { position: delta_position, normal: delta_normal, tangent: delta_tangent, .. });
+        }
+    }
+    let node_source = glb_json_element(nodes, transform_node);
+    let node_weights = json::member(node_source, "weights");
+    let mesh_weights = json::member(mesh, "weights");
+    guard !node_weights || glb_array_count(node_weights) == morph_target_count else { return NativeGlbModel { .. }, false; }
+    guard node_weights || !mesh_weights || glb_array_count(mesh_weights) == morph_target_count else { return NativeGlbModel { .. }, false; }
+    var morph_weights: f32[>..] = [];
+    for target_index in 0..morph_target_count {
+        if node_weights || mesh_weights {
+            let authored_value = if node_weights { glb_json_element(node_weights, target_index) } else { glb_json_element(mesh_weights, target_index) };
+            let value, value_ok = json::as_f64(authored_value);
+            guard value_ok && abs(value) <= 3.4e38 else { return NativeGlbModel { .. }, false; }
+            morph_weights.push(value as f32);
+        } else { morph_weights.push(0.0); }
+    }
+    for target_index in 0..morph_target_count {
+        let weight = morph_weights[target_index];
+        for vertex_index in 0..vertices.len {
+            let delta = morph_deltas[target_index * vertices.len + vertex_index];
+            vertices[vertex_index].pos += delta.position * weight;
+            vertices[vertex_index].normal += delta.normal * weight;
+            let tangent = vertices[vertex_index].tangent;
+            vertices[vertex_index].tangent = float4 { tangent.x + delta.tangent.x*weight, tangent.y + delta.tangent.y*weight, tangent.z + delta.tangent.z*weight, tangent.w };
+        }
+    }
+    for vertex_index in 0..vertices.len {
+        let n = vertices[vertex_index].normal;
+        if length(n) > 1e-8 { vertices[vertex_index].normal = normalize(n); }
+        let t = vertices[vertex_index].tangent;
+        let tangent_xyz = float3 { t.x, t.y, t.z };
+        if length(tangent_xyz) > 1e-8 { let unit = normalize(tangent_xyz); vertices[vertex_index].tangent = float4 { unit.x, unit.y, unit.z, t.w }; }
+    }
     var imported_textures = GlbTextureSet { .. };
     let imported_material, imported_texture, material_ok = glb_material(root, primitive, path, bytes[..], buffer_bases[..], buffer_sizes[..], imported_textures);
     guard material_ok else { return NativeGlbModel { .. }, false; }
     let mesh_id = mesh_asset_create(vertices[..], out_indices[..]);
     if mesh_id < 0 { if material_handle_valid(imported_material) { material_asset_release(imported_material); } glb_release_texture_set(imported_textures); return NativeGlbModel { .. }, false; }
+    var morph_vertex_start: i64 = -1; var morph_delta_start: i64 = -1; var morph_weight_start: i64 = -1;
+    if morph_target_count > 0 {
+        morph_vertex_start = glb_base_vertex_reserve(base_vertices.len);
+        morph_delta_start = glb_morph_delta_reserve(morph_deltas.len);
+        morph_weight_start = glb_morph_weight_reserve(morph_weights.len);
+        if morph_vertex_start < 0 || morph_delta_start < 0 || morph_weight_start < 0 {
+            if morph_vertex_start >= 0 { for i in 0..base_vertices.len { g_native_glb_base_vertices[morph_vertex_start + i].active = false; } }
+            if morph_delta_start >= 0 { for i in 0..morph_deltas.len { g_native_glb_morph_deltas[morph_delta_start + i].active = false; } }
+            if morph_weight_start >= 0 { for i in 0..morph_weights.len { g_native_glb_morph_weights[morph_weight_start + i].active = false; } }
+            mesh_asset_release(mesh_id); if material_handle_valid(imported_material) { material_asset_release(imported_material); } glb_release_texture_set(imported_textures); return NativeGlbModel { .. }, false;
+        }
+        for i in 0..base_vertices.len { g_native_glb_base_vertices[morph_vertex_start + i] = NativeGlbBaseVertex { vertex: base_vertices[i], active: true }; }
+        for i in 0..morph_deltas.len { g_native_glb_morph_deltas[morph_delta_start + i] = NativeGlbMorphDelta { position: morph_deltas[i].position, normal: morph_deltas[i].normal, tangent: morph_deltas[i].tangent, active: true }; }
+        for i in 0..morph_weights.len { g_native_glb_morph_weights[morph_weight_start + i] = NativeGlbMorphWeight { base: morph_weights[i], value: morph_weights[i], active: true }; }
+    }
     let node_id = node_asset_add(mesh_id);
-    if node_id < 0 { mesh_asset_release(mesh_id); if material_handle_valid(imported_material) { material_asset_release(imported_material); } glb_release_texture_set(imported_textures); return NativeGlbModel { .. }, false; }
+    if node_id < 0 {
+        mesh_asset_release(mesh_id); if material_handle_valid(imported_material) { material_asset_release(imported_material); } glb_release_texture_set(imported_textures);
+        for i in 0..base_vertices.len { if morph_vertex_start >= 0 { g_native_glb_base_vertices[morph_vertex_start + i].active = false; } }
+        for i in 0..morph_deltas.len { if morph_delta_start >= 0 { g_native_glb_morph_deltas[morph_delta_start + i].active = false; } }
+        for i in 0..morph_weights.len { if morph_weight_start >= 0 { g_native_glb_morph_weights[morph_weight_start + i].active = false; } }
+        return NativeGlbModel { .. }, false;
+    }
     if material_handle_valid(imported_material) { node(node_id).material = imported_material.id; }
     node(node_id).local_matrix = transform;
     node(node_id).use_local_matrix = true;
-    return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id), material: imported_material, texture: imported_texture, textures: imported_textures }, true;
+    return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id), material: imported_material, texture: imported_texture, textures: imported_textures,
+        morph_vertex_start: morph_vertex_start as i32, morph_vertex_count: positions.count as i32,
+        morph_delta_start: morph_delta_start as i32, morph_target_count: morph_target_count as i32,
+        morph_weight_start: morph_weight_start as i32 }, true;
 }
 
 // Load a primitive by mesh index, using the first node that instances the mesh.
@@ -1377,6 +1488,11 @@ fn native_glb_dispose(model: NativeGlbModel&) -> bool {
     if material_handle_valid(model.material) { material_asset_release(model.material); }
     glb_release_texture_set(model.textures);
     let released = mesh_asset_release_handle(model.mesh);
+    if model.morph_target_count > 0 {
+        for i in 0..model.morph_vertex_count { g_native_glb_base_vertices[model.morph_vertex_start + i].active = false; }
+        for i in 0..model.morph_vertex_count * model.morph_target_count { g_native_glb_morph_deltas[model.morph_delta_start + i].active = false; }
+        for i in 0..model.morph_target_count { g_native_glb_morph_weights[model.morph_weight_start + i].active = false; }
+    }
     model.node = NodeHandle { .. };
     model.mesh = MeshHandle { .. };
     model.material = MaterialHandle { .. };
@@ -1483,6 +1599,62 @@ fn glb_animation_key_reserve(count: i64) -> i64 {
     return start;
 }
 
+fn glb_base_vertex_reserve(count: i64) -> i64 {
+    guard count > 0 && g_native_glb_base_vertices.len + count <= 2147483647 else { return -1; }
+    if count <= g_native_glb_base_vertices.len {
+        for start in 0..g_native_glb_base_vertices.len - count + 1 {
+            var free = true;
+            for offset in 0..count { if g_native_glb_base_vertices[start + offset].active { free = false; break; } }
+            if free { return start; }
+        }
+    }
+    let start = g_native_glb_base_vertices.len;
+    for _ in 0..count { g_native_glb_base_vertices.push(NativeGlbBaseVertex { .. }); }
+    return start;
+}
+
+fn glb_morph_delta_reserve(count: i64) -> i64 {
+    guard count > 0 && count <= 4194304 && g_native_glb_morph_deltas.len + count <= 2147483647 else { return -1; }
+    if count <= g_native_glb_morph_deltas.len {
+        for start in 0..g_native_glb_morph_deltas.len - count + 1 {
+            var free = true;
+            for offset in 0..count { if g_native_glb_morph_deltas[start + offset].active { free = false; break; } }
+            if free { return start; }
+        }
+    }
+    let start = g_native_glb_morph_deltas.len;
+    for _ in 0..count { g_native_glb_morph_deltas.push(NativeGlbMorphDelta { .. }); }
+    return start;
+}
+
+fn glb_morph_weight_reserve(count: i64) -> i64 {
+    guard count > 0 && g_native_glb_morph_weights.len + count <= 2147483647 else { return -1; }
+    if count <= g_native_glb_morph_weights.len {
+        for start in 0..g_native_glb_morph_weights.len - count + 1 {
+            var free = true;
+            for offset in 0..count { if g_native_glb_morph_weights[start + offset].active { free = false; break; } }
+            if free { return start; }
+        }
+    }
+    let start = g_native_glb_morph_weights.len;
+    for _ in 0..count { g_native_glb_morph_weights.push(NativeGlbMorphWeight { .. }); }
+    return start;
+}
+
+fn glb_animation_weight_reserve(count: i64) -> i64 {
+    guard count > 0 && count <= 16777216 && g_native_glb_animation_weight_values.len + count <= 2147483647 else { return -1; }
+    if count <= g_native_glb_animation_weight_values.len {
+        for start in 0..g_native_glb_animation_weight_values.len - count + 1 {
+            var free = true;
+            for offset in 0..count { if g_native_glb_animation_weight_values[start + offset].active { free = false; break; } }
+            if free { return start; }
+        }
+    }
+    let start = g_native_glb_animation_weight_values.len;
+    for _ in 0..count { g_native_glb_animation_weight_values.push(NativeGlbAnimationWeightValue { .. }); }
+    return start;
+}
+
 fn glb_animation_track_add(track: NativeGlbAnimationTrack) -> i64 {
     for i in 0..g_native_glb_animation_tracks.len {
         if !g_native_glb_animation_tracks[i].active { g_native_glb_animation_tracks[i] = track; return i; }
@@ -1552,7 +1724,6 @@ fn glb_scene_load_animations(root: json::Node?, bytes: const u8[:], buffer_bases
             let input, input_valid = glb_attribute_accessor(root, bytes, buffer_bases, buffer_sizes, input_index, "ANIMATION", "SCALAR", 1);
             guard input_valid && input.count <= 1048576 else { return false; }
             if path_id == 3 {
-                guard glb_json_element(json::member(root, "accessors"), output_index) else { return false; }
                 for i in 0..g_native_glb_animation_tracks.len {
                     let prior = g_native_glb_animation_tracks[i];
                     guard !prior.active || prior.scene_id != handle.id || prior.scene_generation != handle.generation ||
@@ -1564,10 +1735,49 @@ fn glb_scene_load_animations(root: json::Node?, bytes: const u8[:], buffer_bases
                     guard time_ok && time >= 0.0 && time <= 3.4e38 && time > previous_time else { return false; }
                     previous_time = time;
                 }
-                glb_animation_track_add(NativeGlbAnimationTrack { scene_id: handle.id, scene_generation: handle.generation,
+                var target_count: i64 = -1;
+                for scene_part_index in 0..g_native_glb_scene_parts.len {
+                    let scene_part = g_native_glb_scene_parts[scene_part_index];
+                    if scene_part.active && scene_part.scene_id == handle.id && scene_part.scene_generation == handle.generation && scene_part.gltf_node_index == node_index {
+                        for part_index in 0..g_native_glb_parts.len {
+                            let part = g_native_glb_parts[part_index];
+                            if part.active && part.owner_id == scene_part.mesh.id && part.owner_generation == scene_part.mesh.generation {
+                                let part_targets = part.model.morph_target_count;
+                                guard part_targets > 0 && (target_count < 0 || target_count == part_targets) else { return false; }
+                                target_count = part_targets;
+                            }
+                        }
+                    }
+                }
+                guard target_count > 0 && target_count <= 65536 else { return false; }
+                let output, output_valid = glb_attribute_accessor(root, bytes, buffer_bases, buffer_sizes, output_index, "ANIMATION", "SCALAR", 1);
+                let multiplier: i64 = if interpolation == 2 { 3 } else { 1 };
+                let value_count = input.count * target_count * multiplier;
+                guard output_valid && output.count == value_count && value_count <= 16777216 else { return false; }
+                let key_start = glb_animation_key_reserve(input.count);
+                let weight_start = glb_animation_weight_reserve(value_count);
+                if key_start < 0 || weight_start < 0 {
+                    if key_start >= 0 { for key_index in 0..input.count { g_native_glb_animation_keys[key_start + key_index].active = false; } }
+                    if weight_start >= 0 { for value_index in 0..value_count { g_native_glb_animation_weight_values[weight_start + value_index].active = false; } }
+                    return false;
+                }
+                let track = NativeGlbAnimationTrack { scene_id: handle.id, scene_generation: handle.generation,
                     animation_index: animation_index as i32, gltf_node_index: node_index as i32,
-                    node_slot_index: target_node_slot as i32, path: path_id, interpolation: interpolation, key_start: -1,
-                    key_count: 0, duration: previous_time, unsupported: true, active: true });
+                    node_slot_index: target_node_slot as i32, path: path_id, interpolation: interpolation, key_start: key_start as i32,
+                    key_count: input.count as i32, duration: previous_time,
+                    weight_start: weight_start as i32, weight_value_count: value_count as i32, weight_target_count: target_count as i32, active: true };
+                glb_animation_track_add(track);
+                g_native_glb_scene_nodes[target_node_slot].animated = true;
+                for key_index in 0..input.count {
+                    let time, time_ok = glb_attribute_value(bytes, 0, input, key_index, 0);
+                    guard time_ok else { return false; }
+                    g_native_glb_animation_keys[key_start + key_index] = NativeGlbAnimationKey { time: time, active: true, .. };
+                }
+                for value_index in 0..value_count {
+                    let value, value_ok = glb_attribute_value(bytes, 0, output, value_index, 0);
+                    guard value_ok && abs(value) <= 3.4e38 else { return false; }
+                    g_native_glb_animation_weight_values[weight_start + value_index] = NativeGlbAnimationWeightValue { value: value, active: true };
+                }
                 continue;
             }
             let output, output_valid = glb_attribute_accessor(root, bytes, buffer_bases, buffer_sizes, output_index, "ANIMATION", type_name, component_count);
@@ -1581,7 +1791,8 @@ fn glb_scene_load_animations(root: json::Node?, bytes: const u8[:], buffer_bases
             guard key_start >= 0 else { return false; }
             let track = NativeGlbAnimationTrack { scene_id: handle.id, scene_generation: handle.generation,
                 animation_index: animation_index as i32, gltf_node_index: node_index as i32, node_slot_index: target_node_slot as i32, path: path_id,
-                interpolation: interpolation, key_start: key_start as i32, key_count: input.count as i32, duration: 0.0, unsupported: false, active: true };
+                interpolation: interpolation, key_start: key_start as i32, key_count: input.count as i32, duration: 0.0,
+                weight_start: -1, weight_value_count: 0, weight_target_count: 0, active: true };
             let track_slot = glb_animation_track_add(track);
             g_native_glb_scene_nodes[target_node_slot].animated = true;
             var previous_time: f32 = -1.0;
@@ -1610,7 +1821,7 @@ fn glb_scene_load_animations(root: json::Node?, bytes: const u8[:], buffer_bases
 }
 
 // Load the selected hierarchy, mesh instances, cameras, punctual lights, and
-// core TRS animation tracks. Morph weights and skinning are not imported.
+// core TRS and morph-weight animation tracks. Skinning is not imported.
 fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> NativeGlbSceneHandle, bool {
     var bytes: u8[>..] = [];
     guard path.len > 0 && read_file(path, bytes) && bytes.len > 0 && bytes.len <= 268435456 else { return NativeGlbSceneHandle { .. }, false; }
@@ -1752,7 +1963,7 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
             for part_index in 0..g_native_glb_scene_parts.len {
                 if !g_native_glb_scene_parts[part_index].active { slot = part_index; break; }
             }
-            let part = NativeGlbScenePartSlot { scene_id: handle.id, scene_generation: handle.generation, mesh_index: mesh_index, mesh: mesh, active: true };
+            let part = NativeGlbScenePartSlot { scene_id: handle.id, scene_generation: handle.generation, gltf_node_index: i as i32, mesh_index: mesh_index, mesh: mesh, active: true };
             if slot < 0 { g_native_glb_scene_parts.push(part); } else { g_native_glb_scene_parts[slot] = part; }
             g_native_glb_scenes[handle.id].mesh_count += 1;
         }
@@ -1848,6 +2059,92 @@ fn glb_animation_sample(track: NativeGlbAnimationTrack, time: f32) -> float4, bo
     return result, true;
 }
 
+fn glb_animation_weight_value(track: NativeGlbAnimationTrack, key: i64, part: i64, target: i64, multiplier: i64) -> f32, bool {
+    let index = track.weight_start + key * track.weight_target_count * multiplier + part * track.weight_target_count + target;
+    guard index >= track.weight_start && index < track.weight_start + track.weight_value_count && index < g_native_glb_animation_weight_values.len else { return 0.0, false; }
+    return g_native_glb_animation_weight_values[index].value, true;
+}
+
+fn glb_animation_sample_weight(track: NativeGlbAnimationTrack, time: f32, target: i64) -> f32, bool {
+    guard track.path == 3 && track.key_count > 0 && target >= 0 && target < track.weight_target_count &&
+          track.key_start >= 0 && track.key_start + track.key_count <= g_native_glb_animation_keys.len &&
+          track.weight_start >= 0 && track.weight_start + track.weight_value_count <= g_native_glb_animation_weight_values.len else { return 0.0, false; }
+    let first = g_native_glb_animation_keys[track.key_start];
+    let last = g_native_glb_animation_keys[track.key_start + track.key_count - 1];
+    var left: i64 = 0;
+    var amount: f32 = 0.0;
+    if time <= first.time { left = 0; }
+    else if time >= last.time { left = track.key_count - 1; }
+    else {
+        while left + 1 < track.key_count && g_native_glb_animation_keys[track.key_start + left + 1].time <= time { left++; }
+        let a = g_native_glb_animation_keys[track.key_start + left];
+        let b = g_native_glb_animation_keys[track.key_start + left + 1];
+        guard b.time > a.time else { return 0.0, false; }
+        amount = (time - a.time) / (b.time - a.time);
+    }
+    let multiplier: i64 = if track.interpolation == 2 { 3 } else { 1 };
+    if time <= first.time || time >= last.time || track.interpolation == 1 {
+        let selected = if time >= last.time { track.key_count - 1 } else { left };
+        let part = if track.interpolation == 2 { 1 } else { 0 };
+        return glb_animation_weight_value(track, selected, part, target, multiplier);
+    }
+    let a, a_ok = glb_animation_weight_value(track, left, if track.interpolation == 2 { 1 } else { 0 }, target, multiplier);
+    let b, b_ok = glb_animation_weight_value(track, left + 1, if track.interpolation == 2 { 1 } else { 0 }, target, multiplier);
+    guard a_ok && b_ok else { return 0.0, false; }
+    if track.interpolation == 0 { return a + (b - a) * amount, true; }
+    let incoming, incoming_ok = glb_animation_weight_value(track, left + 1, 0, target, multiplier);
+    let outgoing, outgoing_ok = glb_animation_weight_value(track, left, 2, target, multiplier);
+    guard incoming_ok && outgoing_ok else { return 0.0, false; }
+    let duration = g_native_glb_animation_keys[track.key_start + left + 1].time - g_native_glb_animation_keys[track.key_start + left].time;
+    let t2 = amount * amount; let t3 = t2 * amount;
+    return (2.0*t3 - 3.0*t2 + 1.0)*a + (t3 - 2.0*t2 + amount)*duration*outgoing +
+           (-2.0*t3 + 3.0*t2)*b + (t3 - t2)*duration*incoming, true;
+}
+
+fn glb_morph_model_rebuild(model: NativeGlbModel&) -> bool {
+    guard model.morph_target_count > 0 && model.morph_vertex_count > 0 && model.morph_vertex_start >= 0 &&
+          model.morph_delta_start >= 0 && model.morph_weight_start >= 0 && mesh_handle_valid(model.mesh) else { return false; }
+    var positions: f32[>..] = []; var normals: f32[>..] = []; var tangents: f32[>..] = [];
+    for i in 0..model.morph_vertex_count {
+        let base = g_native_glb_base_vertices[model.morph_vertex_start + i].vertex;
+        var position = base.pos; var normal = base.normal; var tangent = float3 { base.tangent.x, base.tangent.y, base.tangent.z };
+        for target in 0..model.morph_target_count {
+            let weight = g_native_glb_morph_weights[model.morph_weight_start + target].value;
+            let delta = g_native_glb_morph_deltas[model.morph_delta_start + target * model.morph_vertex_count + i];
+            position += delta.position * weight; normal += delta.normal * weight; tangent += delta.tangent * weight;
+        }
+        if length(normal) > 1e-8 { normal = normalize(normal); }
+        if length(tangent) > 1e-8 { tangent = normalize(tangent); }
+        positions.push(position.x); positions.push(position.y); positions.push(position.z);
+        normals.push(normal.x); normals.push(normal.y); normals.push(normal.z);
+        tangents.push(tangent.x); tangents.push(tangent.y); tangents.push(tangent.z); tangents.push(base.tangent.w);
+    }
+    return mesh_asset_update(model.mesh.id, positions[..], normals[..], tangents[..]);
+}
+
+fn glb_scene_apply_morph_weights(handle: NativeGlbSceneHandle, gltf_node_index: i32, track: NativeGlbAnimationTrack, time: f32) -> bool {
+    var found = false;
+    for scene_part_index in 0..g_native_glb_scene_parts.len {
+        let scene_part = g_native_glb_scene_parts[scene_part_index];
+        if scene_part.active && scene_part.scene_id == handle.id && scene_part.scene_generation == handle.generation && scene_part.gltf_node_index == gltf_node_index {
+            for part_index in 0..g_native_glb_parts.len {
+                if g_native_glb_parts[part_index].active && g_native_glb_parts[part_index].owner_id == scene_part.mesh.id && g_native_glb_parts[part_index].owner_generation == scene_part.mesh.generation {
+                    let model .= g_native_glb_parts[part_index].model;
+                    guard model.morph_target_count == track.weight_target_count else { return false; }
+                    for target in 0..track.weight_target_count {
+                        let value, valid = glb_animation_sample_weight(track, time, target);
+                        guard valid else { return false; }
+                        g_native_glb_morph_weights[model.morph_weight_start + target].value = value;
+                    }
+                    guard glb_morph_model_rebuild(model) else { return false; }
+                    found = true;
+                }
+            }
+        }
+    }
+    return found;
+}
+
 fn native_glb_scene_animation_count(handle: NativeGlbSceneHandle) -> i32 {
     guard native_glb_scene_valid(handle) else { return 0; }
     return g_native_glb_scenes[handle.id].animation_count;
@@ -1878,21 +2175,36 @@ fn native_glb_scene_reset_animation(handle: NativeGlbSceneHandle) -> bool {
             }
         }
     }
+    for scene_part_index in 0..g_native_glb_scene_parts.len {
+        let scene_part = g_native_glb_scene_parts[scene_part_index];
+        if scene_part.active && scene_part.scene_id == handle.id && scene_part.scene_generation == handle.generation {
+            for part_index in 0..g_native_glb_parts.len {
+                if g_native_glb_parts[part_index].active && g_native_glb_parts[part_index].owner_id == scene_part.mesh.id && g_native_glb_parts[part_index].owner_generation == scene_part.mesh.generation {
+                    let model .= g_native_glb_parts[part_index].model;
+                    if model.morph_target_count > 0 {
+                        for target in 0..model.morph_target_count {
+                            g_native_glb_morph_weights[model.morph_weight_start + target].value = g_native_glb_morph_weights[model.morph_weight_start + target].base;
+                        }
+                        if !glb_morph_model_rebuild(model) { return false; }
+                    }
+                }
+            }
+        }
+    }
     return true;
 }
 
 fn native_glb_scene_apply_animation(handle: NativeGlbSceneHandle, animation_index: i32, time: f32) -> bool {
     guard native_glb_scene_valid(handle) && animation_index >= 0 && animation_index < g_native_glb_scenes[handle.id].animation_count &&
           time >= 0.0 && time <= 3.4e38 else { return false; }
-    for i in 0..g_native_glb_animation_tracks.len {
-        let track = g_native_glb_animation_tracks[i];
-        if track.active && track.scene_id == handle.id && track.scene_generation == handle.generation &&
-           track.animation_index == animation_index && track.unsupported { return false; }
-    }
     native_glb_scene_reset_animation(handle);
     for i in 0..g_native_glb_animation_tracks.len {
         let track = g_native_glb_animation_tracks[i];
         if track.active && track.scene_id == handle.id && track.scene_generation == handle.generation && track.animation_index == animation_index {
+            if track.path == 3 {
+                guard glb_scene_apply_morph_weights(handle, track.gltf_node_index, track, time) else { return false; }
+                continue;
+            }
             let value, value_ok = glb_animation_sample(track, time);
             guard value_ok else { return false; }
             guard track.node_slot_index >= 0 && track.node_slot_index < g_native_glb_scene_nodes.len &&
@@ -1987,7 +2299,10 @@ fn native_glb_scene_dispose(handle: NativeGlbSceneHandle) -> bool {
            g_native_glb_animation_tracks[i].scene_generation == handle.generation {
             let start = g_native_glb_animation_tracks[i].key_start;
             let count = g_native_glb_animation_tracks[i].key_count;
-            for key_index in 0..count { g_native_glb_animation_keys[start + key_index].active = false; }
+            if start >= 0 { for key_index in 0..count { g_native_glb_animation_keys[start + key_index].active = false; } }
+            let weight_start = g_native_glb_animation_tracks[i].weight_start;
+            let weight_count = g_native_glb_animation_tracks[i].weight_value_count;
+            if weight_start >= 0 { for value_index in 0..weight_count { g_native_glb_animation_weight_values[weight_start + value_index].active = false; } }
             g_native_glb_animation_tracks[i].active = false;
         }
     }

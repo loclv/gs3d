@@ -126,9 +126,10 @@ and a browser integration check for behavior exposed through WebGL.
   `KHR_materials_anisotropy` maps import with per-map UV0 transforms and
   correct sRGB/linear channel treatment. Dense and sparse geometry, colour,
   and index accessors are supported, including zero-initialized sparse-only
-  accessors; native scene clips animate translation, rotation, and scale with
-  LINEAR, STEP, and CUBICSPLINE sampling. Morph-weight and skeletal animation
-  remain unsupported by the native loader.
+  accessors; native scene clips animate translation, rotation, scale, and
+  morph weights with LINEAR, STEP, and CUBICSPLINE sampling. Native POSITION,
+  NORMAL, and TANGENT morph deltas update retained CPU geometry and backend
+  meshes, including bounds; skeletal animation remains unsupported natively.
 * **Implemented:** glTF `doubleSided` materials disable face culling in colour
   and shadow passes and reverse back-face normals before colour lighting.
   Validate these paths against browser reference images.
@@ -226,6 +227,10 @@ shadow behavior and browser reference images for the GPU path.
   GLB, sharing one mesh and morph upload. Validate
   animated WebGL output and record measurements on
   representative characters and devices.
+  The native scene loader samples translation, rotation, scale, and morph-weight
+  tracks with the same interpolation modes; POSITION/NORMAL/TANGENT morph
+  deformation keeps CPU geometry and bounds synchronized. Native skinning is
+  still unsupported.
 * **Partly implemented:** selectable perspective and orthographic cameras have
   stable IDs, active-camera fallback, and removal. The browser glTF loader
   imports perspective and orthographic cameras, applies node and animated

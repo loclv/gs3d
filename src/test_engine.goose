@@ -521,6 +521,10 @@ fn case_native_glb_load() {
     testing::check(g3::native_glb_scene_dispose(selected_scene), "selected native glTF scene disposes cleanly");
     let animation_scene, animation_scene_loaded = g3::native_glb_load_scene("testdata/native-animation.glb", -1);
     let animated_node = g3::native_glb_scene_node(animation_scene, 0);
+    let morph_mesh = g3::native_glb_scene_mesh(animation_scene, 0);
+    let morph_node = g3::native_glb_mesh_primitive_node(morph_mesh, 0);
+    let morph_mesh_id = g3::node(morph_node.index).mesh;
+    let morph_vertex = g3::mesh(morph_mesh_id).first_vertex;
     let animation_metadata = animation_scene_loaded && g3::native_glb_scene_animation_count(animation_scene) == 5 &&
                              abs(g3::native_glb_scene_animation_duration(animation_scene, 0) - 1.0) < 0.001 &&
                              abs(g3::native_glb_scene_animation_duration(animation_scene, 4) - 1.0) < 0.001;
@@ -535,26 +539,34 @@ fn case_native_glb_load() {
                       abs(g3::node(animated_node.index).local_matrix.m[1] - 2.0) < 0.002;
     let cubic_applied = g3::native_glb_scene_apply_animation(animation_scene, 3, 0.5);
     let cubic_ok = cubic_applied && abs(g3::node(animated_node.index).local_matrix.m[12] - 1.0) < 0.002;
-    let unsupported_keeps_pose = !g3::native_glb_scene_apply_animation(animation_scene, 4, 0.5) &&
-                                 abs(g3::node(animated_node.index).local_matrix.m[12] - 1.0) < 0.002;
+    let morph_mid_applied = g3::native_glb_scene_apply_animation(animation_scene, 4, 0.5);
+    let morph_mid_ok = morph_mid_applied && abs(g3::g_verts[morph_vertex + 1].pos.y + 0.375) < 0.001;
+    let morph_end_applied = g3::native_glb_scene_apply_animation(animation_scene, 4, 1.0);
+    let morph_end_ok = morph_end_applied && abs(g3::g_verts[morph_vertex + 1].pos.y + 0.25) < 0.001;
     let animation_reset = g3::native_glb_scene_reset_animation(animation_scene);
     testing::check(animation_metadata, "native glTF animation metadata exposes clip count and duration");
     testing::check(linear_translation_ok, "native glTF LINEAR translation animation samples its midpoint");
     testing::check(step_mid_ok && step_end_ok, "native glTF STEP scale animation holds and advances at keys");
     testing::check(rotation_ok, "native glTF LINEAR quaternion animation uses spherical interpolation");
     testing::check(cubic_ok, "native glTF CUBICSPLINE transform animation evaluates Hermite tangents");
-    testing::check(unsupported_keeps_pose, "native glTF morph-weight clips report unsupported without altering the current pose");
+    testing::check(morph_mid_ok && morph_end_ok, "native glTF morph-weight LINEAR animation deforms retained geometry at sampled times");
     testing::check(animation_reset && abs(g3::node(animated_node.index).local_matrix.m[12] - 0.25) < 0.001 &&
+                   abs(g3::g_verts[morph_vertex + 1].pos.y + 0.5) < 0.001 &&
                    abs(g3::node(animated_node.index).local_matrix.m[0] - 2.0) < 0.001,
-                   "native glTF scene animation resets animated nodes to base transforms");
+                   "native glTF scene animation resets animated nodes and morph geometry to base pose");
     testing::check(g3::native_glb_scene_dispose(animation_scene) && !g3::native_glb_scene_valid(animation_scene),
                    "native glTF scene disposal releases animation tracks and checked node handles");
     let animation_reloaded, animation_reloaded_ok = g3::native_glb_load_scene("testdata/native-animation.glb", -1);
+    let reloaded_morph_mesh = g3::native_glb_scene_mesh(animation_reloaded, 0);
+    let reloaded_morph_node = g3::native_glb_mesh_primitive_node(reloaded_morph_mesh, 0);
+    let reloaded_morph_vertex = g3::mesh(g3::node(reloaded_morph_node.index).mesh).first_vertex;
     let animation_reused_ok = animation_reloaded_ok && g3::native_glb_scene_animation_count(animation_reloaded) == 5 &&
                               g3::native_glb_scene_apply_animation(animation_reloaded, 0, 0.5) &&
                               abs(g3::node(g3::native_glb_scene_node(animation_reloaded, 0).index).local_matrix.m[12] - 1.0) < 0.001;
-    testing::check(animation_reused_ok && g3::native_glb_scene_dispose(animation_reloaded),
-                   "native glTF animation key slots are reusable after scene disposal");
+    let morph_slots_reused = animation_reloaded_ok && g3::native_glb_scene_apply_animation(animation_reloaded, 4, 0.5) &&
+                             abs(g3::g_verts[reloaded_morph_vertex + 1].pos.y + 0.375) < 0.001;
+    testing::check(animation_reused_ok && morph_slots_reused && g3::native_glb_scene_dispose(animation_reloaded),
+                   "native glTF animation key and morph slots are reusable after scene disposal");
     let external_animation, external_animation_ok = g3::native_glb_load_scene("testdata/native-animation-external/model.gltf", -1);
     let external_animation_node = g3::native_glb_scene_node(external_animation, 0);
     let external_animation_sampled = external_animation_ok && g3::native_glb_scene_apply_animation(external_animation, 0, 0.5) &&
