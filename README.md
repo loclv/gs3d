@@ -226,7 +226,9 @@ fn main() {
     let floor = g3::node_add(g3::mesh_plane(10.0, 10.0));
     let floor_body = g3::physics_body_add(floor, float3 { 5.0, 0.1, 5.0 }, 0.0);
     g3::physics_body_set_restitution(player_body, 0.1);
+    g3::physics_body_set_friction(player_body, 0.7);
     g3::physics_body_set_restitution(floor_body, 0.0);
+    g3::physics_body_set_friction(floor_body, 0.8);
 
     // `node` returns a reference into the scene's arena: keep it and write
     // through it. `.=` binds the reference; `=` would copy the node.
@@ -267,9 +269,10 @@ What the API gives you:
   before `frame(dt)`. Mass zero makes a static collider. Gravity defaults to
   `(0, -9.81, 0)` and can be changed with `physics_set_gravity`; apply forces
   for one step with `physics_apply_force`, set velocity directly, and tune
-  restitution from 0 to 1. Pairwise AABB overlap uses positional correction
-  and a normal impulse. Bodies have no angular motion, friction, or capsule/
-  sphere colliders; `physics_clear()` removes all bodies.
+  restitution and friction from 0 to 1. Pairwise AABB overlap uses substeps,
+  positional correction, and normal and friction impulses. Bodies have no
+  angular motion or capsule/sphere colliders; `physics_clear()` removes all
+  bodies.
 * **Meshes** — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
   for your own geometry. Pushes stage one mesh and `mesh_close(fv, fi)` closes

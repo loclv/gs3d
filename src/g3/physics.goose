@@ -19,6 +19,7 @@ struct PhysicsBody {
     half_extents: float3 = float3 { 0.5, 0.5, 0.5 },
     inverse_mass: f32,
     restitution: f32 = 0.0,
+    friction: f32 = 0.5,
 }
 
 var g_physics_bodies: PhysicsBody[>..];
@@ -58,6 +59,12 @@ fn physics_body_set_restitution(id: i64, restitution: f32) -> bool {
     return true;
 }
 
+fn physics_body_set_friction(id: i64, friction: f32) -> bool {
+    guard id >= 0 && id < g_physics_bodies.len && friction >= 0.0 && friction <= 1.0 else { return false; }
+    g_physics_bodies[id].friction = friction;
+    return true;
+}
+
 // Add a force for the next step. Forces are cleared after each step.
 fn physics_apply_force(id: i64, force: float3) -> bool {
     guard id >= 0 && id < g_physics_bodies.len && g_physics_bodies[id].inverse_mass > 0.0 else { return false; }
@@ -71,17 +78,31 @@ fn physics_body_set_velocity(id: i64, velocity: float3) -> bool {
     return true;
 }
 
-// Advance the simulation by seconds. Invalid, zero, or unusually large
-// steps are ignored so a stalled frame cannot launch bodies through the world.
+// Advance the simulation by seconds. Break the frame into <= 1/60 second
+// substeps to reduce tunneling and keep the collision response stable.
+// Inputs above one second are rejected to bound work after a long pause.
 fn physics_step(dt: f32) {
-    guard dt > 0.0 && dt <= 0.1 else { return; }
+    guard dt > 0.0 && dt <= 1.0 else { return; }
+    var remaining = dt;
+    while remaining > 0.0 {
+        let sub_dt = min(remaining, 1.0 / 60.0);
+        physics_substep(sub_dt);
+        remaining -= sub_dt;
+    }
+
+    for &body in g_physics_bodies { body.force = float3_0; }
+    for &body in g_physics_bodies {
+        if node_handle_valid(body.node) { node(body.node.index).pos = body.position; }
+    }
+}
+
+fn physics_substep(dt: f32) {
     for &body in g_physics_bodies {
         if !node_handle_valid(body.node) { continue; }
         if body.inverse_mass > 0.0 {
             body.velocity += (g_physics_gravity + body.force * body.inverse_mass) * dt;
             body.position += body.velocity * dt;
         }
-        body.force = float3_0;
     }
 
     for i in 0..g_physics_bodies.len {
@@ -90,11 +111,6 @@ fn physics_step(dt: f32) {
         }
     }
 
-    for &body in g_physics_bodies {
-        if node_handle_valid(body.node) {
-            node(body.node.index).pos = body.position;
-        }
-    }
 }
 
 fn physics_resolve_pair(a_id: i64, b_id: i64) {
@@ -134,4 +150,20 @@ fn physics_resolve_pair(a_id: i64, b_id: i64) {
     let impulse = normal * impulse_magnitude;
     a.velocity -= impulse * a.inverse_mass;
     b.velocity += impulse * b.inverse_mass;
+
+    let relative_after_normal = b.velocity - a.velocity;
+    let tangent_velocity = relative_after_normal - normal * dot(relative_after_normal, normal);
+    let tangent_speed = length(tangent_velocity);
+    if tangent_speed <= 0.000001 { return; }
+    let tangent = tangent_velocity / tangent_speed;
+    let friction_magnitude = -dot(relative_after_normal, tangent) / inverse_mass_sum;
+    let max_friction = impulse_magnitude * sqrt(a.friction * b.friction);
+    let friction_scalar = if abs(friction_magnitude) < max_friction {
+        friction_magnitude
+    } else {
+        -max_friction
+    };
+    let friction_impulse = tangent * friction_scalar;
+    a.velocity -= friction_impulse * a.inverse_mass;
+    b.velocity += friction_impulse * b.inverse_mass;
 }
