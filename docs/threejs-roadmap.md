@@ -195,10 +195,11 @@ and a browser integration check for behavior exposed through WebGL.
   `npm run test:browser` from `web/`. The runner builds and serves the reference
   page locally, uses SwiftShader, and fails on a failed check, page exception,
   or timeout. The same runner opens the model viewer and checks camera, clip,
-  shadow, variant and environment controls, textured mesh selection, previews,
-  and model reload. `.github/workflows/browser-reference.yml` runs it on pushes
-  and pull requests with a checksum-verified Goose compiler and a headless
-  Chrome install. Capture additional reference images on representative target GPUs.
+  shadow, variant and environment controls, orbit drag output, textured mesh
+  selection, previews, and model reload.
+  `.github/workflows/browser-reference.yml` runs it on pushes and pull requests
+  with a checksum-verified Goose compiler and a headless Chrome install. Capture
+  additional reference images on representative target GPUs.
   The browser model API
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material
@@ -213,7 +214,8 @@ and a browser integration check for behavior exposed through WebGL.
 
 **Done when:** a documented example loads a static textured GLB, orbits it,
 selects a mesh with a click, and repeatedly loads and disposes models without
-unbounded memory growth. Tests cover malformed files and a real browser render.
+unbounded memory growth. Native and headless browser tests cover malformed files,
+selection, orbit interaction, model reload, and WebGL rendering.
 
 ### 2. Materials and lighting
 
@@ -303,9 +305,9 @@ Tests cover animation interpolation, skinning, and camera projection.
   and GPU configurations before selecting further optimisations.
 * **Implemented:** optional FXAA-style luma edge smoothing runs as a full-screen
   WebGL output pass and in the CPU reference renderer.
-* **Partly implemented:** user render targets have explicit creation, selection, resizing, checked handles, and disposal; the texture can be sampled by later frames. Both backends render linear RGBA8 clamped to 0..1 with opaque alpha, use target dimensions for camera projection, and bypass screen tone mapping, sRGB encoding, and FXAA. Resizing clears target contents. Sampling the active target is suppressed to avoid framebuffer feedback, and `Stats.feedback_items_suppressed` plus the browser HUD report how many draw items were skipped. The dedicated browser reference build checks a known linear colour under screen effects, resize, later-frame sampling, active-target feedback suppression, and disposal; run it in a browser.
+* **Partly implemented:** user render targets have explicit creation, selection, resizing, checked handles, and disposal; the texture can be sampled by later frames. Both backends render linear RGBA8 clamped to 0..1 with opaque alpha, use target dimensions for camera projection, and bypass screen tone mapping, sRGB encoding, and FXAA. Resizing clears target contents. Sampling the active target is suppressed to avoid framebuffer feedback, and `Stats.feedback_items_suppressed` plus the browser HUD report how many draw items were skipped. The dedicated browser reference build checks a known linear colour under screen effects, resize, later-frame sampling, active-target feedback suppression, and disposal; the headless runner executes these checks in CI.
 * **Partly implemented:** `post_process_run(source, destination, effect)` provides copy, grayscale, invert, and FXAA passes over explicit texture inputs and render-target outputs; the fixed eight-entry queue executes built-in or custom passes in order. The browser reference page checks each built-in effect's pixel output and a grayscale-then-invert queue result. Keep the existing FXAA convenience switch as a built-in pass.
-* **Partly implemented:** WebGL2 supports a bounded fragment-body post-process with one source texture, UVs, and a colour value; shader creation, execution, and disposal are explicit, with fixed input/output resources and no custom vertex stage or uniforms. The CPU backend returns unsupported. The browser reference page checks a custom shader output, verifies invalid shader diagnostics reach the page, and checks that ordinary rendering recovers from a failed queued pass. Run it in a browser. Define a pass-list integration before expanding uniforms or stages.
+* **Partly implemented:** WebGL2 supports a bounded fragment-body post-process with one source texture, UVs, and a colour value; shader creation, execution, and disposal are explicit, with fixed input/output resources and no custom vertex stage or uniforms. The CPU backend returns unsupported. The browser reference page checks a custom shader output, verifies invalid shader diagnostics reach the page, and checks that ordinary rendering recovers from a failed queued pass; the headless runner executes these checks in CI. Define a pass-list integration before expanding uniforms or stages.
 * **Partly implemented:** the browser asset package documents loading, ownership,
   and errors. `npm test` runs parser and lifecycle checks against a fake engine,
   plus orbit-control input checks against a fake canvas through the published

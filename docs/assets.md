@@ -539,5 +539,6 @@ it; the CPU reference backend and WebGL fallbacks upload deformed vertices.
 Matrix-form TRS animation is unsupported.
 
 Run the browser-loader logic tests with `node web/test_assets.mjs`. These use a
-mock engine and image decoder; they do not replace a browser/WebGL integration
-test.
+mock engine and image decoder. Run `npm run test:browser` from `web/` for the
+headless Chrome/WebGL rendering, viewer interaction, and asset lifecycle
+checks; GitHub Actions runs both suites on pushes and pull requests.

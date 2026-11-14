@@ -269,6 +269,37 @@ async function run() {
       variant: true, yaw: true, hemisphere: true,
     }, 'viewer camera, shadow, variant, and environment controls respond');
 
+    await page.evaluate("document.querySelector('#animation-toggle').click()");
+    const canvasBounds = await page.evaluate(`(() => {
+      const rect = document.querySelector('#canvas').getBoundingClientRect();
+      const panel = document.querySelector('.panel').getBoundingClientRect();
+      const leftWidth = Math.max(0, Math.min(rect.right, panel.left) - rect.left);
+      const rightStart = Math.max(rect.left, panel.right);
+      const rightWidth = Math.max(0, rect.right - rightStart);
+      const segmentWidth = Math.max(leftWidth, rightWidth);
+      const segmentStart = rightWidth >= leftWidth ? rightStart : rect.left;
+      return {
+        x: segmentStart + Math.min(24, segmentWidth * 0.1),
+        endX: segmentStart + Math.min(112, segmentWidth * 0.8),
+        y: rect.top + rect.height * 0.62,
+        clip: { x: rect.left, y: rect.top, width: rect.width, height: rect.height, scale: 1 },
+      };
+    })()`);
+    assert.ok(canvasBounds.endX - canvasBounds.x > 30, 'viewer canvas has a clear orbit-drag area');
+    const beforeOrbit = await page.send('Page.captureScreenshot', { format: 'png', clip: canvasBounds.clip });
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed', x: canvasBounds.x, y: canvasBounds.y, button: 'left', clickCount: 1,
+    });
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved', x: canvasBounds.endX, y: canvasBounds.y, button: 'left', buttons: 1,
+    });
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x: canvasBounds.endX, y: canvasBounds.y, button: 'left', clickCount: 1,
+    });
+    await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const afterOrbit = await page.send('Page.captureScreenshot', { format: 'png', clip: canvasBounds.clip });
+    assert.notEqual(afterOrbit.data, beforeOrbit.data, 'dragging the viewer changes the rendered camera view');
+
     const canvasPoint = await page.evaluate(`(() => {
       const rect = document.querySelector('#canvas').getBoundingClientRect();
       return { x: rect.left + rect.width * 0.52, y: rect.top + rect.height * 0.52 };
@@ -291,6 +322,15 @@ async function run() {
     assert.ok(selection?.status.startsWith('Selected ') && selection.previews > 0,
       'clicking the textured sample selects a mesh with material texture previews');
     assert.notEqual(selection.inspection, 'Click a mesh to inspect its material.', 'mesh selection updates material inspection');
+    const materialEnvironment = await page.evaluate(`(() => {
+      const slider = document.querySelector('#environment-intensity');
+      if (slider.disabled) return null;
+      slider.value = '0.5';
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+      return { enabled: !slider.disabled, value: slider.value, output: document.querySelector('#environment-value').value };
+    })()`);
+    assert.deepEqual(materialEnvironment, { enabled: true, value: '0.5', output: '0.50' },
+      'selected material environment intensity updates');
 
     await page.evaluate("document.querySelector('#reload').click()");
     const reloaded = await waitFor(`(() => {
