@@ -172,6 +172,30 @@ state for before/after comparisons. The current WebGL benchmark has no browser
 automation or GPU timer query, so its results are diagnostic rather than a
 cross-device performance claim.
 
+### Compare with Three.js
+
+Build the Goose benchmark and serve the repository's `web` directory:
+
+```bash
+./build_web.sh --benchmark
+python3 -m http.server 8080 --directory web
+```
+
+Open <http://localhost:8080/benchmark/compare.html>. The backend tabs reload
+the page and run one renderer on one canvas, avoiding simultaneous rendering
+work. Both scenes use 1,024 or fewer cubes on the same 32×32 grid, cube size,
+color, camera, and pixel-sized canvas. Goose uses its regular scene nodes and
+render path; Three.js uses `InstancedMesh`. The Three.js module is pinned to
+0.180.0 and loaded from jsDelivr, so that mode needs network access.
+
+After 120 warmup frames, the page records 300 synchronous frame calls and
+reports median/p95, browser frame rate, and scene draw calls. These frame-call
+times capture CPU scene processing and WebGL command submission; they do not
+wait for GPU completion. Browser FPS is capped by display refresh. Compare the
+two modes in the same browser session and device state, at the same cube count
+and canvas dimensions. The report is a local diagnostic, not a general claim
+that one engine is faster across workloads or hardware.
+
 ## WebGL morph animation benchmark
 
 Build and serve the 64-target morph benchmark with:

@@ -88,6 +88,18 @@ instances of one cube mesh and reports scene draw calls, browser frame rate,
 and engine-call median and p95. See [performance.md](docs/performance.md) for
 the measurement limits and comparison method.
 
+Compare Goose 3D with Three.js using the same scene and browser:
+
+```bash
+./build_web.sh --benchmark
+python3 -m http.server 8080 --directory web
+```
+
+Open <http://localhost:8080/benchmark/compare.html>. Choose a backend with the
+tabs; only that renderer runs at a time. The Three.js mode downloads pinned
+version 0.180.0 from jsDelivr. Match browser, window size, and cube count when
+comparing the reported frame-call median and p95.
+
 ### Engine demo
 
 ```bash
