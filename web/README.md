@@ -61,9 +61,10 @@ and custom fragment shaders, run the following from the repository root and open
 ```
 
 It compares rendered pixels when animation, hemisphere fill, HDR environment
-maps, shadows, cameras, target sampling, individual post-process effects, and an
-ordered pass queue change. It also checks typed image, HDR, and glTF errors,
-invalid-shader diagnostics, and recovery after a queued shader pass fails.
+maps, shadows, camera selection and restoration, target sampling, individual
+post-process effects, and an ordered pass queue change. It also checks typed
+image, HDR, and glTF errors, invalid-shader diagnostics, and recovery after a
+queued shader pass fails.
 Results are reported in the page and in `window.__g3ReferenceChecks` for a browser
 automation runner. After the
 build, run `node web/test_reference_wasm_exports.mjs` to confirm the page's

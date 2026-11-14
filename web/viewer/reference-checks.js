@@ -200,6 +200,13 @@ async function run() {
   const restoredLights = renderAndCheck(gl, engine, 'scene with imported punctual lights restored');
   check(changedPixels(animationStart, restoredLights) < changedPixels(animationStart, noPunctualLights),
     'restoring imported punctual lights restores their rendered contribution');
+  check(model.selectCamera(null), 'imported camera can be deselected');
+  const fallbackCamera = renderAndCheck(gl, engine, 'pre-load camera restored');
+  check(changedPixels(animationStart, fallbackCamera) > 0, 'camera deselection changes the rendered view');
+  check(model.selectCamera(0), 'imported perspective camera can be restored');
+  const restoredCamera = renderAndCheck(gl, engine, 'imported perspective camera restored');
+  check(changedPixels(animationStart, restoredCamera) < changedPixels(animationStart, fallbackCamera),
+    'reselecting the imported camera restores its rendered view');
   check(model.variants.includes('Blue paint'), 'sample imports its material variant');
   check(model.setVariant('Blue paint') && model.activeVariant === 0, 'material variant switches on');
   const variantFrame = renderAndCheck(gl, engine, 'sample with Blue paint material variant');
