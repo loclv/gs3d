@@ -93,13 +93,36 @@ function runRenderTargetChecks(gl, engine) {
   check(!engine._g3_reference_post_process(target, target, 0) &&
     !engine._g3_reference_post_process(target, processed, 99), 'post-process rejects feedback and unknown effects');
 
+  engine._g3_reference_post_process_queue_clear();
+  check(engine._g3_reference_post_process_queue_add(target, processed, 1) &&
+    engine._g3_reference_post_process_queue_add(processed, target, 2) &&
+    engine._g3_reference_post_process_queue_execute(), 'queued post-process passes execute in order');
+  check(engine._g3_reference_show_texture(target), 'queued output can be sampled');
+  checkPixel(readCenterPixel(gl, engine, 'sample ordered queue output'), [139, 139, 139, 255],
+    'grayscale then invert preserves queue order');
+
+  let shaderDiagnostic = '';
+  const previousGooseError = window.gooseError;
+  window.gooseError = message => { shaderDiagnostic = String(message); };
+  check(engine._g3_reference_shader_create_invalid() < 0 && shaderDiagnostic.length > 0,
+    'invalid custom shader fails with a readable diagnostic');
+  window.gooseError = previousGooseError;
+  check(gl.getError() === gl.NO_ERROR, 'failed shader compilation leaves WebGL usable');
+
   const shader = engine._g3_reference_shader_create();
   check(shader >= 0, 'custom fragment shader compiles');
   check(engine._g3_reference_shader_run(shader, target, processed), 'custom fragment shader executes');
   check(engine._g3_reference_show_texture(processed), 'custom shader output can be sampled on a later frame');
   checkPixel(readCenterPixel(gl, engine, 'sample custom shader output'), [26, 204, 51, 255],
     'custom fragment shader writes its requested colour');
+  engine._g3_reference_post_process_queue_clear();
+  check(engine._g3_reference_post_process_queue_add_shader(shader, target, processed),
+    'live custom shader can be queued');
   check(engine._g3_reference_shader_remove(shader), 'custom fragment shader releases');
+  check(!engine._g3_reference_post_process_queue_execute(), 'queue reports a released shader pass as failed');
+  check(engine._g3_reference_show_texture(target), 'default scene rendering recovers after a failed queue');
+  checkPixel(readCenterPixel(gl, engine, 'render after failed queue'), [139, 139, 139, 255],
+    'failed queue leaves the source target intact');
   engine._g3_reference_clear_scene();
   check(engine._g3_reference_target_remove(target) && engine._g3_reference_target_remove(processed),
     'unreferenced render targets dispose');

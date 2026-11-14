@@ -53,8 +53,26 @@ export fn g3_reference_post_process(source: i32, destination: i32, effect: i32) 
     return g3::post_process_run(source, destination, effect);
 }
 
+export fn g3_reference_post_process_queue_clear() { g3::post_process_queue_clear(); }
+
+export fn g3_reference_post_process_queue_add(source: i32, destination: i32, effect: i32) -> bool {
+    return g3::post_process_queue_add(source, destination, effect);
+}
+
+export fn g3_reference_post_process_queue_add_shader(shader: i32, source: i32, destination: i32) -> bool {
+    return g3::post_process_queue_add_shader(shader, source, destination);
+}
+
+export fn g3_reference_post_process_queue_execute() -> bool {
+    return g3::post_process_queue_execute();
+}
+
 export fn g3_reference_shader_create() -> i32 {
     return g3::post_process_shader_create("color.rgb = vec3(0.1, 0.8, 0.2);");
+}
+
+export fn g3_reference_shader_create_invalid() -> i32 {
+    return g3::post_process_shader_create("color.rgb = vec3( ;");
 }
 
 export fn g3_reference_shader_run(shader: i32, source: i32, destination: i32) -> bool {

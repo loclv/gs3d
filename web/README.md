@@ -58,8 +58,10 @@ shaders, run the following from the repository root and open
 ./build_web.sh --reference-checks --serve
 ```
 
-It compares rendered pixels as animation, environment fill, shadows, cameras,
-target sampling, and post-processing change. Results are reported in the page
+It compares rendered pixels when animation, environment fill, shadows, cameras,
+target sampling, individual post-process effects, and an ordered pass queue
+change. It also checks invalid-shader diagnostics and recovery after a queued
+shader pass fails. Results are reported in the page
 and in `window.__g3ReferenceChecks` for a browser automation runner. After the
 build, run `node web/test_reference_wasm_exports.mjs` to confirm the page's
 engine calls are exported by the generated WebAssembly module.
