@@ -170,6 +170,24 @@ approximately 15.2 ms GPU median: fewer uploaded bytes did not produce a
 measurable frame-time improvement at that workload. Native tests and worker
 determinism checks pass with the transform fast path.
 
+Rotated TRS construction now computes `T * Rz * Ry * Rx * S` directly,
+avoiding four general 4×4 matrix products. The zero-rotation fast path remains.
+Run the native microbenchmark with:
+
+```bash
+goose build -o build/benchmark_transforms src/benchmark_transforms.goose
+./build/benchmark_transforms
+```
+
+Five sequential 200,000-transform trials measured 9.06–16.81 ms for the old
+matrix chain and 3.54–7.82 ms for direct construction (2.1–2.8× per-trial
+speedup). The benchmark varies all three Euler angles and checks 1,000
+transforms with mixed translations, negative scales, and collapsed axes;
+maximum component error was zero in this native build. The 480×300 demo frame
+after five frames was byte-identical to the committed baseline. Native tests,
+all web builds, and a Playwright animated-homepage smoke check passed. This
+isolated CPU microbenchmark does not establish a whole-frame FPS gain.
+
 ### Engine demo
 
 ```bash

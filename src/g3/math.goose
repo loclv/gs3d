@@ -110,7 +110,24 @@ fn mat4_trs(t: float3, r: float3, s: float3) -> Mat4 {
         out.m[14] = t.z;
         return out;
     }
-    mat4_mul(mat4_translate(t), mat4_mul(mat4_rotate_euler(r), mat4_scale(s)))
+    // Rz * Ry * Rx, with scale applied to columns and translation in column 3.
+    let cx = cos(r.x); let sx = sin(r.x);
+    let cy = cos(r.y); let sy = sin(r.y);
+    let cz = cos(r.z); let sz = sin(r.z);
+    let sy_sx = sy * sx; let sy_cx = sy * cx;
+    var out = mat4_zero();
+    out.m[0] = cz * cy * s.x;
+    out.m[1] = sz * cy * s.x;
+    out.m[2] = -sy * s.x;
+    out.m[4] = (cz * sy_sx - sz * cx) * s.y;
+    out.m[5] = (sz * sy_sx + cz * cx) * s.y;
+    out.m[6] = cy * sx * s.y;
+    out.m[8] = (cz * sy_cx + sz * sx) * s.z;
+    out.m[9] = (sz * sy_cx - cz * sx) * s.z;
+    out.m[10] = cy * cx * s.z;
+    out.m[12] = t.x; out.m[13] = t.y; out.m[14] = t.z;
+    out.m[15] = 1.0;
+    return out;
 }
 
 // A right-handed perspective projection into GL's clip space (z in [-1, 1]).
