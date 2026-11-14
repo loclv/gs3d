@@ -73,7 +73,9 @@ external sites. The repository's GitHub Actions workflow runs this suite on
 pushes and pull requests after installing a checksum-verified Goose compiler,
 Emscripten 7.0.0, and headless Chrome. It also opens the bundled model viewer
 and exercises its camera, animation, shadow, variant, environment, orbit,
-selection, preview, and reload controls.
+selection, preview, and reload controls. It also opens the package consumer
+with the bundled sample and checks malformed replacement and reload behavior
+without contacting the remote default model.
 
 It compares rendered pixels for linear and sRGB output, Reinhard and ACES tone
 mapping, exposure, animation, hemisphere fill, HDR environment maps, shadows,

@@ -540,5 +540,6 @@ Matrix-form TRS animation is unsupported.
 
 Run the browser-loader logic tests with `node web/test_assets.mjs`. These use a
 mock engine and image decoder. Run `npm run test:browser` from `web/` for the
-headless Chrome/WebGL rendering, viewer interaction, and asset lifecycle
-checks; GitHub Actions runs both suites on pushes and pull requests.
+headless Chrome/WebGL rendering, viewer interaction, package consumer loading,
+and asset lifecycle checks; GitHub Actions runs both suites on pushes and pull
+requests.

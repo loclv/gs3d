@@ -196,7 +196,9 @@ and a browser integration check for behavior exposed through WebGL.
   page locally, uses SwiftShader, and fails on a failed check, page exception,
   or timeout. The same runner opens the model viewer and checks camera, clip,
   shadow, variant and environment controls, orbit drag output, textured mesh
-  selection, previews, and model reload.
+  selection, previews, and model reload. It also opens the package consumer
+  with the offline sample, verifies a malformed replacement keeps the current
+  model usable, and reloads the sample without contacting the remote default.
   `.github/workflows/browser-reference.yml` runs it on pushes and pull requests
   with a checksum-verified Goose compiler and a headless Chrome install. Capture
   additional reference images on representative target GPUs.

@@ -302,7 +302,55 @@ async function run() {
       .filter(event => event.method === 'Runtime.exceptionThrown')
       .map(event => event.params.exceptionDetails?.text ?? event.params.exceptionDetails?.exception?.description ?? 'uncaught page exception');
     if (viewerExceptions.length) throw new Error(`Viewer raised uncaught exceptions: ${viewerExceptions.join('; ')}`);
-    console.log(`browser reference checks passed (${result.results.length} rendering checks); viewer integration checks passed with ${version.Browser}`);
+
+    await page.send('Page.navigate', {
+      url: `http://127.0.0.1:${port}/examples/model-loader/?model=../../viewer/sample.glb`,
+    });
+    const consumerLoaded = await waitFor(`(() => {
+      const status = document.querySelector('#status')?.textContent ?? '';
+      return /^Loaded \\d+ nodes, \\d+ meshes, \\d+ textures, and \\d+ animations\\./.test(status) ? status : null;
+    })()`, 'the offline package consumer example to load its bundled model');
+    assert.match(consumerLoaded, /1 textures, and 2 animations/,
+      'package consumer loads the bundled textured animated model without a remote request');
+    const consumerCameras = await page.evaluate(`(() => {
+      const camera = document.querySelector('#camera');
+      camera.value = camera.options[1].value;
+      camera.dispatchEvent(new Event('change', { bubbles: true }));
+      return camera.options.length;
+    })()`);
+    assert.equal(consumerCameras, 3, 'package consumer exposes both imported cameras');
+
+    await page.evaluate(`(() => {
+      const input = document.querySelector('#model-url');
+      input.value = 'data:application/json,%7B';
+      document.querySelector('#loader-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    })()`);
+    const failedReplacement = await waitFor(`(() => {
+      const status = document.querySelector('#status')?.textContent ?? '';
+      return status.startsWith('Could not load model. INVALID_GLTF:') ? status : null;
+    })()`, 'the package example to report a malformed replacement');
+    assert.ok(failedReplacement.startsWith('Could not load model. INVALID_GLTF:'),
+      'package consumer displays a typed malformed-file error');
+    const preservedModel = await page.evaluate(`(() => ({
+      cameras: document.querySelector('#camera').options.length,
+      loadEnabled: !document.querySelector('#load').disabled,
+    }))()`);
+    assert.deepEqual(preservedModel, { cameras: 3, loadEnabled: true },
+      'failed replacement leaves the existing model and camera choices available');
+
+    await page.evaluate("document.querySelector('#local-sample').click()");
+    const consumerReloaded = await waitFor(`(() => {
+      const status = document.querySelector('#status')?.textContent ?? '';
+      return /^Loaded \\d+ nodes, \\d+ meshes, \\d+ textures, and \\d+ animations\\./.test(status) ? status : null;
+    })()`, 'the package consumer to reload its bundled model');
+    assert.match(consumerReloaded, /1 textures, and 2 animations/,
+      'package consumer reloads and disposes the previous model');
+
+    const allPageExceptions = page.events
+      .filter(event => event.method === 'Runtime.exceptionThrown')
+      .map(event => event.params.exceptionDetails?.text ?? event.params.exceptionDetails?.exception?.description ?? 'uncaught page exception');
+    if (allPageExceptions.length) throw new Error(`Browser pages raised uncaught exceptions: ${allPageExceptions.join('; ')}`);
+    console.log(`browser reference checks passed (${result.results.length} rendering checks); viewer and package consumer checks passed with ${version.Browser}`);
   } finally {
     socket?.close();
     child.kill('SIGTERM');
