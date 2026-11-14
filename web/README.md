@@ -48,8 +48,9 @@ repeats loading and disposal. This is a convenient local reference scene, while
 actual browser rendering checks are still needed to validate WebGL output.
 
 Regenerate the sample asset with `python3 web/viewer/generate_sample.py`.
-For browser-side checks of WebGL frame output, texture decoding, environment
-fill, animation, camera selection, point and spot shadows, repeated asset
+For browser-side checks of WebGL frame output, glTF and standalone image
+decoding and disposal, environment fill, animation, camera selection, point and
+spot shadows, repeated asset
 disposal, render targets, built-in post-processing, and custom fragment
 shaders, run the following from the repository root and open
 `/viewer/reference-checks.html`:

@@ -1,7 +1,7 @@
 import createGoose3D from './reference/app.js';
 import { fitToDisplay } from '../canvas.js';
 import {
-  isMeshHandleValid, isNodeHandleValid, isTextureHandleValid, loadGLTF,
+  AssetError, isMeshHandleValid, isNodeHandleValid, isTextureHandleValid, loadGLTF, loadImage,
   setEnvironmentLighting,
 } from '../assets.js';
 
@@ -129,6 +129,26 @@ function runRenderTargetChecks(gl, engine) {
   return true;
 }
 
+async function runImageLoaderChecks(gl, engine) {
+  const image = await loadImage(engine, '../game/ground.jpg');
+  check(image.width === 1024 && image.height === 1024 && isTextureHandleValid(engine, image.handle),
+    'standalone image loading decodes and uploads a checked texture');
+  check(engine._g3_reference_show_texture(image.id), 'standalone image texture can be rendered');
+  const pixel = readCenterPixel(gl, engine, 'render standalone image');
+  check(Math.abs(pixel[0] - 255) + Math.abs(pixel[1]) + Math.abs(pixel[2] - 255) > 64,
+    'rendered standalone image replaces the clear colour');
+  engine._g3_reference_clear_scene();
+  image.dispose();
+  image.dispose();
+  check(!isTextureHandleValid(engine, image.handle), 'standalone image disposal is idempotent');
+
+  let imageError = null;
+  try { await loadImage(engine, 'data:image/png;base64,AA=='); }
+  catch (error) { imageError = error; }
+  check(imageError instanceof AssetError && imageError.code === 'IMAGE',
+    'invalid standalone image bytes produce a typed decode error');
+}
+
 async function run() {
   const gl = canvas.getContext('webgl2');
   check(!!gl, 'WebGL2 context is available');
@@ -136,6 +156,7 @@ async function run() {
   const size = fitToDisplay(canvas);
   check(engine._g3_host_start(size.width, size.height), 'engine starts');
   runRenderTargetChecks(gl, engine);
+  await runImageLoaderChecks(gl, engine);
   engine._g3_reference_clear_scene();
   setEnvironmentLighting(engine, [0.32, 0.48, 0.72], [0.16, 0.12, 0.08], 0.7);
 
