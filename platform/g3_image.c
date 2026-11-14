@@ -24,12 +24,13 @@ static int dimensions_ok(uint32_t width, uint32_t height) {
            (uint64_t)width * height <= G3_IMAGE_MAX_PIXELS;
 }
 
-static void upload_rgba(int32_t id, uint8_t *rgba, int32_t width, int32_t height) {
+static void upload_rgba(int32_t id, uint8_t *rgba, int32_t width, int32_t height, int srgb) {
     g3_u8_slice pixels = { .data = rgba, .len = (int64_t)width * height * 4 };
-    g3p_upload_texture_srgb(id, pixels, width, height);
+    if (srgb) g3p_upload_texture_srgb(id, pixels, width, height);
+    else g3p_upload_texture(id, pixels, width, height);
 }
 
-static int decode_png(int32_t id, g3_u8_slice encoded) {
+static int decode_png(int32_t id, g3_u8_slice encoded, int srgb) {
     png_image image;
     memset(&image, 0, sizeof(image));
     image.version = PNG_IMAGE_VERSION;
@@ -50,7 +51,7 @@ static int decode_png(int32_t id, g3_u8_slice encoded) {
         png_image_free(&image);
         return G3_IMAGE_INVALID;
     }
-    upload_rgba(id, rgba, (int32_t)image.width, (int32_t)image.height);
+    upload_rgba(id, rgba, (int32_t)image.width, (int32_t)image.height, srgb);
     free(rgba);
     png_image_free(&image);
     return G3_IMAGE_OK;
@@ -66,7 +67,7 @@ static void jpeg_fail(j_common_ptr decoder) {
     longjmp(error->jump, 1);
 }
 
-static int decode_jpeg(int32_t id, g3_u8_slice encoded) {
+static int decode_jpeg(int32_t id, g3_u8_slice encoded, int srgb) {
     struct jpeg_decompress_struct decoder;
     g3_jpeg_error error;
     memset(&decoder, 0, sizeof(decoder));
@@ -123,17 +124,25 @@ static int decode_jpeg(int32_t id, g3_u8_slice encoded) {
     int32_t height = (int32_t)decoder.output_height;
     jpeg_finish_decompress(&decoder);
     jpeg_destroy_decompress(&decoder);
-    upload_rgba(id, (uint8_t *)rgba, width, height);
+    upload_rgba(id, (uint8_t *)rgba, width, height, srgb);
     free((void *)rgba); free((void *)row);
     return G3_IMAGE_OK;
 }
 
-int32_t g3p_decode_texture_srgb(int32_t id, g3_u8_slice encoded) {
+static int32_t decode_texture(int32_t id, g3_u8_slice encoded, int srgb) {
     if (id < 0 || !encoded.data || encoded.len < 2 || encoded.len > 268435456)
         return G3_IMAGE_INVALID;
     if (encoded.len >= 8 && png_sig_cmp(encoded.data, 0, 8) == 0)
-        return decode_png(id, encoded);
+        return decode_png(id, encoded, srgb);
     if (encoded.data[0] == 0xff && encoded.data[1] == 0xd8)
-        return decode_jpeg(id, encoded);
+        return decode_jpeg(id, encoded, srgb);
     return G3_IMAGE_UNSUPPORTED;
+}
+
+int32_t g3p_decode_texture_srgb(int32_t id, g3_u8_slice encoded) {
+    return decode_texture(id, encoded, 1);
+}
+
+int32_t g3p_decode_texture_linear(int32_t id, g3_u8_slice encoded) {
+    return decode_texture(id, encoded, 0);
 }

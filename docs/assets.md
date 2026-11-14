@@ -129,18 +129,19 @@ Declared `KHR_materials_emissive_strength` and `KHR_materials_ior` are applied
 to emissive output and dielectric response. The factor portions of
 `KHR_materials_specular`, `KHR_materials_clearcoat`, `KHR_materials_sheen`, and
 `KHR_materials_anisotropy` are imported too; their texture maps are not.
-The base-colour image supports PNG and JPEG from a GLB `bufferView`, a safe
-relative URI, or a base64 data URI; its sampler's wrap/filter state and
-`KHR_texture_transform` on `TEXCOORD_0` are applied. Other material maps and
-texture-coordinate sets beyond `TEXCOORD_0` are not imported.
-`NativeGlbModel` owns checked mesh, node, material, and base-colour texture
-handles; dispose the model to release them. External buffer/image paths
+The base-colour, metallic-roughness, normal, occlusion, and emissive maps
+support PNG and JPEG from a GLB `bufferView`, a safe relative URI, or a base64
+data URI. Their sampler wrap/filter settings and independent
+`KHR_texture_transform` values on `TEXCOORD_0` are applied. Base-colour and
+emissive RGB decode as sRGB; metallic-roughness, normal, and occlusion data
+remain linear. Texture-coordinate sets beyond `TEXCOORD_0` and extension maps
+are not imported. `NativeGlbModel` owns checked mesh, node, material, and core
+material-map texture handles; dispose the model to release them. External buffer/image paths
 containing schemes, absolute paths, encoded URI components, query strings,
 fragments, or dot path segments are rejected. Data URIs must use base64
 encoding. The primitive APIs do not load
-normal, metallic-roughness, occlusion, emissive, or extension material maps,
-skins, animations, or sparse accessors; use the scene API below when the source
-node hierarchy must be retained.
+extension material maps, skins, animations, or sparse accessors; use the scene
+API below when the source node hierarchy must be retained.
 Browser applications should use the broader `web/assets.js` loader.
 
 For static multi-node content, `native_glb_load_scene(path, scene_index)` loads

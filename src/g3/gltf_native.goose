@@ -14,7 +14,8 @@ import g3.texture_native;
 
 namespace g3;
 
-struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle, texture: TextureHandle }
+struct GlbTextureSet { base_color: TextureHandle, metallic_roughness: TextureHandle, normal: TextureHandle, occlusion: TextureHandle, emissive: TextureHandle }
+struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle, texture: TextureHandle, textures: GlbTextureSet }
 struct NativeGlbMeshHandle { id: i32 = -1, generation: i32 }
 struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
 struct NativeGlbPartSlot { owner_id: i32, owner_generation: i32, primitive_index: i32, model: NativeGlbModel, active: bool }
@@ -158,7 +159,15 @@ fn glb_material_extension(root: json::Node?, source: json::Node?, name: const u8
     return extension, true;
 }
 
-fn glb_native_texture(root: json::Node?, texture_info: json::Node?, path: const u8[:], bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:]) -> TextureHandle, bool {
+fn glb_release_texture_set(textures: GlbTextureSet&) {
+    if texture_handle_valid(textures.base_color) { texture_asset_release_handle(textures.base_color); }
+    if texture_handle_valid(textures.metallic_roughness) { texture_asset_release_handle(textures.metallic_roughness); }
+    if texture_handle_valid(textures.normal) { texture_asset_release_handle(textures.normal); }
+    if texture_handle_valid(textures.occlusion) { texture_asset_release_handle(textures.occlusion); }
+    if texture_handle_valid(textures.emissive) { texture_asset_release_handle(textures.emissive); }
+}
+
+fn glb_native_texture(root: json::Node?, texture_info: json::Node?, path: const u8[:], bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:], srgb: bool) -> TextureHandle, bool {
     let texture_index, texture_index_ok = glb_json_index(json::member(texture_info, "index"));
     let texture = glb_json_element(json::member(root, "textures"), texture_index);
     let image_index, image_index_ok = glb_json_index(json::member(texture, "source"));
@@ -194,7 +203,7 @@ fn glb_native_texture(root: json::Node?, texture_info: json::Node?, path: const 
             for i in 0..uri.len { external_path.push(uri[i]); }
             guard read_file(external_path[..], encoded) && encoded.len > 0 && encoded.len <= 268435456 else { return TextureHandle { .. }, false; }
         }
-        image_handle = native_texture_load_asset_encoded(encoded[..]);
+        image_handle = if srgb { native_texture_load_asset_encoded(encoded[..]) } else { native_texture_load_asset_encoded_linear(encoded[..]) };
     } else {
         let view_index, view_ok = glb_json_index(json::member(image, "bufferView"));
         let view = glb_json_element(json::member(root, "bufferViews"), view_index);
@@ -208,7 +217,7 @@ fn glb_native_texture(root: json::Node?, texture_info: json::Node?, path: const 
             return TextureHandle { .. }, false;
         }
         let start = buffer_bases[buffer_index] + offset;
-        image_handle = native_texture_load_asset_encoded(bytes[start..start + length]);
+        image_handle = if srgb { native_texture_load_asset_encoded(bytes[start..start + length]) } else { native_texture_load_asset_encoded_linear(bytes[start..start + length]) };
     }
     guard texture_handle_valid(image_handle) else { return TextureHandle { .. }, false; }
 
@@ -231,18 +240,37 @@ fn glb_native_texture(root: json::Node?, texture_info: json::Node?, path: const 
     return image_handle, true;
 }
 
+fn glb_texture_uv(root: json::Node?, texture_info: json::Node?) -> UvTransform, bool {
+    let texcoord, texcoord_ok = glb_optional_index(json::member(texture_info, "texCoord"), 0);
+    guard texture_info && texcoord_ok && texcoord == 0 else { return UvTransform { .. }, false; }
+    var uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    let transform = json::member(json::member(texture_info, "extensions"), "KHR_texture_transform");
+    if transform {
+        guard glb_array_has_string(json::member(root, "extensionsUsed"), "KHR_texture_transform") else { return UvTransform { .. }, false; }
+        let transform_texcoord, transform_texcoord_ok = glb_optional_index(json::member(transform, "texCoord"), texcoord);
+        let offset, offset_ok = glb_factor2(json::member(transform, "offset"), float2_0, -3.4e38, 3.4e38);
+        let scale, scale_ok = glb_factor2(json::member(transform, "scale"), float2_1, -3.4e38, 3.4e38);
+        let rotation, rotation_ok = glb_number(json::member(transform, "rotation"), 0.0);
+        guard transform_texcoord_ok && transform_texcoord == 0 && offset_ok && scale_ok && rotation_ok &&
+              rotation >= -3.4e38 && rotation <= 3.4e38 else { return UvTransform { .. }, false; }
+        uv = UvTransform { offset: offset, scale: scale, rotation: rotation as f32, texcoord: 0 };
+    }
+    return uv, true;
+}
+
 // Factor-only helper retained for focused importer checks and callers that
 // construct a material document without texture tables.
 fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bool {
     var bytes: u8[>..] = [];
     var bases: i64[>..] = [];
     var sizes: i64[>..] = [];
-    let material, texture, ok = glb_material(root, primitive, "", bytes[..], bases[..], sizes[..]);
-    if texture_handle_valid(texture) { texture_asset_release_handle(texture); }
+    var textures = GlbTextureSet { .. };
+    let material, texture, ok = glb_material(root, primitive, "", bytes[..], bases[..], sizes[..], textures);
+    glb_release_texture_set(textures);
     return material, ok;
 }
 
-fn glb_material(root: json::Node?, primitive: json::Node?, path: const u8[:], bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:]) -> MaterialHandle, TextureHandle, bool {
+fn glb_material(root: json::Node?, primitive: json::Node?, path: const u8[:], bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:], textures: GlbTextureSet&) -> MaterialHandle, TextureHandle, bool {
     let material_node = json::member(primitive, "material");
     if !material_node { return MaterialHandle { .. }, TextureHandle { .. }, true; }
     let material_index, index_ok = glb_json_index(material_node);
@@ -324,25 +352,61 @@ fn glb_material(root: json::Node?, primitive: json::Node?, path: const u8[:], by
     }
 
     var imported_texture = TextureHandle { .. };
-    var base_color_uv = UvTransform { scale: float2_1, .. };
+    var imported_textures = GlbTextureSet { .. };
+    var base_color_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var metallic_roughness_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var normal_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var occlusion_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var emissive_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
     let base_color_info = json::member(pbr, "baseColorTexture");
     if base_color_info {
-        let texcoord, texcoord_ok = glb_optional_index(json::member(base_color_info, "texCoord"), 0);
-        guard texcoord_ok && texcoord == 0 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
-        let transform = json::member(json::member(base_color_info, "extensions"), "KHR_texture_transform");
-        if transform {
-            guard glb_array_has_string(json::member(root, "extensionsUsed"), "KHR_texture_transform") else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
-            let transform_texcoord, transform_texcoord_ok = glb_optional_index(json::member(transform, "texCoord"), texcoord);
-            let offset, offset_ok = glb_factor2(json::member(transform, "offset"), float2_0, -3.4e38, 3.4e38);
-            let scale, scale_ok = glb_factor2(json::member(transform, "scale"), float2_1, -3.4e38, 3.4e38);
-            let rotation, rotation_ok = glb_number(json::member(transform, "rotation"), 0.0);
-            guard transform_texcoord_ok && transform_texcoord == 0 && offset_ok && scale_ok && rotation_ok &&
-                  rotation >= -3.4e38 && rotation <= 3.4e38 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
-            base_color_uv = UvTransform { offset: offset, scale: scale, rotation: rotation as f32, texcoord: 0 };
-        }
-        let texture, texture_ok = glb_native_texture(root, base_color_info, path, bytes, buffer_bases, buffer_sizes);
+        let uv, uv_ok = glb_texture_uv(root, base_color_info);
+        guard uv_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        base_color_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, base_color_info, path, bytes, buffer_bases, buffer_sizes, true);
         guard texture_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
         imported_texture = texture;
+        imported_textures.base_color = texture;
+    }
+    let metallic_roughness_info = json::member(pbr, "metallicRoughnessTexture");
+    if metallic_roughness_info {
+        let uv, uv_ok = glb_texture_uv(root, metallic_roughness_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        metallic_roughness_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, metallic_roughness_info, path, bytes, buffer_bases, buffer_sizes, false);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.metallic_roughness = texture;
+    }
+    let normal_info = json::member(source, "normalTexture");
+    let normal_scale, normal_scale_ok = glb_number(json::member(normal_info, "scale"), 1.0);
+    guard normal_scale_ok && normal_scale >= 0.0 && normal_scale <= 3.4e38 else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+    if normal_info {
+        let uv, uv_ok = glb_texture_uv(root, normal_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        normal_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, normal_info, path, bytes, buffer_bases, buffer_sizes, false);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.normal = texture;
+    }
+    let occlusion_info = json::member(source, "occlusionTexture");
+    let occlusion_strength, occlusion_strength_ok = glb_number(json::member(occlusion_info, "strength"), 1.0);
+    guard occlusion_strength_ok && occlusion_strength >= 0.0 && occlusion_strength <= 1.0 else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+    if occlusion_info {
+        let uv, uv_ok = glb_texture_uv(root, occlusion_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        occlusion_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, occlusion_info, path, bytes, buffer_bases, buffer_sizes, false);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.occlusion = texture;
+    }
+    let emissive_info = json::member(source, "emissiveTexture");
+    if emissive_info {
+        let uv, uv_ok = glb_texture_uv(root, emissive_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        emissive_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, emissive_info, path, bytes, buffer_bases, buffer_sizes, true);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.emissive = texture;
     }
 
     let id = material_asset_add();
@@ -356,7 +420,14 @@ fn glb_material(root: json::Node?, primitive: json::Node?, path: const u8[:], by
     m.sheen_color = sheen_color; m.sheen_roughness = sheen_roughness as f32;
     m.anisotropy_strength = anisotropy_strength as f32; m.anisotropy_rotation = anisotropy_rotation as f32;
     m.texture = imported_texture.id;
+    m.metallic_roughness_texture = imported_textures.metallic_roughness.id;
+    m.normal_texture = imported_textures.normal.id; m.normal_scale = normal_scale as f32;
+    m.occlusion_texture = imported_textures.occlusion.id; m.occlusion_strength = occlusion_strength as f32;
+    m.emissive_texture = imported_textures.emissive.id;
     m.base_color_uv = base_color_uv;
+    m.metallic_roughness_uv = metallic_roughness_uv; m.normal_uv = normal_uv;
+    m.occlusion_uv = occlusion_uv; m.emissive_uv = emissive_uv;
+    textures = imported_textures;
     return material_handle(id), imported_texture, true;
 }
 
@@ -862,16 +933,17 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
         }
     }
     if transform_node >= 0 { let matrix, valid = glb_node_world_matrix(root, transform_node); guard valid else { return NativeGlbModel { .. }, false; } transform = matrix; }
-    let imported_material, imported_texture, material_ok = glb_material(root, primitive, path, bytes[..], buffer_bases[..], buffer_sizes[..]);
+    var imported_textures = GlbTextureSet { .. };
+    let imported_material, imported_texture, material_ok = glb_material(root, primitive, path, bytes[..], buffer_bases[..], buffer_sizes[..], imported_textures);
     guard material_ok else { return NativeGlbModel { .. }, false; }
     let mesh_id = mesh_asset_create(vertices[..], out_indices[..]);
-    if mesh_id < 0 { if material_handle_valid(imported_material) { material_asset_release(imported_material); } if texture_handle_valid(imported_texture) { texture_asset_release_handle(imported_texture); } return NativeGlbModel { .. }, false; }
+    if mesh_id < 0 { if material_handle_valid(imported_material) { material_asset_release(imported_material); } glb_release_texture_set(imported_textures); return NativeGlbModel { .. }, false; }
     let node_id = node_asset_add(mesh_id);
-    if node_id < 0 { mesh_asset_release(mesh_id); if material_handle_valid(imported_material) { material_asset_release(imported_material); } if texture_handle_valid(imported_texture) { texture_asset_release_handle(imported_texture); } return NativeGlbModel { .. }, false; }
+    if node_id < 0 { mesh_asset_release(mesh_id); if material_handle_valid(imported_material) { material_asset_release(imported_material); } glb_release_texture_set(imported_textures); return NativeGlbModel { .. }, false; }
     if material_handle_valid(imported_material) { node(node_id).material = imported_material.id; }
     node(node_id).local_matrix = transform;
     node(node_id).use_local_matrix = true;
-    return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id), material: imported_material, texture: imported_texture }, true;
+    return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id), material: imported_material, texture: imported_texture, textures: imported_textures }, true;
 }
 
 // Load a primitive by mesh index, using the first node that instances the mesh.
@@ -1010,12 +1082,13 @@ fn native_glb_mesh_primitive_material(handle: NativeGlbMeshHandle, primitive_ind
 fn native_glb_dispose(model: NativeGlbModel&) -> bool {
     if node_handle_valid(model.node) { node_asset_release_handle(model.node); }
     if material_handle_valid(model.material) { material_asset_release(model.material); }
-    if texture_handle_valid(model.texture) { texture_asset_release_handle(model.texture); }
+    glb_release_texture_set(model.textures);
     let released = mesh_asset_release_handle(model.mesh);
     model.node = NodeHandle { .. };
     model.mesh = MeshHandle { .. };
     model.material = MaterialHandle { .. };
     model.texture = TextureHandle { .. };
+    model.textures = GlbTextureSet { .. };
     return released;
 }
 

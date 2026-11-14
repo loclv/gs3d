@@ -72,6 +72,21 @@ fn texture_create_encoded_srgb(encoded: const u8[:]) -> i32, i32 {
     return id, 0;
 }
 
+// Decode PNG/JPEG bytes while preserving their channel values as linear data.
+fn texture_create_encoded_linear(encoded: const u8[:]) -> i32, i32 {
+    guard encoded.len > 0 && encoded.len <= 268435456 else { return -1, 2; }
+    let id = g_texture_count;
+    g_texture_count += 1;
+    g_texture_slots.push(TextureSlot { .. });
+    let result = g3p_decode_texture_linear(id, encoded);
+    if result != 0 {
+        g3p_release_texture(id);
+        g_texture_slots[id].removed = true;
+        return -1, result;
+    }
+    return id, 0;
+}
+
 // HDR linear RGBA32F texture, intended for equirectangular environment maps.
 fn texture_create_hdr(width: i32, height: i32, pixels: const f32[:]) -> i32 {
     guard width > 0 && height > 0 && pixels.len == width as i64 * height * 4 else { return -1; }
@@ -198,6 +213,18 @@ fn texture_asset_create_encoded_srgb(encoded: const u8[:]) -> i32, i32 {
     let id = texture_asset_create();
     guard id >= 0 else { return -1, 4; }
     let result = g3p_decode_texture_srgb(id, encoded);
+    if result != 0 {
+        texture_asset_release(id);
+        return -1, result;
+    }
+    return id, 0;
+}
+
+fn texture_asset_create_encoded_linear(encoded: const u8[:]) -> i32, i32 {
+    guard encoded.len > 0 && encoded.len <= 268435456 else { return -1, 2; }
+    let id = texture_asset_create();
+    guard id >= 0 else { return -1, 4; }
+    let result = g3p_decode_texture_linear(id, encoded);
     if result != 0 {
         texture_asset_release(id);
         return -1, result;

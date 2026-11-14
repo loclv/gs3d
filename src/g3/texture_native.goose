@@ -31,6 +31,12 @@ fn native_texture_load_asset_encoded(encoded: const u8[:]) -> TextureHandle {
     return native_texture_decode_result(id, status);
 }
 
+fn native_texture_load_asset_encoded_linear(encoded: const u8[:]) -> TextureHandle {
+    g_native_texture_error = NATIVE_TEXTURE_ERROR_NONE;
+    let id, status = texture_asset_create_encoded_linear(encoded);
+    return native_texture_decode_result(id, status);
+}
+
 fn native_texture_decode_result(id: i32, status: i32) -> TextureHandle {
     if id < 0 {
         if status == 1 { g_native_texture_error = NATIVE_TEXTURE_ERROR_UNSUPPORTED_FORMAT; }

@@ -1349,6 +1349,10 @@ int32_t g3p_decode_texture_srgb(int32_t id, g3_u8_slice encoded) {
     (void)id; (void)encoded;
     return 1;
 }
+int32_t g3p_decode_texture_linear(int32_t id, g3_u8_slice encoded) {
+    (void)id; (void)encoded;
+    return 1;
+}
 
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
     if (id < 0 || id >= texture_count || !textures[id] || wrap_u < 0 || wrap_u > 2 || wrap_v < 0 || wrap_v > 2) return;
