@@ -327,8 +327,10 @@ Tests cover animation interpolation, skinning, and camera projection.
   URLs; it documents CORS and lifecycle behavior. Publication is prepared: the
   npm file allowlist ships only the two browser helper subpaths and declarations,
   package tests install the generated tarball in an offline consumer project,
-  and `prepublishOnly` runs the package suite. Publishing remains to do. The
-  bundled sample and local browser check page now exercise
+  and `prepublishOnly` runs the package suite and blocks publishing until a
+  license is set (and a license file is included for open-source choices).
+  Publishing and registry-consumer verification remain to do. The bundled
+  sample and local browser check page now exercise
   the core integration paths, and a dependency-free headless Chrome runner
   executes the WebGL checks locally and in GitHub Actions on pushes and pull
   requests. Add native asset loading when native interactive applications
