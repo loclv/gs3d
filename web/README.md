@@ -47,7 +47,8 @@ specular extensions. Use the
 Camera and Shadow caster selectors to switch cameras and opt into one point or
 spot shadow map; Reload model repeats loading and disposal. This is a convenient
 local reference scene, while actual browser rendering checks are still needed
-to validate WebGL output.
+to validate WebGL output. Closing the page disposes controls and models, then
+shuts down the engine after any in-flight load finishes.
 
 Regenerate the sample asset with `python3 web/viewer/generate_sample.py`.
 For browser-side checks of WebGL frame output, glTF, standalone raster, and

@@ -23,6 +23,8 @@ const rotationValue = document.getElementById('environment-rotation-value');
 const hemisphereInput = document.getElementById('hemisphere-intensity');
 const hemisphereValue = document.getElementById('hemisphere-value');
 let engine, model, controls, last = 0;
+let pageClosed = false;
+let pendingModelLoads = 0;
 let animationPlaying = false;
 let selectedPrimitive = null;
 let environmentIntensities = new Map();
@@ -91,14 +93,26 @@ function updateAnimationControls() {
   animationTimeValue.value = `${(model?.animationTime ?? 0).toFixed(2)} / ${duration.toFixed(2)} s`;
 }
 
-window.gooseError = message => { status.textContent = message; };
+window.addEventListener('pagehide', event => {
+  if (event.persisted) return;
+  pageClosed = true;
+  controls?.dispose();
+  model?.dispose();
+  model = null;
+  if (pendingModelLoads === 0) engine?._g3_app_shutdown();
+});
+
+window.gooseError = message => { if (!pageClosed) status.textContent = message; };
 window.gooseSurfaceFailed = () => window.gooseError('WebGL2 could not be started.');
 
 async function loadModel() {
+  if (pageClosed) return;
+  pendingModelLoads++;
   reload.disabled = true;
   status.textContent = 'Loading model…';
   try {
     const next = await loadGLTF(engine, './sample.glb');
+    if (pageClosed) { next.dispose(); return; }
     if (model) model.dispose();
     model = next;
     animationPlaying = false;
@@ -132,14 +146,20 @@ async function loadModel() {
       updateAnimationControls();
       status.textContent = `Model loaded.${lightStatus} Click a face to select it.`;
     }
-  } catch (error) { status.textContent = `Could not load model: ${error.message}`; }
-  finally { reload.disabled = false; }
+  } catch (error) {
+    if (!pageClosed) status.textContent = `Could not load model: ${error.message}`;
+  } finally {
+    pendingModelLoads--;
+    reload.disabled = false;
+    if (pageClosed && pendingModelLoads === 0) engine?._g3_app_shutdown();
+  }
 }
 
 async function start() {
   try {
     if (!document.createElement('canvas').getContext('webgl2')) throw new Error('This viewer needs WebGL2.');
     engine = await createGoose3D();
+    if (pageClosed) return;
     const size = fitToDisplay(canvas);
     if (!engine._g3_host_start(size.width, size.height)) throw new Error('The renderer could not start.');
     window.addEventListener('resize', () => {
@@ -233,17 +253,13 @@ async function start() {
         }
       },
     });
-    window.addEventListener('pagehide', () => {
-      controls?.dispose();
-      model?.dispose();
-      engine?._g3_app_shutdown();
-    }, { once: true });
     requestAnimationFrame(frame);
     await loadModel();
-  } catch (error) { status.textContent = error.message; }
+  } catch (error) { if (!pageClosed) status.textContent = error.message; }
 }
 
 function frame(now) {
+  if (pageClosed) return;
   const dt = last ? Math.min((now - last) / 1000, 0.1) : 1 / 60;
   last = now;
   if (model) {
