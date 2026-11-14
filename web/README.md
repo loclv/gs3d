@@ -62,6 +62,15 @@ and custom fragment shaders, run the following from the repository root and open
 ./build_web.sh --reference-checks --serve
 ```
 
+To run the same checks automatically in headless Chrome or Chromium, use
+`npm run test:browser` from this directory. It builds the reference app, serves
+the checkout on a temporary local port, and waits for the page's machine-readable
+result. The runner uses SwiftShader and needs no npm dependencies. Set
+`G3_CHROME=/path/to/chrome` when the browser is not in a standard location.
+Pass `--timeout-ms N` to `node test_browser_reference.mjs` to change the default
+two-minute limit. This command launches a local browser; it does not contact
+external sites.
+
 It compares rendered pixels for linear and sRGB output, Reinhard and ACES tone
 mapping, exposure, animation, hemisphere fill, HDR environment maps, shadows,
 camera selection and restoration, target sampling, individual post-process effects,

@@ -17,8 +17,8 @@ reference for rendering changes.
 | Area | Goose 3D today | Missing capabilities |
 |---|---|---|
 | Assets | Built-in primitives, custom geometry, a browser glTF/GLB loader, a native GLB/JSON glTF loader with selected scene hierarchy, mesh instances, selectable perspective/orthographic cameras, `KHR_lights_punctual`, TRS, morph-weight and skeletal animation clips with LINEAR/STEP/CUBICSPLINE sampling, up to 16 external or base64 data-URI buffers, native PPM P6/PNG/JPEG decoding with checked handles and queryable errors, dense and sparse geometry/color/index accessors, automatic core and supported extension material texture import from GLB buffer views, safe external URIs or data URIs, sampler state and independent UV0 transforms, plus Radiance HDR image loading; the browser path supports shared static primitive uploads, `EXT_mesh_gpu_instancing`, selectable scenes and cameras, opt-in `KHR_lights_punctual`, WebP fallback, quantized geometry, vertex colours, materials, morph and skeletal animations, dense and sparse accessors, and reusable asset-owned slots | Broader glTF extension coverage, general resource ownership and fragmentation control; see [assets.md](assets.md) |
-| Materials | Shared glTF materials with `COLOR_0`, metallic-roughness, tangent-space normal, occlusion, emissive, specular, clearcoat, sheen and anisotropy maps, authored and morphed tangents, eight texture-coordinate sets, double-sided rendering, selectable `KHR_materials_variants`, per-material environment intensity, rotatable equirectangular environment maps, `KHR_materials_unlit`, `KHR_materials_ior`, `KHR_materials_clearcoat`, `KHR_materials_specular`, `KHR_materials_sheen`, `KHR_materials_anisotropy`, `KHR_materials_emissive_strength`, per-texture `KHR_texture_transform` on `TEXCOORD_0` through `_7`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and Reinhard/ACES tone mapping with exposure | Browser shader validation and reference images |
-| Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, browser-controllable hemispherical fill, and rotatable RGB or HDR equirectangular fill | Browser reference validation |
+| Materials | Shared glTF materials with `COLOR_0`, metallic-roughness, tangent-space normal, occlusion, emissive, specular, clearcoat, sheen and anisotropy maps, authored and morphed tangents, eight texture-coordinate sets, double-sided rendering, selectable `KHR_materials_variants`, per-material environment intensity, rotatable equirectangular environment maps, `KHR_materials_unlit`, `KHR_materials_ior`, `KHR_materials_clearcoat`, `KHR_materials_specular`, `KHR_materials_sheen`, `KHR_materials_anisotropy`, `KHR_materials_emissive_strength`, per-texture `KHR_texture_transform` on `TEXCOORD_0` through `_7`, GGX-prefiltered equirectangular reflections, a split-sum BRDF LUT, and Reinhard/ACES tone mapping with exposure | Run the headless browser suite and capture reference images on target GPUs |
+| Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, browser-controllable hemispherical fill, and rotatable RGB or HDR equirectangular fill | Run the headless browser suite and capture reference images on target GPUs |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL/TANGENT morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and representative deformation measurements; GPU morph targets fall back to CPU above 64 targets or device texture limits |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; asset-owned mesh descriptor reuse; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Shrinking grow-only backing arrays; ordinary mesh IDs remain permanent for compatibility |
 | Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection; package subpath with TypeScript declarations and fake-canvas interaction tests | Browser integration tests |
@@ -190,8 +190,12 @@ and a browser integration check for behavior exposed through WebGL.
   pending loads,
   render targets, post-processing, and custom fragment shaders; it compares
   rendered pixels when those paths change. Build it with
-  `./build_web.sh --reference-checks --serve`. It exposes a machine-
-  readable result for a future browser automation runner. The browser model API
+  `./build_web.sh --reference-checks --serve`. A dependency-free headless
+  Chrome runner consumes its machine-readable result; run it with
+  `npm run test:browser` from `web/`. The runner builds and serves the reference
+  page locally, uses SwiftShader, and fails on a failed check, page exception,
+  or timeout. Run it in browser-enabled CI and capture reference images on
+  representative target GPUs. The browser model API
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material
   summaries expose texture bindings and a bounded preview API, and the viewer
@@ -309,8 +313,9 @@ Tests cover animation interpolation, skinning, and camera projection.
   package tests install the generated tarball in an offline consumer project,
   and `prepublishOnly` runs the package suite. Publishing remains to do. The
   bundled sample and local browser check page now exercise
-  the core integration paths, but are not yet run continuously in browser
-  automation. Add native asset loading when native interactive applications
+  the core integration paths, and a dependency-free headless Chrome runner
+  executes the WebGL checks locally. Run it continuously in browser-enabled CI
+  and add native asset loading when native interactive applications
   are a target.
 
 **Done when:** a documented benchmark demonstrates instancing and resource
