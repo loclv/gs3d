@@ -42,4 +42,8 @@ assert.equal(sampleGlb.readUInt32LE(0), 0x46546c67, 'the viewer sample is a GLB'
 const jsonChunkLength = sampleGlb.readUInt32LE(12);
 const sample = JSON.parse(sampleGlb.subarray(20, 20 + jsonChunkLength).toString('utf8'));
 assert.deepEqual(sample.animations.map(animation => animation.name), ['Turntable', 'Bob'], 'the sample provides switchable clips');
+assert.deepEqual(sample.extensions.KHR_materials_variants.variants.map(variant => variant.name), ['Blue paint'],
+  'the browser sample provides a real material variant');
+assert.deepEqual(sample.meshes[0].primitives[0].extensions.KHR_materials_variants.mappings[0].variants, [0],
+  'the textured turntable primitive maps the Blue paint variant');
 console.log(`viewer package import map checks passed (${packageImports.length} imports)`);

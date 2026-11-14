@@ -42,10 +42,11 @@ lifecycle, animation controls and rendering options.
 From the repository root, run `./build_web.sh --viewer --serve` and open
 `http://localhost:8080/viewer/`. The bundled textured turntable scene includes
 perspective and orthographic cameras, point and spot lights, a shadow-receiving
-ground plane, and animation clips. Use the Camera and Shadow caster selectors
-to switch cameras and opt into one point or spot shadow map; Reload model
-repeats loading and disposal. This is a convenient local reference scene, while
-actual browser rendering checks are still needed to validate WebGL output.
+ground plane, animation clips, and a Blue paint material variant. Use the
+Camera and Shadow caster selectors to switch cameras and opt into one point or
+spot shadow map; Reload model repeats loading and disposal. This is a convenient
+local reference scene, while actual browser rendering checks are still needed
+to validate WebGL output.
 
 Regenerate the sample asset with `python3 web/viewer/generate_sample.py`.
 For browser-side checks of WebGL frame output, glTF, standalone raster, and

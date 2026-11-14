@@ -191,10 +191,12 @@ and a browser integration check for behavior exposed through WebGL.
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material
   summaries expose texture bindings and a bounded preview API, and the viewer
-  displays maps for the selected material and variant. Its material selector
-  controls per-material environment intensity, hemisphere fill intensity, and
-  HDR equirectangular environment yaw. Validate these controls and actual WebGL
-  output in a browser.
+  displays maps for the selected material and variant. The bundled turntable
+  offers a Blue paint `KHR_materials_variants` choice, and the browser reference
+  check compares its rendered output with the default material. The material
+  selector controls per-material environment intensity, hemisphere fill
+  intensity, and HDR equirectangular environment yaw. Validate these controls
+  and actual WebGL output in a browser.
 
 **Done when:** a documented example loads a static textured GLB, orbits it,
 selects a mesh with a click, and repeatedly loads and disposes models without

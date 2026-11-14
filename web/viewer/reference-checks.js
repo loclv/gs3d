@@ -187,6 +187,14 @@ async function run() {
   check(model.applyLights(), 'unshadowed imported lights activate');
   setEnvironmentLighting(engine, [0.32, 0.48, 0.72], [0.16, 0.12, 0.08], 0);
   const animationStart = renderAndCheck(gl, engine, 'animation at its first key');
+  check(model.variants.includes('Blue paint'), 'sample imports its material variant');
+  check(model.setVariant('Blue paint') && model.activeVariant === 0, 'material variant switches on');
+  const variantFrame = renderAndCheck(gl, engine, 'sample with Blue paint material variant');
+  check(changedPixels(animationStart, variantFrame) > 0, 'material variant changes rendered pixels');
+  check(model.setVariant(null) && model.activeVariant === -1, 'default material selection is restored');
+  const restoredFrame = renderAndCheck(gl, engine, 'sample with default material restored');
+  check(changedPixels(animationStart, restoredFrame) < changedPixels(animationStart, variantFrame),
+    'restoring the default material restores its rendered appearance');
   model.update(0.5);
   check(model.animationTime > 0.49, 'animation advances to the requested time');
   check(model.pauseAnimation(), 'animation pauses for repeatable image comparisons');
