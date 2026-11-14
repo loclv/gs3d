@@ -3,6 +3,7 @@
 #
 #   ./build_web.sh           build web/app.js + web/app.wasm
 #   ./build_web.sh --serve   build, then serve web/ on http://localhost:8080
+#   ./build_web.sh --all --serve  rebuild every browser entry point, then serve
 #   ./build_web.sh --game --serve  build and serve the Beacon Run sample
 #   ./build_web.sh --viewer --serve build and serve the model viewer
 #   ./build_web.sh --reference-checks --serve build and serve WebGL API checks
@@ -23,6 +24,20 @@ fi
 
 command -v emcc >/dev/null || { echo "emcc not found: install the Emscripten SDK (see README)"; exit 1; }
 command -v goose >/dev/null || { echo "goose not found: put the Goose compiler on PATH"; exit 1; }
+
+# Each page has its own linked renderer. Refresh all of them when the backend
+# changes; building one page cannot update another page's app.wasm.
+if [ "${1:-}" = "--all" ]; then
+  for mode in "" --game --siege --viewer --benchmark --animation-benchmark --reference-checks; do
+    if [ -n "$mode" ]; then "$0" "$mode"; else "$0"; fi
+  done
+  python3 tools/check_web_builds.py
+  if [ "${2:-}" = "--serve" ]; then
+    echo "serving http://localhost:8080/ (ctrl-c to stop)"
+    python3 -m http.server 8080 --directory web
+  fi
+  exit 0
+fi
 
 mkdir -p build/web
 

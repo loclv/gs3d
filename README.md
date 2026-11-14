@@ -595,3 +595,9 @@ startup, scene pixels, combat input, dash, restart, and GL errors.
 The broader renderer reference suite currently reaches and fails the
 `point shadow changes rendered pixels` assertion on headless SwiftShader;
 this is separate from the fixed 16-unit startup failure.
+
+After changing the WebGL backend, run `./build_web.sh --all` to relink every
+page's independent `app.wasm`. Use `./build_web.sh --all --serve` to rebuild
+all pages and serve them together. The full build checks that no bundle still
+contains the old 23-unit startup requirement. Hard-refresh any already open
+page after rebuilding to clear its cached JavaScript and WebAssembly.

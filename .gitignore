@@ -23,3 +23,7 @@ web/siege/app.js.map
 web/viewer/reference/app.js
 web/viewer/reference/app.wasm
 web/viewer/reference/app.js.map
+
+web/benchmark/app.js
+web/benchmark/app.wasm
+web/benchmark/app.js.map
