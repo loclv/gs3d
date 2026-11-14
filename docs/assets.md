@@ -114,7 +114,7 @@ g3::texture_remove(image);
 `native_glb_mesh_primitive_material` returns the checked imported material for
 each primitive, or an invalid handle when the glTF primitive has no material.
 This supports application-supplied native images on imported meshes. The native
-loader still does not resolve glTF `images`/`textures` references automatically.
+loader also imports each primitive's glTF `baseColorTexture` automatically.
 
 The loader supports float32 and `KHR_mesh_quantization` `POSITION`, `NORMAL`,
 `TEXCOORD_0`, and `TANGENT` attributes, `COLOR_0` as float32 or normalized
@@ -129,12 +129,18 @@ Declared `KHR_materials_emissive_strength` and `KHR_materials_ior` are applied
 to emissive output and dielectric response. The factor portions of
 `KHR_materials_specular`, `KHR_materials_clearcoat`, `KHR_materials_sheen`, and
 `KHR_materials_anisotropy` are imported too; their texture maps are not.
-`NativeGlbModel` owns checked mesh, node, and material handles; dispose the model
-to release them. External buffer paths containing schemes, absolute paths,
-encoded URI components, query strings, fragments, or dot path segments are
-rejected. Data URIs must use base64 encoding. The primitive APIs do not load
-material textures, images, skins, animations, or sparse accessors; use the
-scene API below when the source node hierarchy must be retained.
+The base-colour image supports PNG and JPEG from a GLB `bufferView`, a safe
+relative URI, or a base64 data URI; its sampler's wrap/filter state and
+`KHR_texture_transform` on `TEXCOORD_0` are applied. Other material maps and
+texture-coordinate sets beyond `TEXCOORD_0` are not imported.
+`NativeGlbModel` owns checked mesh, node, material, and base-colour texture
+handles; dispose the model to release them. External buffer/image paths
+containing schemes, absolute paths, encoded URI components, query strings,
+fragments, or dot path segments are rejected. Data URIs must use base64
+encoding. The primitive APIs do not load
+normal, metallic-roughness, occlusion, emissive, or extension material maps,
+skins, animations, or sparse accessors; use the scene API below when the source
+node hierarchy must be retained.
 Browser applications should use the broader `web/assets.js` loader.
 
 For static multi-node content, `native_glb_load_scene(path, scene_index)` loads
@@ -168,18 +174,26 @@ for i in 0..g3::native_glb_scene_mesh_count(scene) {
 g3::native_glb_scene_dispose(scene);
 ```
 
-Native image loading currently supports binary PPM P6 files with 8-bit RGB and
-`MAXVAL 255`, through `native_texture_load_ppm(path)`. It returns a checked
-`TextureHandle`; call `texture_remove(handle)` when the texture has no live
-users. The loader flips PPM's top-down rows into the renderer's `v=0` first-row
-layout and uploads sRGB colour. After each load, `native_texture_last_error()`
-returns `NATIVE_TEXTURE_ERROR_NONE`, `NATIVE_TEXTURE_ERROR_IO`,
+Native image loading supports binary PPM P6 files with 8-bit RGB and
+`MAXVAL 255`, plus PNG and JPEG. `native_texture_load_ppm(path)` requires PPM;
+`native_texture_load_image(path)` detects PPM, PNG, or JPEG; and
+`native_texture_load_encoded(bytes)` decodes PNG or JPEG bytes already in
+memory. They return checked `TextureHandle`s; call `texture_remove(handle)`
+when the texture has no live users. PPM rows are flipped into the renderer's
+`v=0` first-row layout, and all three formats upload sRGB colour. PNG/JPEG
+decoding uses libpng and libjpeg in the CPU backend. `build_native.sh` locates
+their include and linker flags with `pkg-config`; the browser continues to use
+its built-in decoder.
+
+After each native image load, `native_texture_last_error()` returns
+`NATIVE_TEXTURE_ERROR_NONE`, `NATIVE_TEXTURE_ERROR_IO`,
 `NATIVE_TEXTURE_ERROR_UNSUPPORTED_FORMAT`,
-`NATIVE_TEXTURE_ERROR_INVALID_IMAGE`, or `NATIVE_TEXTURE_ERROR_UPLOAD`.
-The result describes only the most recent call and is process-global, so callers
-should read it immediately after a failed load. PNG, JPEG, and glTF
-image/texture references are not decoded by the native loader yet. Native
-Radiance HDR environments use `texture_load_hdr`.
+`NATIVE_TEXTURE_ERROR_INVALID_IMAGE`, `NATIVE_TEXTURE_ERROR_UPLOAD`, or
+`NATIVE_TEXTURE_ERROR_DECODE`. The result describes only the most recent call
+and is process-global, so callers should read it immediately after a failed
+load. Native glTF `images`/`textures` references are not resolved automatically
+outside the base-colour material slot. Native Radiance HDR environments use
+`texture_load_hdr`.
 
 The viewer's input controls can also be used independently of the viewer host:
 

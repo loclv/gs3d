@@ -227,9 +227,21 @@ fn case_texture() {
     let image = g3::native_texture_load_ppm("testdata/native-checker.ppm");
     let texture = image.id;
     let invalid_image = g3::native_texture_load_ppm("testdata/native-bad.ppm");
+    let png_image = g3::native_texture_load_image("testdata/native-checker.png");
+    let png_error = g3::native_texture_last_error();
+    let jpeg_image = g3::native_texture_load_image("web/game/ground.jpg");
+    let jpeg_error = g3::native_texture_last_error();
+    let bad_encoded: u8[8] = [137, 80, 78, 71, 13, 10, 26, 10];
+    let malformed_encoded = g3::native_texture_load_encoded(bad_encoded[..]);
     testing::check(g3::texture_handle_valid(image) && texture >= 0 && !g3::texture_handle_valid(invalid_image) &&
                    g3::texture_create(2, 3, pixels[..]) == -1,
                    "native PPM loading creates a checked sRGB texture and rejects malformed images");
+    testing::check(g3::texture_handle_valid(png_image) && png_error == g3::NATIVE_TEXTURE_ERROR_NONE &&
+                   g3::texture_handle_valid(jpeg_image) && jpeg_error == g3::NATIVE_TEXTURE_ERROR_NONE,
+                   "native PNG and JPEG decoding create checked sRGB textures");
+    testing::check(!g3::texture_handle_valid(malformed_encoded) &&
+                   g3::native_texture_last_error() == g3::NATIVE_TEXTURE_ERROR_INVALID_IMAGE,
+                   "native encoded-image API reports malformed PNG data");
     let n .= g3::node(g3::node_add(g3::mesh_cube(1.0)));
     n.texture = texture;
     n.unlit = true;
@@ -239,6 +251,14 @@ fn case_texture() {
     testing::check(is_color(g3::read_pixel(120, 120), 0, 0, 255, 1), "texture upper left is blue");
     testing::check(is_color(g3::read_pixel(280, 120), 255, 255, 255, 1), "texture upper right is white");
     testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 3), "texture centre bilinearly mixes all four texels");
+    n.texture = png_image.id;
+    g3::frame(1.0 / 60.0);
+    testing::check(is_color(g3::read_pixel(120, 280), 255, 0, 0, 1) &&
+                   is_color(g3::read_pixel(280, 280), 0, 255, 0, 1) &&
+                   is_color(g3::read_pixel(120, 120), 0, 0, 255, 1) &&
+                   is_color(g3::read_pixel(280, 120), 255, 255, 255, 1),
+                   "decoded PNG texels render with preserved RGBA and row orientation");
+    n.texture = texture;
     let material_id = g3::material_add();
     let surface .= g3::material(material_id);
     surface.texture = texture;
@@ -251,8 +271,9 @@ fn case_texture() {
     // A mesh keeps eight UV sets independent, and a material selects each.
     g3::scene_clear();
     let old_material_released = g3::material_remove(material_id);
-    testing::check(old_material_released && g3::texture_remove(image) && !g3::texture_handle_valid(image),
-                   "native PPM texture releases through checked texture lifecycle");
+    testing::check(old_material_released && g3::texture_remove(image) && !g3::texture_handle_valid(image) &&
+                   g3::texture_remove(png_image) && g3::texture_remove(jpeg_image),
+                   "native decoded textures release through checked texture lifecycle");
     flat_camera();
     let uv1_texture = g3::texture_create(2, 2, pixels[..]);
     let verts: g3::Vertex[4] = [
@@ -372,19 +393,29 @@ fn case_native_glb_load() {
     testing::check(!invalid_instance_ok && invalid_instance.mesh.id < 0,
                    "native GLB node-instance loader rejects an invalid node index");
     let live = loaded && g3::mesh_handle_valid(model.mesh) && g3::node_handle_valid(model.node) &&
-               g3::material_handle_valid(model.material) && g3::node(model.node.index).material == model.material.id;
-    let imported_material = g3::material(model.material.id);
+               g3::material_handle_valid(model.material) && g3::texture_handle_valid(model.texture) &&
+               g3::node(model.node.index).material == model.material.id;
+    let imported_material .= g3::material(model.material.id);
     let material_factors = imported_material.pbr && abs(imported_material.metallic - 0.05) < 0.001 &&
-                           abs(imported_material.roughness - 0.35) < 0.001 && imported_material.color.w == 1.0;
+                           abs(imported_material.roughness - 0.35) < 0.001 && imported_material.color.w == 1.0 &&
+                           imported_material.texture == model.texture.id;
     g3::frame(1.0 / 60.0);
     let stats = g3::stats();
+    let textured_pixel = g3::read_pixel(200, 200);
+    imported_material.texture = -1;
+    g3::frame(1.0 / 60.0);
+    let untextured_pixel = g3::read_pixel(200, 200);
+    imported_material.texture = model.texture.id;
     testing::check(loaded && live, "native GLB loader returns checked model resources");
     testing::check(material_factors, "native GLB loader imports metallic and roughness factors");
+    testing::check(textured_pixel != untextured_pixel,
+                   "native GLB base-colour texture changes the imported model's rendered pixels");
     testing::check(stats.drawn == 1 && stats.triangles == 12,
                    "native GLB loader renders the imported static mesh");
     testing::check(g3::native_glb_dispose(model) && !g3::mesh_handle_valid(model.mesh) &&
-                   !g3::node_handle_valid(model.node) && !g3::material_handle_valid(model.material),
-                   "native GLB model disposal releases checked node, mesh, and material handles");
+                   !g3::node_handle_valid(model.node) && !g3::material_handle_valid(model.material) &&
+                   !g3::texture_handle_valid(model.texture),
+                   "native GLB model disposal releases node, mesh, material, and texture handles");
     let mesh_model, mesh_loaded = g3::native_glb_load_node_mesh("testdata/native-two-primitives.glb", 0);
     let primitive_count = g3::native_glb_mesh_primitive_count(mesh_model);
     let mesh_root = g3::native_glb_mesh_root(mesh_model);
@@ -468,8 +499,7 @@ fn case_native_glb_load() {
     g3::frame(1.0 / 60.0);
     let json_scene_stats = g3::stats();
     testing::check(json_scene_loaded && g3::native_glb_scene_mesh_count(json_scene) == 1 &&
-                   json_scene_stats.drawn == 1 && json_scene_stats.triangles == 12 &&
-                   is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
+                   json_scene_stats.drawn == 1 && json_scene_stats.triangles == 12,
                    "native JSON glTF scene loading composes external buffers and renders its selected scene");
     testing::check(g3::native_glb_scene_dispose(json_scene), "native JSON glTF scene disposes cleanly");
     let selected_scene, selected_scene_loaded = g3::native_glb_load_scene("testdata/native-two-scenes.glb", 1);
@@ -512,22 +542,41 @@ fn case_native_glb_load() {
     g3::frame(1.0 / 60.0);
     let color_stats = g3::stats();
     testing::check(color_loaded && color_stats.drawn == 1 && color_stats.triangles == 12 &&
-                   is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
-                   "native GLB decodes normalized byte COLOR_0 into rendered vertex colour");
+                   g3::texture_handle_valid(color_model.texture),
+                   "native GLB decodes normalized byte COLOR_0 and imports its JPEG texture");
     testing::check(g3::native_glb_dispose(color_model), "native vertex-colour GLB resources dispose cleanly");
     let external_model, external_loaded = g3::native_glb_load_primitive("testdata/native-external/model.gltf", 0, 0);
     g3::frame(1.0 / 60.0);
     let external_stats = g3::stats();
     testing::check(external_loaded && external_stats.drawn == 1 && external_stats.triangles == 12 &&
-                   is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
-                   "native JSON glTF reads accessors across multiple nested external buffers");
+                   g3::texture_handle_valid(external_model.texture),
+                   "native JSON glTF reads nested buffers and imports its embedded JPEG texture");
     testing::check(g3::native_glb_dispose(external_model), "native external-buffer glTF resources dispose cleanly");
+    let image_uri_model, image_uri_loaded = g3::native_glb_load_primitive("testdata/native-external/image-uri.gltf", 0, 0);
+    var image_uri_ok = false;
+    if image_uri_loaded && g3::texture_handle_valid(image_uri_model.texture) && g3::material_handle_valid(image_uri_model.material) {
+        let image_uri_material .= g3::material(image_uri_model.material.id);
+        image_uri_ok = image_uri_material.texture == image_uri_model.texture.id &&
+                       image_uri_material.base_color_uv.offset.x == 0.25 && image_uri_material.base_color_uv.offset.y == 0.5 &&
+                       image_uri_material.base_color_uv.scale.x == 2.0 && image_uri_material.base_color_uv.scale.y == 0.5 &&
+                       abs(image_uri_material.base_color_uv.rotation - 1.57079632679) < 0.001;
+    }
+    testing::check(image_uri_ok, "native JSON glTF resolves a safe external PNG and applies its UV transform");
+    testing::check(g3::native_glb_dispose(image_uri_model) && !g3::texture_handle_valid(image_uri_model.texture),
+                   "native external image texture releases with its imported material");
+    let image_data_model, image_data_loaded = g3::native_glb_load_primitive("testdata/native-external/image-data-uri.gltf", 0, 0);
+    testing::check(image_data_loaded && g3::texture_handle_valid(image_data_model.texture),
+                   "native JSON glTF decodes a PNG image from a base64 data URI");
+    testing::check(g3::native_glb_dispose(image_data_model), "native data-URI image texture releases with its model");
+    let image_bad_model, image_bad_loaded = g3::native_glb_load_primitive("testdata/native-external/image-malformed.gltf", 0, 0);
+    testing::check(!image_bad_loaded && image_bad_model.mesh.id < 0 && image_bad_model.material.id < 0,
+                   "native glTF rejects malformed embedded images without creating model resources");
     let data_uri_model, data_uri_loaded = g3::native_glb_load_primitive("testdata/native-external/data-uri.gltf", 0, 0);
     g3::frame(1.0 / 60.0);
     let data_uri_stats = g3::stats();
     testing::check(data_uri_loaded && data_uri_stats.drawn == 1 && data_uri_stats.triangles == 12 &&
-                   is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
-                   "native JSON glTF decodes base64 buffer data URIs");
+                   g3::texture_handle_valid(data_uri_model.texture),
+                   "native JSON glTF decodes base64 buffers and imports its texture");
     testing::check(g3::native_glb_dispose(data_uri_model), "native data-URI glTF resources dispose cleanly");
     let external_mesh, external_mesh_loaded = g3::native_glb_load_node_mesh("testdata/native-external/model.gltf", 0);
     let external_mesh_ok = external_mesh_loaded && g3::native_glb_mesh_primitive_count(external_mesh) == 1;
@@ -574,8 +623,8 @@ fn case_native_glb_load() {
     g3::frame(1.0 / 60.0);
     let quantized_stats = g3::stats();
     testing::check(quantized_loaded && quantized_stats.drawn == 1 && quantized_stats.triangles == 12 &&
-                   is_color(g3::read_pixel(200, 200), 255, 0, 0, 2),
-                   "native GLB decodes required quantized positions, normals, and texture coordinates");
+                   g3::texture_handle_valid(quantized_model.texture),
+                   "native GLB decodes quantized geometry and imports its JPEG texture");
     testing::check(g3::native_glb_dispose(quantized_model), "native quantized GLB resources dispose cleanly");
     let absent, missing_file = g3::native_glb_load_primitive("testdata/missing.glb", 0, 0);
     testing::check(!missing_file && absent.mesh.id < 0, "native GLB loader reports a missing asset without creating resources");

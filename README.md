@@ -34,7 +34,7 @@ same scene renders identically in a tab and on disk.
 | `src/g3/render.goose` | per frame: transforms, frustum cull, draw-list pack, sort, submit |
 | `src/g3/engine.goose` | `init` / `frame` / `shutdown`, input state, stats |
 | `src/g3/gltf_native.goose` | native static GLB and JSON glTF scene and primitive loading into checked handles |
-| `src/g3/texture_native.goose` | native PPM P6 decoding into checked sRGB textures with queryable load errors |
+| `src/g3/texture_native.goose` | native PPM P6, PNG and JPEG decoding into checked sRGB textures with queryable load errors |
 | `src/g3/platform.goose` | the backend contract: `DrawItem`, `ViewState`, the `g3p_*` calls |
 | `src/demo/scene.goose` | the demo scene, written against the public API only |
 | `src/app_web.goose` | the browser entry point (no `main`; exported `g3_app_*`) |
@@ -101,7 +101,8 @@ works.
 
 ## Render a still, headless
 
-The CPU backend needs nothing but the Goose compiler and a C compiler:
+The CPU backend also decodes PNG and JPEG images through libpng and libjpeg;
+`build_native.sh` obtains their flags from `pkg-config`:
 
 ```bash
 ./build_native.sh
@@ -522,6 +523,8 @@ Deliberately out of scope for now, in rough order of how much they would add:
   standard library and samples).
 * **A C compiler** for the native build — `goose toolchain` reports what it
   found.
+* **pkg-config, libpng and libjpeg** for the native PNG/JPEG image decoder.
+  The web build uses browser image decoding and does not require these libraries.
 * **Emscripten** for the web build. Either
   `git clone https://github.com/emscripten-core/emsdk && cd emsdk && ./emsdk install latest && ./emsdk activate latest`
   into `.toolchain/emsdk` (what `build_web.sh` looks for, and `.gitignore`

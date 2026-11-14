@@ -1343,6 +1343,13 @@ uint8_t g3p_load_radiance_hdr(int32_t id, g3_u8_slice path) {
     return 0;
 }
 
+/* Native Goose programs use the CPU backend's libpng/libjpeg decoder.
+   Browser assets are fetched and decoded by web/assets.js. */
+int32_t g3p_decode_texture_srgb(int32_t id, g3_u8_slice encoded) {
+    (void)id; (void)encoded;
+    return 1;
+}
+
 void g3p_texture_wrap(int32_t id, int32_t wrap_u, int32_t wrap_v) {
     if (id < 0 || id >= texture_count || !textures[id] || wrap_u < 0 || wrap_u > 2 || wrap_v < 0 || wrap_v > 2) return;
     const GLint modes[3] = { GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT };

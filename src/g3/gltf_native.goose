@@ -10,10 +10,11 @@ import g3.mesh;
 import g3.scene;
 import g3.render;
 import g3.platform;
+import g3.texture_native;
 
 namespace g3;
 
-struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle }
+struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle, texture: TextureHandle }
 struct NativeGlbMeshHandle { id: i32 = -1, generation: i32 }
 struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
 struct NativeGlbPartSlot { owner_id: i32, owner_generation: i32, primitive_index: i32, model: NativeGlbModel, active: bool }
@@ -132,6 +133,15 @@ fn glb_factor3(node: json::Node?, fallback: float3, min_value: f64, max_value: f
     return float3 { x as f32, y as f32, z as f32 }, true;
 }
 
+fn glb_factor2(node: json::Node?, fallback: float2, min_value: f64, max_value: f64) -> float2, bool {
+    if !node { return fallback, true; }
+    guard glb_array_count(node) == 2 else { return float2_0, false; }
+    let x, x_ok = json::as_f64(glb_json_element(node, 0));
+    let y, y_ok = json::as_f64(glb_json_element(node, 1));
+    guard x_ok && y_ok && x >= min_value && x <= max_value && y >= min_value && y <= max_value else { return float2_0, false; }
+    return float2 { x as f32, y as f32 }, true;
+}
+
 fn glb_array_has_string(node: json::Node?, value: const u8[:]) -> bool {
     for i in 0..glb_array_count(node) {
         let candidate, ok = json::as_string(glb_json_element(node, i));
@@ -148,85 +158,191 @@ fn glb_material_extension(root: json::Node?, source: json::Node?, name: const u8
     return extension, true;
 }
 
+fn glb_native_texture(root: json::Node?, texture_info: json::Node?, path: const u8[:], bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:]) -> TextureHandle, bool {
+    let texture_index, texture_index_ok = glb_json_index(json::member(texture_info, "index"));
+    let texture = glb_json_element(json::member(root, "textures"), texture_index);
+    let image_index, image_index_ok = glb_json_index(json::member(texture, "source"));
+    let image = glb_json_element(json::member(root, "images"), image_index);
+    guard texture_info && texture_index_ok && texture && image_index_ok && image else { return TextureHandle { .. }, false; }
+
+    var image_handle = TextureHandle { .. };
+    let uri_node = json::member(image, "uri");
+    guard !uri_node || !json::member(image, "bufferView") else { return TextureHandle { .. }, false; }
+    if uri_node {
+        let uri, uri_ok = json::as_string(uri_node);
+        guard uri_ok && uri.len > 0 else { return TextureHandle { .. }, false; }
+        var encoded: u8[>..] = [];
+        if uri.len >= 5 && uri[0] == 100 && uri[1] == 97 && uri[2] == 116 && uri[3] == 97 && uri[4] == 58 {
+            guard uri.len <= 268435456 && glb_decode_data_uri(uri, encoded) && encoded.len <= 268435456 else { return TextureHandle { .. }, false; }
+        } else {
+            guard uri.len < 4096 else { return TextureHandle { .. }, false; }
+            var segment_start: i64 = 0;
+            for i in 0..uri.len {
+                let c = uri[i];
+                guard c != 0 && c != 92 && c != 58 && c != 63 && c != 35 && c != 37 else { return TextureHandle { .. }, false; }
+                if c == 47 {
+                    guard i > segment_start && !(i - segment_start == 1 && uri[segment_start] == 46) && !(i - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) else { return TextureHandle { .. }, false; }
+                    segment_start = i + 1;
+                }
+            }
+            guard segment_start < uri.len && !(uri.len - segment_start == 1 && uri[segment_start] == 46) && !(uri.len - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) && uri[0] != 47 else { return TextureHandle { .. }, false; }
+            var external_path: u8[>..] = [];
+            var directory_end: i64 = 0;
+            for i in 0..path.len { if path[i] == 47 { directory_end = i + 1; } }
+            guard directory_end + uri.len < 4096 else { return TextureHandle { .. }, false; }
+            for i in 0..directory_end { external_path.push(path[i]); }
+            for i in 0..uri.len { external_path.push(uri[i]); }
+            guard read_file(external_path[..], encoded) && encoded.len > 0 && encoded.len <= 268435456 else { return TextureHandle { .. }, false; }
+        }
+        image_handle = native_texture_load_asset_encoded(encoded[..]);
+    } else {
+        let view_index, view_ok = glb_json_index(json::member(image, "bufferView"));
+        let view = glb_json_element(json::member(root, "bufferViews"), view_index);
+        let buffer_index, buffer_ok = glb_optional_index(json::member(view, "buffer"), 0);
+        let offset, offset_ok = glb_optional_index(json::member(view, "byteOffset"), 0);
+        let length, length_ok = glb_json_index(json::member(view, "byteLength"));
+        let mime, mime_ok = json::as_string(json::member(image, "mimeType"));
+        guard view_ok && view && buffer_ok && offset_ok && length_ok && mime_ok &&
+              (mime == "image/png" || mime == "image/jpeg") && buffer_index >= 0 && buffer_index < buffer_bases.len &&
+              offset >= 0 && length > 0 && offset <= buffer_sizes[buffer_index] && length <= buffer_sizes[buffer_index] - offset else {
+            return TextureHandle { .. }, false;
+        }
+        let start = buffer_bases[buffer_index] + offset;
+        image_handle = native_texture_load_asset_encoded(bytes[start..start + length]);
+    }
+    guard texture_handle_valid(image_handle) else { return TextureHandle { .. }, false; }
+
+    let sampler_index, sampler_index_ok = glb_optional_index(json::member(texture, "sampler"), -1);
+    guard sampler_index_ok else { texture_asset_release_handle(image_handle); return TextureHandle { .. }, false; }
+    let sampler = glb_json_element(json::member(root, "samplers"), sampler_index);
+    let sampler_ok = sampler_index < 0 || sampler;
+    let wrap_u, wrap_u_ok = glb_optional_index(json::member(sampler, "wrapS"), 10497);
+    let wrap_v, wrap_v_ok = glb_optional_index(json::member(sampler, "wrapT"), 10497);
+    let min_filter, min_ok = glb_optional_index(json::member(sampler, "minFilter"), 9729);
+    let mag_filter, mag_ok = glb_optional_index(json::member(sampler, "magFilter"), 9729);
+    guard sampler_ok && wrap_u_ok && wrap_v_ok && min_ok && mag_ok else { texture_asset_release_handle(image_handle); return TextureHandle { .. }, false; }
+    let engine_wrap_u = if wrap_u == 33071 { WRAP_CLAMP } else if wrap_u == 33648 { WRAP_MIRROR } else if wrap_u == 10497 { WRAP_REPEAT } else { -1 };
+    let engine_wrap_v = if wrap_v == 33071 { WRAP_CLAMP } else if wrap_v == 33648 { WRAP_MIRROR } else if wrap_v == 10497 { WRAP_REPEAT } else { -1 };
+    guard engine_wrap_u >= 0 && engine_wrap_v >= 0 && texture_set_wrap(image_handle.id, engine_wrap_u as i32, engine_wrap_v as i32) &&
+          texture_set_filter(image_handle.id, min_filter as i32, mag_filter as i32) else {
+        texture_asset_release_handle(image_handle);
+        return TextureHandle { .. }, false;
+    }
+    return image_handle, true;
+}
+
+// Factor-only helper retained for focused importer checks and callers that
+// construct a material document without texture tables.
 fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bool {
+    var bytes: u8[>..] = [];
+    var bases: i64[>..] = [];
+    var sizes: i64[>..] = [];
+    let material, texture, ok = glb_material(root, primitive, "", bytes[..], bases[..], sizes[..]);
+    if texture_handle_valid(texture) { texture_asset_release_handle(texture); }
+    return material, ok;
+}
+
+fn glb_material(root: json::Node?, primitive: json::Node?, path: const u8[:], bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:]) -> MaterialHandle, TextureHandle, bool {
     let material_node = json::member(primitive, "material");
-    if !material_node { return MaterialHandle { .. }, true; }
+    if !material_node { return MaterialHandle { .. }, TextureHandle { .. }, true; }
     let material_index, index_ok = glb_json_index(material_node);
     let materials = json::member(root, "materials");
     let source = glb_json_element(materials, material_index);
-    guard index_ok && source else { return MaterialHandle { .. }, false; }
+    guard index_ok && source else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
 
     var color = float4_1;
     var metallic: f64 = 1.0; var roughness: f64 = 1.0;
     let pbr = json::member(source, "pbrMetallicRoughness");
     let color_node = json::member(pbr, "baseColorFactor");
     if color_node {
-        guard glb_array_count(color_node) == 4 else { return MaterialHandle { .. }, false; }
+        guard glb_array_count(color_node) == 4 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
         let r, a = json::as_f64(glb_json_element(color_node, 0)); let g, b = json::as_f64(glb_json_element(color_node, 1));
         let blue, c = json::as_f64(glb_json_element(color_node, 2)); let alpha, d = json::as_f64(glb_json_element(color_node, 3));
-        guard a && b && c && d && r >= 0.0 && r <= 1.0 && g >= 0.0 && g <= 1.0 && blue >= 0.0 && blue <= 1.0 && alpha >= 0.0 && alpha <= 1.0 else { return MaterialHandle { .. }, false; }
+        guard a && b && c && d && r >= 0.0 && r <= 1.0 && g >= 0.0 && g <= 1.0 && blue >= 0.0 && blue <= 1.0 && alpha >= 0.0 && alpha <= 1.0 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
         color = float4 { r as f32, g as f32, blue as f32, alpha as f32 };
     }
     let metallic_value, metallic_ok = glb_number(json::member(pbr, "metallicFactor"), 1.0);
     let roughness_value, roughness_ok = glb_number(json::member(pbr, "roughnessFactor"), 1.0);
-    guard metallic_ok && roughness_ok && metallic_value >= 0.0 && metallic_value <= 1.0 && roughness_value >= 0.0 && roughness_value <= 1.0 else { return MaterialHandle { .. }, false; }
+    guard metallic_ok && roughness_ok && metallic_value >= 0.0 && metallic_value <= 1.0 && roughness_value >= 0.0 && roughness_value <= 1.0 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let emissive_node = json::member(source, "emissiveFactor");
     var emissive = float3_0;
     if emissive_node {
-        guard glb_array_count(emissive_node) == 3 else { return MaterialHandle { .. }, false; }
+        guard glb_array_count(emissive_node) == 3 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
         let r, a = json::as_f64(glb_json_element(emissive_node, 0)); let g, b = json::as_f64(glb_json_element(emissive_node, 1)); let blue, c = json::as_f64(glb_json_element(emissive_node, 2));
-        guard a && b && c && r >= 0.0 && r <= 3.4e38 && g >= 0.0 && g <= 3.4e38 && blue >= 0.0 && blue <= 3.4e38 else { return MaterialHandle { .. }, false; }
+        guard a && b && c && r >= 0.0 && r <= 3.4e38 && g >= 0.0 && g <= 3.4e38 && blue >= 0.0 && blue <= 3.4e38 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
         emissive = float3 { r as f32, g as f32, blue as f32 };
     }
     let emissive_extension, emissive_extension_ok = glb_material_extension(root, source, "KHR_materials_emissive_strength");
-    guard emissive_extension_ok else { return MaterialHandle { .. }, false; }
+    guard emissive_extension_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let emissive_strength, emissive_strength_ok = glb_number(json::member(emissive_extension, "emissiveStrength"), 1.0);
-    guard emissive_strength_ok && emissive_strength >= 0.0 && emissive_strength <= 3.4e38 else { return MaterialHandle { .. }, false; }
+    guard emissive_strength_ok && emissive_strength >= 0.0 && emissive_strength <= 3.4e38 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     emissive = emissive * (emissive_strength as f32);
     let ior_extension, ior_extension_ok = glb_material_extension(root, source, "KHR_materials_ior");
-    guard ior_extension_ok else { return MaterialHandle { .. }, false; }
+    guard ior_extension_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let ior, ior_ok = glb_number(json::member(ior_extension, "ior"), 1.5);
-    guard ior_ok && ior >= 1.0 && ior <= 2.333 else { return MaterialHandle { .. }, false; }
+    guard ior_ok && ior >= 1.0 && ior <= 2.333 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let specular_extension, specular_extension_ok = glb_material_extension(root, source, "KHR_materials_specular");
-    guard specular_extension_ok else { return MaterialHandle { .. }, false; }
+    guard specular_extension_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let specular_factor, specular_factor_ok = glb_number(json::member(specular_extension, "specularFactor"), 1.0);
     let specular_color, specular_color_ok = glb_factor3(json::member(specular_extension, "specularColorFactor"), float3_1, 0.0, 3.4e38);
-    guard specular_factor_ok && specular_factor >= 0.0 && specular_factor <= 1.0 && specular_color_ok else { return MaterialHandle { .. }, false; }
+    guard specular_factor_ok && specular_factor >= 0.0 && specular_factor <= 1.0 && specular_color_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let clearcoat_extension, clearcoat_extension_ok = glb_material_extension(root, source, "KHR_materials_clearcoat");
-    guard clearcoat_extension_ok else { return MaterialHandle { .. }, false; }
+    guard clearcoat_extension_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let clearcoat_factor, clearcoat_factor_ok = glb_number(json::member(clearcoat_extension, "clearcoatFactor"), 0.0);
     let clearcoat_roughness, clearcoat_roughness_ok = glb_number(json::member(clearcoat_extension, "clearcoatRoughnessFactor"), 0.0);
-    guard clearcoat_factor_ok && clearcoat_roughness_ok && clearcoat_factor >= 0.0 && clearcoat_factor <= 1.0 && clearcoat_roughness >= 0.0 && clearcoat_roughness <= 1.0 else { return MaterialHandle { .. }, false; }
+    guard clearcoat_factor_ok && clearcoat_roughness_ok && clearcoat_factor >= 0.0 && clearcoat_factor <= 1.0 && clearcoat_roughness >= 0.0 && clearcoat_roughness <= 1.0 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let sheen_extension, sheen_extension_ok = glb_material_extension(root, source, "KHR_materials_sheen");
-    guard sheen_extension_ok else { return MaterialHandle { .. }, false; }
+    guard sheen_extension_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let sheen_color, sheen_color_ok = glb_factor3(json::member(sheen_extension, "sheenColorFactor"), float3_0, 0.0, 1.0);
     let sheen_roughness, sheen_roughness_ok = glb_number(json::member(sheen_extension, "sheenRoughnessFactor"), 0.0);
-    guard sheen_color_ok && sheen_roughness_ok && sheen_roughness >= 0.0 && sheen_roughness <= 1.0 else { return MaterialHandle { .. }, false; }
+    guard sheen_color_ok && sheen_roughness_ok && sheen_roughness >= 0.0 && sheen_roughness <= 1.0 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let anisotropy_extension, anisotropy_extension_ok = glb_material_extension(root, source, "KHR_materials_anisotropy");
-    guard anisotropy_extension_ok else { return MaterialHandle { .. }, false; }
+    guard anisotropy_extension_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let anisotropy_strength, anisotropy_strength_ok = glb_number(json::member(anisotropy_extension, "anisotropyStrength"), 0.0);
     let anisotropy_rotation, anisotropy_rotation_ok = glb_number(json::member(anisotropy_extension, "anisotropyRotation"), 0.0);
-    guard anisotropy_strength_ok && anisotropy_rotation_ok && anisotropy_strength >= 0.0 && anisotropy_strength <= 1.0 && anisotropy_rotation >= -3.4e38 && anisotropy_rotation <= 3.4e38 else { return MaterialHandle { .. }, false; }
+    guard anisotropy_strength_ok && anisotropy_rotation_ok && anisotropy_strength >= 0.0 && anisotropy_strength <= 1.0 && anisotropy_rotation >= -3.4e38 && anisotropy_rotation <= 3.4e38 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     var alpha_mode: i32 = 0;
     let mode_node = json::member(source, "alphaMode");
     if mode_node {
         let mode, mode_ok = json::as_string(mode_node);
-        guard mode_ok else { return MaterialHandle { .. }, false; }
+        guard mode_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
         if mode == "MASK" { alpha_mode = 1; }
         else if mode == "BLEND" { alpha_mode = 2; }
-        else { guard mode == "OPAQUE" else { return MaterialHandle { .. }, false; } }
+        else { guard mode == "OPAQUE" else { return MaterialHandle { .. }, TextureHandle { .. }, false; } }
     }
     let cutoff, cutoff_ok = glb_number(json::member(source, "alphaCutoff"), 0.5);
-    guard cutoff_ok && cutoff >= 0.0 && cutoff <= 3.4e38 else { return MaterialHandle { .. }, false; }
+    guard cutoff_ok && cutoff >= 0.0 && cutoff <= 3.4e38 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
     let sided_node = json::member(source, "doubleSided");
     var double_sided = false;
-    if sided_node { let value, valid = json::as_bool(sided_node); guard valid else { return MaterialHandle { .. }, false; } double_sided = value; }
+    if sided_node { let value, valid = json::as_bool(sided_node); guard valid else { return MaterialHandle { .. }, TextureHandle { .. }, false; } double_sided = value; }
     let unlit_node = json::member(json::member(source, "extensions"), "KHR_materials_unlit");
     var unlit = false;
     if unlit_node {
-        guard glb_array_has_string(json::member(root, "extensionsUsed"), "KHR_materials_unlit") else { return MaterialHandle { .. }, false; }
-        guard !specular_extension && !clearcoat_extension && !sheen_extension && !anisotropy_extension else { return MaterialHandle { .. }, false; }
+        guard glb_array_has_string(json::member(root, "extensionsUsed"), "KHR_materials_unlit") else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        guard !specular_extension && !clearcoat_extension && !sheen_extension && !anisotropy_extension else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
         unlit = true;
+    }
+
+    var imported_texture = TextureHandle { .. };
+    var base_color_uv = UvTransform { scale: float2_1, .. };
+    let base_color_info = json::member(pbr, "baseColorTexture");
+    if base_color_info {
+        let texcoord, texcoord_ok = glb_optional_index(json::member(base_color_info, "texCoord"), 0);
+        guard texcoord_ok && texcoord == 0 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        let transform = json::member(json::member(base_color_info, "extensions"), "KHR_texture_transform");
+        if transform {
+            guard glb_array_has_string(json::member(root, "extensionsUsed"), "KHR_texture_transform") else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
+            let transform_texcoord, transform_texcoord_ok = glb_optional_index(json::member(transform, "texCoord"), texcoord);
+            let offset, offset_ok = glb_factor2(json::member(transform, "offset"), float2_0, -3.4e38, 3.4e38);
+            let scale, scale_ok = glb_factor2(json::member(transform, "scale"), float2_1, -3.4e38, 3.4e38);
+            let rotation, rotation_ok = glb_number(json::member(transform, "rotation"), 0.0);
+            guard transform_texcoord_ok && transform_texcoord == 0 && offset_ok && scale_ok && rotation_ok &&
+                  rotation >= -3.4e38 && rotation <= 3.4e38 else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
+            base_color_uv = UvTransform { offset: offset, scale: scale, rotation: rotation as f32, texcoord: 0 };
+        }
+        let texture, texture_ok = glb_native_texture(root, base_color_info, path, bytes, buffer_bases, buffer_sizes);
+        guard texture_ok else { return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_texture = texture;
     }
 
     let id = material_asset_add();
@@ -239,7 +355,9 @@ fn glb_material(root: json::Node?, primitive: json::Node?) -> MaterialHandle, bo
     m.clearcoat_factor = clearcoat_factor as f32; m.clearcoat_roughness = clearcoat_roughness as f32;
     m.sheen_color = sheen_color; m.sheen_roughness = sheen_roughness as f32;
     m.anisotropy_strength = anisotropy_strength as f32; m.anisotropy_rotation = anisotropy_rotation as f32;
-    return material_handle(id), true;
+    m.texture = imported_texture.id;
+    m.base_color_uv = base_color_uv;
+    return material_handle(id), imported_texture, true;
 }
 
 fn glb_array_count(node: json::Node?) -> i64 {
@@ -744,16 +862,16 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
         }
     }
     if transform_node >= 0 { let matrix, valid = glb_node_world_matrix(root, transform_node); guard valid else { return NativeGlbModel { .. }, false; } transform = matrix; }
-    let imported_material, material_ok = glb_material(root, primitive);
+    let imported_material, imported_texture, material_ok = glb_material(root, primitive, path, bytes[..], buffer_bases[..], buffer_sizes[..]);
     guard material_ok else { return NativeGlbModel { .. }, false; }
     let mesh_id = mesh_asset_create(vertices[..], out_indices[..]);
-    if mesh_id < 0 { if material_handle_valid(imported_material) { material_asset_release(imported_material); } return NativeGlbModel { .. }, false; }
+    if mesh_id < 0 { if material_handle_valid(imported_material) { material_asset_release(imported_material); } if texture_handle_valid(imported_texture) { texture_asset_release_handle(imported_texture); } return NativeGlbModel { .. }, false; }
     let node_id = node_asset_add(mesh_id);
-    if node_id < 0 { mesh_asset_release(mesh_id); if material_handle_valid(imported_material) { material_asset_release(imported_material); } return NativeGlbModel { .. }, false; }
+    if node_id < 0 { mesh_asset_release(mesh_id); if material_handle_valid(imported_material) { material_asset_release(imported_material); } if texture_handle_valid(imported_texture) { texture_asset_release_handle(imported_texture); } return NativeGlbModel { .. }, false; }
     if material_handle_valid(imported_material) { node(node_id).material = imported_material.id; }
     node(node_id).local_matrix = transform;
     node(node_id).use_local_matrix = true;
-    return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id), material: imported_material }, true;
+    return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id), material: imported_material, texture: imported_texture }, true;
 }
 
 // Load a primitive by mesh index, using the first node that instances the mesh.
@@ -892,10 +1010,12 @@ fn native_glb_mesh_primitive_material(handle: NativeGlbMeshHandle, primitive_ind
 fn native_glb_dispose(model: NativeGlbModel&) -> bool {
     if node_handle_valid(model.node) { node_asset_release_handle(model.node); }
     if material_handle_valid(model.material) { material_asset_release(model.material); }
+    if texture_handle_valid(model.texture) { texture_asset_release_handle(model.texture); }
     let released = mesh_asset_release_handle(model.mesh);
     model.node = NodeHandle { .. };
     model.mesh = MeshHandle { .. };
     model.material = MaterialHandle { .. };
+    model.texture = TextureHandle { .. };
     return released;
 }
 

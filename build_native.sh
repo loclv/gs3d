@@ -5,26 +5,30 @@
 #   ./build_native.sh          build everything
 #   ./build_native.sh --test   build everything, then run both self-tests
 #
-# Needs only the Goose compiler and a C compiler.
+# Needs Goose, a C compiler, pkg-config, libpng, and libjpeg.
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
 command -v goose >/dev/null || { echo "goose not found: put the Goose compiler on PATH"; exit 1; }
+command -v pkg-config >/dev/null || { echo "pkg-config not found: needed to locate libpng and libjpeg"; exit 1; }
+pkg-config --exists libpng libjpeg || { echo "libpng/libjpeg development packages not found (pkg-config libpng libjpeg)"; exit 1; }
+
+native_cc="$PWD/tools/native_cc.sh"
 
 mkdir -p build
 
 echo "goose -> build/app_native"
-goose build -o build/app_native src/app_native.goose
+goose build --cc "$native_cc" -o build/app_native src/app_native.goose
 
 echo "goose -> build/test_math"
-goose build -o build/test_math src/test_math.goose
+goose build --cc "$native_cc" -o build/test_math src/test_math.goose
 
 echo "goose -> build/test_engine"
-goose build -o build/test_engine src/test_engine.goose
+goose build --cc "$native_cc" -o build/test_engine src/test_engine.goose
 
 echo "goose -> build/test_game"
-goose build -o build/test_game src/test_game.goose
+goose build --cc "$native_cc" -o build/test_game src/test_game.goose
 
 echo "built build/app_native, build/test_math, build/test_engine and build/test_game"
 

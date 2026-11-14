@@ -9,11 +9,53 @@ let NATIVE_TEXTURE_ERROR_IO = 1;
 let NATIVE_TEXTURE_ERROR_UNSUPPORTED_FORMAT = 2;
 let NATIVE_TEXTURE_ERROR_INVALID_IMAGE = 3;
 let NATIVE_TEXTURE_ERROR_UPLOAD = 4;
+let NATIVE_TEXTURE_ERROR_DECODE = 5;
 var g_native_texture_error: i32;
 
 // Returns the result code from the most recent native image load. Each call
 // resets the value first; zero means success. This is process-global state.
 fn native_texture_last_error() -> i32 { return g_native_texture_error; }
+
+// Decode PNG or JPEG memory into a checked sRGB texture on the native CPU
+// backend. Status 1 means unsupported encoding, 2 malformed bytes, 3 decoder
+// allocation/failure. The browser image API is implemented in web/assets.js.
+fn native_texture_load_encoded(encoded: const u8[:]) -> TextureHandle {
+    g_native_texture_error = NATIVE_TEXTURE_ERROR_NONE;
+    let id, status = texture_create_encoded_srgb(encoded);
+    return native_texture_decode_result(id, status);
+}
+
+fn native_texture_load_asset_encoded(encoded: const u8[:]) -> TextureHandle {
+    g_native_texture_error = NATIVE_TEXTURE_ERROR_NONE;
+    let id, status = texture_asset_create_encoded_srgb(encoded);
+    return native_texture_decode_result(id, status);
+}
+
+fn native_texture_decode_result(id: i32, status: i32) -> TextureHandle {
+    if id < 0 {
+        if status == 1 { g_native_texture_error = NATIVE_TEXTURE_ERROR_UNSUPPORTED_FORMAT; }
+        else if status == 2 { g_native_texture_error = NATIVE_TEXTURE_ERROR_INVALID_IMAGE; }
+        else if status == 3 { g_native_texture_error = NATIVE_TEXTURE_ERROR_DECODE; }
+        else { g_native_texture_error = NATIVE_TEXTURE_ERROR_UPLOAD; }
+        return TextureHandle { .. };
+    }
+    return texture_handle(id);
+}
+
+// Read and decode a native PPM, PNG, or JPEG file. PPM P6 remains available
+// through native_texture_load_ppm for callers that want to require that format.
+fn native_texture_load_image(path: const u8[:]) -> TextureHandle {
+    g_native_texture_error = NATIVE_TEXTURE_ERROR_NONE;
+    var bytes: u8[>..] = [];
+    if path.len == 0 || !read_file(path, bytes) {
+        g_native_texture_error = NATIVE_TEXTURE_ERROR_IO;
+        return TextureHandle { .. };
+    }
+    if bytes.len >= 2 && bytes[0] == 80 && bytes[1] == 54 {
+        return native_texture_decode_ppm(bytes[..]);
+    }
+    return native_texture_load_encoded(bytes[..]);
+}
 
 fn native_ppm_whitespace(c: u8) -> bool {
     return c == 9 || c == 10 || c == 11 || c == 12 || c == 13 || c == 32;
@@ -52,6 +94,11 @@ fn native_texture_load_ppm(path: const u8[:]) -> TextureHandle {
         g_native_texture_error = NATIVE_TEXTURE_ERROR_IO;
         return TextureHandle { .. };
     }
+    return native_texture_decode_ppm(bytes[..]);
+}
+
+fn native_texture_decode_ppm(bytes: const u8[:]) -> TextureHandle {
+    g_native_texture_error = NATIVE_TEXTURE_ERROR_NONE;
     if bytes.len < 2 {
         g_native_texture_error = NATIVE_TEXTURE_ERROR_INVALID_IMAGE;
         return TextureHandle { .. };

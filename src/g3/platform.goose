@@ -143,6 +143,9 @@ extern fn g3p_post_process_shader_run(shader: i32, source: i32, destination: i32
 extern fn g3p_texture_width(id: i32) -> i32;
 extern fn g3p_texture_height(id: i32) -> i32;
 extern fn g3p_load_radiance_hdr(id: i32, path: const u8[:]) -> bool;
+// Native CPU backend decodes PNG/JPEG memory and uploads an sRGB texture.
+// Browser assets use the JavaScript decoder instead.
+extern fn g3p_decode_texture_srgb(id: i32, encoded: const u8[:]) -> i32;
 extern fn g3p_release_texture(id: i32);
 // 0 clamp, 1 repeat, 2 mirrored repeat, independently for U and V.
 extern fn g3p_texture_wrap(id: i32, wrap_u: i32, wrap_v: i32);

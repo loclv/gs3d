@@ -1,7 +1,7 @@
 // The C the headless build brings along: the CPU rasterizer behind the
 // engine's `g3p_*` calls (see platform/g3_abi.h). Paths are relative to this
 // file.
-c_sources = ["../platform/g3_soft.c", "../platform/g3_input.c"];
+c_sources = ["../platform/g3_soft.c", "../platform/g3_input.c", "../platform/g3_image.c"];
 c_include = ["../platform"];
 c_libs = ["m"];
 output = "app_native";
