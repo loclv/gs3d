@@ -143,6 +143,15 @@ reference checks passed texture and output-color assertions, then failed at
 `point shadow changes rendered pixels`; the previous committed renderer
 failed the same assertion in this environment.
 
+Instance-buffer updates now retain GPU storage until capacity grows and use
+`bufferSubData` for the span containing changed matrices. A Playwright WebGL
+call trace verified that reducing the visible count from 1,024 to 512 uploads
+zero bytes; growing it to 768 uploads 12,288 bytes instead of the previous
+36,864-byte full upload. Editing one matrix in a two-instance batch uploads
+48 bytes at offset 48. These checks reported no WebGL errors, and all web
+targets passed the 16-unit texture-budget checks. This reduces transfer volume
+for changing batches; it does not change the static-scene FPS measurement.
+
 ### Engine demo
 
 ```bash

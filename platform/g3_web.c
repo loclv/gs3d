@@ -146,6 +146,7 @@ static float *instance_data;
 static size_t instance_capacity;
 static int32_t instance_data_count;
 static int instance_data_valid;
+static size_t instance_gpu_capacity;
 static int32_t scene_draw_calls;
 static g3_draw_item cached_material_item;
 static GLuint cached_material_program;
@@ -940,7 +941,7 @@ void g3p_shutdown(void) {
     if (spot_shadow_texture) glDeleteTextures(1, &spot_shadow_texture);
     if (instance_vbo) glDeleteBuffers(1, &instance_vbo);
     free(instance_data); instance_data = NULL; instance_capacity = 0;
-    instance_data_count = 0; instance_data_valid = 0;
+    instance_data_count = 0; instance_data_valid = 0; instance_gpu_capacity = 0;
     instance_vbo = 0; scene_draw_calls = 0;
     cached_material_valid = 0; cached_material_program = 0;
     if (brdf_lut_texture) glDeleteTextures(1,&brdf_lut_texture);
@@ -1238,27 +1239,38 @@ static int upload_instance_data(g3_draw_item_slice items, int64_t first, int32_t
         instance_capacity = float_count;
         instance_data_valid = 0;
     }
-    int changed = !instance_data_valid || instance_data_count != count;
+    int32_t first_changed = count, last_changed = -1;
     for (int32_t i = 0; i < count; i++) {
         float *dst = instance_data + (size_t)i * 12;
         const float *m = items.data[first + i].model.m;
+        int changed = !instance_data_valid || i >= instance_data_count;
         for (int row = 0; row < 3; row++) {
             const float values[4] = { m[row], m[4 + row], m[8 + row], m[12 + row] };
             for (int column = 0; column < 4; column++) {
                 size_t at = (size_t)row * 4 + column;
-                if (!instance_data_valid || dst[at] != values[column]) changed = 1;
+                if (!instance_data_valid || i >= instance_data_count || dst[at] != values[column]) changed = 1;
                 dst[at] = values[column];
             }
+        }
+        if (changed) {
+            if (first_changed == count) first_changed = i;
+            last_changed = i;
         }
     }
     if (!instance_vbo) glGenBuffers(1, &instance_vbo);
     if (!instance_vbo) return 0;
     glBindBuffer(GL_ARRAY_BUFFER, instance_vbo);
-    if (changed) {
+    if (float_count > instance_gpu_capacity) {
         glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(float_count * sizeof(float)), instance_data, GL_STREAM_DRAW);
-        instance_data_valid = 1;
-        instance_data_count = count;
+        instance_gpu_capacity = float_count;
+    } else if (last_changed >= first_changed) {
+        size_t offset = (size_t)first_changed * 12;
+        size_t length = (size_t)(last_changed - first_changed + 1) * 12;
+        glBufferSubData(GL_ARRAY_BUFFER, (GLintptr)(offset * sizeof(float)),
+                        (GLsizeiptr)(length * sizeof(float)), instance_data + offset);
     }
+    instance_data_valid = 1;
+    instance_data_count = count;
     /* Polling GL errors here stalls the driver every frame. The backend
        already checks and reports the first frame's error after drawing. */
     return 1;
