@@ -172,6 +172,31 @@ fn glb_array_has_string(node: json::Node?, value: const u8[:]) -> bool {
     return false;
 }
 
+fn glb_required_extension_supported(name: const u8[:]) -> bool {
+    return name == "KHR_mesh_quantization" || name == "KHR_texture_transform" ||
+           name == "KHR_materials_unlit" || name == "KHR_materials_emissive_strength" ||
+           name == "KHR_materials_ior" || name == "KHR_materials_specular" ||
+           name == "KHR_materials_clearcoat" || name == "KHR_materials_sheen" ||
+           name == "KHR_materials_anisotropy" || name == "KHR_lights_punctual";
+}
+
+// Required extensions must be understood before loading any selected asset
+// content. Unknown or malformed declarations fail closed.
+fn glb_required_extensions_supported(root: json::Node?) -> bool {
+    let required = json::member(root, "extensionsRequired");
+    if !required { return true; }
+    match required.val {
+        Arr values => {
+            for i in 0..values.count {
+                let name, valid = json::as_string(glb_json_element(required, i));
+                if !valid || !glb_required_extension_supported(name) { return false; }
+            }
+        },
+        _ => { return false; }
+    }
+    return true;
+}
+
 fn glb_material_extension(root: json::Node?, source: json::Node?, name: const u8[:]) -> json::Node?, bool {
     let extension = json::member(json::member(source, "extensions"), name);
     if extension {
@@ -1120,7 +1145,7 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     var doc: json::Node[>..] = [];
     var decoded: u8[>..] = [];
     let root, parse_error = json::parse(bytes[json_start..json_start + json_size], doc, decoded);
-    guard root && parse_error.len == 0 else { return NativeGlbModel { .. }, false; }
+    guard root && parse_error.len == 0 && glb_required_extensions_supported(root) else { return NativeGlbModel { .. }, false; }
     let asset = json::member(root, "asset");
     let version, version_ok = json::as_string(json::member(asset, "version"));
     let buffers = json::member(root, "buffers");
@@ -1976,7 +2001,7 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
     var doc: json::Node[>..] = [];
     var decoded: u8[>..] = [];
     let root, parse_error = json::parse(bytes[json_start..json_start + json_size], doc, decoded);
-    guard root && parse_error.len == 0 else { return NativeGlbSceneHandle { .. }, false; }
+    guard root && parse_error.len == 0 && glb_required_extensions_supported(root) else { return NativeGlbSceneHandle { .. }, false; }
     var animation_buffer_bases: i64[>..] = [];
     var animation_buffer_sizes: i64[>..] = [];
     if glb_array_count(json::member(root, "animations")) > 0 {

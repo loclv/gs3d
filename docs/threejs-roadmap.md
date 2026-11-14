@@ -45,7 +45,8 @@ skeletal animation. Prioritize work in this order:
    image loading, rollback, scene disposal, and repeated-load reuse. Native CPU
    skinning updates retained geometry and bounds; the browser path uses GPU
    palettes. Add matching fixtures and lifecycle checks when expanding this
-   supported subset.
+   supported subset. Native loaders reject malformed or unsupported required
+   extension lists before creating scene resources.
 3. **Finish package adoption.** The local consumer example at
    `web/examples/model-loader/` uses both package subpaths, accepts a CORS-
    enabled remote model URL, reports load errors, preserves the current model

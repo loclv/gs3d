@@ -185,6 +185,14 @@ loads roll back previously created nodes, meshes, cameras, lights, animation
 tracks, skin data, and morph data. Unlike native image loading, native glTF loading does
 not currently expose a detailed last-error code.
 
+Native glTF loaders reject malformed `extensionsRequired` declarations and
+required extensions outside the implemented native subset before creating
+scene resources. Supported required extensions are mesh quantization, texture
+transforms on `TEXCOORD_0`, the documented unlit, emissive-strength, IOR,
+specular, clearcoat, sheen and anisotropy material extensions, and punctual
+lights in the scene loader. Unsupported optional material or texture extensions
+are rejected when encountered.
+
 ```goose
 let loaded_scene, scene_ok = g3::native_glb_load_scene("model.glb", -1);
 guard scene_ok else { print("could not load the default scene"); return; }
