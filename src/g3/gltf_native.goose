@@ -189,7 +189,8 @@ fn glb_required_extensions_supported(root: json::Node?) -> bool {
         Arr values => {
             for i in 0..values.count {
                 let name, valid = json::as_string(glb_json_element(required, i));
-                if !valid || !glb_required_extension_supported(name) { return false; }
+                if !valid || !glb_required_extension_supported(name) ||
+                   !glb_array_has_string(json::member(root, "extensionsUsed"), name) { return false; }
             }
         },
         _ => { return false; }

@@ -337,16 +337,22 @@ fn case_native_glb_load() {
     flat_camera();
     var required_extension_doc: json::Node[>..] = [];
     var required_extension_decoded: u8[>..] = [];
-    let supported_required_root, supported_required_error = json::parse("{\"extensionsRequired\":[\"KHR_mesh_quantization\",\"KHR_materials_unlit\"]}", required_extension_doc, required_extension_decoded);
+    let supported_required_root, supported_required_error = json::parse("{\"extensionsUsed\":[\"KHR_mesh_quantization\",\"KHR_materials_unlit\"],\"extensionsRequired\":[\"KHR_mesh_quantization\",\"KHR_materials_unlit\"]}", required_extension_doc, required_extension_decoded);
     testing::check(supported_required_root && supported_required_error.len == 0 &&
                    g3::glb_required_extensions_supported(supported_required_root),
                    "native GLB accepts supported required extensions");
     var unsupported_required_doc: json::Node[>..] = [];
     var unsupported_required_decoded: u8[>..] = [];
-    let unsupported_required_root, unsupported_required_error = json::parse("{\"extensionsRequired\":[\"EXT_mesh_gpu_instancing\"]}", unsupported_required_doc, unsupported_required_decoded);
+    let unsupported_required_root, unsupported_required_error = json::parse("{\"extensionsUsed\":[\"EXT_mesh_gpu_instancing\"],\"extensionsRequired\":[\"EXT_mesh_gpu_instancing\"]}", unsupported_required_doc, unsupported_required_decoded);
     testing::check(unsupported_required_root && unsupported_required_error.len == 0 &&
                    !g3::glb_required_extensions_supported(unsupported_required_root),
                    "native GLB rejects unsupported required extensions");
+    var undeclared_required_doc: json::Node[>..] = [];
+    var undeclared_required_decoded: u8[>..] = [];
+    let undeclared_required_root, undeclared_required_error = json::parse("{\"extensionsRequired\":[\"KHR_mesh_quantization\"]}", undeclared_required_doc, undeclared_required_decoded);
+    testing::check(undeclared_required_root && undeclared_required_error.len == 0 &&
+                   !g3::glb_required_extensions_supported(undeclared_required_root),
+                   "native GLB requires each required extension to also be declared as used");
     var malformed_required_doc: json::Node[>..] = [];
     var malformed_required_decoded: u8[>..] = [];
     let malformed_required_root, malformed_required_error = json::parse("{\"extensionsRequired\":\"KHR_mesh_quantization\"}", malformed_required_doc, malformed_required_decoded);

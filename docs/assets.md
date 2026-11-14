@@ -185,9 +185,10 @@ loads roll back previously created nodes, meshes, cameras, lights, animation
 tracks, skin data, and morph data. Unlike native image loading, native glTF loading does
 not currently expose a detailed last-error code.
 
-Native glTF loaders reject malformed `extensionsRequired` declarations and
-required extensions outside the implemented native subset before creating
-scene resources. Supported required extensions are mesh quantization, texture
+Native glTF loaders reject malformed `extensionsRequired` declarations,
+required extensions missing from `extensionsUsed`, and extensions outside the
+implemented native subset before creating scene resources. Supported required
+extensions are mesh quantization, texture
 transforms on `TEXCOORD_0`, the documented unlit, emissive-strength, IOR,
 specular, clearcoat, sheen and anisotropy material extensions, and punctual
 lights in the scene loader. Unsupported optional material or texture extensions
