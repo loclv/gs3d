@@ -66,7 +66,8 @@ coupling the controls to a camera implementation. Call `dispose()` when the
 canvas or viewer is removed.
 
 Run `npm test` in this directory to exercise asset parsing and lifecycle
-against a fake engine and the orbit controls against a fake canvas. Run
+against a fake engine, orbit controls against a fake canvas, and package
+subpath/type-declaration resolution. Run
 These tests do not compile shaders or verify WebGL output. From the repository
 checkout, run `node test_build_exports.mjs` to check the browser build's host
 exports and `node test_viewer_import_map.mjs` to check that the local viewer
