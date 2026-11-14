@@ -7,8 +7,8 @@ then pass that initialized module to these helpers. In this repository, use
 `./build_web.sh` to build the sample applications.
 
 ```js
-import { loadGLTF, setOutputColorSpace, setFXAA, AssetError } from 'goose3d';
-import { createOrbitControls } from 'goose3d/orbit-controls';
+import { loadGLTF, setOutputColorSpace, setFXAA, AssetError } from 'gs3d';
+import { createOrbitControls } from 'gs3d/orbit-controls';
 
 setOutputColorSpace(engine, 'srgb');
 setFXAA(engine, true);
