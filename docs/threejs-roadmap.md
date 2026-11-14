@@ -44,11 +44,12 @@ skeletal animation. Prioritize work in this order:
    skinning updates retained geometry and bounds; the browser path uses GPU
    palettes. Add matching fixtures and lifecycle checks when expanding this
    supported subset.
-3. **Finish package adoption.** Publish the package with its existing
-   subpaths and TypeScript declarations, then provide a minimal browser example
-   that loads a remote textured model, reports load errors, and disposes it
-   cleanly. Keep the sample asset and its license/source information with the
-   example.
+3. **Finish package adoption.** The local consumer example at
+   `web/examples/model-loader/` uses both package subpaths, accepts a CORS-
+   enabled remote model URL, reports load errors, and disposes resources. It
+   defaults to the bundled textured sample. Still publish the package with its
+   existing subpaths and TypeScript declarations, and add a specifically
+   licensed remote sample with source information.
 4. **Expand Three.js coverage from demonstrated use cases.** Add renderer or
    asset features when a concrete viewer or game needs them. Record unsupported
    extensions and rendering differences in the docs instead of implying full
@@ -288,8 +289,9 @@ Tests cover animation interpolation, skinning, and camera projection.
   plus orbit-control input checks against a fake canvas through the published
   package subpath; the repository-only `test_build_exports.mjs` check verifies
   that the WebAssembly build exports the host functions the helpers call.
-  Publish the package, add more runnable examples, and add continuous browser
-  rendering tests. The bundled sample and local browser check page now exercise
+  A runnable consumer example accepts remote model URLs and documents CORS and
+  lifecycle behavior. Publish the package and add a specifically licensed
+  remote sample. The bundled sample and local browser check page now exercise
   the core integration paths, but are not yet run continuously in browser
   automation. Add native asset loading when native interactive applications
   are a target.

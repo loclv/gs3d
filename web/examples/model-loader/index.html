@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Goose 3D asset package example</title>
+<style>
+  body { margin: 0; background: #111820; color: #edf3f3; font: 14px/1.5 system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  .panel { position: fixed; inset: 16px auto auto 16px; width: min(360px, calc(100vw - 64px)); padding: 16px; border-radius: 8px; background: #101a20e8; }
+  h1 { margin: 0 0 6px; font-size: 20px; }
+  p { color: #c6d5d5; }
+  label { display: block; margin: 8px 0 4px; }
+  input, select, button { box-sizing: border-box; width: 100%; padding: 8px; border-radius: 4px; }
+  #status { min-height: 3em; color: #ffe6a5; white-space: pre-wrap; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "goose-3d-browser-assets": "../../assets.js",
+    "goose-3d-browser-assets/orbit-controls": "../../orbit-controls.js"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="canvas" aria-label="Interactive glTF model"></canvas>
+<section class="panel">
+  <h1>Load a glTF model</h1>
+  <p>Enter a GLB or glTF URL. Remote files need CORS access; external glTF buffers and images must also allow cross-origin requests. Drag to orbit, scroll to zoom.</p>
+  <form id="loader-form">
+    <label for="model-url">Model URL</label>
+    <input id="model-url" type="url" value="../../viewer/sample.glb" required>
+    <button id="load" type="submit">Load model</button>
+  </form>
+  <label for="camera">Camera</label>
+  <select id="camera"><option value="default">Viewer camera</option></select>
+  <p id="status" role="status" aria-live="polite">Starting renderer…</p>
+</section>
+<script type="module" src="./model-loader.js"></script>
+</body>
+</html>

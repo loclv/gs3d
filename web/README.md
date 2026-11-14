@@ -53,6 +53,12 @@ disposal, open `/viewer/reference-checks.html` from that local server. Results
 are reported in the page and in `window.__g3ReferenceChecks` for a browser
 automation runner.
 
+The package consumer example is at `/examples/model-loader/`. It defaults to
+the bundled textured GLB and accepts `?model=<URL>` or an entered URL for a
+remote glTF/GLB with CORS enabled. It shows asset errors in the page, keeps the
+current model if a replacement fails, and disposes model and control resources
+when replacing or unloading the page.
+
 `createOrbitControls` handles pointer orbit, right-button or shift-drag pan,
 two-finger pinch and pan, wheel zoom, keyboard camera controls, and click
 selection. Its callbacks let the application apply camera changes without
