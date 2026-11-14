@@ -634,19 +634,19 @@ fn case_native_glb_load() {
                    !bad_buffer_loaded && bad_buffer_model.mesh.id < 0 && !bad_data_uri_loaded && bad_data_uri_model.mesh.id < 0,
                    "native JSON glTF rejects unsafe, missing, malformed, and out-of-range buffers without allocating resources");
     let ushort_bytes: u8[8] = [0, 0, 255, 255, 0, 128, 0, 64];
-    let ushort_color, ushort_color_ok = g3::glb_vertex_color(ushort_bytes[..], 0, g3::GlbAccessor { stride: 8, components: 4, .. }, 5123, 0);
+    let ushort_color, ushort_color_ok = g3::glb_vertex_color(ushort_bytes[..], 0, g3::GlbAccessor { stride: 8, components: 4, has_base: true, .. }, 5123, 0);
     testing::check(ushort_color_ok && abs(ushort_color.x) < 0.001 && abs(ushort_color.y - 1.0) < 0.001 &&
                    abs(ushort_color.z - 0.5) < 0.001,
                    "native GLB decodes normalized unsigned-short COLOR_0 RGB");
     testing::check(abs(ushort_color.w - 0.25) < 0.001,
                    "native GLB decodes normalized unsigned-short COLOR_0 alpha");
     let float_bytes: u8[12] = [0, 0, 128, 63, 0, 0, 0, 63, 0, 0, 128, 62];
-    let float_color, float_color_ok = g3::glb_vertex_color(float_bytes[..], 0, g3::GlbAccessor { stride: 12, components: 3, .. }, 5126, 0);
+    let float_color, float_color_ok = g3::glb_vertex_color(float_bytes[..], 0, g3::GlbAccessor { stride: 12, components: 3, has_base: true, .. }, 5126, 0);
     testing::check(float_color_ok && abs(float_color.x - 1.0) < 0.001 && abs(float_color.y - 0.5) < 0.001 &&
                    abs(float_color.z - 0.25) < 0.001 && float_color.w == 1.0,
                    "native GLB decodes float VEC3 COLOR_0 with implicit opaque alpha");
     let tangent_bytes: u8[16] = [0, 0, 128, 63, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 63];
-    let tangent, tangent_ok = g3::glb_vertex_tangent(tangent_bytes[..], 0, g3::GlbAccessor { stride: 16, components: 4, .. }, 0);
+    let tangent, tangent_ok = g3::glb_vertex_tangent(tangent_bytes[..], 0, g3::GlbAccessor { stride: 16, components: 4, has_base: true, .. }, 0);
     testing::check(tangent_ok && tangent.x == 1.0 && tangent.y == 0.0 && tangent.z == 0.0 && tangent.w == 1.0,
                    "native GLB decodes authored float32 tangent frames");
     var quantized_doc: json::Node[>..] = [];
@@ -654,15 +654,29 @@ fn case_native_glb_load() {
     let quantized_root, quantized_error = json::parse("{\"extensionsUsed\":[\"KHR_mesh_quantization\"],\"accessors\":[{\"bufferView\":0,\"componentType\":5122,\"normalized\":true,\"count\":2,\"type\":\"VEC3\"}],\"bufferViews\":[{\"byteLength\":16,\"byteStride\":8}]}", quantized_doc, quantized_decoded);
     let quantized_bases: i64[1] = [0];
     let quantized_sizes: i64[1] = [16];
-    let undeclared_quantized, undeclared_quantized_ok = g3::glb_attribute_accessor(quantized_root, quantized_bases[..], quantized_sizes[..], 0, "POSITION", "VEC3", 3);
+    var quantized_bytes: u8[>..] = [];
+    let undeclared_quantized, undeclared_quantized_ok = g3::glb_attribute_accessor(quantized_root, quantized_bytes[..], quantized_bases[..], quantized_sizes[..], 0, "POSITION", "VEC3", 3);
     testing::check(quantized_root && quantized_error.len == 0 && !undeclared_quantized_ok,
                    "native GLB requires KHR_mesh_quantization in extensionsRequired");
     let signed_quantized_bytes: u8[6] = [0, 128, 255, 127, 0, 0];
-    let signed_quantized_attr = g3::GlbAttribute { stride: 6, count: 1, components: 3, component_type: 5122, normalized: true, .. };
+    let signed_quantized_attr = g3::GlbAttribute { stride: 6, count: 1, components: 3, component_type: 5122, normalized: true, has_base: true, .. };
     let qx, qx_ok = g3::glb_attribute_value(signed_quantized_bytes[..], 0, signed_quantized_attr, 0, 0);
     let qy, qy_ok = g3::glb_attribute_value(signed_quantized_bytes[..], 0, signed_quantized_attr, 0, 1);
     testing::check(qx_ok && qy_ok && qx == -1.0 && qy == 1.0,
                    "native GLB normalizes signed-short endpoints without overflow");
+    var sparse_doc: json::Node[>..] = [];
+    var sparse_decoded: u8[>..] = [];
+    let sparse_root, sparse_error = json::parse("{\"bufferViews\":[{\"byteLength\":1},{\"byteOffset\":4,\"byteLength\":12}],\"accessors\":[{\"componentType\":5126,\"count\":2,\"type\":\"VEC3\",\"sparse\":{\"count\":1,\"indices\":{\"bufferView\":0,\"componentType\":5121},\"values\":{\"bufferView\":1}}}]}", sparse_doc, sparse_decoded);
+    let sparse_bytes: u8[16] = [1, 0, 0, 0, 0, 0, 0, 64, 0, 0, 64, 64, 0, 0, 128, 64];
+    let sparse_bases: i64[1] = [0];
+    let sparse_sizes: i64[1] = [16];
+    let sparse_position, sparse_position_ok = g3::glb_attribute_accessor(sparse_root, sparse_bytes[..], sparse_bases[..], sparse_sizes[..], 0, "POSITION", "VEC3", 3);
+    let zero_x, zero_x_ok = g3::glb_attribute_value(sparse_bytes[..], 0, sparse_position, 0, 0);
+    let sparse_x, sparse_x_ok = g3::glb_attribute_value(sparse_bytes[..], 0, sparse_position, 1, 0);
+    let sparse_z, sparse_z_ok = g3::glb_attribute_value(sparse_bytes[..], 0, sparse_position, 1, 2);
+    testing::check(sparse_root && sparse_error.len == 0 && sparse_position_ok && zero_x_ok && sparse_x_ok && sparse_z_ok &&
+                   zero_x == 0.0 && sparse_x == 2.0 && sparse_z == 4.0,
+                   "native sparse-only accessors zero-fill missing elements and apply sorted replacements");
     let quantized_model, quantized_loaded = g3::native_glb_load_primitive("testdata/native-quantized.glb", 0, 0);
     g3::frame(1.0 / 60.0);
     let quantized_stats = g3::stats();
@@ -670,6 +684,17 @@ fn case_native_glb_load() {
                    g3::texture_handle_valid(quantized_model.texture),
                    "native GLB decodes quantized geometry and imports its JPEG texture");
     testing::check(g3::native_glb_dispose(quantized_model), "native quantized GLB resources dispose cleanly");
+    let sparse_model, sparse_loaded = g3::native_glb_load_primitive("testdata/native-sparse/mesh.gltf", 0, 0);
+    if sparse_loaded && g3::node_handle_valid(sparse_model.node) { g3::node(sparse_model.node.index).unlit = true; }
+    g3::frame(1.0 / 60.0);
+    let sparse_stats = g3::stats();
+    let sparse_pixel = g3::read_pixel(200, 200);
+    testing::check(sparse_loaded && sparse_stats.drawn == 1 && sparse_stats.triangles == 1 && sparse_pixel != 0,
+                   "native JSON glTF loads sparse-only positions and indices plus sparse COLOR_0 overlays");
+    testing::check(g3::native_glb_dispose(sparse_model), "native sparse-accessor model resources dispose cleanly");
+    let invalid_sparse, invalid_sparse_loaded = g3::native_glb_load_primitive("testdata/native-sparse/invalid-indices.gltf", 0, 0);
+    testing::check(!invalid_sparse_loaded && invalid_sparse.mesh.id < 0,
+                   "native glTF rejects duplicate or unordered sparse indices before allocating a mesh");
     let absent, missing_file = g3::native_glb_load_primitive("testdata/missing.glb", 0, 0);
     testing::check(!missing_file && absent.mesh.id < 0, "native GLB loader reports a missing asset without creating resources");
 }

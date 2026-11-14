@@ -140,9 +140,10 @@ extension maps retain linear channel values. Texture-coordinate sets beyond
 material, and texture-map handles; dispose the model to release them. External buffer/image paths
 containing schemes, absolute paths, encoded URI components, query strings,
 fragments, or dot path segments are rejected. Data URIs must use base64
-encoding. The primitive APIs do not load skins, animations, or sparse
-accessors; use the scene API below when the source node hierarchy must be
-retained.
+encoding. Dense and sparse POSITION, NORMAL, TANGENT, TEXCOORD_0, COLOR_0, and
+index accessors are supported, including sparse-only zero-initialized data.
+The primitive APIs do not load skins or animations; use the scene API below
+when the source node hierarchy must be retained.
 Browser applications should use the broader `web/assets.js` loader.
 
 For static multi-node content, `native_glb_load_scene(path, scene_index)` loads

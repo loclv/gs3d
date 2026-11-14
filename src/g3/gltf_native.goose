@@ -29,8 +29,9 @@ struct NativeGlbScenePartSlot { scene_id: i32, scene_generation: i32, mesh_index
 struct NativeGlbSceneNodeSlot { scene_id: i32, scene_generation: i32, gltf_index: i32, node: NodeHandle, active: bool }
 struct NativeGlbSceneCameraSlot { scene_id: i32, scene_generation: i32, camera_index: i32, camera_id: i64, active: bool }
 struct NativeGlbSceneLight { kind: i32, position: float3, direction: float3, color: float3, range: f32, inner: f32, outer: f32 }
-struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64 }
-struct GlbAttribute { offset: i64, stride: i64, count: i64, components: i64, component_type: i64, normalized: bool }
+struct GlbSparseAccessor { count: i64, indices_offset: i64, indices_type: i64, values_offset: i64 }
+struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64, has_base: bool, sparse: GlbSparseAccessor }
+struct GlbAttribute { offset: i64, stride: i64, count: i64, components: i64, component_type: i64, normalized: bool, has_base: bool, sparse: GlbSparseAccessor }
 
 var g_native_glb_meshes: NativeGlbMeshSlot[>..];
 var g_native_glb_parts: NativeGlbPartSlot[>..];
@@ -538,13 +539,67 @@ fn glb_array_count(node: json::Node?) -> i64 {
     match node.val { Arr a => { return a.count; }, _ => { return 0; } }
 }
 
-fn glb_attribute_accessor(doc: json::Node?, buffer_bases: const i64[:], buffer_sizes: const i64[:], index: i64, semantic: const u8[:], type_name: const u8[:], components: i64) -> GlbAttribute, bool {
+fn glb_sparse_index(bytes: const u8[:], sparse: GlbSparseAccessor, sparse_index: i64) -> i64 {
+    let at = sparse.indices_offset + sparse_index * (if sparse.indices_type == 5121 { 1 } else if sparse.indices_type == 5123 { 2 } else { 4 });
+    if sparse.indices_type == 5121 { return bytes[at]; }
+    if sparse.indices_type == 5123 { return bytes[at] | bytes[at + 1] << 8; }
+    return glb_u32(bytes, at);
+}
+
+fn glb_sparse_accessor(doc: json::Node?, bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:], accessor: json::Node?, accessor_count: i64, component_bytes: i64, packed_size: i64) -> GlbSparseAccessor, bool {
+    let sparse_node = json::member(accessor, "sparse");
+    if !sparse_node { return GlbSparseAccessor { .. }, true; }
+    let sparse_count, count_ok = glb_json_index(json::member(sparse_node, "count"));
+    let indices = json::member(sparse_node, "indices");
+    let index_view, index_view_ok = glb_json_index(json::member(indices, "bufferView"));
+    let index_type, index_type_ok = glb_json_index(json::member(indices, "componentType"));
+    let index_view_node = glb_json_element(json::member(doc, "bufferViews"), index_view);
+    let index_buffer, index_buffer_ok = glb_optional_index(json::member(index_view_node, "buffer"), 0);
+    let index_view_offset, index_offset_ok = glb_optional_index(json::member(index_view_node, "byteOffset"), 0);
+    let index_view_length, index_length_ok = glb_json_index(json::member(index_view_node, "byteLength"));
+    let index_byte_offset, index_byte_offset_ok = glb_optional_index(json::member(indices, "byteOffset"), 0);
+    let index_bytes: i64 = if index_type == 5121 { 1 } else if index_type == 5123 { 2 } else if index_type == 5125 { 4 } else { 0 };
+    guard count_ok && sparse_count > 0 && sparse_count <= accessor_count && indices && index_view_ok && index_type_ok && index_bytes > 0 &&
+          index_view_node && index_buffer_ok && index_buffer >= 0 && index_buffer < buffer_bases.len && index_buffer < buffer_sizes.len &&
+          index_offset_ok && index_view_offset >= 0 && index_length_ok && index_view_length > 0 && index_byte_offset_ok && index_byte_offset >= 0 &&
+          !json::member(index_view_node, "byteStride") && (index_view_offset + index_byte_offset) % index_bytes == 0 &&
+          index_byte_offset <= index_view_length && sparse_count <= (index_view_length - index_byte_offset) / index_bytes &&
+          index_view_offset + index_view_length <= buffer_sizes[index_buffer]
+    else { return GlbSparseAccessor { .. }, false; }
+
+    let values = json::member(sparse_node, "values");
+    let value_view, value_view_ok = glb_json_index(json::member(values, "bufferView"));
+    let value_view_node = glb_json_element(json::member(doc, "bufferViews"), value_view);
+    let value_buffer, value_buffer_ok = glb_optional_index(json::member(value_view_node, "buffer"), 0);
+    let value_view_offset, value_offset_ok = glb_optional_index(json::member(value_view_node, "byteOffset"), 0);
+    let value_view_length, value_length_ok = glb_json_index(json::member(value_view_node, "byteLength"));
+    let value_byte_offset, value_byte_offset_ok = glb_optional_index(json::member(values, "byteOffset"), 0);
+    guard values && value_view_ok && value_view_node && value_buffer_ok && value_buffer >= 0 && value_buffer < buffer_bases.len && value_buffer < buffer_sizes.len &&
+          value_offset_ok && value_view_offset >= 0 && value_length_ok && value_view_length > 0 && value_byte_offset_ok && value_byte_offset >= 0 &&
+          !json::member(value_view_node, "byteStride") && (value_view_offset + value_byte_offset) % component_bytes == 0 &&
+          value_byte_offset <= value_view_length && sparse_count <= (value_view_length - value_byte_offset) / packed_size &&
+          value_view_offset + value_view_length <= buffer_sizes[value_buffer]
+    else { return GlbSparseAccessor { .. }, false; }
+
+    let sparse = GlbSparseAccessor { count: sparse_count,
+                                     indices_offset: buffer_bases[index_buffer] + index_view_offset + index_byte_offset,
+                                     indices_type: index_type,
+                                     values_offset: buffer_bases[value_buffer] + value_view_offset + value_byte_offset };
+    var previous: i64 = -1;
+    for i in 0..sparse_count {
+        let sparse_vertex = glb_sparse_index(bytes, sparse, i);
+        guard sparse_vertex > previous && sparse_vertex < accessor_count else { return GlbSparseAccessor { .. }, false; }
+        previous = sparse_vertex;
+    }
+    return sparse, true;
+}
+
+fn glb_attribute_accessor(doc: json::Node?, bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:], index: i64, semantic: const u8[:], type_name: const u8[:], components: i64) -> GlbAttribute, bool {
     let accessor = glb_json_element(json::member(doc, "accessors"), index);
     let views = json::member(doc, "bufferViews");
     guard accessor && views else { return GlbAttribute { .. }, false; }
     let count, count_ok = glb_json_index(json::member(accessor, "count"));
     let component_type, component_ok = glb_json_index(json::member(accessor, "componentType"));
-    let view_index, view_ok = glb_json_index(json::member(accessor, "bufferView"));
     let actual_type, type_ok = json::as_string(json::member(accessor, "type"));
     let normalized_node = json::member(accessor, "normalized");
     var normalized = false;
@@ -561,33 +616,47 @@ fn glb_attribute_accessor(doc: json::Node?, buffer_bases: const i64[:], buffer_s
                     else if is_normal || is_tangent { (component_type == 5120 || component_type == 5122) && normalized }
                     else if is_texcoord { integer_component && !core_texcoord }
                     else { false };
-    guard count_ok && count > 0 && count <= 1048576 && component_ok && view_ok && type_ok && actual_type == type_name &&
-          component_bytes > 0 && (core_float || core_texcoord || quantized) && !json::member(accessor, "sparse")
+    guard count_ok && count > 0 && count <= 1048576 && component_ok && type_ok && actual_type == type_name &&
+          component_bytes > 0 && (core_float || core_texcoord || quantized)
     else { return GlbAttribute { .. }, false; }
     if quantized {
         guard glb_array_has_string(json::member(doc, "extensionsUsed"), "KHR_mesh_quantization") &&
               glb_array_has_string(json::member(doc, "extensionsRequired"), "KHR_mesh_quantization")
         else { return GlbAttribute { .. }, false; }
     }
-    let view = glb_json_element(views, view_index);
-    guard view else { return GlbAttribute { .. }, false; }
-    let buffer_index, buffer_ok = glb_optional_index(json::member(view, "buffer"), 0);
-    let view_offset, view_offset_ok = glb_optional_index(json::member(view, "byteOffset"), 0);
-    let view_length, length_ok = glb_json_index(json::member(view, "byteLength"));
-    let accessor_offset, accessor_offset_ok = glb_optional_index(json::member(accessor, "byteOffset"), 0);
     let packed_size = components * component_bytes;
-    let stride, stride_ok = glb_optional_index(json::member(view, "byteStride"), packed_size);
-    guard buffer_ok && buffer_index >= 0 && buffer_index < buffer_bases.len && buffer_index < buffer_sizes.len && view_offset_ok && view_offset >= 0 && length_ok && view_length > 0 &&
-          accessor_offset_ok && accessor_offset >= 0 && stride_ok && stride >= packed_size && stride <= 252 &&
-          (!json::member(view, "byteStride") || (stride >= 4 && stride % 4 == 0)) &&
-          view_offset % component_bytes == 0 && accessor_offset % component_bytes == 0
-    else { return GlbAttribute { .. }, false; }
-    let start = view_offset + accessor_offset;
-    if quantized { guard start % 4 == 0 && (count <= 1 || stride % 4 == 0) else { return GlbAttribute { .. }, false; } }
-    let last = accessor_offset + (count - 1) * stride + packed_size;
-    guard last <= view_length && view_offset + view_length <= buffer_sizes[buffer_index] else { return GlbAttribute { .. }, false; }
-    return GlbAttribute { offset: buffer_bases[buffer_index] + start, stride: stride, count: count, components: components,
-                          component_type: component_type, normalized: normalized }, true;
+    var base_offset: i64 = 0;
+    var stride = packed_size;
+    var has_base = false;
+    let view_node = json::member(accessor, "bufferView");
+    if view_node {
+        let view_index, view_ok = glb_json_index(view_node);
+        let view = glb_json_element(views, view_index);
+        let buffer_index, buffer_ok = glb_optional_index(json::member(view, "buffer"), 0);
+        let view_offset, view_offset_ok = glb_optional_index(json::member(view, "byteOffset"), 0);
+        let view_length, length_ok = glb_json_index(json::member(view, "byteLength"));
+        let accessor_offset, accessor_offset_ok = glb_optional_index(json::member(accessor, "byteOffset"), 0);
+        let stride_value, stride_ok = glb_optional_index(json::member(view, "byteStride"), packed_size);
+        guard view_ok && view && buffer_ok && buffer_index >= 0 && buffer_index < buffer_bases.len && buffer_index < buffer_sizes.len &&
+              view_offset_ok && view_offset >= 0 && length_ok && view_length > 0 && accessor_offset_ok && accessor_offset >= 0 &&
+              stride_ok && stride_value >= packed_size && stride_value <= 252 &&
+              (!json::member(view, "byteStride") || (stride_value >= 4 && stride_value % 4 == 0)) &&
+              view_offset % component_bytes == 0 && accessor_offset % component_bytes == 0
+        else { return GlbAttribute { .. }, false; }
+        let start = view_offset + accessor_offset;
+        if quantized { guard start % 4 == 0 && (count <= 1 || stride_value % 4 == 0) else { return GlbAttribute { .. }, false; } }
+        let last = accessor_offset + (count - 1) * stride_value + packed_size;
+        guard last <= view_length && view_offset + view_length <= buffer_sizes[buffer_index] else { return GlbAttribute { .. }, false; }
+        base_offset = buffer_bases[buffer_index] + start;
+        stride = stride_value;
+        has_base = true;
+    } else {
+        guard !json::member(accessor, "byteOffset") && json::member(accessor, "sparse") else { return GlbAttribute { .. }, false; }
+    }
+    let sparse, sparse_ok = glb_sparse_accessor(doc, bytes, buffer_bases, buffer_sizes, accessor, count, component_bytes, packed_size);
+    guard sparse_ok else { return GlbAttribute { .. }, false; }
+    return GlbAttribute { offset: base_offset, stride: stride, count: count, components: components,
+                          component_type: component_type, normalized: normalized, has_base: has_base, sparse: sparse }, true;
 }
 
 fn glb_attribute_component(bytes: const u8[:], at: i64, component_type: i64, normalized: bool) -> f32, bool {
@@ -614,41 +683,70 @@ fn glb_attribute_component(bytes: const u8[:], at: i64, component_type: i64, nor
 fn glb_attribute_value(bytes: const u8[:], binary_start: i64, accessor: GlbAttribute, vertex_index: i64, component_index: i64) -> f32, bool {
     guard vertex_index >= 0 && vertex_index < accessor.count && component_index >= 0 && component_index < accessor.components else { return 0.0, false; }
     let component_bytes: i64 = if accessor.component_type == 5126 { 4 } else if accessor.component_type == 5121 || accessor.component_type == 5120 { 1 } else { 2 };
+    if accessor.sparse.count > 0 {
+        var low: i64 = 0;
+        var high = accessor.sparse.count;
+        while low < high {
+            let middle = (low + high) / 2;
+            let sparse_vertex = glb_sparse_index(bytes, accessor.sparse, middle);
+            if sparse_vertex < vertex_index { low = middle + 1; } else { high = middle; }
+        }
+        if low < accessor.sparse.count && glb_sparse_index(bytes, accessor.sparse, low) == vertex_index {
+            let at = accessor.sparse.values_offset + low * accessor.components * component_bytes + component_index * component_bytes;
+            return glb_attribute_component(bytes, at, accessor.component_type, accessor.normalized);
+        }
+    }
+    if !accessor.has_base { return 0.0, true; }
     let at = binary_start + accessor.offset + vertex_index * accessor.stride + component_index * component_bytes;
     return glb_attribute_component(bytes, at, accessor.component_type, accessor.normalized);
 }
 
-fn glb_color_accessor(doc: json::Node?, buffer_bases: const i64[:], buffer_sizes: const i64[:], index: i64) -> GlbAccessor, i64, bool {
+fn glb_color_accessor(doc: json::Node?, bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:], index: i64) -> GlbAccessor, i64, bool {
     let accessor = glb_json_element(json::member(doc, "accessors"), index);
     let views = json::member(doc, "bufferViews");
     guard accessor && views else { return GlbAccessor { .. }, 0, false; }
     let count, count_ok = glb_json_index(json::member(accessor, "count"));
     let component_type, component_ok = glb_json_index(json::member(accessor, "componentType"));
-    let view_index, view_ok = glb_json_index(json::member(accessor, "bufferView"));
     let type_name, type_ok = json::as_string(json::member(accessor, "type"));
     let components: i64 = if type_name == "VEC3" { 3 } else if type_name == "VEC4" { 4 } else { 0 };
     let normalized_node = json::member(accessor, "normalized");
     var normalized = false;
     if normalized_node { let value, valid = json::as_bool(normalized_node); guard valid else { return GlbAccessor { .. }, 0, false; } normalized = value; }
     let bytes_per_component: i64 = if component_type == 5126 { 4 } else if component_type == 5123 { 2 } else if component_type == 5121 { 1 } else { 0 };
-    guard count_ok && count > 0 && count <= 1048576 && component_ok && view_ok && type_ok && components >= 3 && bytes_per_component > 0 &&
-          ((component_type == 5126 && !normalized) || ((component_type == 5121 || component_type == 5123) && normalized)) && !json::member(accessor, "sparse")
+    guard count_ok && count > 0 && count <= 1048576 && component_ok && type_ok && components >= 3 && bytes_per_component > 0 &&
+          ((component_type == 5126 && !normalized) || ((component_type == 5121 || component_type == 5123) && normalized))
     else { return GlbAccessor { .. }, 0, false; }
-    let view = glb_json_element(views, view_index);
-    guard view else { return GlbAccessor { .. }, 0, false; }
-    let buffer_index, buffer_ok = glb_optional_index(json::member(view, "buffer"), 0);
-    let view_offset, view_offset_ok = glb_optional_index(json::member(view, "byteOffset"), 0);
-    let view_length, length_ok = glb_json_index(json::member(view, "byteLength"));
-    let accessor_offset, accessor_offset_ok = glb_optional_index(json::member(accessor, "byteOffset"), 0);
     let packed_size = components * bytes_per_component;
-    let stride, stride_ok = glb_optional_index(json::member(view, "byteStride"), packed_size);
-    guard buffer_ok && buffer_index >= 0 && buffer_index < buffer_bases.len && buffer_index < buffer_sizes.len && view_offset_ok && view_offset >= 0 && length_ok && view_length > 0 &&
-          accessor_offset_ok && accessor_offset >= 0 && stride_ok && stride >= packed_size && stride <= 252 &&
-          (!json::member(view, "byteStride") || (stride % 4 == 0)) else { return GlbAccessor { .. }, 0, false; }
-    let start = view_offset + accessor_offset;
-    let last = accessor_offset + (count - 1) * stride + packed_size;
-    guard last <= view_length && view_offset + view_length <= buffer_sizes[buffer_index] && start % bytes_per_component == 0 else { return GlbAccessor { .. }, 0, false; }
-    return GlbAccessor { offset: buffer_bases[buffer_index] + start, stride: stride, count: count, components: components }, component_type, true;
+    var base_offset: i64 = 0;
+    var stride = packed_size;
+    var has_base = false;
+    let view_node = json::member(accessor, "bufferView");
+    if view_node {
+        let view_index, view_ok = glb_json_index(view_node);
+        let view = glb_json_element(views, view_index);
+        let buffer_index, buffer_ok = glb_optional_index(json::member(view, "buffer"), 0);
+        let view_offset, view_offset_ok = glb_optional_index(json::member(view, "byteOffset"), 0);
+        let view_length, length_ok = glb_json_index(json::member(view, "byteLength"));
+        let accessor_offset, accessor_offset_ok = glb_optional_index(json::member(accessor, "byteOffset"), 0);
+        let stride_value, stride_ok = glb_optional_index(json::member(view, "byteStride"), packed_size);
+        let last = accessor_offset + (count - 1) * stride_value + packed_size;
+        guard view_ok && view && buffer_ok && buffer_index >= 0 && buffer_index < buffer_bases.len && buffer_index < buffer_sizes.len &&
+              view_offset_ok && view_offset >= 0 && length_ok && view_length > 0 && accessor_offset_ok && accessor_offset >= 0 &&
+              stride_ok && stride_value >= packed_size && stride_value <= 252 &&
+              (!json::member(view, "byteStride") || stride_value % 4 == 0) &&
+              last <= view_length &&
+              view_offset + view_length <= buffer_sizes[buffer_index] && (view_offset + accessor_offset) % bytes_per_component == 0
+        else { return GlbAccessor { .. }, 0, false; }
+        base_offset = buffer_bases[buffer_index] + view_offset + accessor_offset;
+        stride = stride_value;
+        has_base = true;
+    } else {
+        guard !json::member(accessor, "byteOffset") && json::member(accessor, "sparse") else { return GlbAccessor { .. }, 0, false; }
+    }
+    let sparse, sparse_ok = glb_sparse_accessor(doc, bytes, buffer_bases, buffer_sizes, accessor, count, bytes_per_component, packed_size);
+    guard sparse_ok else { return GlbAccessor { .. }, 0, false; }
+    return GlbAccessor { offset: base_offset, stride: stride, count: count, components: components,
+                         has_base: has_base, sparse: sparse }, component_type, true;
 }
 
 fn glb_color_channel(bytes: const u8[:], at: i64, component_type: i64) -> f32, bool {
@@ -661,7 +759,20 @@ fn glb_color_channel(bytes: const u8[:], at: i64, component_type: i64) -> f32, b
 
 fn glb_vertex_color(bytes: const u8[:], binary_start: i64, accessor: GlbAccessor, component_type: i64, vertex_index: i64) -> float4, bool {
     let component_bytes: i64 = if component_type == 5126 { 4 } else if component_type == 5123 { 2 } else { 1 };
-    let at = binary_start + accessor.offset + vertex_index * accessor.stride;
+    var at = binary_start + accessor.offset + vertex_index * accessor.stride;
+    if accessor.sparse.count > 0 {
+        var low: i64 = 0;
+        var high = accessor.sparse.count;
+        while low < high {
+            let middle = (low + high) / 2;
+            let sparse_vertex = glb_sparse_index(bytes, accessor.sparse, middle);
+            if sparse_vertex < vertex_index { low = middle + 1; } else { high = middle; }
+        }
+        if low < accessor.sparse.count && glb_sparse_index(bytes, accessor.sparse, low) == vertex_index {
+            at = accessor.sparse.values_offset + low * accessor.components * component_bytes;
+        } else if !accessor.has_base { at = -1; }
+    }
+    if at < 0 { return float4 { 0.0, 0.0, 0.0, if accessor.components == 3 { 1.0 } else { 0.0 } }, true; }
     let r, r_ok = glb_color_channel(bytes, at, component_type);
     let g, g_ok = glb_color_channel(bytes, at + component_bytes, component_type);
     let b, b_ok = glb_color_channel(bytes, at + 2 * component_bytes, component_type);
@@ -679,31 +790,65 @@ fn glb_vertex_tangent(bytes: const u8[:], binary_start: i64, accessor: GlbAccess
     return float4 { x, y, z, w }, true;
 }
 
-fn glb_index_accessor(doc: json::Node?, buffer_bases: const i64[:], buffer_sizes: const i64[:], index: i64) -> GlbAccessor, i64, bool {
+fn glb_index_accessor(doc: json::Node?, bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:], index: i64) -> GlbAccessor, i64, bool {
     let accessors = json::member(doc, "accessors");
     let views = json::member(doc, "bufferViews");
     let accessor = glb_json_element(accessors, index);
     guard accessor && views else { return GlbAccessor { .. }, 0, false; }
     let count, count_ok = glb_json_index(json::member(accessor, "count"));
     let component_type, component_ok = glb_json_index(json::member(accessor, "componentType"));
-    let view_index, view_ok = glb_json_index(json::member(accessor, "bufferView"));
     let type_name, type_ok = json::as_string(json::member(accessor, "type"));
+    let normalized_node = json::member(accessor, "normalized");
+    var normalized = false;
+    if normalized_node { let value, valid = json::as_bool(normalized_node); guard valid else { return GlbAccessor { .. }, 0, false; } normalized = value; }
     guard count_ok && count > 0 && count <= 3145728 && component_ok &&
           (component_type == 5121 || component_type == 5123 || component_type == 5125) &&
-          view_ok && type_ok && type_name == "SCALAR" && !json::member(accessor, "sparse") else { return GlbAccessor { .. }, 0, false; }
-    let view = glb_json_element(views, view_index);
-    guard view else { return GlbAccessor { .. }, 0, false; }
-    let buffer_index, buffer_ok = glb_optional_index(json::member(view, "buffer"), 0);
-    let view_offset, view_ok = glb_optional_index(json::member(view, "byteOffset"), 0);
-    let view_length, length_ok = glb_json_index(json::member(view, "byteLength"));
-    let accessor_offset, accessor_offset_ok = glb_optional_index(json::member(accessor, "byteOffset"), 0);
+          type_ok && type_name == "SCALAR" && !normalized else { return GlbAccessor { .. }, 0, false; }
     let bytes_per_index = if component_type == 5121 { 1 } else if component_type == 5123 { 2 } else { 4 };
-    guard buffer_ok && buffer_index >= 0 && buffer_index < buffer_bases.len && buffer_index < buffer_sizes.len && view_ok && view_offset >= 0 &&
-          length_ok && view_length > 0 && accessor_offset_ok && accessor_offset >= 0 &&
-          view_offset + view_length <= buffer_sizes[buffer_index] && accessor_offset + count * bytes_per_index <= view_length &&
-          (view_offset + accessor_offset) % bytes_per_index == 0 && !json::member(view, "byteStride") else { return GlbAccessor { .. }, 0, false; }
-    return GlbAccessor { offset: buffer_bases[buffer_index] + view_offset + accessor_offset, stride: bytes_per_index,
-                         count: count, components: 1 }, component_type, true;
+    var base_offset: i64 = 0;
+    var has_base = false;
+    let view_node = json::member(accessor, "bufferView");
+    if view_node {
+        let view_index, view_ok = glb_json_index(view_node);
+        let view = glb_json_element(views, view_index);
+        let buffer_index, buffer_ok = glb_optional_index(json::member(view, "buffer"), 0);
+        let view_offset, view_offset_ok = glb_optional_index(json::member(view, "byteOffset"), 0);
+        let view_length, length_ok = glb_json_index(json::member(view, "byteLength"));
+        let accessor_offset, accessor_offset_ok = glb_optional_index(json::member(accessor, "byteOffset"), 0);
+        guard view_ok && view && buffer_ok && buffer_index >= 0 && buffer_index < buffer_bases.len && buffer_index < buffer_sizes.len &&
+              view_offset_ok && view_offset >= 0 && length_ok && view_length > 0 && accessor_offset_ok && accessor_offset >= 0 &&
+              view_offset + view_length <= buffer_sizes[buffer_index] && accessor_offset <= view_length &&
+              count <= (view_length - accessor_offset) / bytes_per_index && (view_offset + accessor_offset) % bytes_per_index == 0 &&
+              !json::member(view, "byteStride") else { return GlbAccessor { .. }, 0, false; }
+        base_offset = buffer_bases[buffer_index] + view_offset + accessor_offset;
+        has_base = true;
+    } else {
+        guard !json::member(accessor, "byteOffset") && json::member(accessor, "sparse") else { return GlbAccessor { .. }, 0, false; }
+    }
+    let sparse, sparse_ok = glb_sparse_accessor(doc, bytes, buffer_bases, buffer_sizes, accessor, count, bytes_per_index, bytes_per_index);
+    guard sparse_ok else { return GlbAccessor { .. }, 0, false; }
+    return GlbAccessor { offset: base_offset, stride: bytes_per_index, count: count, components: 1,
+                         has_base: has_base, sparse: sparse }, component_type, true;
+}
+
+fn glb_index_value(bytes: const u8[:], accessor: GlbAccessor, component_type: i64, index: i64) -> i64 {
+    var at = accessor.offset + index * accessor.stride;
+    if accessor.sparse.count > 0 {
+        var low: i64 = 0;
+        var high = accessor.sparse.count;
+        while low < high {
+            let middle = (low + high) / 2;
+            let sparse_vertex = glb_sparse_index(bytes, accessor.sparse, middle);
+            if sparse_vertex < index { low = middle + 1; } else { high = middle; }
+        }
+        if low < accessor.sparse.count && glb_sparse_index(bytes, accessor.sparse, low) == index {
+            let value_bytes = if component_type == 5121 { 1 } else if component_type == 5123 { 2 } else { 4 };
+            at = accessor.sparse.values_offset + low * value_bytes;
+        } else if !accessor.has_base { return 0; }
+    } else if !accessor.has_base { return 0; }
+    if component_type == 5121 { return bytes[at]; }
+    if component_type == 5123 { return bytes[at] | bytes[at + 1] << 8; }
+    return glb_u32(bytes, at);
 }
 
 fn glb_matrix(node: json::Node?) -> Mat4, bool {
@@ -878,9 +1023,9 @@ fn glb_node_light(root: json::Node?, node_index: i64) -> NativeGlbSceneLight, bo
 }
 
 // Load one selected static primitive from a glTF 2.0 GLB or JSON glTF document.
-// Supports float32 or required KHR_mesh_quantization vertex attributes,
-// COLOR_0, TRIANGLES, u8/u16/u32 indices, and factor-only materials. Skins,
-// animation, sparse accessors, and textures remain outside this native subset.
+// Supports dense and sparse float32 or required KHR_mesh_quantization vertex
+// attributes, COLOR_0, TRIANGLES, u8/u16/u32 indices, core and supported
+// extension material maps. Skins and animation remain outside this subset.
 // JSON glTF supports up to 16 safe relative external buffers. It applies the
 // selected node instance transform.
 fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primitive_index: i64, node_index: i64) -> NativeGlbModel, bool {
@@ -978,21 +1123,21 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     let position_index, position_ok = glb_json_index(json::member(attributes, "POSITION"));
     let normal_index, normal_ok = glb_json_index(json::member(attributes, "NORMAL"));
     guard position_ok && normal_ok else { return NativeGlbModel { .. }, false; }
-    let positions, positions_ok = glb_attribute_accessor(root, buffer_bases[..], buffer_sizes[..], position_index, "POSITION", "VEC3", 3);
-    let normals, normals_ok = glb_attribute_accessor(root, buffer_bases[..], buffer_sizes[..], normal_index, "NORMAL", "VEC3", 3);
+    let positions, positions_ok = glb_attribute_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], position_index, "POSITION", "VEC3", 3);
+    let normals, normals_ok = glb_attribute_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], normal_index, "NORMAL", "VEC3", 3);
     guard positions_ok && normals_ok && positions.count == normals.count else { return NativeGlbModel { .. }, false; }
     let uv_node = json::member(attributes, "TEXCOORD_0");
     var uvs = GlbAttribute { .. };
-    if uv_node { let uv_index, uv_ok = glb_json_index(uv_node); guard uv_ok else { return NativeGlbModel { .. }, false; } let uv_result, uv_valid = glb_attribute_accessor(root, buffer_bases[..], buffer_sizes[..], uv_index, "TEXCOORD_0", "VEC2", 2); guard uv_valid && uv_result.count == positions.count else { return NativeGlbModel { .. }, false; } uvs = uv_result; }
+    if uv_node { let uv_index, uv_ok = glb_json_index(uv_node); guard uv_ok else { return NativeGlbModel { .. }, false; } let uv_result, uv_valid = glb_attribute_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], uv_index, "TEXCOORD_0", "VEC2", 2); guard uv_valid && uv_result.count == positions.count else { return NativeGlbModel { .. }, false; } uvs = uv_result; }
     let tangent_node = json::member(attributes, "TANGENT");
     var tangents = GlbAttribute { .. };
-    if tangent_node { let tangent_index, tangent_index_ok = glb_json_index(tangent_node); guard tangent_index_ok else { return NativeGlbModel { .. }, false; } let tangent_info, tangent_ok = glb_attribute_accessor(root, buffer_bases[..], buffer_sizes[..], tangent_index, "TANGENT", "VEC4", 4); guard tangent_ok && tangent_info.count == positions.count else { return NativeGlbModel { .. }, false; } tangents = tangent_info; }
+    if tangent_node { let tangent_index, tangent_index_ok = glb_json_index(tangent_node); guard tangent_index_ok else { return NativeGlbModel { .. }, false; } let tangent_info, tangent_ok = glb_attribute_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], tangent_index, "TANGENT", "VEC4", 4); guard tangent_ok && tangent_info.count == positions.count else { return NativeGlbModel { .. }, false; } tangents = tangent_info; }
     let color_node = json::member(attributes, "COLOR_0");
     var colors = GlbAccessor { .. }; var color_type: i64 = 0;
-    if color_node { let color_index, color_index_ok = glb_json_index(color_node); guard color_index_ok else { return NativeGlbModel { .. }, false; } let color_info, color_component_type, color_ok = glb_color_accessor(root, buffer_bases[..], buffer_sizes[..], color_index); guard color_ok && color_info.count == positions.count else { return NativeGlbModel { .. }, false; } colors = color_info; color_type = color_component_type; }
+    if color_node { let color_index, color_index_ok = glb_json_index(color_node); guard color_index_ok else { return NativeGlbModel { .. }, false; } let color_info, color_component_type, color_ok = glb_color_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], color_index); guard color_ok && color_info.count == positions.count else { return NativeGlbModel { .. }, false; } colors = color_info; color_type = color_component_type; }
     let indices_node = json::member(primitive, "indices");
     var index_info = GlbAccessor { .. }; var index_type: i64 = 0;
-    if indices_node { let index_id, index_ok = glb_json_index(indices_node); guard index_ok else { return NativeGlbModel { .. }, false; } let info, kind, ok = glb_index_accessor(root, buffer_bases[..], buffer_sizes[..], index_id); guard ok && info.count % 3 == 0 else { return NativeGlbModel { .. }, false; } index_info = info; index_type = kind; }
+    if indices_node { let index_id, index_ok = glb_json_index(indices_node); guard index_ok else { return NativeGlbModel { .. }, false; } let info, kind, ok = glb_index_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], index_id); guard ok && info.count % 3 == 0 else { return NativeGlbModel { .. }, false; } index_info = info; index_type = kind; }
     else { guard positions.count % 3 == 0 else { return NativeGlbModel { .. }, false; } index_info.count = positions.count; }
     var vertices: Vertex[>..] = [];
     var out_indices: u32[>..] = [];
@@ -1014,12 +1159,9 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
         vertices.push(Vertex { pos: float3 { px, py, pz }, normal: float3 { nx, ny, nz }, uv: uv, tangent: tangent, color: color, .. });
     }
     for i in 0..index_info.count {
-        let at = index_info.offset + i * index_info.stride;
         var value: i64 = i;
         if indices_node {
-            value = if index_type == 5121 { bytes[at] }
-                    else if index_type == 5123 { bytes[at] | bytes[at + 1] << 8 }
-                    else { glb_u32(bytes[..], at) };
+            value = glb_index_value(bytes[..], index_info, index_type, i);
         }
         guard value >= 0 && value < positions.count else { return NativeGlbModel { .. }, false; }
         out_indices.push(value as u32);
