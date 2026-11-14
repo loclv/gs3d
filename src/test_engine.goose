@@ -556,6 +556,37 @@ fn case_native_glb_load() {
                    "native glTF scene animation resets animated nodes and morph geometry to base pose");
     testing::check(g3::native_glb_scene_dispose(animation_scene) && !g3::native_glb_scene_valid(animation_scene),
                    "native glTF scene disposal releases animation tracks and checked node handles");
+    let skin_scene, skin_scene_loaded = g3::native_glb_load_scene("testdata/native-skin-animation.glb", -1);
+    let skin_owner = g3::native_glb_scene_mesh(skin_scene, 0);
+    let skin_primitive = g3::native_glb_mesh_primitive_node(skin_owner, 0);
+    let skin_vertex = g3::mesh(g3::node(skin_primitive.index).mesh).first_vertex;
+    let skin_bind_pose = skin_scene_loaded && abs(g3::g_verts[skin_vertex].pos.y + 0.5) < 0.001;
+    let skin_mid_applied = g3::native_glb_scene_apply_animation(skin_scene, 0, 0.5);
+    let skin_mid_pose = skin_mid_applied && abs(g3::g_verts[skin_vertex].pos.y) < 0.001;
+    let skin_mid_bounds = g3::mesh(g3::node(skin_primitive.index).mesh).bounds;
+    let skin_mid_geometry = skin_mid_pose && abs(skin_mid_bounds.lo.y) < 0.001 &&
+                            abs(skin_mid_bounds.hi.y - 1.0) < 0.001 &&
+                            abs(g3::g_verts[skin_vertex].normal.z - 1.0) < 0.001;
+    let skin_end_applied = g3::native_glb_scene_apply_animation(skin_scene, 0, 1.0);
+    let skin_end_pose = skin_end_applied && abs(g3::g_verts[skin_vertex].pos.y - 0.5) < 0.001;
+    let skin_reset = g3::native_glb_scene_reset_animation(skin_scene);
+    let skin_reset_pose = abs(g3::g_verts[skin_vertex].pos.y + 0.5) < 0.001;
+    testing::check(skin_bind_pose && skin_mid_geometry && skin_end_pose,
+                   "native glTF skin applies animated joints and updates normals and bounds");
+    let skin_scene_disposed = g3::native_glb_scene_dispose(skin_scene);
+    let skin_reloaded, skin_reloaded_ok = g3::native_glb_load_scene("testdata/native-skin-animation.glb", -1);
+    let skin_reloaded_owner = g3::native_glb_scene_mesh(skin_reloaded, 0);
+    let skin_reloaded_primitive = g3::native_glb_mesh_primitive_node(skin_reloaded_owner, 0);
+    let skin_reloaded_vertex = g3::mesh(g3::node(skin_reloaded_primitive.index).mesh).first_vertex;
+    let skin_slots_reused = skin_reloaded_ok && g3::native_glb_scene_apply_animation(skin_reloaded, 0, 0.5) &&
+                            abs(g3::g_verts[skin_reloaded_vertex].pos.y) < 0.001;
+    let skin_reloaded_disposed = g3::native_glb_scene_dispose(skin_reloaded);
+    testing::check(skin_reset, "native glTF skin reset succeeds");
+    testing::check(skin_reset_pose,
+                   "native glTF skin reset restores CPU geometry");
+    testing::check(skin_scene_disposed, "native glTF skin scene disposes cleanly");
+    testing::check(skin_slots_reused && skin_reloaded_disposed,
+                   "native glTF reload reuses skin resources and disposes cleanly");
     let animation_reloaded, animation_reloaded_ok = g3::native_glb_load_scene("testdata/native-animation.glb", -1);
     let reloaded_morph_mesh = g3::native_glb_scene_mesh(animation_reloaded, 0);
     let reloaded_morph_node = g3::native_glb_mesh_primitive_node(reloaded_morph_mesh, 0);

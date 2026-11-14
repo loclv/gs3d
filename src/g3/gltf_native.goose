@@ -19,7 +19,7 @@ struct GlbTextureSet {
     specular: TextureHandle, specular_color: TextureHandle, clearcoat: TextureHandle, clearcoat_roughness: TextureHandle,
     clearcoat_normal: TextureHandle, sheen_color: TextureHandle, sheen_roughness: TextureHandle, anisotropy: TextureHandle
 }
-struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle, texture: TextureHandle, textures: GlbTextureSet, morph_vertex_start: i32, morph_vertex_count: i32, morph_delta_start: i32, morph_target_count: i32, morph_weight_start: i32 }
+struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle, texture: TextureHandle, textures: GlbTextureSet, morph_vertex_start: i32, morph_vertex_count: i32, morph_delta_start: i32, morph_target_count: i32, morph_weight_start: i32, skin_influence_start: i32, skin_joint_start: i32, skin_joint_count: i32, skin_node_index: i32 }
 struct NativeGlbMeshHandle { id: i32 = -1, generation: i32 }
 struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
 struct NativeGlbPartSlot { owner_id: i32, owner_generation: i32, primitive_index: i32, model: NativeGlbModel, active: bool }
@@ -35,6 +35,8 @@ struct NativeGlbBaseVertex { vertex: Vertex, active: bool }
 struct NativeGlbMorphDelta { position: float3, normal: float3, tangent: float3, active: bool }
 struct NativeGlbMorphWeight { base: f32, value: f32, active: bool }
 struct NativeGlbAnimationWeightValue { value: f32, active: bool }
+struct NativeGlbSkinInfluence { joint_index: i32, weight: f32, active: bool }
+struct NativeGlbSkinJoint { gltf_node_index: i32, inverse_bind: Mat4, active: bool }
 struct GlbSparseAccessor { count: i64, indices_offset: i64, indices_type: i64, values_offset: i64 }
 struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64, has_base: bool, sparse: GlbSparseAccessor }
 struct GlbAttribute { offset: i64, stride: i64, count: i64, components: i64, component_type: i64, normalized: bool, has_base: bool, sparse: GlbSparseAccessor }
@@ -51,6 +53,8 @@ var g_native_glb_base_vertices: NativeGlbBaseVertex[>..];
 var g_native_glb_morph_deltas: NativeGlbMorphDelta[>..];
 var g_native_glb_morph_weights: NativeGlbMorphWeight[>..];
 var g_native_glb_animation_weight_values: NativeGlbAnimationWeightValue[>..];
+var g_native_glb_skin_influences: NativeGlbSkinInfluence[>..];
+var g_native_glb_skin_joints: NativeGlbSkinJoint[>..];
 
 fn glb_u32(bytes: const u8[:], at: i64) -> i64 {
     let b0: i64 = bytes[at]; let b1: i64 = bytes[at + 1];
@@ -623,14 +627,20 @@ fn glb_attribute_accessor(doc: json::Node?, bytes: const u8[:], buffer_bases: co
     let is_tangent = semantic == "TANGENT";
     let is_texcoord = semantic == "TEXCOORD_0";
     let is_animation = semantic == "ANIMATION";
+    let is_joints = semantic == "JOINTS_0";
+    let is_weights = semantic == "WEIGHTS_0";
+    let is_inverse_bind = semantic == "INVERSE_BIND";
     let core_float = component_type == 5126 && !normalized;
     let core_texcoord = is_texcoord && (core_float || ((component_type == 5121 || component_type == 5123) && normalized));
+    let core_joints = is_joints && !normalized && (component_type == 5121 || component_type == 5123);
+    let core_weights = is_weights && (core_float || ((component_type == 5121 || component_type == 5123) && normalized));
+    let core_inverse_bind = is_inverse_bind && core_float;
     let quantized = if is_position { integer_component }
                     else if is_normal || is_tangent { (component_type == 5120 || component_type == 5122) && normalized }
                     else if is_texcoord { integer_component && !core_texcoord }
                     else { false };
     guard count_ok && count > 0 && count <= 1048576 && component_ok && type_ok && actual_type == type_name &&
-          component_bytes > 0 && (core_float || core_texcoord || quantized) &&
+          component_bytes > 0 && (core_float || core_texcoord || core_joints || core_weights || core_inverse_bind || quantized) &&
           (!is_animation || core_float)
     else { return GlbAttribute { .. }, false; }
     if quantized {
@@ -1082,7 +1092,7 @@ fn glb_node_light(root: json::Node?, node_index: i64) -> NativeGlbSceneLight, bo
 // Load one selected static primitive from a glTF 2.0 GLB or JSON glTF document.
 // Supports dense and sparse float32 or required KHR_mesh_quantization vertex
 // attributes, COLOR_0, TRIANGLES, u8/u16/u32 indices, core and supported
-// extension material maps. Skins and animation remain outside this subset.
+// extension material maps. Scene skins use one JOINTS_0/WEIGHTS_0 set.
 // JSON glTF supports up to 16 safe relative external buffers. It applies the
 // selected node instance transform.
 fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primitive_index: i64, node_index: i64) -> NativeGlbModel, bool {
@@ -1234,6 +1244,70 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
         }
     }
     if transform_node >= 0 { let matrix, valid = glb_node_world_matrix(root, transform_node); guard valid else { return NativeGlbModel { .. }, false; } transform = matrix; }
+    let node_source = glb_json_element(nodes, transform_node);
+    let skin_node = json::member(node_source, "skin");
+    let joints_node = json::member(attributes, "JOINTS_0");
+    let weights_node = json::member(attributes, "WEIGHTS_0");
+    var skin_joint_nodes: i32[>..] = [];
+    var skin_inverse_binds: Mat4[>..] = [];
+    var skin_influences: NativeGlbSkinInfluence[>..] = [];
+    var skin_joint_count: i64 = 0;
+    if skin_node || joints_node || weights_node {
+        guard skin_node && joints_node && weights_node && !json::member(attributes, "JOINTS_1") &&
+              !json::member(attributes, "WEIGHTS_1") else { return NativeGlbModel { .. }, false; }
+        let skin_index, skin_index_ok = glb_json_index(skin_node);
+        let skin = glb_json_element(json::member(root, "skins"), skin_index);
+        let skin_joints = json::member(skin, "joints");
+        skin_joint_count = glb_array_count(skin_joints);
+        guard skin_index_ok && skin && skin_joint_count > 0 && skin_joint_count <= 1024 else { return NativeGlbModel { .. }, false; }
+        let joint_attribute_index, joint_attribute_ok = glb_json_index(joints_node);
+        let weight_attribute_index, weight_attribute_ok = glb_json_index(weights_node);
+        let joint_attributes, joint_attributes_ok = glb_attribute_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], joint_attribute_index, "JOINTS_0", "VEC4", 4);
+        let weight_attributes, weight_attributes_ok = glb_attribute_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], weight_attribute_index, "WEIGHTS_0", "VEC4", 4);
+        guard joint_attribute_ok && weight_attribute_ok && joint_attributes_ok && weight_attributes_ok &&
+              joint_attributes.count == positions.count && weight_attributes.count == positions.count else { return NativeGlbModel { .. }, false; }
+        let inverse_bind_node = json::member(skin, "inverseBindMatrices");
+        var inverse_bind_accessor = GlbAttribute { .. };
+        if inverse_bind_node {
+            let inverse_bind_index, inverse_bind_index_ok = glb_json_index(inverse_bind_node);
+            let inverse_bind, inverse_bind_ok = glb_attribute_accessor(root, bytes[..], buffer_bases[..], buffer_sizes[..], inverse_bind_index, "INVERSE_BIND", "MAT4", 16);
+            guard inverse_bind_index_ok && inverse_bind_ok && inverse_bind.count == skin_joint_count else { return NativeGlbModel { .. }, false; }
+            inverse_bind_accessor = inverse_bind;
+        }
+        for joint in 0..skin_joint_count {
+            let joint_node, joint_ok = glb_json_index(glb_json_element(skin_joints, joint));
+            guard joint_ok && joint_node >= 0 && joint_node < glb_array_count(nodes) else { return NativeGlbModel { .. }, false; }
+            skin_joint_nodes.push(joint_node as i32);
+            var inverse_bind = mat4_identity();
+            if inverse_bind_node {
+                for component in 16 {
+                    let value, value_ok = glb_attribute_value(bytes[..], 0, inverse_bind_accessor, joint, component);
+                    guard value_ok && abs(value) <= 3.4e38 else { return NativeGlbModel { .. }, false; }
+                    inverse_bind.m[component] = value;
+                }
+            }
+            skin_inverse_binds.push(inverse_bind);
+        }
+        for vertex in 0..positions.count {
+            var weight_sum: f32 = 0.0;
+            var vertex_influences: NativeGlbSkinInfluence[4];
+            for influence in 4 {
+                let joint_value, joint_value_ok = glb_attribute_value(bytes[..], 0, joint_attributes, vertex, influence);
+                let weight_value, weight_value_ok = glb_attribute_value(bytes[..], 0, weight_attributes, vertex, influence);
+                let joint_index = joint_value as i32;
+                guard joint_value_ok && weight_value_ok && joint_value >= 0.0 && joint_value < 1024.0 &&
+                      joint_value == floor(joint_value) && joint_index >= 0 && joint_index < skin_joint_count && weight_value >= 0.0 else { return NativeGlbModel { .. }, false; }
+                vertex_influences[influence] = NativeGlbSkinInfluence { joint_index: joint_index, weight: weight_value, .. };
+                weight_sum += weight_value;
+            }
+            guard weight_sum <= 3.4e38 else { return NativeGlbModel { .. }, false; }
+            for influence in 4 {
+                var item = vertex_influences[influence];
+                if weight_sum > 1e-8 { item.weight /= weight_sum; }
+                skin_influences.push(item);
+            }
+        }
+    }
     let primitive_targets = json::member(primitive, "targets");
     let morph_target_count = glb_array_count(primitive_targets);
     guard morph_target_count <= 65536 && morph_target_count * positions.count <= 4194304 else { return NativeGlbModel { .. }, false; }
@@ -1282,7 +1356,6 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
             morph_deltas.push(NativeGlbMorphDelta { position: delta_position, normal: delta_normal, tangent: delta_tangent, .. });
         }
     }
-    let node_source = glb_json_element(nodes, transform_node);
     let node_weights = json::member(node_source, "weights");
     let mesh_weights = json::member(mesh, "weights");
     guard !node_weights || glb_array_count(node_weights) == morph_target_count else { return NativeGlbModel { .. }, false; }
@@ -1319,19 +1392,35 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     let mesh_id = mesh_asset_create(vertices[..], out_indices[..]);
     if mesh_id < 0 { if material_handle_valid(imported_material) { material_asset_release(imported_material); } glb_release_texture_set(imported_textures); return NativeGlbModel { .. }, false; }
     var morph_vertex_start: i64 = -1; var morph_delta_start: i64 = -1; var morph_weight_start: i64 = -1;
-    if morph_target_count > 0 {
+    var skin_influence_start: i64 = -1; var skin_joint_start: i64 = -1;
+    if morph_target_count > 0 || skin_joint_count > 0 {
         morph_vertex_start = glb_base_vertex_reserve(base_vertices.len);
-        morph_delta_start = glb_morph_delta_reserve(morph_deltas.len);
-        morph_weight_start = glb_morph_weight_reserve(morph_weights.len);
-        if morph_vertex_start < 0 || morph_delta_start < 0 || morph_weight_start < 0 {
+        if morph_target_count > 0 {
+            morph_delta_start = glb_morph_delta_reserve(morph_deltas.len);
+            morph_weight_start = glb_morph_weight_reserve(morph_weights.len);
+        }
+        if skin_joint_count > 0 {
+            skin_influence_start = glb_skin_influence_reserve(skin_influences.len);
+            skin_joint_start = glb_skin_joint_reserve(skin_joint_count);
+        }
+        if morph_vertex_start < 0 || (morph_target_count > 0 && (morph_delta_start < 0 || morph_weight_start < 0)) ||
+           (skin_joint_count > 0 && (skin_influence_start < 0 || skin_joint_start < 0)) {
             if morph_vertex_start >= 0 { for i in 0..base_vertices.len { g_native_glb_base_vertices[morph_vertex_start + i].active = false; } }
             if morph_delta_start >= 0 { for i in 0..morph_deltas.len { g_native_glb_morph_deltas[morph_delta_start + i].active = false; } }
             if morph_weight_start >= 0 { for i in 0..morph_weights.len { g_native_glb_morph_weights[morph_weight_start + i].active = false; } }
+            if skin_influence_start >= 0 { for i in 0..skin_influences.len { g_native_glb_skin_influences[skin_influence_start + i].active = false; } }
+            if skin_joint_start >= 0 { for i in 0..skin_joint_count { g_native_glb_skin_joints[skin_joint_start + i].active = false; } }
             mesh_asset_release(mesh_id); if material_handle_valid(imported_material) { material_asset_release(imported_material); } glb_release_texture_set(imported_textures); return NativeGlbModel { .. }, false;
         }
         for i in 0..base_vertices.len { g_native_glb_base_vertices[morph_vertex_start + i] = NativeGlbBaseVertex { vertex: base_vertices[i], active: true }; }
-        for i in 0..morph_deltas.len { g_native_glb_morph_deltas[morph_delta_start + i] = NativeGlbMorphDelta { position: morph_deltas[i].position, normal: morph_deltas[i].normal, tangent: morph_deltas[i].tangent, active: true }; }
-        for i in 0..morph_weights.len { g_native_glb_morph_weights[morph_weight_start + i] = NativeGlbMorphWeight { base: morph_weights[i], value: morph_weights[i], active: true }; }
+        if morph_target_count > 0 {
+            for i in 0..morph_deltas.len { g_native_glb_morph_deltas[morph_delta_start + i] = NativeGlbMorphDelta { position: morph_deltas[i].position, normal: morph_deltas[i].normal, tangent: morph_deltas[i].tangent, active: true }; }
+            for i in 0..morph_weights.len { g_native_glb_morph_weights[morph_weight_start + i] = NativeGlbMorphWeight { base: morph_weights[i], value: morph_weights[i], active: true }; }
+        }
+        if skin_joint_count > 0 {
+            for i in 0..skin_influences.len { g_native_glb_skin_influences[skin_influence_start + i] = NativeGlbSkinInfluence { joint_index: skin_influences[i].joint_index, weight: skin_influences[i].weight, active: true }; }
+            for i in 0..skin_joint_count { g_native_glb_skin_joints[skin_joint_start + i] = NativeGlbSkinJoint { gltf_node_index: skin_joint_nodes[i], inverse_bind: skin_inverse_binds[i], active: true }; }
+        }
     }
     let node_id = node_asset_add(mesh_id);
     if node_id < 0 {
@@ -1339,6 +1428,8 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
         for i in 0..base_vertices.len { if morph_vertex_start >= 0 { g_native_glb_base_vertices[morph_vertex_start + i].active = false; } }
         for i in 0..morph_deltas.len { if morph_delta_start >= 0 { g_native_glb_morph_deltas[morph_delta_start + i].active = false; } }
         for i in 0..morph_weights.len { if morph_weight_start >= 0 { g_native_glb_morph_weights[morph_weight_start + i].active = false; } }
+        for i in 0..skin_influences.len { if skin_influence_start >= 0 { g_native_glb_skin_influences[skin_influence_start + i].active = false; } }
+        for i in 0..skin_joint_count { if skin_joint_start >= 0 { g_native_glb_skin_joints[skin_joint_start + i].active = false; } }
         return NativeGlbModel { .. }, false;
     }
     if material_handle_valid(imported_material) { node(node_id).material = imported_material.id; }
@@ -1347,7 +1438,9 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id), material: imported_material, texture: imported_texture, textures: imported_textures,
         morph_vertex_start: morph_vertex_start as i32, morph_vertex_count: positions.count as i32,
         morph_delta_start: morph_delta_start as i32, morph_target_count: morph_target_count as i32,
-        morph_weight_start: morph_weight_start as i32 }, true;
+        morph_weight_start: morph_weight_start as i32,
+        skin_influence_start: skin_influence_start as i32, skin_joint_start: skin_joint_start as i32,
+        skin_joint_count: skin_joint_count as i32, skin_node_index: if skin_joint_count > 0 { transform_node as i32 } else { -1 } }, true;
 }
 
 // Load a primitive by mesh index, using the first node that instances the mesh.
@@ -1488,16 +1581,25 @@ fn native_glb_dispose(model: NativeGlbModel&) -> bool {
     if material_handle_valid(model.material) { material_asset_release(model.material); }
     glb_release_texture_set(model.textures);
     let released = mesh_asset_release_handle(model.mesh);
-    if model.morph_target_count > 0 {
+    if model.morph_target_count > 0 || model.skin_joint_count > 0 {
         for i in 0..model.morph_vertex_count { g_native_glb_base_vertices[model.morph_vertex_start + i].active = false; }
+    }
+    if model.morph_target_count > 0 {
         for i in 0..model.morph_vertex_count * model.morph_target_count { g_native_glb_morph_deltas[model.morph_delta_start + i].active = false; }
         for i in 0..model.morph_target_count { g_native_glb_morph_weights[model.morph_weight_start + i].active = false; }
+    }
+    if model.skin_joint_count > 0 {
+        for i in 0..model.morph_vertex_count * 4 { g_native_glb_skin_influences[model.skin_influence_start + i].active = false; }
+        for i in 0..model.skin_joint_count { g_native_glb_skin_joints[model.skin_joint_start + i].active = false; }
     }
     model.node = NodeHandle { .. };
     model.mesh = MeshHandle { .. };
     model.material = MaterialHandle { .. };
     model.texture = TextureHandle { .. };
     model.textures = GlbTextureSet { .. };
+    model.morph_vertex_start = -1; model.morph_vertex_count = 0;
+    model.morph_delta_start = -1; model.morph_target_count = 0; model.morph_weight_start = -1;
+    model.skin_influence_start = -1; model.skin_joint_start = -1; model.skin_joint_count = 0; model.skin_node_index = -1;
     return released;
 }
 
@@ -1652,6 +1754,34 @@ fn glb_animation_weight_reserve(count: i64) -> i64 {
     }
     let start = g_native_glb_animation_weight_values.len;
     for _ in 0..count { g_native_glb_animation_weight_values.push(NativeGlbAnimationWeightValue { .. }); }
+    return start;
+}
+
+fn glb_skin_influence_reserve(count: i64) -> i64 {
+    guard count > 0 && count <= 4194304 && g_native_glb_skin_influences.len + count <= 2147483647 else { return -1; }
+    if count <= g_native_glb_skin_influences.len {
+        for start in 0..g_native_glb_skin_influences.len - count + 1 {
+            var free = true;
+            for offset in 0..count { if g_native_glb_skin_influences[start + offset].active { free = false; break; } }
+            if free { return start; }
+        }
+    }
+    let start = g_native_glb_skin_influences.len;
+    for _ in 0..count { g_native_glb_skin_influences.push(NativeGlbSkinInfluence { .. }); }
+    return start;
+}
+
+fn glb_skin_joint_reserve(count: i64) -> i64 {
+    guard count > 0 && count <= 65536 && g_native_glb_skin_joints.len + count <= 2147483647 else { return -1; }
+    if count <= g_native_glb_skin_joints.len {
+        for start in 0..g_native_glb_skin_joints.len - count + 1 {
+            var free = true;
+            for offset in 0..count { if g_native_glb_skin_joints[start + offset].active { free = false; break; } }
+            if free { return start; }
+        }
+    }
+    let start = g_native_glb_skin_joints.len;
+    for _ in 0..count { g_native_glb_skin_joints.push(NativeGlbSkinJoint { .. }); }
     return start;
 }
 
@@ -2002,6 +2132,11 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
         native_glb_scene_dispose(handle);
         return NativeGlbSceneHandle { .. }, false;
     }
+    node_update_worlds();
+    if !glb_scene_rebuild_skins(handle) {
+        native_glb_scene_dispose(handle);
+        return NativeGlbSceneHandle { .. }, false;
+    }
     return handle, true;
 }
 
@@ -2122,6 +2257,81 @@ fn glb_morph_model_rebuild(model: NativeGlbModel&) -> bool {
     return mesh_asset_update(model.mesh.id, positions[..], normals[..], tangents[..]);
 }
 
+fn glb_scene_node_world(handle: NativeGlbSceneHandle, gltf_node_index: i32) -> Mat4, bool {
+    for i in 0..g_native_glb_scene_nodes.len {
+        let slot = g_native_glb_scene_nodes[i];
+        if slot.active && slot.scene_id == handle.id && slot.scene_generation == handle.generation &&
+           slot.gltf_index == gltf_node_index && node_handle_valid(slot.node) {
+            return node(slot.node.index).world, true;
+        }
+    }
+    return mat4_identity(), false;
+}
+
+fn glb_skin_model_rebuild(handle: NativeGlbSceneHandle, model: NativeGlbModel&) -> bool {
+    guard model.skin_joint_count > 0 && model.skin_node_index >= 0 && model.skin_influence_start >= 0 &&
+          model.skin_joint_start >= 0 && model.morph_vertex_start >= 0 && mesh_handle_valid(model.mesh) else { return false; }
+    let mesh_world, mesh_found = glb_scene_node_world(handle, model.skin_node_index);
+    guard mesh_found else { return false; }
+    let inverse_mesh_world = mat4_invert(mesh_world);
+    var joint_matrices: Mat4[>..] = []; var normal_matrices: Mat4[>..] = [];
+    for joint_index in 0..model.skin_joint_count {
+        let joint = g_native_glb_skin_joints[model.skin_joint_start + joint_index];
+        let joint_world, joint_found = glb_scene_node_world(handle, joint.gltf_node_index);
+        guard joint.active && joint_found else { return false; }
+        let matrix = mat4_mul(mat4_mul(inverse_mesh_world, joint_world), joint.inverse_bind);
+        joint_matrices.push(matrix);
+        normal_matrices.push(mat4_transpose(mat4_invert(matrix)));
+    }
+    var positions: f32[>..] = []; var normals: f32[>..] = []; var tangents: f32[>..] = [];
+    for vertex_index in 0..model.morph_vertex_count {
+        let base = g_native_glb_base_vertices[model.morph_vertex_start + vertex_index].vertex;
+        var source_position = base.pos; var source_normal = base.normal; var source_tangent = float3 { base.tangent.x, base.tangent.y, base.tangent.z };
+        for target_index in 0..model.morph_target_count {
+            let weight = g_native_glb_morph_weights[model.morph_weight_start + target_index].value;
+            let delta = g_native_glb_morph_deltas[model.morph_delta_start + target_index * model.morph_vertex_count + vertex_index];
+            source_position += delta.position * weight; source_normal += delta.normal * weight; source_tangent += delta.tangent * weight;
+        }
+        var out_position = float3_0; var out_normal = float3_0; var out_tangent = float3_0;
+        var sum: f32 = 0.0;
+        for influence_index in 0..4 {
+            let influence = g_native_glb_skin_influences[model.skin_influence_start + vertex_index * 4 + influence_index];
+            if influence.weight > 0.0 {
+                guard influence.active && influence.joint_index >= 0 && influence.joint_index < model.skin_joint_count else { return false; }
+                let joint_matrix = joint_matrices[influence.joint_index];
+                let normal_matrix = normal_matrices[influence.joint_index];
+                out_position += mat4_apply(joint_matrix, source_position) * influence.weight;
+                out_normal += mat4_apply_dir(normal_matrix, source_normal) * influence.weight;
+                out_tangent += mat4_apply_dir(joint_matrix, source_tangent) * influence.weight;
+                sum += influence.weight;
+            }
+        }
+        if sum <= 1e-8 { out_position = source_position; out_normal = source_normal; out_tangent = source_tangent; }
+        else { out_position = out_position / sum; out_normal = out_normal / sum; out_tangent = out_tangent / sum; }
+        if length(out_normal) > 1e-8 { out_normal = normalize(out_normal); }
+        if length(out_tangent) > 1e-8 { out_tangent = normalize(out_tangent); }
+        positions.push(out_position.x); positions.push(out_position.y); positions.push(out_position.z);
+        normals.push(out_normal.x); normals.push(out_normal.y); normals.push(out_normal.z);
+        tangents.push(out_tangent.x); tangents.push(out_tangent.y); tangents.push(out_tangent.z); tangents.push(base.tangent.w);
+    }
+    return mesh_asset_update(model.mesh.id, positions[..], normals[..], tangents[..]);
+}
+
+fn glb_scene_rebuild_skins(handle: NativeGlbSceneHandle) -> bool {
+    for scene_part_index in 0..g_native_glb_scene_parts.len {
+        let scene_part = g_native_glb_scene_parts[scene_part_index];
+        if scene_part.active && scene_part.scene_id == handle.id && scene_part.scene_generation == handle.generation {
+            for part_index in 0..g_native_glb_parts.len {
+                if g_native_glb_parts[part_index].active && g_native_glb_parts[part_index].owner_id == scene_part.mesh.id && g_native_glb_parts[part_index].owner_generation == scene_part.mesh.generation {
+                    let model .= g_native_glb_parts[part_index].model;
+                    if model.skin_joint_count > 0 && !glb_skin_model_rebuild(handle, model) { return false; }
+                }
+            }
+        }
+    }
+    return true;
+}
+
 fn glb_scene_apply_morph_weights(handle: NativeGlbSceneHandle, gltf_node_index: i32, track: NativeGlbAnimationTrack, time: f32) -> bool {
     var found = false;
     for scene_part_index in 0..g_native_glb_scene_parts.len {
@@ -2191,6 +2401,8 @@ fn native_glb_scene_reset_animation(handle: NativeGlbSceneHandle) -> bool {
             }
         }
     }
+    node_update_worlds();
+    if !glb_scene_rebuild_skins(handle) { return false; }
     return true;
 }
 
@@ -2228,6 +2440,8 @@ fn native_glb_scene_apply_animation(handle: NativeGlbSceneHandle, animation_inde
             node(part.node.index).local_matrix = glb_trs_matrix(part.translation, part.rotation, part.scale); node(part.node.index).use_local_matrix = true;
         }
     }
+    node_update_worlds();
+    if !glb_scene_rebuild_skins(handle) { return false; }
     return true;
 }
 

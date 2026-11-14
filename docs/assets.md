@@ -163,22 +163,26 @@ with declared `KHR_lights_punctual` extensions import directional, point, and
 spot lights using physical inverse-square attenuation; a missing light range
 means no cutoff. Scene disposal restores the previous light set. Shadows remain
 opt-in through the existing light-shadow APIs. Core glTF translation, rotation,
-scale, and morph-weight animation channels are imported for selected scene
-nodes. LINEAR, STEP, and CUBICSPLINE sampling are supported. Morph weights
-deform retained CPU vertices and update the mesh and bounds; native skeletal
-animation is not supported. Query clips with
+scale, morph-weight, and skeletal animation channels are imported for selected
+scene nodes. LINEAR, STEP, and CUBICSPLINE sampling are supported. Morph weights
+and skinning deform retained CPU vertices and update mesh bounds. Native skins
+accept one four-influence `JOINTS_0`/`WEIGHTS_0` set, up to 1024 joints, and
+optional float32 inverse-bind matrices; joint indices are unsigned byte/short,
+and weights are float32 or normalized unsigned byte/short. `JOINTS_1` and
+`WEIGHTS_1` are rejected. Query clips with
 `native_glb_scene_animation_count` and `native_glb_scene_animation_duration`; call
 `native_glb_scene_apply_animation(scene, clip, elapsed_seconds)` from the
 application frame loop. Sampling clamps to the clip's key range. Call
 `native_glb_scene_reset_animation` before switching clips or restoring authored
 node transforms. Morph animation updates all primitives on the targeted node;
-when changing clips or restoring authored values, call
-`native_glb_scene_reset_animation` to restore both transforms and default morph
-weights. Animation changes the selected scene's node hierarchy; the native
+reset restores transforms and default morph weights. Animated joint transforms
+update skinned mesh positions, normals, tangents, and bounds. Native skinning is
+available through the scene API only; primitive APIs leave skinned geometry
+static. Animation changes the selected scene's node hierarchy; the native
 imported cameras and punctual lights remain static. Native glTF loaders return
 an invalid handle and `false` for malformed or unsupported data. Failed scene
 loads roll back previously created nodes, meshes, cameras, lights, animation
-tracks, and morph data. Unlike native image loading, native glTF loading does
+tracks, skin data, and morph data. Unlike native image loading, native glTF loading does
 not currently expose a detailed last-error code.
 
 ```goose
