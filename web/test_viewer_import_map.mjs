@@ -29,6 +29,17 @@ for (const specifier of exampleImports) {
 assert.ok(exampleSource.includes('loadGLTF(engine, url)'), 'the consumer example loads the entered model URL');
 assert.ok(exampleSource.includes('model.dispose()'), 'the consumer example disposes replaced models');
 assert.ok(exampleSource.includes('error.code'), 'the consumer example reports structured asset errors');
+const exampleTeardown = exampleSource.match(/window\.addEventListener\('pagehide', event => \{([\s\S]*?)\n\}\);/)?.[1];
+assert.ok(exampleTeardown, 'the package consumer registers page teardown');
+assert.ok(exampleTeardown.includes('if (event.persisted) return;'),
+  'the package consumer preserves back-forward cache state');
+for (const release of ['controls?.dispose()', 'model?.dispose()', 'engine?._g3_app_shutdown()']) {
+  assert.ok(exampleTeardown.includes(release), `the consumer teardown releases ${release}`);
+}
+assert.ok(exampleSource.includes('if (pageClosed) { next.dispose(); return; }'),
+  'the package consumer releases a model that finishes after page teardown');
+assert.ok(exampleSource.includes('pendingModelLoads === 0) engine?._g3_app_shutdown()'),
+  'the package consumer defers engine shutdown until pending model loads finish');
 assert.ok(exampleSource.includes('raw.githubusercontent.com/mrdoob/three.js') &&
   exampleHtml.includes('licensed CC0 1.0'), 'the consumer example identifies its remote sample and license');
 for (const control of ['animation-controls', 'animation-clip', 'animation-toggle', 'animation-time']) {

@@ -15,6 +15,16 @@ let model = null;
 let controls = null;
 let lastFrame = 0;
 let pageClosed = false;
+let pendingModelLoads = 0;
+
+window.addEventListener('pagehide', event => {
+  if (event.persisted) return;
+  pageClosed = true;
+  controls?.dispose();
+  model?.dispose();
+  model = null;
+  if (pendingModelLoads === 0) engine?._g3_app_shutdown();
+});
 
 const initialUrl = new URL(location.href).searchParams.get('model');
 const localSampleUrl = new URL('../../viewer/sample.glb', location.href).href;
@@ -32,6 +42,8 @@ function updateCameras() {
 }
 
 async function loadModel(url) {
+  if (pageClosed) return;
+  pendingModelLoads++;
   loadButton.disabled = true;
   status.textContent = `Loading ${url}…`;
   try {
@@ -49,7 +61,9 @@ async function loadModel(url) {
     const detail = error instanceof AssetError ? `${error.code}: ${error.message}` : error.message;
     status.textContent = `Could not load model. ${detail}`;
   } finally {
+    pendingModelLoads--;
     loadButton.disabled = false;
+    if (pageClosed && pendingModelLoads === 0) engine?._g3_app_shutdown();
   }
 }
 
@@ -57,6 +71,7 @@ async function start() {
   try {
     if (!canvas.getContext('webgl2')) throw new Error('This example requires WebGL2.');
     engine = await createGoose3D();
+    if (pageClosed) return;
     const size = fitToDisplay(canvas);
     if (!engine._g3_host_start(size.width, size.height)) throw new Error('The renderer could not start.');
     setEnvironmentLighting(engine, [0.32, 0.48, 0.72], [0.16, 0.12, 0.08], 0.55);
@@ -85,20 +100,15 @@ async function start() {
         model.selectCamera(Number(camera), node === '' ? null : Number(node));
       }
     });
-    window.addEventListener('pagehide', () => {
-      pageClosed = true;
-      controls?.dispose();
-      model?.dispose();
-      engine?._g3_app_shutdown();
-    }, { once: true });
     requestAnimationFrame(frame);
     await loadModel(urlInput.value.trim());
   } catch (error) {
-    status.textContent = error.message;
+    if (!pageClosed) status.textContent = error.message;
   }
 }
 
 function frame(now) {
+  if (pageClosed) return;
   const dt = lastFrame ? Math.min((now - lastFrame) / 1000, 0.1) : 1 / 60;
   lastFrame = now;
   model?.update(dt);
