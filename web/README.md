@@ -60,9 +60,9 @@ and custom fragment shaders, run the following from the repository root and open
 ./build_web.sh --reference-checks --serve
 ```
 
-It compares rendered pixels for linear and sRGB output, ACES tone mapping and
-exposure, animation, hemisphere fill, HDR environment maps, shadows, camera
-selection and restoration, target sampling, individual post-process effects,
+It compares rendered pixels for linear and sRGB output, Reinhard and ACES tone
+mapping, exposure, animation, hemisphere fill, HDR environment maps, shadows,
+camera selection and restoration, target sampling, individual post-process effects,
 and an ordered pass queue. It also checks typed image, HDR, and glTF errors,
 invalid-shader diagnostics, and recovery after a queued shader pass fails.
 Results are reported in the page and in `window.__g3ReferenceChecks` for a browser

@@ -74,6 +74,10 @@ function runOutputChecks(gl, engine) {
   engine._g3_reference_clear_color(2, 0.5, 0.25);
   checkPixel(readCenterPixel(gl, engine, 'ACES display output'), [245, 206, 165, 255],
     'ACES tone mapping and sRGB encoding match the reference values');
+  check(engine._g3_reference_set_output(true, 1, 1), 'Reinhard tone mapping settings are accepted');
+  engine._g3_reference_clear_color(2, 0.5, 0.25);
+  checkPixel(readCenterPixel(gl, engine, 'Reinhard display output'), [213, 156, 124, 255],
+    'Reinhard tone mapping and sRGB encoding match the reference values');
   check(engine._g3_reference_set_output(true, 2, 2), 'exposure changes are accepted');
   engine._g3_reference_clear_color(2, 0.5, 0.25);
   checkPixel(readCenterPixel(gl, engine, 'exposed ACES display output'), [252, 232, 206, 255],
