@@ -182,8 +182,12 @@ static. Animation changes the selected scene's node hierarchy; the native
 imported cameras and punctual lights remain static. Native glTF loaders return
 an invalid handle and `false` for malformed or unsupported data. Failed scene
 loads roll back previously created nodes, meshes, cameras, lights, animation
-tracks, skin data, and morph data. Unlike native image loading, native glTF loading does
-not currently expose a detailed last-error code.
+tracks, skin data, and morph data. `native_glb_last_error()` returns the result
+of the most recent native glTF load: `NATIVE_GLB_ERROR_NONE` (0) on success,
+`NATIVE_GLB_ERROR_IO` (1) when a document or referenced file cannot be read,
+`NATIVE_GLB_ERROR_INVALID_DATA` (2) for malformed or unsupported data, and
+`NATIVE_GLB_ERROR_UNSUPPORTED_EXTENSION` (3) for malformed or unsupported
+`extensionsRequired` declarations. This status is process-global.
 
 Native glTF loaders reject malformed `extensionsRequired` declarations,
 required extensions missing from `extensionsUsed`, and extensions outside the

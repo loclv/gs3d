@@ -40,7 +40,7 @@ skeletal animation. Prioritize work in this order:
    touch ergonomics.
 2. **Complete — native scene contract.** The supported glTF subset and
    failure behavior are documented in [assets.md](assets.md). Native tests
-   cover GLB binary data, external and base64 buffers, GLB buffer-view,
+   cover queryable load errors, GLB binary data, external and base64 buffers, GLB buffer-view,
    external and data-URI images, malformed and unsafe paths, PPM/PNG/JPEG/HDR
    image loading, rollback, scene disposal, and repeated-load reuse. Native CPU
    skinning updates retained geometry and bounds; the browser path uses GPU

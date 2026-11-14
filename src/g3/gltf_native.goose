@@ -14,6 +14,15 @@ import g3.texture_native;
 
 namespace g3;
 
+let NATIVE_GLB_ERROR_NONE = 0;
+let NATIVE_GLB_ERROR_IO = 1;
+let NATIVE_GLB_ERROR_INVALID_DATA = 2;
+let NATIVE_GLB_ERROR_UNSUPPORTED_EXTENSION = 3;
+var g_native_glb_error: i32;
+
+// The most recent native glTF load result. Zero means the last load succeeded.
+fn native_glb_last_error() -> i32 { return g_native_glb_error; }
+
 struct GlbTextureSet {
     base_color: TextureHandle, metallic_roughness: TextureHandle, normal: TextureHandle, occlusion: TextureHandle, emissive: TextureHandle,
     specular: TextureHandle, specular_color: TextureHandle, clearcoat: TextureHandle, clearcoat_roughness: TextureHandle,
@@ -256,7 +265,8 @@ fn glb_native_texture(root: json::Node?, texture_info: json::Node?, path: const 
             guard directory_end + uri.len < 4096 else { return TextureHandle { .. }, false; }
             for i in 0..directory_end { external_path.push(path[i]); }
             for i in 0..uri.len { external_path.push(uri[i]); }
-            guard read_file(external_path[..], encoded) && encoded.len > 0 && encoded.len <= 268435456 else { return TextureHandle { .. }, false; }
+            if !read_file(external_path[..], encoded) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return TextureHandle { .. }, false; }
+            guard encoded.len > 0 && encoded.len <= 268435456 else { return TextureHandle { .. }, false; }
         }
         image_handle = if srgb { native_texture_load_asset_encoded(encoded[..]) } else { native_texture_load_asset_encoded_linear(encoded[..]) };
     } else {
@@ -1122,8 +1132,11 @@ fn glb_node_light(root: json::Node?, node_index: i64) -> NativeGlbSceneLight, bo
 // JSON glTF supports up to 16 safe relative external buffers. It applies the
 // selected node instance transform.
 fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primitive_index: i64, node_index: i64) -> NativeGlbModel, bool {
+    g_native_glb_error = NATIVE_GLB_ERROR_NONE;
     var bytes: u8[>..] = [];
-    guard path.len > 0 && read_file(path, bytes) && bytes.len <= 268435456 else { return NativeGlbModel { .. }, false; }
+    if path.len == 0 || !read_file(path, bytes) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return NativeGlbModel { .. }, false; }
+    if bytes.len > 268435456 { g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA; return NativeGlbModel { .. }, false; }
+    g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA;
     let is_glb = bytes.len >= 12 && glb_u32(bytes[..], 0) == 0x46546C67;
     var json_start: i64 = -1; var json_size: i64 = 0; var bin_start: i64 = -1; var bin_size: i64 = 0;
     if is_glb {
@@ -1146,7 +1159,11 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     var doc: json::Node[>..] = [];
     var decoded: u8[>..] = [];
     let root, parse_error = json::parse(bytes[json_start..json_start + json_size], doc, decoded);
-    guard root && parse_error.len == 0 && glb_required_extensions_supported(root) else { return NativeGlbModel { .. }, false; }
+    guard root && parse_error.len == 0 else { return NativeGlbModel { .. }, false; }
+    if !glb_required_extensions_supported(root) {
+        g_native_glb_error = NATIVE_GLB_ERROR_UNSUPPORTED_EXTENSION;
+        return NativeGlbModel { .. }, false;
+    }
     let asset = json::member(root, "asset");
     let version, version_ok = json::as_string(json::member(asset, "version"));
     let buffers = json::member(root, "buffers");
@@ -1189,7 +1206,8 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
                 guard directory_end + uri.len < 4096 else { return NativeGlbModel { .. }, false; }
                 for i in 0..directory_end { external_path.push(path[i]); }
                 for i in 0..uri.len { external_path.push(uri[i]); }
-                guard read_file(external_path[..], external) && external.len == declared_bytes else { return NativeGlbModel { .. }, false; }
+                if !read_file(external_path[..], external) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return NativeGlbModel { .. }, false; }
+                guard external.len == declared_bytes else { return NativeGlbModel { .. }, false; }
             }
             buffer_bases.push(bytes.len);
             buffer_sizes.push(declared_bytes);
@@ -1461,6 +1479,7 @@ fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primit
     if material_handle_valid(imported_material) { node(node_id).material = imported_material.id; }
     node(node_id).local_matrix = transform;
     node(node_id).use_local_matrix = true;
+    g_native_glb_error = NATIVE_GLB_ERROR_NONE;
     return NativeGlbModel { mesh: mesh_handle(mesh_id), node: node_handle(node_id), material: imported_material, texture: imported_texture, textures: imported_textures,
         morph_vertex_start: morph_vertex_start as i32, morph_vertex_count: positions.count as i32,
         morph_delta_start: morph_delta_start as i32, morph_target_count: morph_target_count as i32,
@@ -1481,8 +1500,10 @@ fn native_glb_load_node_primitive(path: const u8[:], node_index: i64, primitive_
 }
 
 fn glb_node_primitive_count(path: const u8[:], node_index: i64) -> i64, bool {
+    g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA;
     var bytes: u8[>..] = [];
-    guard path.len > 0 && read_file(path, bytes) && bytes.len > 0 && bytes.len <= 268435456 else { return 0, false; }
+    if path.len == 0 || !read_file(path, bytes) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return 0, false; }
+    if bytes.len == 0 || bytes.len > 268435456 { return 0, false; }
     var json_start: i64 = 0; var json_size: i64 = bytes.len;
     if bytes.len >= 12 && glb_u32(bytes[..], 0) == 0x46546C67 {
         guard bytes.len >= 20 && glb_u32(bytes[..], 4) == 2 && glb_u32(bytes[..], 8) == bytes.len else { return 0, false; }
@@ -1502,6 +1523,10 @@ fn glb_node_primitive_count(path: const u8[:], node_index: i64) -> i64, bool {
     var decoded: u8[>..] = [];
     let root, parse_error = json::parse(bytes[json_start..json_start + json_size], doc, decoded);
     guard root && parse_error.len == 0 else { return 0, false; }
+    if !glb_required_extensions_supported(root) {
+        g_native_glb_error = NATIVE_GLB_ERROR_UNSUPPORTED_EXTENSION;
+        return 0, false;
+    }
     let nodes = json::member(root, "nodes");
     let instance = glb_json_element(nodes, node_index);
     let mesh_index, mesh_ok = glb_json_index(json::member(instance, "mesh"));
@@ -1532,8 +1557,10 @@ fn native_glb_mesh_valid(handle: NativeGlbMeshHandle) -> bool {
 // Load every static primitive of the selected node instance beneath one group
 // node. The source's composed world matrix is placed on that checked root.
 fn native_glb_load_node_mesh(path: const u8[:], node_index: i64) -> NativeGlbMeshHandle, bool {
+    g_native_glb_error = NATIVE_GLB_ERROR_NONE;
     let count, count_ok = glb_node_primitive_count(path, node_index);
     guard count_ok else { return NativeGlbMeshHandle { .. }, false; }
+    g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA;
     let handle = native_glb_mesh_slot_add(count);
     let root_id = node_asset_add(-1);
     if root_id < 0 {
@@ -1546,6 +1573,7 @@ fn native_glb_load_node_mesh(path: const u8[:], node_index: i64) -> NativeGlbMes
     for primitive_index in 0..count {
         let model, loaded = native_glb_load_node_primitive(path, node_index, primitive_index);
         if !loaded { native_glb_mesh_dispose(handle); return NativeGlbMeshHandle { .. }, false; }
+        g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA;
         if primitive_index == 0 {
             node(root_id).local_matrix = node(model.node.index).local_matrix;
             node(root_id).use_local_matrix = true;
@@ -1561,6 +1589,7 @@ fn native_glb_load_node_mesh(path: const u8[:], node_index: i64) -> NativeGlbMes
             g_native_glb_parts[slot] = NativeGlbPartSlot { owner_id: handle.id, owner_generation: handle.generation, primitive_index: primitive_index as i32, model: model, active: true, .. };
         }
     }
+    g_native_glb_error = NATIVE_GLB_ERROR_NONE;
     return handle, true;
 }
 
@@ -1704,7 +1733,8 @@ fn glb_scene_prepare_buffers(path: const u8[:], is_glb: bool, root: json::Node?,
                 guard directory_end + uri.len < 4096 else { return false; }
                 for i in 0..directory_end { external_path.push(path[i]); }
                 for i in 0..uri.len { external_path.push(uri[i]); }
-                guard read_file(external_path[..], external) && external.len == length else { return false; }
+                if !read_file(external_path[..], external) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return false; }
+                guard external.len == length else { return false; }
             }
             bases.push(bytes.len); sizes.push(length);
             for i in 0..length { bytes.push(external[i]); }
@@ -1979,8 +2009,11 @@ fn glb_scene_load_animations(root: json::Node?, bytes: const u8[:], buffer_bases
 // Load the selected hierarchy, mesh instances, cameras, punctual lights, and
 // core TRS and morph-weight animation tracks. Skinning is not imported.
 fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> NativeGlbSceneHandle, bool {
+    g_native_glb_error = NATIVE_GLB_ERROR_NONE;
     var bytes: u8[>..] = [];
-    guard path.len > 0 && read_file(path, bytes) && bytes.len > 0 && bytes.len <= 268435456 else { return NativeGlbSceneHandle { .. }, false; }
+    if path.len == 0 || !read_file(path, bytes) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return NativeGlbSceneHandle { .. }, false; }
+    if bytes.len == 0 || bytes.len > 268435456 { g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA; return NativeGlbSceneHandle { .. }, false; }
+    g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA;
     var json_start: i64 = 0; var json_size: i64 = bytes.len;
     var bin_start: i64 = -1; var bin_size: i64 = 0;
     let is_glb = bytes.len >= 12 && glb_u32(bytes[..], 0) == 0x46546C67;
@@ -2002,7 +2035,11 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
     var doc: json::Node[>..] = [];
     var decoded: u8[>..] = [];
     let root, parse_error = json::parse(bytes[json_start..json_start + json_size], doc, decoded);
-    guard root && parse_error.len == 0 && glb_required_extensions_supported(root) else { return NativeGlbSceneHandle { .. }, false; }
+    guard root && parse_error.len == 0 else { return NativeGlbSceneHandle { .. }, false; }
+    if !glb_required_extensions_supported(root) {
+        g_native_glb_error = NATIVE_GLB_ERROR_UNSUPPORTED_EXTENSION;
+        return NativeGlbSceneHandle { .. }, false;
+    }
     var animation_buffer_bases: i64[>..] = [];
     var animation_buffer_sizes: i64[>..] = [];
     if glb_array_count(json::member(root, "animations")) > 0 {
@@ -2109,6 +2146,7 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
         if selected[i] && json::member(glb_json_element(nodes, i), "mesh") {
             let mesh, loaded = native_glb_load_node_mesh(path, i);
             if !loaded { native_glb_scene_dispose(handle); return NativeGlbSceneHandle { .. }, false; }
+            g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA;
             let mesh_root = native_glb_mesh_root(mesh);
             if !node_handle_valid(mesh_root) { native_glb_mesh_dispose(mesh); native_glb_scene_dispose(handle); return NativeGlbSceneHandle { .. }, false; }
             node(mesh_root.index).parent = node_ids[i] as i32;
@@ -2163,6 +2201,7 @@ fn native_glb_load_scene(path: const u8[:], requested_scene_index: i64) -> Nativ
         native_glb_scene_dispose(handle);
         return NativeGlbSceneHandle { .. }, false;
     }
+    g_native_glb_error = NATIVE_GLB_ERROR_NONE;
     return handle, true;
 }
 

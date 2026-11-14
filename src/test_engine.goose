@@ -412,6 +412,8 @@ fn case_native_glb_load() {
                    "native GLB imports specular, clearcoat, sheen, and anisotropy factors");
     if g3::material_handle_valid(factors_material) { g3::material_asset_release(factors_material); }
     let model, loaded = g3::native_glb_load_primitive("web/viewer/sample.glb", 0, 0);
+    testing::check(loaded && g3::native_glb_last_error() == g3::NATIVE_GLB_ERROR_NONE,
+                   "native GLB success clears the queryable error code");
     let selected, selected_ok = g3::native_glb_load_node_primitive("web/viewer/sample.glb", 0, 0);
     let same_transform = selected_ok && loaded && g3::node_handle_valid(selected.node) &&
                          g3::node(selected.node.index).local_matrix.m[12] == g3::node(model.node.index).local_matrix.m[12] &&
@@ -422,6 +424,22 @@ fn case_native_glb_load() {
     let invalid_instance, invalid_instance_ok = g3::native_glb_load_node_primitive("web/viewer/sample.glb", 99, 0);
     testing::check(!invalid_instance_ok && invalid_instance.mesh.id < 0,
                    "native GLB node-instance loader rejects an invalid node index");
+    let missing_file, missing_file_ok = g3::native_glb_load_primitive("testdata/no-such-native.glb", 0, 0);
+    testing::check(!missing_file_ok && missing_file.mesh.id < 0 &&
+                   g3::native_glb_last_error() == g3::NATIVE_GLB_ERROR_IO,
+                   "native GLB query reports document read failures");
+    let unsupported_model, unsupported_model_ok = g3::native_glb_load_primitive("testdata/native-unsupported-required.gltf", 0, 0);
+    testing::check(!unsupported_model_ok && unsupported_model.mesh.id < 0 &&
+                   g3::native_glb_last_error() == g3::NATIVE_GLB_ERROR_UNSUPPORTED_EXTENSION,
+                   "native GLB query reports unsupported required extensions");
+    let unsupported_mesh, unsupported_mesh_ok = g3::native_glb_load_node_mesh("testdata/native-unsupported-required.gltf", 0);
+    testing::check(!unsupported_mesh_ok && !g3::native_glb_mesh_valid(unsupported_mesh) &&
+                   g3::native_glb_last_error() == g3::NATIVE_GLB_ERROR_UNSUPPORTED_EXTENSION,
+                   "native GLB mesh query reports unsupported required extensions");
+    let unsupported_scene, unsupported_scene_ok = g3::native_glb_load_scene("testdata/native-unsupported-required.gltf", -1);
+    testing::check(!unsupported_scene_ok && !g3::native_glb_scene_valid(unsupported_scene) &&
+                   g3::native_glb_last_error() == g3::NATIVE_GLB_ERROR_UNSUPPORTED_EXTENSION,
+                   "native GLB scene query reports unsupported required extensions");
     let live = loaded && g3::mesh_handle_valid(model.mesh) && g3::node_handle_valid(model.node) &&
                g3::material_handle_valid(model.material) && g3::texture_handle_valid(model.texture) &&
                g3::node(model.node.index).material == model.material.id;
@@ -485,7 +503,8 @@ fn case_native_glb_load() {
     let scene_mesh_root_b = g3::native_glb_mesh_root(scene_mesh_b);
     let scene_node_a = g3::native_glb_scene_node(scene_model, 1);
     let scene_node_b = g3::native_glb_scene_node(scene_model, 2);
-    let scene_groups = g3::native_glb_mesh_valid(scene_mesh_a) && g3::native_glb_mesh_valid(scene_mesh_b) &&
+    let scene_groups = scene_loaded && g3::native_glb_last_error() == g3::NATIVE_GLB_ERROR_NONE &&
+                       g3::native_glb_mesh_valid(scene_mesh_a) && g3::native_glb_mesh_valid(scene_mesh_b) &&
                        g3::node_handle_valid(scene_root) && g3::node_handle_valid(scene_mesh_root_a) && g3::node_handle_valid(scene_mesh_root_b) &&
                        g3::node_handle_valid(scene_node_a) && g3::node_handle_valid(scene_node_b) &&
                        g3::node(scene_mesh_root_a.index).parent == scene_node_a.index && g3::node(scene_mesh_root_b.index).parent == scene_node_b.index;
@@ -751,6 +770,8 @@ fn case_native_glb_load() {
     testing::check(!traversal_loaded && traversal_model.mesh.id < 0 && !missing_buffer_loaded && missing_buffer_model.mesh.id < 0 &&
                    !bad_buffer_loaded && bad_buffer_model.mesh.id < 0 && !bad_data_uri_loaded && bad_data_uri_model.mesh.id < 0,
                    "native JSON glTF rejects unsafe, missing, malformed, and out-of-range buffers without allocating resources");
+    testing::check(g3::native_glb_last_error() == g3::NATIVE_GLB_ERROR_INVALID_DATA,
+                   "native GLB query reports malformed asset data");
     let ushort_bytes: u8[8] = [0, 0, 255, 255, 0, 128, 0, 64];
     let ushort_color, ushort_color_ok = g3::glb_vertex_color(ushort_bytes[..], 0, g3::GlbAccessor { stride: 8, components: 4, has_base: true, .. }, 5123, 0);
     testing::check(ushort_color_ok && abs(ushort_color.x) < 0.001 && abs(ushort_color.y - 1.0) < 0.001 &&
