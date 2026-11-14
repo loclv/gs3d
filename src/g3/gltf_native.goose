@@ -29,7 +29,7 @@ struct NativeGlbScenePartSlot { scene_id: i32, scene_generation: i32, mesh_index
 struct NativeGlbSceneNodeSlot { scene_id: i32, scene_generation: i32, gltf_index: i32, node: NodeHandle, translation: float3, rotation: float4 = float4 { 0.0, 0.0, 0.0, 1.0 }, scale: float3 = float3_1, base_translation: float3, base_rotation: float4 = float4 { 0.0, 0.0, 0.0, 1.0 }, base_scale: float3 = float3_1, has_trs: bool = true, animated: bool, active: bool }
 struct NativeGlbSceneCameraSlot { scene_id: i32, scene_generation: i32, camera_index: i32, camera_id: i64, active: bool }
 struct NativeGlbSceneLight { kind: i32, position: float3, direction: float3, color: float3, range: f32, inner: f32, outer: f32 }
-struct NativeGlbAnimationTrack { scene_id: i32, scene_generation: i32, animation_index: i32, gltf_node_index: i32, node_slot_index: i32, path: i32, interpolation: i32, key_start: i32, key_count: i32, active: bool }
+struct NativeGlbAnimationTrack { scene_id: i32, scene_generation: i32, animation_index: i32, gltf_node_index: i32, node_slot_index: i32, path: i32, interpolation: i32, key_start: i32, key_count: i32, duration: f32, unsupported: bool, active: bool }
 struct NativeGlbAnimationKey { time: f32, incoming: float4, value: float4, outgoing: float4, active: bool }
 struct GlbSparseAccessor { count: i64, indices_offset: i64, indices_type: i64, values_offset: i64 }
 struct GlbAccessor { offset: i64, stride: i64, count: i64, components: i64, has_base: bool, sparse: GlbSparseAccessor }
@@ -1524,7 +1524,7 @@ fn glb_scene_load_animations(root: json::Node?, bytes: const u8[:], buffer_bases
             if path == "translation" { path_id = 0; component_count = 3; type_name = "VEC3"; }
             else if path == "rotation" { path_id = 1; component_count = 4; type_name = "VEC4"; }
             else if path == "scale" { path_id = 2; component_count = 3; type_name = "VEC3"; }
-            else if path == "weights" { continue; }
+            else if path == "weights" { path_id = 3; }
             else { return false; }
             var target_node_slot: i64 = -1;
             for i in 0..g_native_glb_scene_nodes.len {
@@ -1534,7 +1534,7 @@ fn glb_scene_load_animations(root: json::Node?, bytes: const u8[:], buffer_bases
                 }
             }
             if target_node_slot < 0 { continue; }
-            guard g_native_glb_scene_nodes[target_node_slot].has_trs else { return false; }
+            if path_id != 3 { guard g_native_glb_scene_nodes[target_node_slot].has_trs else { return false; } }
             let sampler_index, sampler_ok = glb_json_index(json::member(channel, "sampler"));
             let sampler = glb_json_element(samplers, sampler_index);
             let input_index, input_ok = glb_json_index(json::member(sampler, "input"));
@@ -1550,8 +1550,28 @@ fn glb_scene_load_animations(root: json::Node?, bytes: const u8[:], buffer_bases
             }
             guard sampler_ok && sampler && input_ok && output_ok else { return false; }
             let input, input_valid = glb_attribute_accessor(root, bytes, buffer_bases, buffer_sizes, input_index, "ANIMATION", "SCALAR", 1);
+            guard input_valid && input.count <= 1048576 else { return false; }
+            if path_id == 3 {
+                guard glb_json_element(json::member(root, "accessors"), output_index) else { return false; }
+                for i in 0..g_native_glb_animation_tracks.len {
+                    let prior = g_native_glb_animation_tracks[i];
+                    guard !prior.active || prior.scene_id != handle.id || prior.scene_generation != handle.generation ||
+                          prior.animation_index != animation_index || prior.gltf_node_index != node_index || prior.path != path_id else { return false; }
+                }
+                var previous_time: f32 = -1.0;
+                for key_index in 0..input.count {
+                    let time, time_ok = glb_attribute_value(bytes, 0, input, key_index, 0);
+                    guard time_ok && time >= 0.0 && time <= 3.4e38 && time > previous_time else { return false; }
+                    previous_time = time;
+                }
+                glb_animation_track_add(NativeGlbAnimationTrack { scene_id: handle.id, scene_generation: handle.generation,
+                    animation_index: animation_index as i32, gltf_node_index: node_index as i32,
+                    node_slot_index: target_node_slot as i32, path: path_id, interpolation: interpolation, key_start: -1,
+                    key_count: 0, duration: previous_time, unsupported: true, active: true });
+                continue;
+            }
             let output, output_valid = glb_attribute_accessor(root, bytes, buffer_bases, buffer_sizes, output_index, "ANIMATION", type_name, component_count);
-            guard input_valid && output_valid && input.count <= 1048576 && output.count == input.count * (if interpolation == 2 { 3 } else { 1 }) else { return false; }
+            guard output_valid && output.count == input.count * (if interpolation == 2 { 3 } else { 1 }) else { return false; }
             for i in 0..g_native_glb_animation_tracks.len {
                 let prior = g_native_glb_animation_tracks[i];
                 guard !prior.active || prior.scene_id != handle.id || prior.scene_generation != handle.generation ||
@@ -1561,8 +1581,8 @@ fn glb_scene_load_animations(root: json::Node?, bytes: const u8[:], buffer_bases
             guard key_start >= 0 else { return false; }
             let track = NativeGlbAnimationTrack { scene_id: handle.id, scene_generation: handle.generation,
                 animation_index: animation_index as i32, gltf_node_index: node_index as i32, node_slot_index: target_node_slot as i32, path: path_id,
-                interpolation: interpolation, key_start: key_start as i32, key_count: input.count as i32, active: true };
-            glb_animation_track_add(track);
+                interpolation: interpolation, key_start: key_start as i32, key_count: input.count as i32, duration: 0.0, unsupported: false, active: true };
+            let track_slot = glb_animation_track_add(track);
             g_native_glb_scene_nodes[target_node_slot].animated = true;
             var previous_time: f32 = -1.0;
             for key_index in 0..input.count {
@@ -1583,6 +1603,7 @@ fn glb_scene_load_animations(root: json::Node?, bytes: const u8[:], buffer_bases
                 if path_id == 1 { let normalized_value, normalized_ok = glb_quaternion_normalize(value); guard normalized_ok else { return false; } value = normalized_value; }
                 g_native_glb_animation_keys[key_start + key_index] = NativeGlbAnimationKey { time: time, incoming: incoming, value: value, outgoing: outgoing, active: true };
             }
+            g_native_glb_animation_tracks[track_slot].duration = previous_time;
         }
     }
     return true;
@@ -1837,9 +1858,8 @@ fn native_glb_scene_animation_duration(handle: NativeGlbSceneHandle, animation_i
     var duration: f32 = 0.0;
     for i in 0..g_native_glb_animation_tracks.len {
         let track = g_native_glb_animation_tracks[i];
-        if track.active && track.scene_id == handle.id && track.scene_generation == handle.generation && track.animation_index == animation_index && track.key_count > 0 {
-            let end_time = g_native_glb_animation_keys[track.key_start + track.key_count - 1].time;
-            duration = max(duration, end_time);
+        if track.active && track.scene_id == handle.id && track.scene_generation == handle.generation && track.animation_index == animation_index {
+            duration = max(duration, track.duration);
         }
     }
     return duration;
@@ -1864,6 +1884,11 @@ fn native_glb_scene_reset_animation(handle: NativeGlbSceneHandle) -> bool {
 fn native_glb_scene_apply_animation(handle: NativeGlbSceneHandle, animation_index: i32, time: f32) -> bool {
     guard native_glb_scene_valid(handle) && animation_index >= 0 && animation_index < g_native_glb_scenes[handle.id].animation_count &&
           time >= 0.0 && time <= 3.4e38 else { return false; }
+    for i in 0..g_native_glb_animation_tracks.len {
+        let track = g_native_glb_animation_tracks[i];
+        if track.active && track.scene_id == handle.id && track.scene_generation == handle.generation &&
+           track.animation_index == animation_index && track.unsupported { return false; }
+    }
     native_glb_scene_reset_animation(handle);
     for i in 0..g_native_glb_animation_tracks.len {
         let track = g_native_glb_animation_tracks[i];

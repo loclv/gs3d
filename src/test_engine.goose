@@ -521,8 +521,9 @@ fn case_native_glb_load() {
     testing::check(g3::native_glb_scene_dispose(selected_scene), "selected native glTF scene disposes cleanly");
     let animation_scene, animation_scene_loaded = g3::native_glb_load_scene("testdata/native-animation.glb", -1);
     let animated_node = g3::native_glb_scene_node(animation_scene, 0);
-    let animation_metadata = animation_scene_loaded && g3::native_glb_scene_animation_count(animation_scene) == 4 &&
-                             abs(g3::native_glb_scene_animation_duration(animation_scene, 0) - 1.0) < 0.001;
+    let animation_metadata = animation_scene_loaded && g3::native_glb_scene_animation_count(animation_scene) == 5 &&
+                             abs(g3::native_glb_scene_animation_duration(animation_scene, 0) - 1.0) < 0.001 &&
+                             abs(g3::native_glb_scene_animation_duration(animation_scene, 4) - 1.0) < 0.001;
     let linear_applied = g3::native_glb_scene_apply_animation(animation_scene, 0, 0.5);
     let linear_translation_ok = linear_applied && abs(g3::node(animated_node.index).local_matrix.m[12] - 1.0) < 0.001;
     let step_mid_applied = g3::native_glb_scene_apply_animation(animation_scene, 1, 0.5);
@@ -534,19 +535,22 @@ fn case_native_glb_load() {
                       abs(g3::node(animated_node.index).local_matrix.m[1] - 2.0) < 0.002;
     let cubic_applied = g3::native_glb_scene_apply_animation(animation_scene, 3, 0.5);
     let cubic_ok = cubic_applied && abs(g3::node(animated_node.index).local_matrix.m[12] - 1.0) < 0.002;
+    let unsupported_keeps_pose = !g3::native_glb_scene_apply_animation(animation_scene, 4, 0.5) &&
+                                 abs(g3::node(animated_node.index).local_matrix.m[12] - 1.0) < 0.002;
     let animation_reset = g3::native_glb_scene_reset_animation(animation_scene);
     testing::check(animation_metadata, "native glTF animation metadata exposes clip count and duration");
     testing::check(linear_translation_ok, "native glTF LINEAR translation animation samples its midpoint");
     testing::check(step_mid_ok && step_end_ok, "native glTF STEP scale animation holds and advances at keys");
     testing::check(rotation_ok, "native glTF LINEAR quaternion animation uses spherical interpolation");
     testing::check(cubic_ok, "native glTF CUBICSPLINE transform animation evaluates Hermite tangents");
+    testing::check(unsupported_keeps_pose, "native glTF morph-weight clips report unsupported without altering the current pose");
     testing::check(animation_reset && abs(g3::node(animated_node.index).local_matrix.m[12] - 0.25) < 0.001 &&
                    abs(g3::node(animated_node.index).local_matrix.m[0] - 2.0) < 0.001,
                    "native glTF scene animation resets animated nodes to base transforms");
     testing::check(g3::native_glb_scene_dispose(animation_scene) && !g3::native_glb_scene_valid(animation_scene),
                    "native glTF scene disposal releases animation tracks and checked node handles");
     let animation_reloaded, animation_reloaded_ok = g3::native_glb_load_scene("testdata/native-animation.glb", -1);
-    let animation_reused_ok = animation_reloaded_ok && g3::native_glb_scene_animation_count(animation_reloaded) == 4 &&
+    let animation_reused_ok = animation_reloaded_ok && g3::native_glb_scene_animation_count(animation_reloaded) == 5 &&
                               g3::native_glb_scene_apply_animation(animation_reloaded, 0, 0.5) &&
                               abs(g3::node(g3::native_glb_scene_node(animation_reloaded, 0).index).local_matrix.m[12] - 1.0) < 0.001;
     testing::check(animation_reused_ok && g3::native_glb_scene_dispose(animation_reloaded),

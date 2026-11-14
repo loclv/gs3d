@@ -169,8 +169,10 @@ animation are not. Query clips with `native_glb_scene_animation_count` and
 `native_glb_scene_apply_animation(scene, clip, elapsed_seconds)` from the
 application frame loop. Sampling clamps to the clip's key range. Call
 `native_glb_scene_reset_animation` before switching clips or restoring authored
-node transforms. Animation changes the selected scene's node hierarchy; the
-native imported cameras and punctual lights remain static.
+node transforms. Applying a clip that contains a morph-weight channel returns
+`false`, since native morph deformation is not yet supported. Animation changes
+the selected scene's node hierarchy; the native imported cameras and punctual
+lights remain static.
 
 ```goose
 let loaded_scene, scene_ok = g3::native_glb_load_scene("model.glb", -1);
