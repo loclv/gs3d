@@ -182,8 +182,9 @@ and a browser integration check for behavior exposed through WebGL.
   includes perspective and orthographic cameras, point and spot lights, and a
   shadow receiver. A local browser check page exercises WebGL frame output,
   texture decoding, environment fill, animation, camera selection, point and
-  spot shadows, and repeated disposal. It exposes a machine-readable result for
-  a future browser automation runner. The browser model API
+  spot shadows, and repeated disposal; it compares rendered pixels when
+  animation, lighting, shadows, and cameras change. It exposes a machine-
+  readable result for a future browser automation runner. The browser model API
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material
   summaries expose texture bindings and a bounded preview API, and the viewer

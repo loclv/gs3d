@@ -28,6 +28,15 @@ function renderAndCheck(gl, engine, label) {
   }
   check(changed > 100, `${label}: WebGL frame contains rendered scene pixels`);
   check(gl.getError() === gl.NO_ERROR, `${label}: WebGL reports no error`);
+  return pixels;
+}
+
+function changedPixels(a, b) {
+  let changed = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 12) changed++;
+  }
+  return changed;
 }
 
 async function run() {
@@ -47,12 +56,27 @@ async function run() {
   check(!!preview && preview.pixels.length === preview.width * preview.height * 4,
     'sample texture decodes and provides preview pixels');
   check(model.selectCamera(0), 'perspective camera switches on');
-  check(model.applyLights({ pointShadow: 0, spotShadow: 1 }), 'point and spot shadow maps activate');
+  check(model.applyLights(), 'unshadowed imported lights activate');
+  setEnvironmentLighting(engine, [0.32, 0.48, 0.72], [0.16, 0.12, 0.08], 0);
+  const animationStart = renderAndCheck(gl, engine, 'animation at its first key');
   model.update(0.5);
-  renderAndCheck(gl, engine, 'perspective, animation, environment fill, and shadows');
+  check(model.animationTime > 0.49, 'animation advances to the requested time');
+  check(model.pauseAnimation(), 'animation pauses for repeatable image comparisons');
+  const noEnvironment = renderAndCheck(gl, engine, 'perspective camera with no hemisphere fill');
+  check(changedPixels(animationStart, noEnvironment) > 0, 'animation changes rendered pixels');
+  setEnvironmentLighting(engine, [0.32, 0.48, 0.72], [0.16, 0.12, 0.08], 0.7);
+  const environment = renderAndCheck(gl, engine, 'perspective camera with hemisphere fill');
+  check(changedPixels(noEnvironment, environment) > 0, 'environment fill changes rendered pixels');
+  check(model.applyLights({ pointShadow: 0 }), 'point shadow map activates');
+  const pointShadow = renderAndCheck(gl, engine, 'point shadow');
+  check(changedPixels(environment, pointShadow) > 0, 'point shadow changes rendered pixels');
+  check(model.applyLights({ spotShadow: 1 }), 'spot shadow map activates');
+  const spotShadow = renderAndCheck(gl, engine, 'spot shadow');
+  check(changedPixels(environment, spotShadow) > 0, 'spot shadow changes rendered pixels');
   check(model.selectCamera(1), 'orthographic camera switches on');
-  model.update(1 / 60);
-  renderAndCheck(gl, engine, 'orthographic camera');
+  const orthographic = renderAndCheck(gl, engine, 'orthographic camera');
+  check(model.activeCamera === 1 && changedPixels(spotShadow, orthographic) > 0,
+    'camera selection changes rendered pixels');
 
   const node = model.roots[0];
   const mesh = model.meshes[0];

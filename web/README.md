@@ -49,9 +49,10 @@ actual browser rendering checks are still needed to validate WebGL output.
 Regenerate the sample asset with `python3 web/viewer/generate_sample.py`.
 For browser-side checks of WebGL frame output, texture decoding, environment
 fill, animation, camera selection, point and spot shadows, and repeated asset
-disposal, open `/viewer/reference-checks.html` from that local server. Results
-are reported in the page and in `window.__g3ReferenceChecks` for a browser
-automation runner.
+disposal, open `/viewer/reference-checks.html` from that local server. It
+compares rendered pixels as animation, environment fill, shadows, and cameras
+change. Results are reported in the page and in `window.__g3ReferenceChecks`
+for a browser automation runner.
 
 The package consumer example is at `/examples/model-loader/`. It defaults to
 the remote [RobotExpressive sample](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf/RobotExpressive),
