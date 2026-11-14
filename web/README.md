@@ -117,9 +117,8 @@ installs the generated archive offline in a temporary consumer project, then
 checks its JavaScript and TypeScript export paths.
 
 Publishing runs the package tests and a metadata check through the
-`prepublishOnly` script. Set the package `license` before publishing; an
-open-source license also needs a `web/LICENSE` file, which the package allowlist
-ships. The published file allowlist otherwise contains only the asset and
+`prepublishOnly` script. The package uses Apache-2.0; its license file ships in
+the package. The published file allowlist otherwise contains only the asset and
 orbit-control modules and their declarations; repository tests and sample GLBs
 stay in the checkout.
 

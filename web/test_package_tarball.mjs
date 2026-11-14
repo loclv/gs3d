@@ -25,6 +25,7 @@ try {
   const paths = new Set(packed.files.map(file => file.path));
   assert.ok(paths.has('assets.js') && paths.has('assets.d.ts'));
   assert.ok(paths.has('orbit-controls.js') && paths.has('orbit-controls.d.ts'));
+  assert.ok(paths.has('LICENSE'), 'the selected license is included in the package tarball');
   assert.ok(![...paths].some(path => path.endsWith('.glb') || path.startsWith('test_')),
     'the package tarball omits repository tests and sample assets');
 
@@ -41,6 +42,9 @@ try {
     await access(join(consumerDir, 'node_modules', manifest.name, entry.import));
     await access(join(consumerDir, 'node_modules', manifest.name, entry.types));
   }
+  const installedLicense = await readFile(join(consumerDir, 'node_modules', manifest.name, 'LICENSE'), 'utf8');
+  assert.match(installedLicense, /^\s*Apache License\s+Version 2\.0/,
+    'the installed package contains the Apache-2.0 license text');
   execFileSync(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict';
     import * as assets from '${manifest.name}';

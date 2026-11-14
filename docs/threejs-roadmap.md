@@ -55,8 +55,8 @@ skeletal animation. Prioritize work in this order:
    remote GLB, with CC0 1.0 source and license
    attribution beside the viewer, and offers the bundled textured sample for
    offline use. Package files, subpaths, declarations, and prepublish tests are
-   ready. Before publishing, choose and record the package license; then publish
-   and verify an installed consumer against the registry artifact.
+   ready under Apache-2.0. Publish the package and verify an installed consumer
+   against the registry artifact.
 4. **Expand Three.js coverage from demonstrated use cases.** Add renderer or
    asset features when a concrete viewer or game needs them. Record unsupported
    extensions and rendering differences in the docs instead of implying full
