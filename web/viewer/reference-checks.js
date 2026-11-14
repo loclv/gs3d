@@ -162,6 +162,12 @@ async function runImageLoaderChecks(gl, engine) {
   catch (error) { hdrError = error; }
   check(hdrError instanceof AssetError && hdrError.code === 'HDR',
     'invalid Radiance bytes produce a typed decode error');
+
+  let gltfError = null;
+  try { await loadGLTF(engine, 'data:application/json,%7B'); }
+  catch (error) { gltfError = error; }
+  check(gltfError instanceof AssetError && gltfError.code === 'INVALID_GLTF',
+    'malformed glTF JSON produces a typed asset error');
 }
 
 async function run() {
