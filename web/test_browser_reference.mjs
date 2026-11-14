@@ -2,11 +2,11 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { startReferenceTestServer } from './reference-test-server.mjs';
 
 const webDir = fileURLToPath(new URL('.', import.meta.url));
 const defaultChromePaths = [
@@ -16,15 +16,6 @@ const defaultChromePaths = [
   '/usr/bin/chromium',
   '/usr/bin/chromium-browser',
 ];
-const mimeTypes = new Map([
-  ['.css', 'text/css; charset=utf-8'],
-  ['.glb', 'model/gltf-binary'],
-  ['.html', 'text/html; charset=utf-8'],
-  ['.js', 'text/javascript; charset=utf-8'],
-  ['.json', 'application/json; charset=utf-8'],
-  ['.wasm', 'application/wasm'],
-]);
-
 function argument(name) {
   const index = process.argv.indexOf(name);
   return index < 0 ? null : process.argv[index + 1] ?? null;
@@ -53,38 +44,6 @@ async function findChrome() {
     } catch {}
   }
   throw new Error('Chrome or Chromium not found; set G3_CHROME or pass --chrome PATH');
-}
-
-async function serveWeb() {
-  const server = createServer(async (request, response) => {
-    let pathname;
-    try {
-      pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
-    } catch {
-      response.writeHead(400).end('Bad URL');
-      return;
-    }
-    const relative = normalize(pathname).replace(/^([/\\]|\.\.(?:[/\\]|$))+/, '');
-    const file = resolve(webDir, relative || 'index.html');
-    if (file !== webDir && !file.startsWith(`${webDir}${sep}`)) {
-      response.writeHead(403).end('Forbidden');
-      return;
-    }
-    try {
-      const content = await readFile(file);
-      response.writeHead(200, {
-        'content-type': mimeTypes.get(extname(file)) ?? 'application/octet-stream',
-        'cache-control': 'no-store',
-      }).end(content);
-    } catch {
-      response.writeHead(404).end('Not found');
-    }
-  });
-  await new Promise((resolveListen, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolveListen);
-  });
-  return { server, port: server.address().port };
 }
 
 async function waitForDevtools(port, child) {
@@ -153,7 +112,7 @@ async function run() {
   const chrome = await findChrome();
   const timeoutMs = Number(argument('--timeout-ms') ?? 120_000);
   assert.ok(Number.isFinite(timeoutMs) && timeoutMs > 0, '--timeout-ms must be a positive number');
-  const { server, port } = await serveWeb();
+  const { server, port } = await startReferenceTestServer();
   const tempProfile = await mkdtemp(join(tmpdir(), 'g3-reference-chrome-'));
   const remotePortServer = createServer();
   await new Promise((resolveListen, reject) => {
