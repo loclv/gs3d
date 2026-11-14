@@ -14,6 +14,10 @@ const image = await resolveReferenceRequest('/game/ground.jpg');
 assert.equal(image.status, 200, 'browser reference image fixture is served');
 assert.equal(image.headers['content-type'], 'image/jpeg');
 
+const skinFixture = await resolveReferenceRequest('/testdata/native-skin-animation.glb');
+assert.equal(skinFixture.status, 200, 'native/browser shared skin animation fixture is served');
+assert.equal(skinFixture.headers['content-type'], 'model/gltf-binary');
+
 const wasm = await resolveReferenceRequest('/viewer/reference/app.wasm');
 assert.ok([200, 404].includes(wasm.status), 'optional generated artifacts return a successful or missing-file status');
 if (wasm.status === 200) assert.equal(wasm.headers['content-type'], 'application/wasm');

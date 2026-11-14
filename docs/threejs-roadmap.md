@@ -187,7 +187,7 @@ and a browser integration check for behavior exposed through WebGL.
   errors, checked texture disposal, raster sampling, HDR environment-map output,
   animation, camera selection and restoration, imported point and spot light
   activation and shadows, repeated model disposal and page teardown during
-  pending loads,
+  pending loads, and animated GPU skinning with changed rendered pixels,
   render targets, post-processing, and custom fragment shaders; it compares
   rendered pixels when those paths change. Build it with
   `./build_web.sh --reference-checks --serve`. A dependency-free headless
@@ -202,7 +202,9 @@ and a browser integration check for behavior exposed through WebGL.
   `.github/workflows/browser-reference.yml` runs CPU renderer tests and this
   browser suite on pushes and pull requests with a checksum-verified Goose
   compiler and a headless Chrome install. Capture additional reference images
-  on representative target GPUs.
+  on representative target GPUs. The reference page checks that an animated
+  skinned mesh changes WebGL pixels; CI also loads the 64-target morph benchmark
+  and records its model-update and engine-frame timing sample.
   The browser model API
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material
@@ -264,8 +266,8 @@ shadow behavior and browser reference images for the GPU path.
   synchronized for picking; unsupported target counts or failed uploads use
   CPU deformation. A local browser benchmark now measures `model.update()` and
   engine frame times separately on 32 instances of a 64-target, 2,048-vertex
-  GLB, sharing one mesh and morph upload. Validate
-  animated WebGL output and record measurements on
+  GLB, sharing one mesh and morph upload. CI verifies the benchmark loads and
+  reports its timings; validate animated WebGL output and record measurements on
   representative characters and devices.
   The native scene loader samples translation, rotation, scale, and morph-weight
   tracks with the same interpolation modes; POSITION/NORMAL/TANGENT morph

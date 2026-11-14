@@ -26,9 +26,12 @@ export async function resolveReferenceRequest(requestUrl) {
     return { status: 400, headers: {}, body: 'Bad URL' };
   }
   const requestedPath = pathname.endsWith('/') ? `${pathname}index.html` : pathname;
-  const relative = normalize(requestedPath).replace(/^([/\\]|\.\.(?:[/\\]|$))+/, '');
-  const file = resolve(webDir, relative || 'index.html');
-  if (file !== webDir && !file.startsWith(`${webDir}${sep}`)) {
+  const normalizedPath = normalize(requestedPath);
+  const fixtureRequest = normalizedPath.startsWith('/testdata/');
+  const root = fixtureRequest ? resolve(webDir, '..') : webDir;
+  const relative = normalizedPath.replace(/^([/\\]|\.\.(?:[/\\]|$))+/, '');
+  const file = resolve(root, relative || 'index.html');
+  if (file !== root && !file.startsWith(`${root}${sep}`)) {
     return { status: 403, headers: {}, body: 'Forbidden' };
   }
   try {

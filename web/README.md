@@ -63,9 +63,10 @@ and custom fragment shaders, run the following from the repository root and open
 ```
 
 To run the same checks automatically in headless Chrome or Chromium, use
-`npm run test:browser` from this directory. It builds the reference app, serves
-the checkout on a temporary local port, and waits for the page's machine-readable
-result. The runner uses SwiftShader and needs no npm dependencies. Set
+`npm run test:browser` from this directory. It builds the reference app and the
+64-target morph benchmark, serves the checkout on a temporary local port, and
+waits for machine-readable results from the reference page and benchmark. The
+runner uses SwiftShader and needs no npm dependencies. Set
 `G3_CHROME=/path/to/chrome` when the browser is not in a standard location.
 Pass `--timeout-ms N` to `node test_browser_reference.mjs` to change the default
 two-minute limit. This command launches a local browser; it does not contact
@@ -81,7 +82,7 @@ without contacting the remote default model.
 It compares rendered pixels for linear and sRGB output, Reinhard and ACES tone
 mapping, exposure, animation, hemisphere fill, HDR environment maps, shadows,
 camera selection and restoration, target sampling, individual post-process effects,
-and an ordered pass queue. It also checks typed image, HDR, and glTF errors,
+an ordered pass queue, and an animated skin pose. It also checks typed image, HDR, and glTF errors,
 invalid-shader diagnostics, and recovery after a queued shader pass fails.
 Results are reported in the page and in `window.__g3ReferenceChecks` for a browser
 automation runner. After the

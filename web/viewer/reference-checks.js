@@ -290,6 +290,16 @@ async function run() {
     check(!isNodeHandleValid(engine, repeatedNode), `reload/dispose cycle ${i + 1} releases its scene`);
   }
   renderEmptyFrame(gl, engine, 'frame after repeated disposal');
+
+  const skinnedModel = await loadGLTF(engine, '../testdata/native-skin-animation.glb');
+  check(skinnedModel.animations.length === 1 && skinnedModel.playAnimation(0),
+    'browser loads and starts the skinned animation fixture');
+  const bindPose = renderAndCheck(gl, engine, 'browser skinned bind pose');
+  skinnedModel.update(0.5);
+  const liftedPose = renderAndCheck(gl, engine, 'browser skinned animated pose');
+  check(changedPixels(bindPose, liftedPose) > 0, 'GPU skin palette changes rendered pixels during animation');
+  skinnedModel.dispose();
+  renderEmptyFrame(gl, engine, 'frame after GPU skin disposal');
 }
 
 run().then(() => {

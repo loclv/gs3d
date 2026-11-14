@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node ./test_assets.mjs && node ./test_orbit_controls.mjs && node ./test_package_exports.mjs && node ./test_reference_test_server.mjs && node ./test_package_tarball.mjs",
-    "test:browser": "../build_web.sh --reference-checks && node ./test_browser_reference.mjs",
+    "test:browser": "../build_web.sh --reference-checks && ../build_web.sh --animation-benchmark && node ./test_browser_reference.mjs",
     "prepublishOnly": "npm test"
   },
   "exports": {

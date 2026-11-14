@@ -101,11 +101,16 @@ class DevtoolsPage {
 }
 
 async function run() {
-  for (const path of ['viewer/reference-checks.html', 'viewer/reference-checks.js', 'viewer/reference/app.js', 'viewer/reference/app.wasm', 'viewer/reference/sample.glb']) {
+  for (const path of [
+    'viewer/reference-checks.html', 'viewer/reference-checks.js', 'viewer/reference/app.js',
+    'viewer/reference/app.wasm', 'viewer/sample.glb', 'benchmark/animation.html',
+    'benchmark/animation.js', 'benchmark/animation/app.js', 'benchmark/animation/app.wasm',
+    'benchmark/morph-benchmark.glb',
+  ]) {
     try {
       await access(join(webDir, path));
     } catch {
-      throw new Error(`Missing ${path}; build first with ./build_web.sh --reference-checks`);
+      throw new Error(`Missing ${path}; build first with npm run test:browser`);
     }
   }
 
@@ -350,7 +355,27 @@ async function run() {
       .filter(event => event.method === 'Runtime.exceptionThrown')
       .map(event => event.params.exceptionDetails?.text ?? event.params.exceptionDetails?.exception?.description ?? 'uncaught page exception');
     if (allPageExceptions.length) throw new Error(`Browser pages raised uncaught exceptions: ${allPageExceptions.join('; ')}`);
-    console.log(`browser reference checks passed (${result.results.length} rendering checks); viewer and package consumer checks passed with ${version.Browser}`);
+    await page.send('Page.navigate', { url: `http://127.0.0.1:${port}/benchmark/animation.html` });
+    const morphResults = await waitFor(`(() => {
+      const status = document.querySelector('#status')?.textContent ?? '';
+      const results = document.querySelector('#results')?.textContent ?? '';
+      if (status && !status.startsWith('Starting')) return { error: status };
+      if (/engine frame median/.test(results)) return { results };
+      return null;
+    })()`, 'the 64-target morph animation benchmark to render frames');
+    assert.ok(!morphResults.error, `morph benchmark reports an error: ${morphResults.error ?? ''}`);
+    assert.match(morphResults.results, /32 instances · 2,048 vertices · 64 morph targets · \d+ scene draw call/,
+      'morph benchmark runs its instanced 64-target scene');
+    assert.match(morphResults.results, /model\.update median [\d.]+ ms · p95 [\d.]+ ms/,
+      'morph benchmark reports model update timings');
+    assert.match(morphResults.results, /engine frame median [\d.]+ ms · p95 [\d.]+ ms/,
+      'morph benchmark reports engine frame timings');
+    const finalPageExceptions = page.events
+      .filter(event => event.method === 'Runtime.exceptionThrown')
+      .map(event => event.params.exceptionDetails?.text ?? event.params.exceptionDetails?.exception?.description ?? 'uncaught page exception');
+    if (finalPageExceptions.length) throw new Error(`Browser pages raised uncaught exceptions: ${finalPageExceptions.join('; ')}`);
+    console.log(`browser reference checks passed (${result.results.length} rendering checks); viewer, consumer, and morph benchmark checks passed with ${version.Browser}`);
+    console.log(`CI morph benchmark sample:\n${morphResults.results}`);
   } finally {
     socket?.close();
     child.kill('SIGTERM');
