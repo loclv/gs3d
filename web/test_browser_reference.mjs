@@ -23,7 +23,7 @@ function argument(name) {
 }
 
 function usage() {
-  console.log('Usage: node web/test_browser_reference.mjs [--chrome PATH] [--timeout-ms N] [--render-only]');
+  console.log('Usage: node web/test_browser_reference.mjs [--chrome PATH] [--timeout-ms N] [--render-only] [--demo-only]');
   console.log('Build first with ./build_web.sh --reference-checks. Uses headless Chrome and local WebGL checks.');
 }
 
@@ -102,8 +102,9 @@ class DevtoolsPage {
 }
 
 async function run() {
-  const renderingOnly = process.argv.includes("--render-only");
-  for (const path of (renderingOnly ? [
+  const demoOnly = process.argv.includes("--demo-only");
+  const renderingOnly = demoOnly || process.argv.includes("--render-only");
+  for (const path of (demoOnly ? ["app.js", "app.wasm", "demo-checks.html", "demo-checks.js"] : renderingOnly ? [
     "viewer/reference-checks.html", "viewer/reference-checks.js", "viewer/reference/app.js",
     "viewer/reference/app.wasm", "viewer/sample.glb",
   ] : [
@@ -153,12 +154,12 @@ async function run() {
     const page = new DevtoolsPage(socket);
     await page.send('Runtime.enable');
     await page.send('Page.enable');
-    await page.send('Page.navigate', { url: `http://127.0.0.1:${port}/viewer/reference-checks.html` });
+    await page.send('Page.navigate', { url: `http://127.0.0.1:${port}/${demoOnly ? "demo-checks.html" : "viewer/reference-checks.html"}` });
 
     const deadline = Date.now() + timeoutMs;
     let result;
     while (Date.now() < deadline) {
-      result = await page.evaluate('window.__g3ReferenceChecks ?? null');
+      result = await page.evaluate(demoOnly ? 'window.__g3DemoChecks ?? null' : 'window.__g3ReferenceChecks ?? null');
       if (result) break;
       await delay(200);
     }

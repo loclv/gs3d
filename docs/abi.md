@@ -268,3 +268,10 @@ everything starts. Every symbol the page calls must appear in
 |---|---|
 | `DrawItem.depth` removed | 172 → 168 bytes. Nothing read it: the sort key already encodes the order, and backends draw in list order. |
 | `platform/g3_input.{h,c}` extracted | the key table, mouse deltas and resize wrapper now exist once instead of in both backends; each backend implements only `g3_backend_resize`. |
+
+WebGL matrix uploads must first copy packed matrices into aligned float
+storage. A DrawItem has a 653-byte stride; matrix members in successive
+records are often unaligned. Emscripten passes uniform arrays through HEAPF32,
+whose pointer-to-index conversion discards low address bits. Passing packed
+members directly corrupts transforms. The WebGL backend's `upload_matrix4`
+helper preserves the ABI while aligning the upload.

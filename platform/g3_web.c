@@ -77,6 +77,18 @@ typedef struct {
     GLsizei morph_target_count;
 } web_mesh;
 
+/* Goose records are packed: DrawItem's 653-byte stride leaves three of
+   every four matrix addresses unaligned. Emscripten's WebGL bridge indexes
+   HEAPF32 with pointer >> 2, so passing those addresses directly truncates
+   them. Copy through aligned float storage before every matrix upload. */
+static void upload_matrix4(GLint location, GLsizei count, GLboolean transpose,
+                           const void *packed) {
+    float aligned[16 * 6];
+    if (location < 0 || count < 1 || count > 6) return;
+    memcpy(aligned, packed, (size_t)count * 16 * sizeof(float));
+    glUniformMatrix4fv(location, count, transpose, aligned);
+}
+
 /* A material shader variant and its uniform locations. */
 typedef struct {
     GLuint program;
@@ -1569,7 +1581,7 @@ static int item_samples_texture(const g3_draw_item *it, int32_t id) {
 
 /* What every item of this frame shares. */
 static void bind_view(const g3_view_state *view) {
-    glUniformMatrix4fv(shader.view_proj, 1, GL_FALSE, view->view_proj.m);
+    upload_matrix4(shader.view_proj, 1, GL_FALSE, view->view_proj.m);
     glUniform3f(shader.eye, view->eye.x, view->eye.y, view->eye.z);
     glUniform4f(shader.view_direction, view->view_direction.x, view->view_direction.y, view->view_direction.z, view->view_direction.w);
     glUniform3f(shader.light_dir, view->light_dir.x, view->light_dir.y, view->light_dir.z);
@@ -1596,19 +1608,19 @@ static void bind_view(const g3_view_state *view) {
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
     glUniform1i(shader.shadow_map, 1);
-    glUniformMatrix4fv(shader.shadow_matrix, 1, GL_FALSE, view->shadow_view_proj.m);
+    upload_matrix4(shader.shadow_matrix, 1, GL_FALSE, view->shadow_view_proj.m);
     glUniform4f(shader.shadow_params, shadow_texture ? view->shadow_params.x : 0.0f, view->shadow_params.y, view->shadow_params.z, 0.0f);
     glUniform1f(shader.shadow_resolution, (float)shadow_map_size);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_CUBE_MAP, point_shadow_texture);
     glUniform1i(shader.point_shadow_map, 2);
-    glUniformMatrix4fv(shader.point_shadow_matrices, 6, GL_FALSE, view->point_shadow_view_proj[0].m);
+    upload_matrix4(shader.point_shadow_matrices, 6, GL_FALSE, view->point_shadow_view_proj[0].m);
     glUniform1i(shader.point_shadow_index, view->point_shadow_light_index);
     glUniform4f(shader.point_shadow_params, point_shadow_texture ? view->point_shadow_params.x : 0.0f, view->point_shadow_params.y, view->point_shadow_params.z, 0.0f);
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, spot_shadow_texture);
     glUniform1i(shader.spot_shadow_map, 3);
-    glUniformMatrix4fv(shader.spot_shadow_matrix, 1, GL_FALSE, view->spot_shadow_view_proj.m);
+    upload_matrix4(shader.spot_shadow_matrix, 1, GL_FALSE, view->spot_shadow_view_proj.m);
     glUniform1i(shader.spot_shadow_index, view->spot_shadow_light_index);
     glUniform4f(shader.spot_shadow_params, spot_shadow_texture ? view->spot_shadow_params.x : 0.0f, view->spot_shadow_params.y, view->spot_shadow_params.z, 0.0f);
     glActiveTexture(GL_TEXTURE4);
@@ -1729,7 +1741,7 @@ static void draw_shadow_run(g3_draw_item_slice items, int64_t first, int32_t cou
     const web_mesh *m = &meshes[it->mesh];
     if (it->double_sided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
     glUniform1i(shadow_instanced, count > 1);
-    if (count == 1) glUniformMatrix4fv(shadow_model_matrix, 1, GL_FALSE, it->model.m);
+    if (count == 1) upload_matrix4(shadow_model_matrix, 1, GL_FALSE, it->model.m);
     int textured = it->texture >= 0 && it->texture < texture_count && textures[it->texture];
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, textured ? textures[it->texture] : 0);
@@ -1751,7 +1763,7 @@ static void draw_shadow_run(g3_draw_item_slice items, int64_t first, int32_t cou
         clear_instance_attributes(m);
     } else {
         glUniform1i(shadow_instanced, 0);
-        if (count > 1) glUniformMatrix4fv(shadow_model_matrix, 1, GL_FALSE, it->model.m);
+        if (count > 1) upload_matrix4(shadow_model_matrix, 1, GL_FALSE, it->model.m);
         glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, 0);
     }
 }
@@ -1796,7 +1808,7 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vie
     glViewport(0, 0, shadow_map_size, shadow_map_size);
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glClear(GL_DEPTH_BUFFER_BIT);
     glUseProgram(shadow_program);
-    glUniformMatrix4fv(shadow_light_matrix, 1, GL_FALSE, light_matrix->m);
+    upload_matrix4(shadow_light_matrix, 1, GL_FALSE, light_matrix->m);
     for (int64_t i = 0; i < items.len;) {
         const g3_draw_item *it = &items.data[i];
         if (it->params.w > 0.5f || it->mesh < 0 || it->mesh >= mesh_count) { i++; continue; }
@@ -1816,7 +1828,7 @@ static void render_point_shadow_maps(g3_draw_item_slice items, const g3_view_sta
     for (int face=0; face<6; face++) {
         glFramebufferTexture2D(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_TEXTURE_CUBE_MAP_POSITIVE_X+face,point_shadow_texture,0);
         glClear(GL_DEPTH_BUFFER_BIT);
-        glUniformMatrix4fv(shadow_light_matrix,1,GL_FALSE,view->point_shadow_view_proj[face].m);
+        upload_matrix4(shadow_light_matrix,1,GL_FALSE,view->point_shadow_view_proj[face].m);
         for (int64_t i=0; i<items.len;) {
             const g3_draw_item *it=&items.data[i];
             if (it->params.w>0.5f || it->mesh<0 || it->mesh>=mesh_count) { i++; continue; }
@@ -1872,8 +1884,8 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
         glDisable(GL_BLEND);
         glDepthMask(GL_TRUE);
     }
-    glUniformMatrix4fv(shader.mvp, 1, GL_FALSE, it->mvp.m);
-    glUniformMatrix4fv(shader.model, 1, GL_FALSE, it->model.m);
+    upload_matrix4(shader.mvp, 1, GL_FALSE, it->mvp.m);
+    upload_matrix4(shader.model, 1, GL_FALSE, it->model.m);
     float normal_matrix[9];
     g3_normal_matrix(&it->model, normal_matrix);
     glUniformMatrix3fv(shader.normal_matrix, 1, GL_FALSE, normal_matrix);

@@ -601,3 +601,7 @@ page's independent `app.wasm`. Use `./build_web.sh --all --serve` to rebuild
 all pages and serve them together. The full build checks that no bundle still
 contains the old 23-unit startup requirement. Hard-refresh any already open
 page after rebuilding to clear its cached JavaScript and WebAssembly.
+
+For the homepage's temporal rendering regression, build the default web app
+and run `node web/test_browser_reference.mjs --demo-only`. It checks all matrix
+uploads, identical paused frames, and bounded changes over 600 animation frames.
