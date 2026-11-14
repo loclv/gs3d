@@ -334,8 +334,9 @@ Tests cover animation interpolation, skinning, and camera projection.
   sample and local browser check page now exercise
   the core integration paths, and a dependency-free headless Chrome runner
   executes the WebGL checks locally and in GitHub Actions on pushes and pull
-  requests. Add native asset loading when native interactive applications
-  are a target.
+  requests. Native asset loading is available for selected primitives and
+  scenes; extend its supported glTF subset when native applications need more
+  formats or extensions.
 
 **Done when:** a documented benchmark demonstrates instancing and resource
 reuse, and published examples build and run through the supported API.
