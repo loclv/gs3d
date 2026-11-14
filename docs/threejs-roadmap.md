@@ -25,6 +25,37 @@ reference for rendering changes.
 | Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters, FXAA-style full-screen post-processing, basic user render targets, built-in post-processing, bounded fragment shader extension | Browser shader validation; CPU reference renderer still processes draw items individually |
 | Developer experience | Goose API, custom browser host, typed browser asset and orbit-control helpers with package subpaths, and a package manifest | Publish the package, examples, and automated browser rendering tests |
 
+## Recommended next sequence
+
+The browser renderer and asset API are the primary product surface. The native
+loader is useful for Goose programs and deterministic CPU rendering, but it
+currently imports static scenes; matching browser animation and extension
+coverage is a separate goal. Prioritize work in this order:
+
+1. **Make the browser viewer a dependable reference application.** Add
+   repeatable browser rendering checks for textured materials, environment
+   lighting, point and spot shadows, animation, camera switching, and asset
+   disposal. Keep CPU pixel tests as fast regression checks; browser checks
+   catch shader, upload, and presentation failures they cannot cover.
+2. **Close the native static-scene contract.** Document the supported glTF
+   subset and error behavior in one place, add fixtures for each supported
+   buffer and image source, and keep scene disposal and repeated-load resource
+   reuse covered by native tests. Native transform animation is the next
+   capability to add after these loader guarantees are stable.
+3. **Finish package adoption.** Publish the package with its existing
+   subpaths and TypeScript declarations, then provide a minimal browser example
+   that loads a remote textured model, reports load errors, and disposes it
+   cleanly. Keep the sample asset and its license/source information with the
+   example.
+4. **Expand Three.js coverage from demonstrated use cases.** Add renderer or
+   asset features when a concrete viewer or game needs them. Record unsupported
+   extensions and rendering differences in the docs instead of implying full
+   Three.js API or visual compatibility.
+
+This order makes “Three.js alternative” mean a usable browser workflow for the
+engine's documented subset, with a reliable native subset alongside it. It
+does not make API-for-API compatibility the completion criterion.
+
 Three.js's [fundamentals](https://threejs.org/manual/pages/fundamentals.html),
 [glTF loader](https://threejs.org/docs/pages/GLTFLoader.html), and
 [post-processing guide](https://threejs.org/manual/pages/how-to-use-post-processing.html)
