@@ -14,7 +14,11 @@ import g3.texture_native;
 
 namespace g3;
 
-struct GlbTextureSet { base_color: TextureHandle, metallic_roughness: TextureHandle, normal: TextureHandle, occlusion: TextureHandle, emissive: TextureHandle }
+struct GlbTextureSet {
+    base_color: TextureHandle, metallic_roughness: TextureHandle, normal: TextureHandle, occlusion: TextureHandle, emissive: TextureHandle,
+    specular: TextureHandle, specular_color: TextureHandle, clearcoat: TextureHandle, clearcoat_roughness: TextureHandle,
+    clearcoat_normal: TextureHandle, sheen_color: TextureHandle, sheen_roughness: TextureHandle, anisotropy: TextureHandle
+}
 struct NativeGlbModel { mesh: MeshHandle, node: NodeHandle, material: MaterialHandle, texture: TextureHandle, textures: GlbTextureSet }
 struct NativeGlbMeshHandle { id: i32 = -1, generation: i32 }
 struct NativeGlbMeshSlot { generation: i32 = 1, primitive_count: i32, root: NodeHandle = NodeHandle { .. }, active: bool }
@@ -165,6 +169,14 @@ fn glb_release_texture_set(textures: GlbTextureSet&) {
     if texture_handle_valid(textures.normal) { texture_asset_release_handle(textures.normal); }
     if texture_handle_valid(textures.occlusion) { texture_asset_release_handle(textures.occlusion); }
     if texture_handle_valid(textures.emissive) { texture_asset_release_handle(textures.emissive); }
+    if texture_handle_valid(textures.specular) { texture_asset_release_handle(textures.specular); }
+    if texture_handle_valid(textures.specular_color) { texture_asset_release_handle(textures.specular_color); }
+    if texture_handle_valid(textures.clearcoat) { texture_asset_release_handle(textures.clearcoat); }
+    if texture_handle_valid(textures.clearcoat_roughness) { texture_asset_release_handle(textures.clearcoat_roughness); }
+    if texture_handle_valid(textures.clearcoat_normal) { texture_asset_release_handle(textures.clearcoat_normal); }
+    if texture_handle_valid(textures.sheen_color) { texture_asset_release_handle(textures.sheen_color); }
+    if texture_handle_valid(textures.sheen_roughness) { texture_asset_release_handle(textures.sheen_roughness); }
+    if texture_handle_valid(textures.anisotropy) { texture_asset_release_handle(textures.anisotropy); }
 }
 
 fn glb_native_texture(root: json::Node?, texture_info: json::Node?, path: const u8[:], bytes: const u8[:], buffer_bases: const i64[:], buffer_sizes: const i64[:], srgb: bool) -> TextureHandle, bool {
@@ -358,6 +370,14 @@ fn glb_material(root: json::Node?, primitive: json::Node?, path: const u8[:], by
     var normal_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
     var occlusion_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
     var emissive_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var specular_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var specular_color_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var clearcoat_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var clearcoat_roughness_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var clearcoat_normal_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var sheen_color_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var sheen_roughness_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
+    var anisotropy_uv = UvTransform { scale: float2_1, texcoord: 0, .. };
     let base_color_info = json::member(pbr, "baseColorTexture");
     if base_color_info {
         let uv, uv_ok = glb_texture_uv(root, base_color_info);
@@ -408,6 +428,80 @@ fn glb_material(root: json::Node?, primitive: json::Node?, path: const u8[:], by
         guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
         imported_textures.emissive = texture;
     }
+    let specular_info = json::member(specular_extension, "specularTexture");
+    if specular_info {
+        let uv, uv_ok = glb_texture_uv(root, specular_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        specular_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, specular_info, path, bytes, buffer_bases, buffer_sizes, false);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.specular = texture;
+    }
+    let specular_color_info = json::member(specular_extension, "specularColorTexture");
+    if specular_color_info {
+        let uv, uv_ok = glb_texture_uv(root, specular_color_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        specular_color_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, specular_color_info, path, bytes, buffer_bases, buffer_sizes, true);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.specular_color = texture;
+    }
+    let clearcoat_info = json::member(clearcoat_extension, "clearcoatTexture");
+    if clearcoat_info {
+        let uv, uv_ok = glb_texture_uv(root, clearcoat_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        clearcoat_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, clearcoat_info, path, bytes, buffer_bases, buffer_sizes, false);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.clearcoat = texture;
+    }
+    let clearcoat_roughness_info = json::member(clearcoat_extension, "clearcoatRoughnessTexture");
+    if clearcoat_roughness_info {
+        let uv, uv_ok = glb_texture_uv(root, clearcoat_roughness_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        clearcoat_roughness_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, clearcoat_roughness_info, path, bytes, buffer_bases, buffer_sizes, false);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.clearcoat_roughness = texture;
+    }
+    let clearcoat_normal_info = json::member(clearcoat_extension, "clearcoatNormalTexture");
+    let clearcoat_normal_scale, clearcoat_normal_scale_ok = glb_number(json::member(clearcoat_normal_info, "scale"), 1.0);
+    guard clearcoat_normal_scale_ok && clearcoat_normal_scale >= 0.0 && clearcoat_normal_scale <= 3.4e38 else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+    if clearcoat_normal_info {
+        let uv, uv_ok = glb_texture_uv(root, clearcoat_normal_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        clearcoat_normal_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, clearcoat_normal_info, path, bytes, buffer_bases, buffer_sizes, false);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.clearcoat_normal = texture;
+    }
+    let sheen_color_info = json::member(sheen_extension, "sheenColorTexture");
+    if sheen_color_info {
+        let uv, uv_ok = glb_texture_uv(root, sheen_color_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        sheen_color_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, sheen_color_info, path, bytes, buffer_bases, buffer_sizes, true);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.sheen_color = texture;
+    }
+    let sheen_roughness_info = json::member(sheen_extension, "sheenRoughnessTexture");
+    if sheen_roughness_info {
+        let uv, uv_ok = glb_texture_uv(root, sheen_roughness_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        sheen_roughness_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, sheen_roughness_info, path, bytes, buffer_bases, buffer_sizes, false);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.sheen_roughness = texture;
+    }
+    let anisotropy_info = json::member(anisotropy_extension, "anisotropyTexture");
+    if anisotropy_info {
+        let uv, uv_ok = glb_texture_uv(root, anisotropy_info);
+        guard uv_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        anisotropy_uv = uv;
+        let texture, texture_ok = glb_native_texture(root, anisotropy_info, path, bytes, buffer_bases, buffer_sizes, false);
+        guard texture_ok else { glb_release_texture_set(imported_textures); return MaterialHandle { .. }, TextureHandle { .. }, false; }
+        imported_textures.anisotropy = texture;
+    }
 
     let id = material_asset_add();
     let m .= material(id);
@@ -424,9 +518,17 @@ fn glb_material(root: json::Node?, primitive: json::Node?, path: const u8[:], by
     m.normal_texture = imported_textures.normal.id; m.normal_scale = normal_scale as f32;
     m.occlusion_texture = imported_textures.occlusion.id; m.occlusion_strength = occlusion_strength as f32;
     m.emissive_texture = imported_textures.emissive.id;
+    m.specular_texture = imported_textures.specular.id; m.specular_color_texture = imported_textures.specular_color.id;
+    m.clearcoat_texture = imported_textures.clearcoat.id; m.clearcoat_roughness_texture = imported_textures.clearcoat_roughness.id;
+    m.clearcoat_normal_texture = imported_textures.clearcoat_normal.id; m.clearcoat_normal_scale = clearcoat_normal_scale as f32;
+    m.sheen_color_texture = imported_textures.sheen_color.id; m.sheen_roughness_texture = imported_textures.sheen_roughness.id;
+    m.anisotropy_texture = imported_textures.anisotropy.id;
     m.base_color_uv = base_color_uv;
     m.metallic_roughness_uv = metallic_roughness_uv; m.normal_uv = normal_uv;
     m.occlusion_uv = occlusion_uv; m.emissive_uv = emissive_uv;
+    m.specular_uv = specular_uv; m.specular_color_uv = specular_color_uv;
+    m.clearcoat_uv = clearcoat_uv; m.clearcoat_roughness_uv = clearcoat_roughness_uv; m.clearcoat_normal_uv = clearcoat_normal_uv;
+    m.sheen_color_uv = sheen_color_uv; m.sheen_roughness_uv = sheen_roughness_uv; m.anisotropy_uv = anisotropy_uv;
     textures = imported_textures;
     return material_handle(id), imported_texture, true;
 }

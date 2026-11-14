@@ -561,25 +561,52 @@ fn case_native_glb_load() {
                        g3::texture_handle_valid(image_uri_model.textures.normal) &&
                        g3::texture_handle_valid(image_uri_model.textures.occlusion) &&
                        g3::texture_handle_valid(image_uri_model.textures.emissive) &&
+                       g3::texture_handle_valid(image_uri_model.textures.specular) &&
+                       g3::texture_handle_valid(image_uri_model.textures.specular_color) &&
+                       g3::texture_handle_valid(image_uri_model.textures.clearcoat) &&
+                       g3::texture_handle_valid(image_uri_model.textures.clearcoat_roughness) &&
+                       g3::texture_handle_valid(image_uri_model.textures.clearcoat_normal) &&
+                       g3::texture_handle_valid(image_uri_model.textures.sheen_color) &&
+                       g3::texture_handle_valid(image_uri_model.textures.sheen_roughness) &&
+                       g3::texture_handle_valid(image_uri_model.textures.anisotropy) &&
                        image_uri_material.metallic_roughness_texture == image_uri_model.textures.metallic_roughness.id &&
                        image_uri_material.normal_texture == image_uri_model.textures.normal.id &&
                        image_uri_material.occlusion_texture == image_uri_model.textures.occlusion.id &&
                        image_uri_material.emissive_texture == image_uri_model.textures.emissive.id &&
+                       image_uri_material.specular_texture == image_uri_model.textures.specular.id &&
+                       image_uri_material.specular_color_texture == image_uri_model.textures.specular_color.id &&
+                       image_uri_material.clearcoat_texture == image_uri_model.textures.clearcoat.id &&
+                       image_uri_material.clearcoat_roughness_texture == image_uri_model.textures.clearcoat_roughness.id &&
+                       image_uri_material.clearcoat_normal_texture == image_uri_model.textures.clearcoat_normal.id &&
+                       image_uri_material.sheen_color_texture == image_uri_model.textures.sheen_color.id &&
+                       image_uri_material.sheen_roughness_texture == image_uri_model.textures.sheen_roughness.id &&
+                       image_uri_material.anisotropy_texture == image_uri_model.textures.anisotropy.id &&
                        abs(image_uri_material.normal_scale - 0.4) < 0.001 &&
                        abs(image_uri_material.occlusion_strength - 0.6) < 0.001 &&
+                       abs(image_uri_material.clearcoat_normal_scale - 0.3) < 0.001 &&
                        image_uri_material.base_color_uv.offset.x == 0.25 && image_uri_material.base_color_uv.offset.y == 0.5 &&
                        image_uri_material.base_color_uv.scale.x == 2.0 && image_uri_material.base_color_uv.scale.y == 0.5 &&
                        abs(image_uri_material.base_color_uv.rotation - 1.57079632679) < 0.001 &&
                        abs(image_uri_material.metallic_roughness_uv.offset.x - 0.1) < 0.001 &&
                        abs(image_uri_material.metallic_roughness_uv.scale.y - 0.75) < 0.001 &&
-                       abs(image_uri_material.metallic_roughness_uv.rotation - 0.25) < 0.001;
+                       abs(image_uri_material.metallic_roughness_uv.rotation - 0.25) < 0.001 &&
+                       abs(image_uri_material.specular_uv.offset.x - 0.15) < 0.001 &&
+                       abs(image_uri_material.anisotropy_uv.offset.y - 0.45) < 0.001;
     }
-    testing::check(image_uri_ok, "native JSON glTF imports core material maps with linear data and independent UV transforms");
+    testing::check(image_uri_ok, "native JSON glTF imports core and extension material maps with independent UV transforms");
     testing::check(g3::native_glb_dispose(image_uri_model) && !g3::texture_handle_valid(image_uri_model.texture) &&
                    !g3::texture_handle_valid(image_uri_model.textures.metallic_roughness) &&
                    !g3::texture_handle_valid(image_uri_model.textures.normal) &&
                    !g3::texture_handle_valid(image_uri_model.textures.occlusion) &&
-                   !g3::texture_handle_valid(image_uri_model.textures.emissive),
+                   !g3::texture_handle_valid(image_uri_model.textures.emissive) &&
+                   !g3::texture_handle_valid(image_uri_model.textures.specular) &&
+                   !g3::texture_handle_valid(image_uri_model.textures.specular_color) &&
+                   !g3::texture_handle_valid(image_uri_model.textures.clearcoat) &&
+                   !g3::texture_handle_valid(image_uri_model.textures.clearcoat_roughness) &&
+                   !g3::texture_handle_valid(image_uri_model.textures.clearcoat_normal) &&
+                   !g3::texture_handle_valid(image_uri_model.textures.sheen_color) &&
+                   !g3::texture_handle_valid(image_uri_model.textures.sheen_roughness) &&
+                   !g3::texture_handle_valid(image_uri_model.textures.anisotropy),
                    "native imported material maps release with their model");
     let image_data_model, image_data_loaded = g3::native_glb_load_primitive("testdata/native-external/image-data-uri.gltf", 0, 0);
     testing::check(image_data_loaded && g3::texture_handle_valid(image_data_model.texture),
