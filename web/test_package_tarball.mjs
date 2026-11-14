@@ -10,7 +10,11 @@ const manifest = JSON.parse(await readFile(new URL('./package.json', import.meta
 const tempDir = await mkdtemp(join(tmpdir(), 'goose-3d-package-'));
 const packDir = join(tempDir, 'pack');
 const consumerDir = join(tempDir, 'consumer');
-const env = { ...process.env, npm_config_cache: join(tempDir, 'npm-cache') };
+const env = {
+  ...process.env,
+  npm_config_cache: join(tempDir, 'npm-cache'),
+  npm_config_dry_run: 'false',
+};
 
 try {
   await mkdir(packDir);
