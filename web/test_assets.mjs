@@ -1195,9 +1195,16 @@ resources.set('http://localhost/unsupported-mr-uv.gltf', bytes(packedMr));
 await assert.rejects(loadGLTF(fakeEngine(), 'http://localhost/unsupported-mr-uv.gltf'), e => e.code === 'UNSUPPORTED');
 const sampleEngine = fakeEngine();
 const sample = await loadGLTF(sampleEngine, 'http://localhost/sample.glb');
-assert.equal(sampleEngine.calls.filter(x => x[0] === 'vertex').length, 24);
-assert.equal(sampleEngine.calls.filter(x => x[0] === 'triangle').length, 12);
+assert.equal(sampleEngine.calls.filter(x => x[0] === 'vertex').length, 28);
+assert.equal(sampleEngine.calls.filter(x => x[0] === 'triangle').length, 14);
 assert.equal(sampleEngine.calls.find(x => x[0] === 'material')[6], 5);
+assert.deepEqual(sample.cameras.map(camera => [camera.name, camera.type]), [
+  ['Perspective', 'perspective'], ['Orthographic', 'orthographic'],
+]);
+assert.deepEqual(sample.lights.map(light => light.type), ['point', 'spot']);
+assert.equal(sample.applyLights({ pointShadow: 0, spotShadow: 1 }), true);
+assert.equal(sampleEngine.calls.some(x => x[0] === 'light_point_shadow' && x[1] === 0), true);
+assert.equal(sampleEngine.calls.some(x => x[0] === 'light_spot_shadow' && x[1] === 1), true);
 sample.dispose();
 const sharedImage = structuredClone(textured);
 sharedImage.samplers = [{ wrapS: 33071, wrapT: 33648 }];

@@ -30,6 +30,8 @@
   <h1>Model viewer</h1>
   <p>Choose, play, pause, or seek a clip. Drag to orbit, right-drag or Shift+drag to pan, scroll or pinch to zoom, and click or tap a mesh to inspect it. Focus the canvas for arrow-key orbit, WASD pan, and +/- zoom.</p>
   <button id="reload" type="button">Reload model</button>
+  <p><label for="camera">Camera</label><br><select id="camera" aria-label="Choose a model camera"><option value="default">Viewer camera</option></select></p>
+  <p><label for="shadow-light">Shadow caster</label><br><select id="shadow-light" aria-label="Choose an imported light shadow caster"><option value="none">No extra shadow</option></select></p>
   <fieldset id="animation-controls" hidden>
     <legend>Animation</legend>
     <label for="animation-clip">Clip</label>

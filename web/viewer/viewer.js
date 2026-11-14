@@ -6,6 +6,8 @@ import { createOrbitControls } from 'goose-3d-browser-assets/orbit-controls';
 const canvas = document.getElementById('canvas');
 const status = document.getElementById('status');
 const reload = document.getElementById('reload');
+const cameraSelect = document.getElementById('camera');
+const shadowSelect = document.getElementById('shadow-light');
 const animationControls = document.getElementById('animation-controls');
 const animationClip = document.getElementById('animation-clip');
 const animationToggle = document.getElementById('animation-toggle');
@@ -101,6 +103,18 @@ async function loadModel() {
     model = next;
     animationPlaying = false;
     environmentIntensities = new Map();
+    cameraSelect.replaceChildren(new Option('Viewer camera', 'default'));
+    for (const camera of model.cameras) {
+      const node = camera.nodes[0];
+      const suffix = camera.nodes.length > 1 ? ` (node ${node})` : '';
+      cameraSelect.add(new Option(`${camera.name || `${camera.type} camera`}${suffix}`, `${camera.index}:${node ?? ''}`));
+    }
+    shadowSelect.replaceChildren(new Option('No extra shadow', 'none'));
+    for (const [index, light] of model.lights.entries()) {
+      if (light.type === 'point' || light.type === 'spot') {
+        shadowSelect.add(new Option(`${light.name || light.type} shadow (${light.type})`, `${light.type}:${index}`));
+      }
+    }
     selectedPrimitive = null;
     updateInspection();
     variantSelect.replaceChildren(new Option('Default materials', '-1'));
@@ -137,6 +151,23 @@ async function start() {
       if (!model) return;
       animationPlaying = model.playAnimation(Number(animationClip.value));
       updateAnimationControls();
+    });
+    cameraSelect.addEventListener('change', () => {
+      if (!model) return;
+      if (cameraSelect.value === 'default') model.selectCamera(null);
+      else {
+        const [camera, node] = cameraSelect.value.split(':');
+        model.selectCamera(Number(camera), node === '' ? null : Number(node));
+      }
+    });
+    shadowSelect.addEventListener('change', () => {
+      if (!model) return;
+      const options = {};
+      if (shadowSelect.value !== 'none') {
+        const [type, index] = shadowSelect.value.split(':');
+        options[`${type}Shadow`] = Number(index);
+      }
+      model.applyLights(options);
     });
     animationToggle.addEventListener('click', () => {
       if (!model) return;

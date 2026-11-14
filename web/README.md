@@ -36,6 +36,18 @@ ownership, errors, texture colour spaces and animation.
 The declarations in `assets.d.ts` cover loaders, checked handles, model
 lifecycle, animation controls and rendering options.
 
+## Reference viewer
+
+From the repository root, run `./build_web.sh --viewer --serve` and open
+`http://localhost:8080/viewer/`. The bundled textured turntable scene includes
+perspective and orthographic cameras, point and spot lights, a shadow-receiving
+ground plane, and animation clips. Use the Camera and Shadow caster selectors
+to switch cameras and opt into one point or spot shadow map; Reload model
+repeats loading and disposal. This is a convenient local reference scene, while
+actual browser rendering checks are still needed to validate WebGL output.
+
+Regenerate the sample asset with `python3 web/viewer/generate_sample.py`.
+
 `createOrbitControls` handles pointer orbit, right-button or shift-drag pan,
 two-finger pinch and pan, wheel zoom, keyboard camera controls, and click
 selection. Its callbacks let the application apply camera changes without
