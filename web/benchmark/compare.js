@@ -10,6 +10,20 @@ const slider = document.getElementById('nodes');
 const countLabel = document.getElementById('count');
 const results = document.getElementById('results');
 const params = new URLSearchParams(location.search);
+const requestedMotion = Number(params.get('motion'));
+const movingCount = Number.isInteger(requestedMotion) && requestedMotion >= 0
+  ? Math.min(requestedMotion, MAX_INSTANCES) : 0;
+const motionSelect = document.getElementById('motion');
+if (![...motionSelect.options].some(option => Number(option.value) === movingCount)) {
+  motionSelect.add(new Option(String(movingCount), String(movingCount)));
+}
+motionSelect.value = String(movingCount);
+motionSelect.addEventListener('change', () => {
+  const target = new URL(location.href);
+  target.searchParams.set('motion', motionSelect.value);
+  target.searchParams.set('count', slider.value);
+  location.href = target.href;
+});
 const requestedCount = Number(params.get('count'));
 if (Number.isInteger(requestedCount) && requestedCount >= 1 && requestedCount <= MAX_INSTANCES) {
   slider.value = String(requestedCount);
@@ -18,6 +32,7 @@ if (Number.isInteger(requestedCount) && requestedCount >= 1 && requestedCount <=
 for (const link of document.querySelectorAll('nav a')) {
   const target = new URL(link.href);
   target.searchParams.set('count', slider.value);
+  target.searchParams.set('motion', String(movingCount));
   link.href = target;
 }
 document.getElementById(`${BACKEND}-link`).setAttribute('aria-current', 'page');
@@ -77,6 +92,7 @@ function report() {
       : `\nGPU timing unavailable (${gpuDisjointCount} disjoint, ${gpuSkippedCount} skipped)`;
   results.textContent =
     `${label} · ${slider.value} visible cubes · ${getDrawCalls()} scene draw call(s)\n` +
+    `${Math.min(movingCount, Number(slider.value))} moving instances/frame\n` +
     `${(1000 / meanRaf).toFixed(1)} browser frames/s\n` +
     `frame call median ${percentile(cpuTimes, 0.5).toFixed(2)} ms · ` +
     `p95 ${percentile(cpuTimes, 0.95).toFixed(2)} ms${backendLine}${gpuLine}\n` +
@@ -181,12 +197,28 @@ function makeThreeScene(THREE, width, height) {
     cubes.setColorAt(i, color);
   }
   cubes.instanceMatrix.needsUpdate = true;
+  if (movingCount) cubes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   if (cubes.instanceColor) cubes.instanceColor.needsUpdate = true;
   cubes.count = Number(slider.value);
   scene.add(cubes);
+  let motionFrame = 0;
 
   return {
-    frame: () => renderer.render(scene, camera),
+    frame: () => {
+      if (movingCount) {
+        motionFrame++;
+        const count = Math.min(movingCount, cubes.count);
+        for (let i = 0; i < count; i++) {
+          matrix.makeTranslation((i % 32) - 15.5 + Math.sin(motionFrame * 0.03 + i * 0.1) * 0.2,
+            Math.floor(i / 32) - 15.5, 0);
+          cubes.setMatrixAt(i, matrix);
+        }
+        cubes.instanceMatrix.clearUpdateRanges();
+        cubes.instanceMatrix.addUpdateRange(0, count * 16);
+        cubes.instanceMatrix.needsUpdate = true;
+      }
+      renderer.render(scene, camera);
+    },
     setCount: count => { cubes.count = count; },
     drawCalls: () => renderer.info.render.calls,
     resize: (w, h) => {
@@ -230,6 +262,7 @@ async function start() {
       gpuGl = canvas.getContext('webgl2');
       gpuTimerExt = gpuGl?.getExtension('EXT_disjoint_timer_query_webgl2') ?? null;
       engine._g3_benchmark_set_count(Number(slider.value));
+      engine._g3_benchmark_set_motion(movingCount);
       frameCall = dt => engine._g3_app_frame(dt);
       getDrawCalls = () => engine._g3_host_scene_draw_calls();
       getBackendFrameMs = () => engine._g3_host_scene_draw_ms();

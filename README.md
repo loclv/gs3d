@@ -152,6 +152,24 @@ zero bytes; growing it to 768 uploads 12,288 bytes instead of the previous
 targets passed the 16-unit texture-budget checks. This reduces transfer volume
 for changing batches; it does not change the static-scene FPS measurement.
 
+The comparison page's **Moving instances per frame** selector also supports
+matching animation workloads. Use `?backend=goose&count=1024&motion=32` (or
+`backend=three`); `motion=1024` animates every visible instance. Both renderers
+use the same frame-indexed horizontal motion, and Three.js uses dynamic buffers
+with update ranges for the changed prefix. Animation work is included in the
+frame-call measurement.
+
+With all 1,024 instances moving, a zero-rotation TRS fast path reduced Goose's
+frame-call median/p95 from 0.30/0.40 ms to 0.20/0.30 ms in sequential headless
+Playwright samples; Three.js measured 0.20/0.20 ms. GPU medians were 15.24 ms
+for the original Goose path, 15.34 ms for the fast path, and 15.22 ms for
+Three.js. These samples establish a CPU-side improvement in this environment,
+with no demonstrated GPU-time improvement. With 32 moving instances, the
+partial-upload and old full-upload paths both measured 0.20 ms CPU median and
+approximately 15.2 ms GPU median: fewer uploaded bytes did not produce a
+measurable frame-time improvement at that workload. Native tests and worker
+determinism checks pass with the transform fast path.
+
 ### Engine demo
 
 ```bash

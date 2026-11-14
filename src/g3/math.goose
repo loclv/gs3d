@@ -103,6 +103,13 @@ fn mat4_rotate_euler(r: float3) -> Mat4 {
 
 // translate * rotate * scale: the local matrix of a scene node.
 fn mat4_trs(t: float3, r: float3, s: float3) -> Mat4 {
+    if r.x == 0.0 && r.y == 0.0 && r.z == 0.0 {
+        var out = mat4_scale(s);
+        out.m[12] = t.x;
+        out.m[13] = t.y;
+        out.m[14] = t.z;
+        return out;
+    }
     mat4_mul(mat4_translate(t), mat4_mul(mat4_rotate_euler(r), mat4_scale(s)))
 }
 

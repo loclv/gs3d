@@ -33,6 +33,9 @@
     </nav>
     <label for="nodes"><span>Visible repeated cubes</span><output id="count">1024</output></label>
     <input id="nodes" type="range" min="1" max="1024" step="1" value="1024">
+    <label for="motion">Moving instances per frame
+      <select id="motion"><option value="0">Static</option><option value="32">32</option><option value="1024">All visible</option></select>
+    </label>
     <div id="results">warming up…</div>
     <div id="note">Same cube grid, camera, canvas size, and opaque color. Only the selected renderer runs. Frame-call timing measures CPU work and command submission. GPU timing uses asynchronous WebGL timer queries for rendering commands; it excludes browser compositing and display refresh. Unsupported or disjoint GPU samples are omitted. FPS follows browser frame cadence.</div>
   </section>
