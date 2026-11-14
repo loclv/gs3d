@@ -13,8 +13,9 @@ for (const [subpath, entry] of Object.entries(manifest.exports)) {
   const module = await import(specifier);
   assert.ok(Object.keys(module).length > 0, `${specifier} resolves through package exports`);
 }
+exportedFiles.add('LICENSE');
 assert.deepEqual([...manifest.files].sort(), [...exportedFiles].sort(),
-  'the published allowlist contains exactly the exported JavaScript and declaration files');
+  'the published allowlist contains the exported modules and the optional license file');
 
 const assets = await import(manifest.name);
 const orbit = await import(`${manifest.name}/orbit-controls`);

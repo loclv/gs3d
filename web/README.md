@@ -116,9 +116,12 @@ package imports to the checked-in helpers. The package suite also packs and
 installs the generated archive offline in a temporary consumer project, then
 checks its JavaScript and TypeScript export paths.
 
-Publishing runs the package tests through the `prepublishOnly` script. The
-published file allowlist contains only the asset and orbit-control modules and
-their declarations; repository tests and sample GLBs stay in the checkout.
+Publishing runs the package tests and a metadata check through the
+`prepublishOnly` script. Set the package `license` before publishing; an
+open-source license also needs a `web/LICENSE` file, which the package allowlist
+ships. The published file allowlist otherwise contains only the asset and
+orbit-control modules and their declarations; repository tests and sample GLBs
+stay in the checkout.
 
 `model.applyLights()` opts into the selected scene's `KHR_lights_punctual`
 lights. Its optional `pointShadow` and `spotShadow` values select one caster of
