@@ -7,6 +7,7 @@ const canvas = document.getElementById('canvas');
 const form = document.getElementById('loader-form');
 const urlInput = document.getElementById('model-url');
 const loadButton = document.getElementById('load');
+const localSampleButton = document.getElementById('local-sample');
 const cameraSelect = document.getElementById('camera');
 const status = document.getElementById('status');
 let engine = null;
@@ -16,7 +17,10 @@ let lastFrame = 0;
 let pageClosed = false;
 
 const initialUrl = new URL(location.href).searchParams.get('model');
-urlInput.value = new URL(initialUrl || '../../viewer/sample.glb', location.href).href;
+const localSampleUrl = new URL('../../viewer/sample.glb', location.href).href;
+const remoteSampleUrl = 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
+try { urlInput.value = initialUrl ? new URL(initialUrl, location.href).href : remoteSampleUrl; }
+catch { urlInput.value = remoteSampleUrl; }
 
 function updateCameras() {
   cameraSelect.replaceChildren(new Option('Viewer camera', 'default'));
@@ -68,6 +72,10 @@ async function start() {
     form.addEventListener('submit', event => {
       event.preventDefault();
       loadModel(urlInput.value.trim());
+    });
+    localSampleButton.addEventListener('click', () => {
+      urlInput.value = localSampleUrl;
+      loadModel(localSampleUrl);
     });
     cameraSelect.addEventListener('change', () => {
       if (!model) return;

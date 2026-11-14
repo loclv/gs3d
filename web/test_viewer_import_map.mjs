@@ -29,6 +29,8 @@ for (const specifier of exampleImports) {
 assert.ok(exampleSource.includes('loadGLTF(engine, url)'), 'the consumer example loads the entered model URL');
 assert.ok(exampleSource.includes('model.dispose()'), 'the consumer example disposes replaced models');
 assert.ok(exampleSource.includes('error.code'), 'the consumer example reports structured asset errors');
+assert.ok(exampleSource.includes('raw.githubusercontent.com/mrdoob/three.js') &&
+  exampleHtml.includes('licensed CC0 1.0'), 'the consumer example identifies its remote sample and license');
 for (const control of ['animation-controls', 'animation-clip', 'animation-toggle', 'animation-time']) {
   assert.ok(html.includes(`id="${control}"`), `the viewer has a ${control} control`);
 }

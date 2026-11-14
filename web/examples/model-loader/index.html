@@ -27,14 +27,16 @@
 <canvas id="canvas" aria-label="Interactive glTF model"></canvas>
 <section class="panel">
   <h1>Load a glTF model</h1>
-  <p>Enter a GLB or glTF URL. Remote files need CORS access; external glTF buffers and images must also allow cross-origin requests. Drag to orbit, scroll to zoom.</p>
+  <p>Loads the remote RobotExpressive GLB by default. Remote files need CORS access; external glTF buffers and images must also allow cross-origin requests. Drag to orbit, scroll to zoom.</p>
   <form id="loader-form">
     <label for="model-url">Model URL</label>
     <input id="model-url" type="url" value="../../viewer/sample.glb" required>
     <button id="load" type="submit">Load model</button>
+    <button id="local-sample" type="button">Use bundled sample</button>
   </form>
   <label for="camera">Camera</label>
   <select id="camera"><option value="default">Viewer camera</option></select>
+  <p>Remote sample: <a href="https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf/RobotExpressive">RobotExpressive</a> by Tomás Laulhé, modified by Don McCurdy, licensed CC0 1.0. <a href="https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/RobotExpressive/README.md">Source and license</a>.</p>
   <p id="status" role="status" aria-live="polite">Starting renderer…</p>
 </section>
 <script type="module" src="./model-loader.js"></script>

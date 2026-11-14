@@ -47,9 +47,10 @@ skeletal animation. Prioritize work in this order:
 3. **Finish package adoption.** The local consumer example at
    `web/examples/model-loader/` uses both package subpaths, accepts a CORS-
    enabled remote model URL, reports load errors, and disposes resources. It
-   defaults to the bundled textured sample. Still publish the package with its
-   existing subpaths and TypeScript declarations, and add a specifically
-   licensed remote sample with source information.
+   defaults to the RobotExpressive remote GLB, with CC0 1.0 source and license
+   attribution beside the viewer, and offers the bundled textured sample for
+   offline use. Still publish the package with its existing subpaths and
+   TypeScript declarations.
 4. **Expand Three.js coverage from demonstrated use cases.** Add renderer or
    asset features when a concrete viewer or game needs them. Record unsupported
    extensions and rendering differences in the docs instead of implying full
@@ -289,9 +290,9 @@ Tests cover animation interpolation, skinning, and camera projection.
   plus orbit-control input checks against a fake canvas through the published
   package subpath; the repository-only `test_build_exports.mjs` check verifies
   that the WebAssembly build exports the host functions the helpers call.
-  A runnable consumer example accepts remote model URLs and documents CORS and
-  lifecycle behavior. Publish the package and add a specifically licensed
-  remote sample. The bundled sample and local browser check page now exercise
+  A runnable consumer example loads a CC0 remote model and accepts other remote
+  URLs; it documents CORS and lifecycle behavior. Publish the package. The
+  bundled sample and local browser check page now exercise
   the core integration paths, but are not yet run continuously in browser
   automation. Add native asset loading when native interactive applications
   are a target.

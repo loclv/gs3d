@@ -54,10 +54,11 @@ are reported in the page and in `window.__g3ReferenceChecks` for a browser
 automation runner.
 
 The package consumer example is at `/examples/model-loader/`. It defaults to
-the bundled textured GLB and accepts `?model=<URL>` or an entered URL for a
-remote glTF/GLB with CORS enabled. It shows asset errors in the page, keeps the
-current model if a replacement fails, and disposes model and control resources
-when replacing or unloading the page.
+the remote [RobotExpressive sample](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf/RobotExpressive),
+licensed CC0 1.0, and accepts `?model=<URL>` or an entered URL for another
+remote glTF/GLB with CORS enabled. Use **Use bundled sample** for an offline
+asset. The page shows asset errors, keeps the current model if a replacement
+fails, and disposes model and control resources when replacing or unloading.
 
 `createOrbitControls` handles pointer orbit, right-button or shift-drag pan,
 two-finger pinch and pan, wheel zoom, keyboard camera controls, and click
