@@ -297,6 +297,26 @@ async function run() {
     const afterKey = await page.send('Page.captureScreenshot', { format: 'png', clip: canvasBounds.clip });
     assert.notEqual(afterKey.data, beforeKey.data, 'focused keyboard orbit changes the rendered camera view');
 
+    await page.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 });
+    const touchY = canvasBounds.y + 35;
+    await page.send('Input.dispatchTouchEvent', {
+      type: 'touchStart', touchPoints: [
+        { id: 1, x: canvasBounds.x, y: touchY, radiusX: 1, radiusY: 1, force: 1 },
+        { id: 2, x: canvasBounds.endX, y: touchY, radiusX: 1, radiusY: 1, force: 1 },
+      ],
+    });
+    await page.send('Input.dispatchTouchEvent', {
+      type: 'touchMove', touchPoints: [
+        { id: 1, x: canvasBounds.x, y: touchY, radiusX: 1, radiusY: 1, force: 1 },
+        { id: 2, x: canvasBounds.endX - 35, y: touchY, radiusX: 1, radiusY: 1, force: 1 },
+      ],
+    });
+    await page.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+    await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const afterPinch = await page.send('Page.captureScreenshot', { format: 'png', clip: canvasBounds.clip });
+    assert.notEqual(afterPinch.data, afterKey.data, 'two-finger pinch changes the rendered camera view');
+
     const canvasPoint = await page.evaluate(`(() => {
       const rect = document.querySelector('#canvas').getBoundingClientRect();
       return { x: rect.left + rect.width * 0.52, y: rect.top + rect.height * 0.52 };

@@ -75,8 +75,8 @@ pushes and pull requests after installing a checksum-verified Goose compiler,
 Emscripten 7.0.0, and headless Chrome. The same workflow runs native CPU renderer
 tests. It also opens the bundled model viewer
 and exercises its camera, animation, shadow, variant, environment, orbit, pan,
-wheel zoom, keyboard, selection, preview, and reload controls. It also opens the
-package consumer
+pinch, wheel zoom, keyboard, selection, preview, and reload controls. It also
+opens the package consumer
 with the bundled sample and checks malformed replacement and reload behavior
 without contacting the remote default model.
 
