@@ -51,9 +51,9 @@ to validate WebGL output.
 Regenerate the sample asset with `python3 web/viewer/generate_sample.py`.
 For browser-side checks of WebGL frame output, glTF, standalone raster, and
 Radiance HDR decoding, texture disposal and sampling, HDR environment maps,
-environment fill, animation, camera selection, point and spot shadows, repeated
-asset disposal, render targets, built-in post-processing, and custom fragment
-shaders, run the following from the repository root and open
+environment fill, animation, camera selection, imported point and spot lights
+and shadows, repeated asset disposal, render targets, built-in post-processing,
+and custom fragment shaders, run the following from the repository root and open
 `/viewer/reference-checks.html`:
 
 ```sh

@@ -187,6 +187,13 @@ async function run() {
   check(model.applyLights(), 'unshadowed imported lights activate');
   setEnvironmentLighting(engine, [0.32, 0.48, 0.72], [0.16, 0.12, 0.08], 0);
   const animationStart = renderAndCheck(gl, engine, 'animation at its first key');
+  check(model.clearLights(), 'imported punctual lights can be cleared');
+  const noPunctualLights = renderAndCheck(gl, engine, 'scene without imported punctual lights');
+  check(changedPixels(animationStart, noPunctualLights) > 0, 'point and spot lights change rendered pixels');
+  check(model.applyLights(), 'imported punctual lights can be restored');
+  const restoredLights = renderAndCheck(gl, engine, 'scene with imported punctual lights restored');
+  check(changedPixels(animationStart, restoredLights) < changedPixels(animationStart, noPunctualLights),
+    'restoring imported punctual lights restores their rendered contribution');
   check(model.variants.includes('Blue paint'), 'sample imports its material variant');
   check(model.setVariant('Blue paint') && model.activeVariant === 0, 'material variant switches on');
   const variantFrame = renderAndCheck(gl, engine, 'sample with Blue paint material variant');
