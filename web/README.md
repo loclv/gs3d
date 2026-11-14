@@ -48,10 +48,10 @@ repeats loading and disposal. This is a convenient local reference scene, while
 actual browser rendering checks are still needed to validate WebGL output.
 
 Regenerate the sample asset with `python3 web/viewer/generate_sample.py`.
-For browser-side checks of WebGL frame output, glTF and standalone image
-decoding and disposal, environment fill, animation, camera selection, point and
-spot shadows, repeated asset
-disposal, render targets, built-in post-processing, and custom fragment
+For browser-side checks of WebGL frame output, glTF, standalone raster, and
+Radiance HDR decoding, texture disposal and sampling, HDR environment maps,
+environment fill, animation, camera selection, point and spot shadows, repeated
+asset disposal, render targets, built-in post-processing, and custom fragment
 shaders, run the following from the repository root and open
 `/viewer/reference-checks.html`:
 
@@ -59,11 +59,12 @@ shaders, run the following from the repository root and open
 ./build_web.sh --reference-checks --serve
 ```
 
-It compares rendered pixels when animation, environment fill, shadows, cameras,
-target sampling, individual post-process effects, and an ordered pass queue
-change. It also checks invalid-shader diagnostics and recovery after a queued
-shader pass fails. Results are reported in the page
-and in `window.__g3ReferenceChecks` for a browser automation runner. After the
+It compares rendered pixels when animation, hemisphere fill, HDR environment
+maps, shadows, cameras, target sampling, individual post-process effects, and an
+ordered pass queue change. It also checks typed image errors, invalid-shader
+diagnostics, and recovery after a queued shader pass fails. Results are
+reported in the page and in `window.__g3ReferenceChecks` for a browser
+automation runner. After the
 build, run `node web/test_reference_wasm_exports.mjs` to confirm the page's
 engine calls are exported by the generated WebAssembly module.
 

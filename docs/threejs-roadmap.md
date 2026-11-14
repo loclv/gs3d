@@ -181,8 +181,9 @@ and a browser integration check for behavior exposed through WebGL.
   or spot shadow casters, and reload. Its bundled textured animation sample
   includes perspective and orthographic cameras, point and spot lights, and a
   shadow receiver. A local browser check page exercises WebGL frame output,
-  glTF and standalone image decoding, checked image disposal, environment fill,
-  animation, camera selection, point and spot shadows, repeated disposal,
+  glTF, standalone raster, and Radiance HDR image decoding and errors, checked
+  texture disposal, raster sampling, HDR environment-map output, animation,
+  camera selection, point and spot shadows, repeated model disposal,
   render targets, post-processing, and custom fragment shaders; it compares
   rendered pixels when those paths change. Build it with
   `./build_web.sh --reference-checks --serve`. It exposes a machine-

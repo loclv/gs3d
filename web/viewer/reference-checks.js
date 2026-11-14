@@ -2,7 +2,7 @@ import createGoose3D from './reference/app.js';
 import { fitToDisplay } from '../canvas.js';
 import {
   AssetError, isMeshHandleValid, isNodeHandleValid, isTextureHandleValid, loadGLTF, loadImage,
-  setEnvironmentLighting,
+  loadHDRImage, setEnvironmentLighting, setEnvironmentMap,
 } from '../assets.js';
 
 const canvas = document.getElementById('canvas');
@@ -57,6 +57,15 @@ function readCenterPixel(gl, engine, label) {
 function checkPixel(actual, expected, label, tolerance = 3) {
   check(expected.every((channel, index) => Math.abs(actual[index] - channel) <= tolerance),
     `${label}: expected ${expected.join(',')}, received ${actual.join(',')}`);
+}
+
+function tinyRadianceDataUrl() {
+  const header = new TextEncoder().encode('#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n');
+  const bytes = new Uint8Array(header.length + 4);
+  bytes.set(header);
+  bytes.set([128, 64, 32, 136], header.length);
+  const binary = Array.from(bytes, value => String.fromCharCode(value)).join('');
+  return `data:application/octet-stream;base64,${btoa(binary)}`;
 }
 
 function runRenderTargetChecks(gl, engine) {
@@ -147,6 +156,12 @@ async function runImageLoaderChecks(gl, engine) {
   catch (error) { imageError = error; }
   check(imageError instanceof AssetError && imageError.code === 'IMAGE',
     'invalid standalone image bytes produce a typed decode error');
+
+  let hdrError = null;
+  try { await loadHDRImage(engine, 'data:application/octet-stream;base64,AA=='); }
+  catch (error) { hdrError = error; }
+  check(hdrError instanceof AssetError && hdrError.code === 'HDR',
+    'invalid Radiance bytes produce a typed decode error');
 }
 
 async function run() {
@@ -177,6 +192,15 @@ async function run() {
   check(model.pauseAnimation(), 'animation pauses for repeatable image comparisons');
   const noEnvironment = renderAndCheck(gl, engine, 'perspective camera with no hemisphere fill');
   check(changedPixels(animationStart, noEnvironment) > 0, 'animation changes rendered pixels');
+  const hdrEnvironment = await loadHDRImage(engine, tinyRadianceDataUrl());
+  check(hdrEnvironment.width === 1 && hdrEnvironment.height === 1 &&
+    isTextureHandleValid(engine, hdrEnvironment.handle), 'Radiance HDR image decodes to a checked texture');
+  setEnvironmentMap(engine, hdrEnvironment, 0.7);
+  const hdrFrame = renderAndCheck(gl, engine, 'scene with Radiance HDR environment map');
+  check(changedPixels(noEnvironment, hdrFrame) > 0, 'HDR environment map changes rendered pixels');
+  setEnvironmentMap(engine, null);
+  hdrEnvironment.dispose();
+  check(!isTextureHandleValid(engine, hdrEnvironment.handle), 'HDR environment texture disposes after clearing the map');
   setEnvironmentLighting(engine, [0.32, 0.48, 0.72], [0.16, 0.12, 0.08], 0.7);
   const environment = renderAndCheck(gl, engine, 'perspective camera with hemisphere fill');
   check(changedPixels(noEnvironment, environment) > 0, 'environment fill changes rendered pixels');
