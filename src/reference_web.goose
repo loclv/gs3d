@@ -49,6 +49,20 @@ export fn g3_reference_set_screen_effects(enabled: bool) {
     g3::set_fxaa(enabled);
 }
 
+export fn g3_reference_set_output(srgb: bool, tone_mapping: i32, exposure: f32) -> bool {
+    guard g3::set_tone_mapping_mode(tone_mapping) else { return false; }
+    guard g3::set_exposure(exposure) else { return false; }
+    g3::set_output_srgb(srgb);
+    g3::set_fxaa(false);
+    return true;
+}
+
+export fn g3_reference_clear_color(red: f32, green: f32, blue: f32) {
+    g3::scene_clear();
+    g3::render_target_set(-1);
+    g3::set_background(float4 { red, green, blue, 1.0 });
+}
+
 export fn g3_reference_post_process(source: i32, destination: i32, effect: i32) -> bool {
     return g3::post_process_run(source, destination, effect);
 }

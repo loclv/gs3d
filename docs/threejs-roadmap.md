@@ -225,7 +225,8 @@ unbounded memory growth. Tests cover malformed files and a real browser render.
 * **Implemented:** browser Radiance HDR environment image loading. The CPU
   backend composites in floating point; WebGL uses a floating-point render
   target when supported and has an inline fallback. Verify colour output
-  against browser reference images.
+  against browser reference images. The reference page checks hand-derived
+  linear output, sRGB encoding, ACES tone mapping, and exposure pixels.
 * **Implemented:** browser applications can set linear sky and ground RGB
   hemisphere colours and intensity independently from the equirectangular map.
   Inputs are checked for finite non-negative float32 values; verify the visual

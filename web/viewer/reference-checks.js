@@ -59,6 +59,30 @@ function checkPixel(actual, expected, label, tolerance = 3) {
     `${label}: expected ${expected.join(',')}, received ${actual.join(',')}`);
 }
 
+function runOutputChecks(gl, engine) {
+  check(engine._g3_reference_set_output(false, 0, 1), 'linear output settings are accepted');
+  engine._g3_reference_clear_color(0.25, 0.5, 0.75);
+  checkPixel(readCenterPixel(gl, engine, 'linear display output'), [64, 128, 191, 255],
+    'linear output preserves channel values');
+
+  check(engine._g3_reference_set_output(true, 0, 1), 'sRGB output settings are accepted');
+  engine._g3_reference_clear_color(0.25, 0.5, 0.75);
+  checkPixel(readCenterPixel(gl, engine, 'sRGB display output'), [137, 188, 225, 255],
+    'sRGB output encodes linear channel values');
+
+  check(engine._g3_reference_set_output(true, 2, 1), 'ACES tone mapping settings are accepted');
+  engine._g3_reference_clear_color(2, 0.5, 0.25);
+  checkPixel(readCenterPixel(gl, engine, 'ACES display output'), [245, 206, 165, 255],
+    'ACES tone mapping and sRGB encoding match the reference values');
+  check(engine._g3_reference_set_output(true, 2, 2), 'exposure changes are accepted');
+  engine._g3_reference_clear_color(2, 0.5, 0.25);
+  checkPixel(readCenterPixel(gl, engine, 'exposed ACES display output'), [252, 232, 206, 255],
+    'exposure scales HDR input before tone mapping');
+  check(!engine._g3_reference_set_output(true, 99, 1) &&
+    !engine._g3_reference_set_output(true, 2, Infinity), 'invalid tone mapping and exposure are rejected');
+  check(engine._g3_reference_set_output(false, 0, 1), 'default linear output settings are restored');
+}
+
 function tinyRadianceDataUrl() {
   const header = new TextEncoder().encode('#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n');
   const bytes = new Uint8Array(header.length + 4);
@@ -176,6 +200,7 @@ async function run() {
   const engine = await createGoose3D();
   const size = fitToDisplay(canvas);
   check(engine._g3_host_start(size.width, size.height), 'engine starts');
+  runOutputChecks(gl, engine);
   runRenderTargetChecks(gl, engine);
   await runImageLoaderChecks(gl, engine);
   engine._g3_reference_clear_scene();
