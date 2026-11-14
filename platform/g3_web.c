@@ -95,6 +95,7 @@ typedef struct {
     GLuint program;
     unsigned texture_mask;
     int fast_unlit;
+    int no_fog;
     GLint texture_units[13];
     GLint mvp, view_proj, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
     GLint light_count, light_position[8], light_direction[8], light_color_extra[8], light_inner[8], light_attenuation[8];
@@ -182,6 +183,7 @@ static GLint output_sampler, output_tone_map, output_exposure, output_encode_srg
 static int output_width, output_height;
 static int output_is_hdr, float_color_buffer_supported, hdr_color_buffer_supported, tone_map_inline_frame;
 static int output_srgb_inline_frame;
+static int frame_fog_enabled;
 static int shadow_map_size = 512;
 static int allocated_shadow_size;
 
@@ -300,12 +302,14 @@ static const char *UNLIT_VERTEX_SRC =
 
 static const char *UNLIT_FRAGMENT_SRC =
     "#version 300 es\nprecision highp float;\n"
-    "in vec3 v_world;in vec2 v_uv;in vec2 v_uv1;in vec2 v_uv2;in vec2 v_uv3;"
+    "#ifndef G3_NO_FOG\nin vec3 v_world;\n#endif\n"
+    "in vec2 v_uv;in vec2 v_uv1;in vec2 v_uv2;in vec2 v_uv3;"
     "in vec2 v_uv4;in vec2 v_uv5;in vec2 v_uv6;in vec2 v_uv7;in vec4 v_color;\n"
     "uniform sampler2D u_tex;uniform sampler2D u_emissive_tex;"
     "uniform bool u_textured;uniform bool u_emissive_textured;uniform vec4 u_color;uniform vec4 u_emissive;\n"
     "uniform vec4 u_uv_transform[13];uniform float u_uv_rotation[13];uniform int u_uv_set[13];"
-    "uniform int u_alpha_mode;uniform float u_alpha_cutoff;uniform vec3 u_eye;uniform vec4 u_fog;"
+    "uniform int u_alpha_mode;uniform float u_alpha_cutoff;\n"
+    "#ifndef G3_NO_FOG\nuniform vec3 u_eye;uniform vec4 u_fog;\n#endif\n"
     "uniform int u_tone_map_inline;uniform float u_exposure_inline;uniform bool u_srgb_output;out vec4 out_color;\n"
     "vec2 material_uv(int slot){int s=u_uv_set[slot];vec2 c=s==7?v_uv7:s==6?v_uv6:s==5?v_uv5:s==4?v_uv4:s==3?v_uv3:s==2?v_uv2:s==1?v_uv1:v_uv;"
     "vec2 q=c*u_uv_transform[slot].zw;float a=cos(u_uv_rotation[slot]),b=sin(u_uv_rotation[slot]);"
@@ -317,8 +321,10 @@ static const char *UNLIT_FRAGMENT_SRC =
     "void main(){vec2 uv=material_uv(0);vec4 texel=u_textured?texture(u_tex,uv):vec4(1.0);"
     "float alpha=u_color.a*v_color.a*texel.a;if(u_alpha_mode==1&&alpha<u_alpha_cutoff)discard;"
     "vec3 col=u_color.rgb*v_color.rgb*texel.rgb;vec3 em= u_emissive_textured?texture(u_emissive_tex,material_uv(4)).rgb:vec3(1.0);"
-    "col+=u_emissive.rgb*em;float dist=length(u_eye-v_world);float fog=clamp(1.0-exp(-dist*u_fog.a),0.0,1.0);"
-    "col=mix(col,u_fog.rgb,fog);if(u_tone_map_inline!=0)col=tone_map_color(col*u_exposure_inline,u_tone_map_inline);"
+    "col+=u_emissive.rgb*em;\n#ifndef G3_NO_FOG\n"
+    "if(u_fog.a>0.0){float dist=length(u_eye-v_world);"
+    "float fog=clamp(1.0-exp(-dist*u_fog.a),0.0,1.0);col=mix(col,u_fog.rgb,fog);}\n#endif\n"
+    "if(u_tone_map_inline!=0)col=tone_map_color(col*u_exposure_inline,u_tone_map_inline);"
     "if(u_srgb_output)col=encode_srgb(col);out_color=vec4(col,u_alpha_mode==2?alpha:1.0);}\n";
 
 /* Keep this in step with shade() in g3_soft.c. */
@@ -774,7 +780,7 @@ static void find_uniforms(void) {
 
 /* Compile both stages, link them, and look the uniforms up. 0 on any failure,
    after telling the page why. */
-static int build_program(unsigned mask, int fast_unlit) {
+static int build_program(unsigned mask, int fast_unlit, int no_fog) {
     /* Compile only the material samplers this draw actually uses. Disabled
        maps alias the environment sampler but their existing boolean guards
        stay false. No material/shading terms are approximated or dropped. */
@@ -782,7 +788,12 @@ static int build_program(unsigned mask, int fast_unlit) {
     char *fragment = malloc(strlen(fragment_source) + 1024);
     if (!fragment) return 0;
     if (fast_unlit) {
-        strcpy(fragment, fragment_source);
+        const char *version_end = strchr(fragment_source, '\n') + 1;
+        size_t version_length = (size_t)(version_end - fragment_source);
+        memcpy(fragment, fragment_source, version_length);
+        char *out = fragment + version_length;
+        if (no_fog) out += sprintf(out, "#define G3_NO_FOG 1\n");
+        strcpy(out, version_end);
     } else {
         char *out = fragment;
         const char *line = fragment_source;
@@ -818,6 +829,7 @@ static int build_program(unsigned mask, int fast_unlit) {
     find_uniforms();
     shader.texture_mask = mask;
     shader.fast_unlit = fast_unlit;
+    shader.no_fog = no_fog;
     int unit = 5; /* environment, directional shadow, point, spot, BRDF: 0..4 */
     for (int i = 0; i < 13; i++)
         shader.texture_units[i] = mask & (1u << i) ? unit++ : -1;
@@ -891,7 +903,7 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     hdr_color_buffer_supported=float_color_buffer_supported;
     set_surface_size(width, height);
 
-    if (!build_program(0, 0) || !ensure_brdf_lut()) return 0;
+    if (!build_program(0, 0, 0) || !ensure_brdf_lut()) return 0;
     shader_cache[0] = shader; shader_cache_next = 1;
 
     /* The state the CPU backend also sets: depth LESS, back faces culled,
@@ -1675,8 +1687,10 @@ static float encode_srgb_channel(float value) {
 static void bind_view(const g3_view_state *view) {
     upload_matrix4(shader.view_proj, 1, GL_FALSE, view->view_proj.m);
     if (shader.fast_unlit) {
-        glUniform3f(shader.eye, view->eye.x, view->eye.y, view->eye.z);
-        glUniform4f(shader.fog, view->fog.x, view->fog.y, view->fog.z, view->fog.w);
+        if (!shader.no_fog) {
+            glUniform3f(shader.eye, view->eye.x, view->eye.y, view->eye.z);
+            glUniform4f(shader.fog, view->fog.x, view->fog.y, view->fog.z, view->fog.w);
+        }
         glUniform1i(shader.tone_map_inline, tone_map_inline_frame);
         glUniform1f(shader.exposure_inline, view->params.w);
         glUniform1i(shader.srgb_output, output_srgb_inline_frame);
@@ -1946,6 +1960,7 @@ static int select_material_shader(const g3_draw_item *it) {
     int fast_unlit = it->params.x > 0.5f && it->clearcoat.x == 0.0f &&
         it->mesh >= 0 && it->mesh < mesh_count &&
         meshes[it->mesh].joint_count == 0 && meshes[it->mesh].morph_target_count == 0;
+    int no_fog = fast_unlit && !frame_fog_enabled;
     unsigned mask = 0; int units = 5;
     if (fast_unlit) {
         if (it->texture >= 0 && it->texture < texture_count && textures[it->texture]) mask |= 1u;
@@ -1969,11 +1984,11 @@ static int select_material_shader(const g3_draw_item *it) {
     }
     for (int i = 0; i < 64; i++)
         if (shader_cache[i].program && shader_cache[i].texture_mask == mask &&
-            shader_cache[i].fast_unlit == fast_unlit) {
+            shader_cache[i].fast_unlit == fast_unlit && shader_cache[i].no_fog == no_fog) {
             shader = shader_cache[i]; return 1;
         }
     web_shader previous = shader;
-    if (!build_program(mask, fast_unlit)) { shader = previous; return 0; }
+    if (!build_program(mask, fast_unlit, no_fog)) { shader = previous; return 0; }
     unsigned slot = shader_cache_next++ % 64;
     if (shader_cache[slot].program) {
         glDeleteProgram(shader_cache[slot].program);
@@ -2377,6 +2392,7 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     double scene_draw_start_ms = emscripten_get_now();
 #endif
     scene_draw_calls = 0;
+    frame_fog_enabled = view->fog.w > 0.0f;
     int requested = view->shadow_resolution == 256 || view->shadow_resolution == 512 || view->shadow_resolution == 1024 ? view->shadow_resolution : 512;
     if (allocated_shadow_size && allocated_shadow_size != requested) {
         if (shadow_program) glDeleteProgram(shadow_program);

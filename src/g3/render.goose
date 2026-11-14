@@ -547,6 +547,14 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
     };
 }
 
+fn node_is_blended(n: Node&) -> bool {
+    if material_valid(n.material) {
+        let surface .= material(n.material);
+        return surface.alpha_mode == 2 || (surface.alpha_mode == 0 && surface.color.w < 0.999);
+    }
+    return n.alpha_mode == 2 || (n.alpha_mode == 0 && n.color.w < 0.999);
+}
+
 fn item_samples_texture(item: DrawItem, texture: i32) -> bool {
     return item.texture == texture || item.metallic_roughness_texture == texture ||
            item.normal_texture == texture || item.occlusion_texture == texture ||
@@ -561,13 +569,16 @@ fn render_scene() {
         if !n.visible || n.mesh < 0 || n.mesh >= g_meshes.len || !mesh_handle_valid(mesh_handle(n.mesh)) { continue; }
         g_stats.nodes += 1;
         let m .= mesh(n.mesh);
-        let box = aabb_transform(m.bounds, n.world);
+        let box = aabb_transform_affine(m.bounds, n.world);
         if !frustum_intersects(g_frustum, box) && g_view_state.shadow_params.x < 0.5 && g_view_state.point_shadow_params.x < 0.5 && g_view_state.spot_shadow_params.x < 0.5 {
             g_stats.culled += 1;
             continue;
         }
-        let center = aabb_center(box);
-        let dist = if g_camera.orthographic { -mat4_apply(g_view, center).z } else { length(center - g_camera.pos) };
+        let dist = if node_is_blended(n) {
+            let center = aabb_center(box);
+            if g_camera.orthographic { -mat4_apply(g_view, center).z }
+            else { length(center - g_camera.pos) }
+        } else { 0.0 };
         g_draws.push(pack_item(n, m, dist));
         g_stats.drawn += 1;
         g_stats.triangles += m.index_count / 3;

@@ -108,23 +108,27 @@ canvas, and 1,024 cubes produced these before and after results:
 | Backend / revision | Scene draw calls | Browser FPS | Frame-call median / p95 | WebGL backend median / p95 | GPU median / p95 |
 |---|---:|---:|---:|---:|---:|
 | Goose 3D before | 1 | 21.4 | 45.60 / 54.00 ms | — | — |
-| Goose 3D optimized | 1 | 42.3 | 0.30 / 0.30 ms | 0.10 / 0.20 ms | 16.36 / 18.24 ms |
-| Three.js 0.180.0 | 1 | 44.4 | 0.10 / 0.20 ms | — | 16.32 / 17.83 ms |
+| Goose 3D optimized, run 1 | 1 | 40.2 | 0.20 / 0.30 ms | 0.10 / 0.20 ms | 15.86 / 20.32 ms |
+| Three.js 0.180.0, run 1 | 1 | 35.0 | 0.10 / 0.20 ms | — | 16.79 / 39.02 ms |
+| Goose 3D optimized, run 2 | 1 | 34.9 | 0.20 / 0.30 ms | 0.10 / 0.20 ms | 16.44 / 32.72 ms |
+| Three.js 0.180.0, run 2 | 1 | 30.0 | 0.10 / 0.20 ms | — | 19.08 / 43.35 ms |
 
 Each row uses 120 warmup frames followed by 300 sampled frames. GPU time uses
 the asynchronous `EXT_disjoint_timer_query_webgl2` extension; unavailable and
-disjoint results are omitted. Goose's opaque
-unlit path now skips the full-screen color-encoding pass and uses a smaller
-shader. The engine also reuses unchanged root transforms and static instance
-uploads, retains instanced vertex bindings, skips per-frame GL error polling,
-and avoids sorting an already ordered draw list. Goose improved from 21.4 to
-42.3 FPS (1.98×) in this run, reaching about 95% of Three.js's measured frame
-rate. The query reported nearly identical GPU times for both renderers. This run
-used headless SwiftShader software WebGL rather than a physical GPU; treat
-these as environment-specific diagnostics. Frame-call timings measure CPU work
-and GPU command submission; GPU-query timings measure rendering commands and
-exclude browser compositing and display refresh. Playwright reported no browser
-errors.
+disjoint results are omitted. Goose's opaque unlit path skips the full-screen
+color-encoding pass, uses a no-fog shader variant when fog is disabled, and
+does not compute fog distance for every fragment. The renderer uses affine
+center/extents bounds for culling and skips distance calculations for opaque
+nodes. It also reuses unchanged root transforms and static instance uploads,
+retains instanced vertex bindings, skips per-frame GL error polling, and avoids
+sorting an already ordered draw list. Goose's GPU median was lower in both
+paired runs (15.86 vs 16.79 ms, then 16.44 vs 19.08 ms); CPU frame-call median
+was 0.20 ms for Goose and 0.10 ms for Three.js. Frame cadence and p95 values
+varied substantially between runs. These measurements use headless SwiftShader
+software WebGL rather than a physical GPU; treat them as environment-specific
+diagnostics. Frame-call timings measure CPU work and GPU command submission;
+GPU-query timings measure rendering commands and exclude browser compositing
+and display refresh. Playwright reported no browser errors.
 
 ### Engine demo
 

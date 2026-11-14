@@ -256,6 +256,20 @@ fn aabb_transform(b: Aabb, m: Mat4) -> Aabb {
     return out;
 }
 
+// Fast world bounds for affine model matrices (TRS and imported node transforms).
+// Transforming centre/extents is equivalent to evaluating all eight corners,
+// with three absolute-matrix products instead of eight point transforms.
+fn aabb_transform_affine(b: Aabb, m: Mat4) -> Aabb {
+    let center = mat4_apply(m, aabb_center(b));
+    let half = (b.hi - b.lo) * 0.5;
+    let extent = float3 {
+        abs(m.m[0]) * half.x + abs(m.m[4]) * half.y + abs(m.m[8]) * half.z,
+        abs(m.m[1]) * half.x + abs(m.m[5]) * half.y + abs(m.m[9]) * half.z,
+        abs(m.m[2]) * half.x + abs(m.m[6]) * half.y + abs(m.m[10]) * half.z,
+    };
+    return Aabb { lo: center - extent, hi: center + extent };
+}
+
 // --- frustum planes
 
 fn plane_normalize(p: Plane) -> Plane {

@@ -351,6 +351,14 @@ fn case_aabb() {
     testing::check(close3(turned.lo, float3 { 0.0, 0.0, -3.0 }, 1e-6) &&
                    close3(turned.hi, float3 { 1.0, 1.0, -1.0 }, 1e-6),
                   "a turned box is the box around its turned corners");
+    let affine = g3::mat4_mul(g3::mat4_translate(float3 { -2.0, 3.0, 1.0 }),
+                              g3::mat4_mul(g3::mat4_rotate_y(0.7),
+                                           g3::mat4_scale(float3 { 2.0, 0.5, 1.5 })));
+    let fast_box = g3::aabb_transform_affine(slab, affine);
+    let corner_box = g3::aabb_transform(slab, affine);
+    testing::check(close3(fast_box.lo, corner_box.lo, 1e-6) &&
+                   close3(fast_box.hi, corner_box.hi, 1e-6),
+                   "affine centre/extents bounds match all transformed corners");
     // A turned cube's box is not the cube: at 0.5 rad its x and z extents grow
     // from 1 to cos(0.5) + sin(0.5) = 1.3570, so the radius is
     // sqrt(2 * 1.3570^2 + 1) = 2.1640, not sqrt(3). aabb_transform is exact
