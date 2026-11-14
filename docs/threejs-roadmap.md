@@ -182,8 +182,9 @@ and a browser integration check for behavior exposed through WebGL.
   includes perspective and orthographic cameras, point and spot lights, and a
   shadow receiver. A local browser check page exercises WebGL frame output,
   texture decoding, environment fill, animation, camera selection, point and
-  spot shadows, and repeated disposal; it compares rendered pixels when
-  animation, lighting, shadows, and cameras change. It exposes a machine-
+  spot shadows, repeated disposal, render targets, post-processing, and custom
+  fragment shaders; it compares rendered pixels when those paths change. Build
+  it with `./build_web.sh --reference-checks --serve`. It exposes a machine-
   readable result for a future browser automation runner. The browser model API
   exposes the selected glTF node hierarchy, mesh/skin references, and checked
   primitive handles plus default and variant material summaries; material
@@ -283,9 +284,9 @@ Tests cover animation interpolation, skinning, and camera projection.
   and GPU configurations before selecting further optimisations.
 * **Implemented:** optional FXAA-style luma edge smoothing runs as a full-screen
   WebGL output pass and in the CPU reference renderer.
-* **Partly implemented:** user render targets have explicit creation, selection, resizing, checked handles, and disposal; the texture can be sampled by later frames. Both backends render linear RGBA8 clamped to 0..1 with opaque alpha, use target dimensions for camera projection, and bypass screen tone mapping, sRGB encoding, and FXAA. Resizing clears target contents. Sampling the active target is suppressed to avoid framebuffer feedback, and `Stats.feedback_items_suppressed` plus the browser HUD report how many draw items were skipped. Validate target rendering in a browser.
-* **Partly implemented:** `post_process_run(source, destination, effect)` provides copy, grayscale, invert, and FXAA passes over explicit texture inputs and render-target outputs; the fixed eight-entry queue executes built-in or custom passes in order. Add browser shader validation before expanding the shader interface. Keep the existing FXAA convenience switch as a built-in pass.
-* **Partly implemented:** WebGL2 supports a bounded fragment-body post-process with one source texture, UVs, and a colour value; shader creation, execution, and disposal are explicit, with fixed input/output resources and no custom vertex stage or uniforms. The CPU backend returns unsupported. Validate shader compile diagnostics in a browser and define a pass-list integration before expanding uniforms or stages.
+* **Partly implemented:** user render targets have explicit creation, selection, resizing, checked handles, and disposal; the texture can be sampled by later frames. Both backends render linear RGBA8 clamped to 0..1 with opaque alpha, use target dimensions for camera projection, and bypass screen tone mapping, sRGB encoding, and FXAA. Resizing clears target contents. Sampling the active target is suppressed to avoid framebuffer feedback, and `Stats.feedback_items_suppressed` plus the browser HUD report how many draw items were skipped. The dedicated browser reference build checks a known linear colour under screen effects, resize, later-frame sampling, active-target feedback suppression, and disposal; run it in a browser.
+* **Partly implemented:** `post_process_run(source, destination, effect)` provides copy, grayscale, invert, and FXAA passes over explicit texture inputs and render-target outputs; the fixed eight-entry queue executes built-in or custom passes in order. The browser reference page checks each built-in effect and pixel output. Keep the existing FXAA convenience switch as a built-in pass.
+* **Partly implemented:** WebGL2 supports a bounded fragment-body post-process with one source texture, UVs, and a colour value; shader creation, execution, and disposal are explicit, with fixed input/output resources and no custom vertex stage or uniforms. The CPU backend returns unsupported. The browser reference page compiles, executes, and checks a custom shader output; run it in a browser. Define a pass-list integration before expanding uniforms or stages.
 * **Partly implemented:** the browser asset package documents loading, ownership,
   and errors. `npm test` runs parser and lifecycle checks against a fake engine,
   plus orbit-control input checks against a fake canvas through the published

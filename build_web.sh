@@ -5,6 +5,7 @@
 #   ./build_web.sh --serve   build, then serve web/ on http://localhost:8080
 #   ./build_web.sh --game --serve  build and serve the Beacon Run sample
 #   ./build_web.sh --viewer --serve build and serve the model viewer
+#   ./build_web.sh --reference-checks --serve build and serve WebGL API checks
 #   ./build_web.sh --animation-benchmark --serve build and serve the morph benchmark
 #
 # Emscripten is expected in .toolchain/emsdk (see README) or on PATH.
@@ -44,6 +45,10 @@ elif [ "${1:-}" = "--animation-benchmark" ]; then
   root=src/viewer_web.goose
   output=web/benchmark/animation/app.js
   exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_host_scene_draw_calls","_g3_input_resize","_malloc","_free"]'
+elif [ "${1:-}" = "--reference-checks" ]; then
+  root=src/reference_web.goose
+  output=web/viewer/reference/app.js
+  exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_reference_target_create","_g3_reference_target_resize","_g3_reference_target_fill","_g3_reference_target_feedback","_g3_reference_set_screen_effects","_g3_reference_post_process","_g3_reference_shader_create","_g3_reference_shader_run","_g3_reference_shader_remove","_g3_reference_show_texture","_g3_reference_clear_scene","_g3_reference_target_remove","_g3_input_resize","_malloc","_free"]'
 fi
 
 # The asset bridge is available to either browser entry point.

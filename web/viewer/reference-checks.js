@@ -1,4 +1,4 @@
-import createGoose3D from './app.js';
+import createGoose3D from './reference/app.js';
 import { fitToDisplay } from '../canvas.js';
 import {
   isMeshHandleValid, isNodeHandleValid, isTextureHandleValid, loadGLTF,
@@ -31,6 +31,12 @@ function renderAndCheck(gl, engine, label) {
   return pixels;
 }
 
+function renderEmptyFrame(gl, engine, label) {
+  engine._g3_app_frame(1 / 60);
+  gl.finish();
+  check(gl.getError() === gl.NO_ERROR, `${label}: WebGL reports no error`);
+}
+
 function changedPixels(a, b) {
   let changed = 0;
   for (let i = 0; i < a.length; i += 4) {
@@ -39,12 +45,75 @@ function changedPixels(a, b) {
   return changed;
 }
 
+function readCenterPixel(gl, engine, label) {
+  engine._g3_app_frame(1 / 60);
+  gl.finish();
+  const pixel = new Uint8Array(4);
+  gl.readPixels(canvas.width >> 1, canvas.height >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+  check(gl.getError() === gl.NO_ERROR, `${label}: WebGL reports no error`);
+  return [...pixel];
+}
+
+function checkPixel(actual, expected, label, tolerance = 3) {
+  check(expected.every((channel, index) => Math.abs(actual[index] - channel) <= tolerance),
+    `${label}: expected ${expected.join(',')}, received ${actual.join(',')}`);
+}
+
+function runRenderTargetChecks(gl, engine) {
+  const target = engine._g3_reference_target_create(16, 16);
+  const processed = engine._g3_reference_target_create(16, 16);
+  check(target >= 0 && processed >= 0, 'WebGL render targets allocate');
+  check(!engine._g3_reference_target_resize(target, 0, 16), 'render target rejects zero width');
+  check(engine._g3_reference_target_resize(target, 8, 16), 'render target resizes');
+  engine._g3_reference_set_screen_effects(true);
+  check(engine._g3_reference_target_fill(target, 0.25, 0.5, 0.75),
+    'render target draws a known linear colour with screen effects enabled');
+  check(engine._g3_reference_show_texture(target), 'render target can be bound as a scene texture');
+  check(!engine._g3_reference_target_remove(target), 'referenced render target cannot be removed');
+  check(engine._g3_reference_target_feedback(target), 'sampling the active render target is suppressed');
+  checkPixel(readCenterPixel(gl, engine, 'sample render target'), [64, 128, 191, 255],
+    'render target preserves linear values without screen tone mapping, sRGB encoding, or FXAA');
+
+  check(engine._g3_reference_post_process(target, processed, 0), 'copy post-process pass executes');
+  check(engine._g3_reference_show_texture(processed), 'copied target can be sampled on a later frame');
+  checkPixel(readCenterPixel(gl, engine, 'sample copied target'), [64, 128, 191, 255],
+    'copy pass preserves render-target values');
+  check(engine._g3_reference_post_process(target, processed, 1), 'grayscale post-process pass executes');
+  check(engine._g3_reference_show_texture(processed), 'grayscale target can be sampled');
+  checkPixel(readCenterPixel(gl, engine, 'sample grayscale target'), [116, 116, 116, 255],
+    'grayscale pass uses linear luma weights');
+  check(engine._g3_reference_post_process(target, processed, 2), 'invert post-process pass executes');
+  check(engine._g3_reference_show_texture(processed), 'inverted target can be sampled on a later frame');
+  checkPixel(readCenterPixel(gl, engine, 'sample inverted target'), [191, 127, 64, 255],
+    'invert pass transforms the source pixels');
+  check(engine._g3_reference_post_process(target, processed, 3), 'FXAA post-process pass executes');
+  check(engine._g3_reference_show_texture(processed), 'FXAA target can be sampled');
+  checkPixel(readCenterPixel(gl, engine, 'sample FXAA target'), [64, 128, 191, 255],
+    'FXAA preserves a uniform target');
+  check(!engine._g3_reference_post_process(target, target, 0) &&
+    !engine._g3_reference_post_process(target, processed, 99), 'post-process rejects feedback and unknown effects');
+
+  const shader = engine._g3_reference_shader_create();
+  check(shader >= 0, 'custom fragment shader compiles');
+  check(engine._g3_reference_shader_run(shader, target, processed), 'custom fragment shader executes');
+  check(engine._g3_reference_show_texture(processed), 'custom shader output can be sampled on a later frame');
+  checkPixel(readCenterPixel(gl, engine, 'sample custom shader output'), [26, 204, 51, 255],
+    'custom fragment shader writes its requested colour');
+  check(engine._g3_reference_shader_remove(shader), 'custom fragment shader releases');
+  engine._g3_reference_clear_scene();
+  check(engine._g3_reference_target_remove(target) && engine._g3_reference_target_remove(processed),
+    'unreferenced render targets dispose');
+  return true;
+}
+
 async function run() {
   const gl = canvas.getContext('webgl2');
   check(!!gl, 'WebGL2 context is available');
   const engine = await createGoose3D();
   const size = fitToDisplay(canvas);
   check(engine._g3_host_start(size.width, size.height), 'engine starts');
+  runRenderTargetChecks(gl, engine);
+  engine._g3_reference_clear_scene();
   setEnvironmentLighting(engine, [0.32, 0.48, 0.72], [0.16, 0.12, 0.08], 0.7);
 
   const model = await loadGLTF(engine, './sample.glb');
@@ -91,7 +160,7 @@ async function run() {
     repeated.dispose();
     check(!isNodeHandleValid(engine, repeatedNode), `reload/dispose cycle ${i + 1} releases its scene`);
   }
-  renderAndCheck(gl, engine, 'frame after repeated disposal');
+  renderEmptyFrame(gl, engine, 'frame after repeated disposal');
 }
 
 run().then(() => {
