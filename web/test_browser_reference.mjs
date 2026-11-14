@@ -264,6 +264,39 @@ async function run() {
     const afterOrbit = await page.send('Page.captureScreenshot', { format: 'png', clip: canvasBounds.clip });
     assert.notEqual(afterOrbit.data, beforeOrbit.data, 'dragging the viewer changes the rendered camera view');
 
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed', x: canvasBounds.x, y: canvasBounds.y, button: 'right', clickCount: 1,
+    });
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved', x: canvasBounds.endX, y: canvasBounds.y + 45, button: 'right', buttons: 2,
+    });
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x: canvasBounds.endX, y: canvasBounds.y + 45, button: 'right', clickCount: 1,
+    });
+    await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const afterPan = await page.send('Page.captureScreenshot', { format: 'png', clip: canvasBounds.clip });
+    assert.notEqual(afterPan.data, afterOrbit.data, 'right-drag panning changes the rendered camera view');
+
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mouseWheel', x: canvasBounds.endX, y: canvasBounds.y, deltaY: -160, deltaX: 0,
+    });
+    await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const afterWheel = await page.send('Page.captureScreenshot', { format: 'png', clip: canvasBounds.clip });
+    assert.notEqual(afterWheel.data, afterPan.data, 'wheel zoom changes the rendered camera view');
+
+    await page.evaluate("document.querySelector('#canvas').focus()");
+    await page.evaluate('new Promise(resolve => requestAnimationFrame(resolve))');
+    const beforeKey = await page.send('Page.captureScreenshot', { format: 'png', clip: canvasBounds.clip });
+    await page.send('Input.dispatchKeyEvent', {
+      type: 'keyDown', key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37,
+    });
+    await page.send('Input.dispatchKeyEvent', {
+      type: 'keyUp', key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37,
+    });
+    await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const afterKey = await page.send('Page.captureScreenshot', { format: 'png', clip: canvasBounds.clip });
+    assert.notEqual(afterKey.data, beforeKey.data, 'focused keyboard orbit changes the rendered camera view');
+
     const canvasPoint = await page.evaluate(`(() => {
       const rect = document.querySelector('#canvas').getBoundingClientRect();
       return { x: rect.left + rect.width * 0.52, y: rect.top + rect.height * 0.52 };

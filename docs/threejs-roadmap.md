@@ -21,7 +21,7 @@ reference for rendering changes.
 | Lighting | Directional, point and spot lights; primary directional shadows, one selected point shadow, and one selected spot shadow with configurable 256/512/1024 maps and hard, 3×3 or 5×5 PCF; ambient, browser-controllable hemispherical fill, and rotatable RGB or HDR equirectangular fill | Run the headless browser suite and capture reference images on target GPUs |
 | Animation | glTF transform, morph-weight and skeletal clips with LINEAR/STEP/CUBICSPLINE sampling; WebGL joint-palette skinning and POSITION/NORMAL/TANGENT morph textures, including combined skin+morph meshes; CPU geometry retained for picking | Browser rendering validation and representative deformation measurements; GPU morph targets fall back to CPU above 64 targets or device texture limits |
 | Scene management | Parent hierarchy, checked node, ordinary mesh and ordinary texture removal with reusable geometry spans; asset-owned mesh descriptor reuse; explicit live-geometry compaction; selectable perspective or orthographic cameras with stable removable IDs | Shrinking grow-only backing arrays; ordinary mesh IDs remain permanent for compatibility |
-| Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection; package subpath with TypeScript declarations, fake-canvas tests, and headless Chrome checks for orbit, selection, and viewer controls | Validate pinch, pan, and keyboard control behavior on touch-enabled devices |
+| Interaction | Keyboard and mouse input, triangle raycasting, reusable browser orbit, pan, pinch and keyboard camera controls, viewer selection; package subpath with TypeScript declarations, fake-canvas tests, and headless Chrome checks for orbit, pan, zoom, keyboard orbit, selection, and viewer controls | Validate pinch and other touch behavior on physical devices |
 | Rendering | WebGL2, view-volume clipping, adjacent compatible opaque items batched with GPU instancing, instanced shadow casters, FXAA-style full-screen post-processing, basic user render targets, built-in post-processing, bounded fragment shader extension; headless Chrome validates shader and framebuffer output in CI | Capture reference images on target GPUs; CPU reference renderer still processes draw items individually |
 | Developer experience | Goose API, custom browser host, typed browser asset and orbit-control helpers with package subpaths, runnable consumer example, package tests, and automated headless rendering checks | Publish the browser package |
 
@@ -195,8 +195,9 @@ and a browser integration check for behavior exposed through WebGL.
   `npm run test:browser` from `web/`. The runner builds and serves the reference
   page locally, uses SwiftShader, and fails on a failed check, page exception,
   or timeout. The same runner opens the model viewer and checks camera, clip,
-  shadow, variant and environment controls, orbit drag output, textured mesh
-  selection, previews, and model reload. It also opens the package consumer
+  shadow, variant and environment controls, orbit drag, right-drag pan, wheel
+  zoom, keyboard orbit output, textured mesh selection, previews, and model
+  reload. It also opens the package consumer
   with the offline sample, verifies a malformed replacement keeps the current
   model usable, and reloads the sample without contacting the remote default.
   `.github/workflows/browser-reference.yml` runs CPU renderer tests and this
