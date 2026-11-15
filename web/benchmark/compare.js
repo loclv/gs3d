@@ -58,6 +58,7 @@ let rafTimes = [];
 let backendTimes = [];
 let gpuGl;
 let gpuTimerExt;
+let webgpuTimer;
 let gpuPending = [];
 let gpuTimes = [];
 let gpuDisjointCount = 0;
@@ -66,6 +67,7 @@ let gpuWaitFrames = 0;
 let sampleReported = false;
 
 function resetSample() {
+  webgpuTimer?.gpuTimestampEnd();
   if (gpuGl) for (const item of gpuPending) gpuGl.deleteQuery(item.query);
   gpuPending = [];
   warmup = 0;
@@ -92,7 +94,7 @@ function report() {
     ? `\n${window.g3Renderer === 'WebGPU' ? 'WebGPU CPU submit' : 'WebGL backend'} median ${percentile(backendTimes, 0.5).toFixed(2)} ms · ` +
       `p95 ${percentile(backendTimes, 0.95).toFixed(2)} ms`
     : '';
-  const gpuLine = !gpuTimerExt
+  const gpuLine = !(gpuTimerExt || webgpuTimer)
     ? '\nGPU timer query unavailable'
     : gpuTimes.length
       ? `\nGPU median ${percentile(gpuTimes, 0.5).toFixed(2)} ms · ` +
@@ -165,13 +167,16 @@ function frame(now) {
 
   if (warmup < WARMUP_FRAMES) {
     warmup++;
+    if (warmup === WARMUP_FRAMES) webgpuTimer?.gpuTimestampBegin();
   } else if (cpuTimes.length < SAMPLE_FRAMES) {
     cpuTimes.push(elapsed);
     if (getBackendFrameMs) backendTimes.push(getBackendFrameMs());
+    if (cpuTimes.length === SAMPLE_FRAMES) webgpuTimer?.gpuTimestampEnd();
   }
   if (cpuTimes.length >= SAMPLE_FRAMES && !sampleReported) {
     gpuWaitFrames++;
-    if (gpuPending.length === 0 || gpuWaitFrames >= 180) {
+    if ((gpuPending.length === 0 && (!webgpuTimer || webgpuTimer.gpuTimestampPending() === 0)) || gpuWaitFrames >= 180) {
+      if (webgpuTimer) { gpuTimes = webgpuTimer.gpuTimestampMs(); gpuSkippedCount = SAMPLE_FRAMES - gpuTimes.length; }
       gpuSkippedCount += gpuPending.length;
       for (const item of gpuPending) gpuGl.deleteQuery(item.query);
       gpuPending = [];
@@ -300,6 +305,10 @@ async function start() {
       frameCall = dt => engine._g3_app_frame(dt);
       getDrawCalls = () => engine._g3_host_scene_draw_calls();
       getBackendFrameMs = () => engine._g3_host_scene_draw_ms();
+      if (window.g3Renderer === 'WebGPU' && window.g3wgpu.gpuTimestampAvailable()) {
+        webgpuTimer = window.g3wgpu;
+        webgpuTimer.gpuTimestampEnd();
+      }
       resizeRenderer = (width, height) => engine._g3_input_resize(width, height);
       slider.addEventListener('input', () => {
         const count = Number(slider.value);

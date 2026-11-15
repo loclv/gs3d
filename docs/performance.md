@@ -196,6 +196,14 @@ two modes in the same browser session and device state, at the same cube count
 and canvas dimensions. The report is a local diagnostic, not a general claim
 that one engine is faster across workloads or hardware.
 
+For Goose WebGPU, append `&gpu-timing=1` to the comparison URL to request the
+optional `timestamp-query` device feature. If supported, the report includes
+render-pass GPU median and p95 and the number of completed samples; missing
+samples are reported as skipped. Measurements begin after warmup, and changing
+the count or resizing starts a fresh sample. Timestamp queries exclude browser
+compositing and display refresh, and instrumenting the renderer can itself add
+overhead. The feature may be unavailable on a given browser or adapter.
+
 The WebGPU instance buffer uploads the smallest contiguous span containing
 changed records. For example, one changed instance in a 1,024-instance batch
 uploads 80 bytes instead of 81,920; changing a prefix of 32 uploads 2,560
@@ -239,6 +247,11 @@ cubes moving, ranges were 0.333–0.365 ms before and 0.332–0.358 ms after. Th
 small, overlapping differences do not establish a speedup, so the experiment
 was discarded. The WebGPU bridge test also verifies that changes to mesh,
 blend, alpha, culling and material parameters split batches without reordering.
+
+A separate packing experiment compared and copied the 80-byte instance record
+as 32-bit integer words. With 32 moving cubes, three runs measured 0.115–0.116
+ms before and 0.133–0.134 ms after in the same synchronous SwiftShader harness.
+The slower candidate was discarded.
 
 ## WebGL morph animation benchmark
 

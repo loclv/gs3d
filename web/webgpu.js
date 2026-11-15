@@ -70,6 +70,7 @@ let uniformData, uniformCache, uniformBufferValid = false;
 let instanceBuffer, instanceBindGroup, instanceCapacity = 0, instanceData;
 let instanceBufferValid = false, instanceDataValid = false, packedInstanceCount = 0, uploadedInstanceCount = 0;
 let timestampQuerySet, timestampResolveBuffer, timestampSlots = [], timestampSlotIndex = 0;
+let timestampCapture = true, timestampEpoch = 0;
 const gpuTimestampSamples = [];
 const drawBatchStarts = [], drawBatchLengths = [];
 let width = 1, height = 1, meshes = new Map(), pipelines = {};
@@ -219,6 +220,10 @@ window.g3wgpu = {
   drawCalls: () => drawCalls,
   drawCpuMs: () => drawCpuMs,
   gpuTimestampMs: () => gpuTimestampSamples.slice(-300),
+  gpuTimestampAvailable: () => !!timestampQuerySet,
+  gpuTimestampBegin() { timestampEpoch++; gpuTimestampSamples.length=0; timestampCapture=true; },
+  gpuTimestampEnd() { timestampCapture=false; },
+  gpuTimestampPending: () => timestampSlots.filter(slot => slot.busy && slot.epoch===timestampEpoch).length,
   uploadMesh(id, vp, vn, ip, inum) {
     const heap = wasmModule.HEAPU8;
     const vertices = new Uint8Array(heap.buffer, vp, vn * 120).slice();
@@ -289,11 +294,11 @@ window.g3wgpu = {
     const clear={r:dv.getFloat32(viewPtr+68,true),g:dv.getFloat32(viewPtr+72,true),b:dv.getFloat32(viewPtr+76,true),a:1};
     const encoder=device.createCommandEncoder();
     let timestampSlot=null;
-    if(timestampQuerySet) {
+    if(timestampQuerySet && timestampCapture) {
       for(let i=0;i<timestampSlots.length;i++) {
         const slot=timestampSlots[timestampSlotIndex];
         timestampSlotIndex=(timestampSlotIndex+1)%timestampSlots.length;
-        if(!slot.busy) { timestampSlot=slot; slot.busy=true; break; }
+        if(!slot.busy) { timestampSlot=slot; slot.busy=true; slot.epoch=timestampEpoch; break; }
       }
     }
     const passDescriptor={colorAttachments:[{view:context.getCurrentTexture().createView(),clearValue:clear,loadOp:'clear',storeOp:'store'}],depthStencilAttachment:{view:depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'}};
@@ -324,11 +329,11 @@ window.g3wgpu = {
     device.queue.submit([encoder.finish()]);
     if(timestampSlot) timestampSlot.buffer.mapAsync(GPUMapMode.READ).then(() => {
       const values=new BigUint64Array(timestampSlot.buffer.getMappedRange());
-      gpuTimestampSamples.push(Number(values[1]-values[0])/1e6);
+      if(timestampSlot.epoch===timestampEpoch) gpuTimestampSamples.push(Number(values[1]-values[0])/1e6);
       if(gpuTimestampSamples.length>2048) gpuTimestampSamples.shift();
       timestampSlot.buffer.unmap(); timestampSlot.busy=false;
     }).catch(() => { timestampSlot.busy=false; });
     drawCpuMs=performance.now()-started;
   },
-  shutdown() { for(const mesh of meshes.values()){mesh.vb.destroy();mesh.ib.destroy();} meshes.clear(); if(depth)depth.destroy();if(uniformBuffer)uniformBuffer.destroy();if(instanceBuffer)instanceBuffer.destroy();if(timestampQuerySet)timestampQuerySet.destroy();if(timestampResolveBuffer)timestampResolveBuffer.destroy();for(const slot of timestampSlots)slot.buffer.destroy();timestampQuerySet=timestampResolveBuffer=null;timestampSlots=[];gpuTimestampSamples.length=0; depth=uniformBuffer=instanceBuffer=null;uniformCapacity=instanceCapacity=0;uniformBindGroup=instanceBindGroup=null;uniformData=uniformCache=instanceData=null;uniformBufferValid=instanceBufferValid=instanceDataValid=false;packedInstanceCount=uploadedInstanceCount=0;wasmBuffer=dv=null; }
+  shutdown() { for(const mesh of meshes.values()){mesh.vb.destroy();mesh.ib.destroy();} meshes.clear(); if(depth)depth.destroy();if(uniformBuffer)uniformBuffer.destroy();if(instanceBuffer)instanceBuffer.destroy();if(timestampQuerySet)timestampQuerySet.destroy();if(timestampResolveBuffer)timestampResolveBuffer.destroy();for(const slot of timestampSlots)slot.buffer.destroy();timestampQuerySet=timestampResolveBuffer=null;timestampSlots=[];gpuTimestampSamples.length=0;timestampEpoch++;timestampCapture=true; depth=uniformBuffer=instanceBuffer=null;uniformCapacity=instanceCapacity=0;uniformBindGroup=instanceBindGroup=null;uniformData=uniformCache=instanceData=null;uniformBufferValid=instanceBufferValid=instanceDataValid=false;packedInstanceCount=uploadedInstanceCount=0;wasmBuffer=dv=null; }
 };

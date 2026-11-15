@@ -39,7 +39,7 @@
     </label>
     <label for="rotate">Rotate moving instances <input id="rotate" type="checkbox"></label>
     <div id="results">warming up…</div>
-    <div id="note">Same cube grid, camera, canvas size, and opaque color. Goose uses WebGPU first and falls back to WebGL2; Three.js WebGPURenderer also falls back when needed. Frame-call timing measures CPU work and command submission. GPU timing uses asynchronous WebGL timer queries where available; WebGPU timestamp queries are not included. Timing excludes browser compositing and display refresh. FPS follows browser frame cadence.</div>
+    <div id="note">Same cube grid, camera, canvas size, and opaque color. Goose uses WebGPU first and falls back to WebGL2; Three.js WebGPURenderer also falls back when needed. Frame-call timing measures CPU work and command submission. GPU timing uses asynchronous WebGL timer queries where available. Add gpu-timing=1 to enable WebGPU timestamp queries on supported devices. Timing excludes browser compositing and display refresh. FPS follows browser frame cadence.</div>
   </section>
   <div id="status">Starting renderer…</div>
   <script type="module" src="./compare.js"></script>
