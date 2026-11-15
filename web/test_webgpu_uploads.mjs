@@ -9,10 +9,13 @@ const device = {
   limits: { minUniformBufferOffsetAlignment: 256 }, features: new Set(), lost: new Promise(() => {}),
   createShaderModule: () => ({}), createBindGroupLayout: () => ({}), createPipelineLayout: () => ({}),
   createRenderPipelineAsync: async () => ({}), createBindGroup: () => ({}),
-  createBuffer: ({ usage }) => ({ id: ++nextBuffer, usage, destroy() {} }),
+  createBuffer: ({ usage, size }) => ({ id: ++nextBuffer, usage, bytes: new Uint8Array(size), destroy() {} }),
   createTexture: () => ({ createView: () => ({}), destroy() {} }),
   createCommandEncoder: () => ({ beginRenderPass: () => pass, finish: () => ({}) }),
-  queue: { writeBuffer: (buffer, offset, data, dataOffset = 0, size = data.byteLength) => writes.push({ buffer, offset, size }), submit() {} },
+  queue: { writeBuffer: (buffer, offset, data, dataOffset = 0, size = data.byteLength) => {
+    buffer.bytes.set(new Uint8Array(data, dataOffset, size), offset);
+    writes.push({ buffer, offset, size });
+  }, submit() {} },
 };
 globalThis.GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 };
 globalThis.GPUBufferUsage = { UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16 };
@@ -44,6 +47,9 @@ assert.deepEqual(draw(4), [[0, 4 * 80]], 'first draw initializes all slots');
 assert.deepEqual(draw(4), [], 'unchanged frame uploads nothing');
 view.setFloat32(2 * stride + 68 + 12 * 4, 2, true);
 assert.deepEqual(draw(4), [[2 * 80, 80]], 'one changed instance uploads one record');
+const storage = storageWrites()[0].buffer;
+assert.equal(new DataView(storage.bytes.buffer).getFloat32(2 * 80 + 12 * 4, true), 2, 'partial write updates the intended GPU slot');
+assert.equal(new DataView(storage.bytes.buffer).getFloat32(3 * 80 + 12 * 4, true), 0, 'partial write leaves neighboring slots intact');
 view.setFloat32(0 * stride + 68 + 12 * 4, 1, true);
 view.setFloat32(3 * stride + 68 + 12 * 4, 3, true);
 assert.deepEqual(draw(4), [[0, 4 * 80]], 'separated edits upload their enclosing span');
@@ -51,5 +57,9 @@ assert.deepEqual(draw(2), [], 'shrinking does not upload');
 assert.deepEqual(draw(4), [], 'restoring unchanged slots does not upload');
 assert.deepEqual(draw(6), [[4 * 80, 2 * 80]], 'growing initializes new slots');
 assert.deepEqual(draw(70), [[0, 70 * 80]], 'capacity growth initializes the replacement buffer');
+const grown = storageWrites()[0].buffer;
+assert.notEqual(grown, storage, 'capacity growth replaces the buffer');
+assert.equal(new DataView(grown.bytes.buffer).getFloat32(2 * 80 + 12 * 4, true), 2, 'replacement retains earlier instance values');
+assert.equal(new DataView(grown.bytes.buffer).getFloat32(69 * 80, true), 1, 'replacement includes newly visible instances');
 gpu.shutdown();
 console.log('WebGPU instance upload checks passed');

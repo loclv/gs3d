@@ -204,6 +204,17 @@ bytes. Initial allocation and buffer growth still upload all visible records.
 device, including shrinking and growing the visible count. These byte counts do
 not by themselves demonstrate a frame-time improvement on a GPU.
 
+A follow-up synchronous comparison used Chrome 157 with headless SwiftShader,
+a 320×180 viewport, 1,024 cubes, 100 warmup calls and 500 timed calls per
+fresh browser. With 32 moving cubes, four interleaved runs averaged 0.375–0.411
+ms per frame before and 0.118–0.120 ms after. Two static runs measured
+0.113–0.115 ms before and 0.116–0.118 ms after; two fully moving runs measured
+0.387–0.395 ms before and 0.395–0.454 ms after. These short software-rendered
+bursts include CPU submission and can be affected by queued GPU work; they
+show a substantial improvement for this sparse-motion workload, but do not
+establish a physical-GPU or GPU-execution-time improvement. The fully moving
+result also warrants further measurement for a possible regression.
+
 ## WebGL morph animation benchmark
 
 Build and serve the 64-target morph benchmark with:
