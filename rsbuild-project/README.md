@@ -1,36 +1,40 @@
-# Rsbuild project
+# Goose 3D Model Lab
 
-## Setup
+A small TypeScript-first model authoring sample for humans and coding agents.
+Change the typed model parameters, inspect the WebGL2 preview, and export a
+standard `.glb` file. The shared [`web/model-authoring.ts`](../web/model-authoring.ts)
+helper writes the GLB directly; there is no desktop modeling app, browser
+service, or extra runtime dependency in this sample.
 
-Install the dependencies:
+## Run it
 
-```bash
+From this directory:
+
+```sh
 bun install
-```
-
-## Get started
-
-Start the dev server, and the app will be available at [http://localhost:3000](http://localhost:3000).
-
-```bash
 bun run dev
 ```
 
-Build the app for production:
+Open the local URL printed by Rsbuild. Drag the preview to orbit it, adjust the
+name, dimensions, or base colour, then choose **Export model** to download a
+`.glb`. The exported file is glTF 2.0 and can be loaded by the Goose 3D asset
+loader.
 
-```bash
+```sh
+bun run check
 bun run build
 ```
 
-Preview the production build locally:
+## Source workflow
 
-```bash
-bun run preview
-```
+[`src/model.ts`](src/model.ts) contains the authored model function and returns
+both typed geometry for the live preview and GLB bytes for download. The UI in
+[`src/index.ts`](src/index.ts) binds the controls to that function. For a new
+model type, edit `src/model.ts` to use `GlbBuilder`, `boxGeometry`,
+`planeGeometry`, and custom typed vertex arrays. The shared authoring guide has
+a full source example and a prompt template for assigning model work to an AI
+coding agent: [`../docs/model-authoring.md`](../docs/model-authoring.md).
 
-## Learn more
-
-To learn more about Rsbuild, check out the following resources:
-
-- [Rsbuild documentation](https://rsbuild.rs) - explore Rsbuild features and APIs.
-- [Rsbuild GitHub repository](https://github.com/web-infra-dev/rsbuild) - your feedback and contributions are welcome!
+The sample keeps the scene definition in reviewable TypeScript while the builder
+owns accessor validation, binary packing, and GLB alignment. No manual byte
+offsets or binary file edits are part of the authoring loop.

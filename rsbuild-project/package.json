@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "rsbuild build",
+    "check": "tsc --noEmit",
     "dev": "rsbuild",
     "lint": "rslint",
     "preview": "rsbuild preview"
