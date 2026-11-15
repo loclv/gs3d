@@ -204,10 +204,13 @@ the count or resizing starts a fresh sample. Timestamp queries exclude browser
 compositing and display refresh, and instrumenting the renderer can itself add
 overhead. The feature may be unavailable on a given browser or adapter.
 
-The WebGPU instance buffer uploads the smallest contiguous span containing
-changed records. For example, one changed instance in a 1,024-instance batch
-uploads 80 bytes instead of 81,920; changing a prefix of 32 uploads 2,560
-bytes. Initial allocation and buffer growth still upload all visible records.
+The WebGPU instance buffer groups changed records into at most eight spans,
+merging gaps of four or fewer unchanged records. For example, one changed
+instance in a 1,024-instance batch uploads 80 bytes instead of 81,920; changing
+a prefix of 32 uploads 2,560 bytes, and changing both endpoints uploads two
+80-byte spans. If more than eight spans are needed, the last span includes the
+remaining changes. Initial allocation and buffer growth still initialize the
+required slots.
 `node web/test_webgpu_uploads.mjs` verifies these transfer rules with a recording
 device, including shrinking and growing the visible count. These byte counts do
 not by themselves demonstrate a frame-time improvement on a GPU.
@@ -224,6 +227,37 @@ establish a physical-GPU or GPU-execution-time improvement. The fully moving
 result also warrants further measurement for a possible regression. A further
 six interleaved runs measured 0.336–0.376 ms before and 0.334–0.365 ms after;
 the overlapping ranges do not establish whether a regression exists.
+
+### Sparse changes at opposite ends
+
+With 1,024 visible cubes and two moving instances at indices 0 and 1,023, the
+previous single-span upload transferred 81,920 bytes per frame. The grouped
+upload transfers 160 bytes in two writes. Three interleaved runs of 500 timed
+calls after 100 warmup calls, at 320×180 on Chrome 157.0.8103.52 headless
+SwiftShader, produced the following average CPU frame-call times:
+
+| Renderer | Three runs, ms/frame |
+|---|---|
+| Goose WebGPU, single span | 0.422, 0.377, 1.074 |
+| Goose WebGPU, grouped spans | 0.117, 0.134, 0.113 |
+| Three.js r187 WebGPU | 0.043, 0.045, 0.043 |
+
+The Goose renderer submitted one scene draw in each run. The Three.js scene
+uses the same moving indices and adds an update range for each changed matrix;
+its renderer was confirmed to use WebGPU. These are synchronous CPU work and
+submission times, not GPU completion times. The 1.074 ms baseline sample shows
+substantial noise, and the result is specific to this sparse workload and
+software adapter. In a separate all-moving workload, Goose ranges overlapped:
+0.347–0.414 ms before and 0.347–0.392 ms after. The 32-instance contiguous
+workload also overlapped at 0.116–0.119 ms before and 0.117–0.118 ms after.
+
+To reproduce, build `./build_web.sh --benchmark`, save the previous bridge to
+a file, and run `G3_BENCH_SPREAD=1 node web/benchmark/measure-webgpu.mjs
+BASELINE_WEBGPU_JS 2`. Add `G3_BENCH_THREE=1` for the Three.js runs (the pinned
+r187 module requires network access). The browser page also accepts
+`?backend=goose&count=1024&motion=2&spread=1`; use `backend=three-webgpu` for
+Three.js. The sampling script leaves the page's animation loop enabled, so its
+bursts can include queued GPU work and should be repeated on physical GPUs.
 
 To repeat this comparison, build the benchmark and save the baseline bridge:
 

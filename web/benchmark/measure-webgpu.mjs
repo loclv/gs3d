@@ -12,6 +12,8 @@ const baselinePath = process.argv[2];
 if (!baselinePath) throw new Error('Usage: node web/benchmark/measure-webgpu.mjs BASELINE_WEBGPU_JS [MOTION]');
 const motion = Number(process.argv[3] ?? 32);
 if (!Number.isInteger(motion) || motion < 0 || motion > 1024) throw new Error('MOTION must be an integer from 0 to 1024');
+const spread = process.env.G3_BENCH_SPREAD === '1';
+const three = process.env.G3_BENCH_THREE === '1';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const baseline = await readFile(baselinePath);
 const chrome = process.env.G3_CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -77,10 +79,10 @@ async function run(mode) {
     await send('Page.enable');
     await send('Runtime.enable');
     await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 180, deviceScaleFactor: 1, mobile: false });
-    await send('Page.navigate', { url: `http://127.0.0.1:${port}/${mode}/benchmark/compare.html?backend=goose&count=1024&motion=${motion}&sync=1` });
+    await send('Page.navigate', { url: `http://127.0.0.1:${port}/${mode}/benchmark/compare.html?backend=${three ? 'three-webgpu' : 'goose'}&count=1024&motion=${motion}&sync=1&spread=${spread ? 1 : 0}` });
     let state;
     for (let i = 0; i < 200; i++) {
-      state = await evaluate('({ready:!!window.g3BenchmarkSync, renderer:window.g3Renderer, status:document.querySelector("#status")?.textContent})');
+      state = await evaluate(`({ready:!!window.g3BenchmarkSync, renderer:window.${three ? 'threeRenderer' : 'g3Renderer'}, status:document.querySelector("#status")?.textContent})`);
       if (state.ready) break;
       await delay(100);
     }
@@ -90,9 +92,9 @@ async function run(mode) {
       for (let i = 0; i < 100; i++) frame(1/60);
       const start = performance.now();
       for (let i = 0; i < 500; i++) frame(1/60);
-      return { ms: (performance.now()-start)/500, calls: window.g3wgpu.drawCalls() };
+      return { ms: (performance.now()-start)/500, calls: ${three ? 'null' : 'window.g3wgpu.drawCalls()'} };
     })()`);
-    console.log(JSON.stringify({ motion, mode, ...result }));
+    console.log(JSON.stringify({ motion, spread, renderer: three ? 'three-webgpu' : 'goose-webgpu', mode, ...result }));
   } finally {
     socket?.close();
     child.kill();
@@ -101,5 +103,5 @@ async function run(mode) {
   }
 }
 try {
-  for (const mode of ['before', 'after', 'after', 'before', 'before', 'after']) await run(mode);
+  for (const mode of three ? ['after', 'after', 'after'] : ['before', 'after', 'after', 'before', 'before', 'after']) await run(mode);
 } finally { await new Promise(resolveClose => server.close(resolveClose)); }

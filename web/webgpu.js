@@ -73,6 +73,10 @@ let timestampQuerySet, timestampResolveBuffer, timestampSlots = [], timestampSlo
 let timestampCapture = true, timestampEpoch = 0;
 const gpuTimestampSamples = [];
 const drawBatchStarts = [], drawBatchLengths = [];
+// Bound queue overhead when many isolated records change. Small gaps are
+// cheaper to upload than to issue an additional writeBuffer call.
+const changedStarts = [], changedEnds = [];
+const MAX_INSTANCE_WRITES = 8, MERGE_INSTANCE_GAP = 4;
 let width = 1, height = 1, meshes = new Map(), pipelines = {};
 let dv, wasmBuffer, wasmModule, drawCalls = 0, drawCpuMs = 0, frameConstants = new Float32Array(20), frameViewProj = new Float32Array(16);
 
@@ -244,8 +248,14 @@ window.g3wgpu = {
     allocInstances(count);
     setFrameConstants(viewPtr);
     drawBatchStarts.length=0; drawBatchLengths.length=0;
-    let firstChanged=count, lastChanged=-1;
-    const markChanged = i => { firstChanged=Math.min(firstChanged,i); lastChanged=Math.max(lastChanged,i); };
+    changedStarts.length=0; changedEnds.length=0;
+    let tooManyRanges=false;
+    const markChanged = i => {
+      const last=changedStarts.length-1;
+      if(last>=0 && (tooManyRanges || i-changedEnds[last]<=MERGE_INSTANCE_GAP+1)) changedEnds[last]=i;
+      else if(changedStarts.length<MAX_INSTANCE_WRITES) { changedStarts.push(i); changedEnds.push(i); }
+      else { tooManyRanges=true; changedEnds[last]=i; }
+    };
     for(let i=0;i<count;i++) {
       const p=itemsPtr+i*653;
       const mesh=meshes.get(dv.getInt32(p,true));
@@ -282,11 +292,15 @@ window.g3wgpu = {
       }
       // Slots beyond the uploaded high-water mark have no GPU contents yet,
       // even if the corresponding draw item currently references no mesh.
-      if(!instanceBufferValid) { firstChanged=0; lastChanged=count-1; }
-      else if(count>uploadedInstanceCount) { firstChanged=Math.min(firstChanged,uploadedInstanceCount); lastChanged=count-1; }
-      if(lastChanged>=firstChanged) {
-        const offset=firstChanged*INSTANCE_BYTES;
-        device.queue.writeBuffer(instanceBuffer,offset,instanceData.buffer,offset,(lastChanged-firstChanged+1)*INSTANCE_BYTES);
+      if(!instanceBufferValid) { changedStarts.length=0; changedEnds.length=0; changedStarts.push(0); changedEnds.push(count-1); }
+      else if(count>uploadedInstanceCount) {
+        // The tail may include missing meshes, whose slots still need initialization.
+        const first=changedStarts.length ? Math.min(changedStarts[0],uploadedInstanceCount) : uploadedInstanceCount;
+        changedStarts.length=0; changedEnds.length=0; changedStarts.push(first); changedEnds.push(count-1);
+      }
+      for(let range=0;range<changedStarts.length;range++) {
+        const offset=changedStarts[range]*INSTANCE_BYTES;
+        device.queue.writeBuffer(instanceBuffer,offset,instanceData.buffer,offset,(changedEnds[range]-changedStarts[range]+1)*INSTANCE_BYTES);
         instanceBufferValid=true;
         uploadedInstanceCount=Math.max(uploadedInstanceCount,count);
       }

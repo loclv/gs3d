@@ -70,6 +70,14 @@ const grown = storageWrites()[0].buffer;
 assert.notEqual(grown, storage, 'capacity growth replaces the buffer');
 assert.equal(new DataView(grown.bytes.buffer).getFloat32(2 * 80 + 12 * 4, true), 2, 'replacement retains earlier instance values');
 assert.equal(new DataView(grown.bytes.buffer).getFloat32(69 * 80, true), 1, 'replacement includes newly visible instances');
+view.setFloat32(0 * stride + 68 + 12 * 4, 7, true);
+view.setFloat32(69 * stride + 68 + 12 * 4, 8, true);
+assert.deepEqual(draw(70), [[0, 80], [69 * 80, 80]], 'distant edits upload separate spans');
+assert.equal(new DataView(grown.bytes.buffer).getFloat32(12 * 4, true), 7);
+assert.equal(new DataView(grown.bytes.buffer).getFloat32(69 * 80 + 12 * 4, true), 8);
+for (let i = 0; i < 10; i++) view.setFloat32(i * 7 * stride + 68 + 12 * 4, 20 + i, true);
+assert.equal(draw(70).length, 8, 'many distant edits bound the number of writes');
+assert.equal(new DataView(grown.bytes.buffer).getFloat32(63 * 80 + 12 * 4, true), 29, 'bounded writes include the final change');
 // Adjacent opaque draws can share a call only when the state represented by
 // the batch uniform and pipeline matches. Draw order and firstInstance matter.
 const batches = () => draws.map(({ instanceCount, firstInstance }) => [instanceCount, firstInstance]);

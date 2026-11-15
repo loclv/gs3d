@@ -12,6 +12,7 @@ const countLabel = document.getElementById('count');
 const results = document.getElementById('results');
 const params = new URLSearchParams(location.search);
 const rotating = params.get('rotate') === '1';
+const spread = params.get('spread') === '1';
 document.getElementById('rotate').checked = rotating;
 document.getElementById('rotate').addEventListener('change', event => {
   const target = new URL(location.href);
@@ -43,6 +44,7 @@ for (const link of document.querySelectorAll('nav a')) {
   target.searchParams.set('count', slider.value);
   target.searchParams.set('motion', String(movingCount));
   target.searchParams.set('rotate', rotating ? '1' : '0');
+  target.searchParams.set('spread', spread ? '1' : '0');
   link.href = target;
 }
 document.getElementById(`${BACKEND}-link`).setAttribute('aria-current', 'page');
@@ -228,7 +230,8 @@ function makeThreeScene(THREE, width, height, renderer) {
       if (movingCount) {
         motionFrame++;
         const count = Math.min(movingCount, cubes.count);
-        for (let i = 0; i < count; i++) {
+        for (let j = 0; j < count; j++) {
+          const i = spread && count > 1 ? Math.floor(j * (cubes.count - 1) / (count - 1)) : j;
           matrix.makeTranslation((i % 32) - 15.5 + Math.sin(motionFrame * 0.03 + i * 0.1) * 0.2,
             Math.floor(i / 32) - 15.5, 0);
           if (rotating) {
@@ -241,7 +244,9 @@ function makeThreeScene(THREE, width, height, renderer) {
           cubes.setMatrixAt(i, matrix);
         }
         cubes.instanceMatrix.clearUpdateRanges();
-        cubes.instanceMatrix.addUpdateRange(0, count * 16);
+        if (spread && count > 1) {
+          for (let j = 0; j < count; j++) cubes.instanceMatrix.addUpdateRange(Math.floor(j * (cubes.count - 1) / (count - 1)) * 16, 16);
+        } else cubes.instanceMatrix.addUpdateRange(0, count * 16);
         cubes.instanceMatrix.needsUpdate = true;
       }
       renderer.info.reset();
@@ -302,6 +307,7 @@ async function start() {
       engine._g3_benchmark_set_count(Number(slider.value));
       engine._g3_benchmark_set_motion(movingCount);
       engine._g3_benchmark_set_rotation(rotating);
+      engine._g3_benchmark_set_spread(spread);
       frameCall = dt => engine._g3_app_frame(dt);
       getDrawCalls = () => engine._g3_host_scene_draw_calls();
       getBackendFrameMs = () => engine._g3_host_scene_draw_ms();
