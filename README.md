@@ -247,10 +247,10 @@ determinism checks pass with the transform fast path.
 
 #### WebGPU instance packing comparison
 
-The WebGPU backend now keeps a 144-byte instance record instead of 208 bytes.
-It computes the inverse-transpose normal transform in WGSL and reuses packed
-CPU-side instance data, which avoids rebuilding normal matrices and scanning a
-second full cache array each frame. A headless Chrome 157 run with 1,024 cubes,
+The first WebGPU packing optimization reduced the instance record from 208 to
+144 bytes. It computes the inverse-transpose normal transform in WGSL and
+reuses packed CPU-side instance data, which avoids rebuilding normal matrices
+and scanning a second full cache array each frame. A headless Chrome 157 run with 1,024 cubes,
 120 warmup frames, and 300 samples measured:
 
 | Workload | Goose before: frame / submit | Goose after: frame / submit | Three.js WebGPU frame |
@@ -262,8 +262,31 @@ The Goose CPU frame-call median fell 20% for the static workload and 17% with
 all instances moving; its WebGPU CPU submission median fell 38% and 30%,
 respectively. Both renderers were capped at 60 FPS in these runs. The benchmark
 does not expose WebGPU GPU timestamp queries, so these numbers describe CPU
-frame work and command submission; they do not measure GPU execution time. The
-smaller instance record also reduces per-frame storage uploads by about 31%.
+frame work and command submission; they do not measure GPU execution time. That
+version reduced per-frame storage uploads by about 31%.
+
+#### 80-byte WebGPU instance follow-up
+
+The instance record now carries only the model matrix and color (80 bytes); the
+vertex shader combines the model with the shared view-projection matrix. This
+reduces per-frame instance uploads from 144 to 80 bytes (44%). In synchronous
+Playwright bursts on headless Chrome 157 (1280×720, 1,024 cubes, 500 warmup
+frames, 5,000 measured frames, three runs), average CPU frame-call times were:
+
+| Workload | Goose before (`3eadc7d`) | Goose 80-byte records | Three.js r187 WebGPU |
+|---|---:|---:|---:|
+| Static | 0.135 ms | 0.117 ms | 0.172 ms |
+| All 1,024 moving | 0.240 ms | 0.205 ms | 0.203 ms |
+
+The compact record reduced Goose CPU frame time by about 13% static and 15%
+with all instances moving. It is faster than Three.js in the static burst and
+within 1% on the moving burst. The same static canvas capture was pixel-identical
+to the baseline. Separate WebGPU timestamp-query runs measured GPU medians of
+0.218 ms before / 0.215 ms after for static, and 0.220 / 0.219 ms with all
+instances moving; p95 stayed within 2%. These are headless SwiftShader
+measurements, not physical-GPU results. The 0.1 ms per-call timer quantization
+is avoided by reporting aggregate burst averages. Add `sync=1` to the benchmark
+URL to expose the Playwright burst hook.
 
 Rotated TRS construction now computes `T * Rz * Ry * Rx * S` directly,
 avoiding four general 4×4 matrix products. The zero-rotation fast path remains.

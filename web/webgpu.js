@@ -1,15 +1,19 @@
 // WebGPU renderer for the built-in Goose demo. The production WebGL2 backend
 // remains the automatic startup fallback and serves the feature-rich tools.
+const FRAME_UNIFORM_BYTES = 176;
+const INSTANCE_BYTES = 80;
+const INSTANCE_FLOATS = INSTANCE_BYTES / 4;
+const VIEW_PROJ_BYTE_OFFSET = 1196; // g3_view_state.view_proj in g3_abi.h
 const shader = /* wgsl */ `
 struct Frame {
   params: vec4<f32>, ambient: vec4<f32>,
   light_dir: vec4<f32>, light_color: vec4<f32>, fog: vec4<f32>, eye: vec4<f32>,
   surface: vec4<f32>,
+  view_proj: mat4x4<f32>,
 };
 struct Instance {
-  // 144 bytes. Normals use a cofactor matrix in the vertex shader, avoiding
-  // one CPU inverse-transpose and 64 uploaded bytes per instance.
-  mvp: mat4x4<f32>, model: mat4x4<f32>, color: vec4<f32>,
+  // 80 bytes; clip position combines the shared camera matrix with the model.
+  model: mat4x4<f32>, color: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: Frame;
 @group(1) @binding(0) var<storage, read> g3_instances: array<Instance>;
@@ -18,7 +22,7 @@ struct Out { @builtin(position) clip: vec4<f32>, @location(0) world: vec3<f32>, 
 @vertex fn vs(v: In) -> Out {
   var o: Out;
   let instance = g3_instances[v.instance_index];
-  o.clip = instance.mvp * vec4<f32>(v.pos, 1.0);
+  o.clip = u.view_proj * (instance.model * vec4<f32>(v.pos, 1.0));
   o.clip.z = (o.clip.z + o.clip.w) * 0.5;
   let world = instance.model * vec4<f32>(v.pos, 1.0);
   o.world = world.xyz;
@@ -69,12 +73,12 @@ let timestampQuerySet, timestampResolveBuffer, timestampSlots = [], timestampSlo
 const gpuTimestampSamples = [];
 const drawBatchStarts = [], drawBatchLengths = [];
 let width = 1, height = 1, meshes = new Map(), pipelines = {};
-let dv, wasmBuffer, wasmModule, drawCalls = 0, drawCpuMs = 0, frameConstants = new Float32Array(20);
+let dv, wasmBuffer, wasmModule, drawCalls = 0, drawCpuMs = 0, frameConstants = new Float32Array(20), frameViewProj = new Float32Array(16);
 
 async function createPipelines(gpuDevice, outputFormat) {
   const module = gpuDevice.createShaderModule({ code: shader });
-  const frameLayout = gpuDevice.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 112 } }] });
-  const instanceLayout = gpuDevice.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage', minBindingSize: 144 } }] });
+  const frameLayout = gpuDevice.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: FRAME_UNIFORM_BYTES } }] });
+  const instanceLayout = gpuDevice.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage', minBindingSize: INSTANCE_BYTES } }] });
   const layout = gpuDevice.createPipelineLayout({ bindGroupLayouts: [frameLayout, instanceLayout] });
   const vertex = { module, entryPoint: 'vs', buffers: [{ arrayStride: 120, attributes: [
     { shaderLocation: 0, offset: 0, format: 'float32x3' },
@@ -98,7 +102,7 @@ async function createPipelines(gpuDevice, outputFormat) {
 
 function allocUniforms(count) {
   const alignment = device.limits.minUniformBufferOffsetAlignment || 256;
-  const stride = Math.ceil(112 / alignment) * alignment;
+  const stride = Math.ceil(FRAME_UNIFORM_BYTES / alignment) * alignment;
   const needed = Math.max(stride, stride * count);
   if (needed <= uniformCapacity) return stride;
   if (uniformBuffer) uniformBuffer.destroy();
@@ -107,7 +111,7 @@ function allocUniforms(count) {
   uniformCache = new Float32Array(uniformCapacity / 4);
   uniformBufferValid = false;
   uniformBuffer = device.createBuffer({ size: uniformCapacity, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  uniformBindGroup = device.createBindGroup({ layout: pipelines.frameLayout, entries: [{ binding: 0, resource: { buffer: uniformBuffer, offset: 0, size: 112 } }] });
+  uniformBindGroup = device.createBindGroup({ layout: pipelines.frameLayout, entries: [{ binding: 0, resource: { buffer: uniformBuffer, offset: 0, size: FRAME_UNIFORM_BYTES } }] });
   return stride;
 }
 
@@ -115,26 +119,24 @@ function allocInstances(count) {
   if (count <= instanceCapacity) return;
   if (instanceBuffer) instanceBuffer.destroy();
   instanceCapacity = Math.max(count, instanceCapacity * 2, 64);
-  instanceData = new Float32Array(instanceCapacity * 36);
+  instanceData = new Float32Array(instanceCapacity * INSTANCE_FLOATS);
   instanceBufferValid = false;
   instanceDataValid = false;
   packedInstanceCount = 0;
   uploadedInstanceCount = 0;
-  instanceBuffer = device.createBuffer({ size: instanceCapacity * 144, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  instanceBindGroup = device.createBindGroup({ layout: pipelines.instanceLayout, entries: [{ binding: 0, resource: { buffer: instanceBuffer, offset: 0, size: instanceCapacity * 144 } }] });
+  instanceBuffer = device.createBuffer({ size: instanceCapacity * INSTANCE_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  instanceBindGroup = device.createBindGroup({ layout: pipelines.instanceLayout, entries: [{ binding: 0, resource: { buffer: instanceBuffer, offset: 0, size: instanceCapacity * INSTANCE_BYTES } }] });
 }
 
 function packInstance(p, base, force) {
   let changed=force;
   for(let i=0;i<16;i++) {
-    const mvp=dv.getFloat32(p+4+i*4,true);
-    if(instanceData[base+i]!==mvp) { instanceData[base+i]=mvp; changed=true; }
     const model=dv.getFloat32(p+68+i*4,true);
-    if(instanceData[base+16+i]!==model) { instanceData[base+16+i]=model; changed=true; }
+    if(instanceData[base+i]!==model) { instanceData[base+i]=model; changed=true; }
   }
   for(let i=0;i<4;i++) {
     const color=dv.getFloat32(p+132+i*4,true);
-    if(instanceData[base+32+i]!==color) { instanceData[base+32+i]=color; changed=true; }
+    if(instanceData[base+16+i]!==color) { instanceData[base+16+i]=color; changed=true; }
   }
   return changed;
 }
@@ -144,6 +146,7 @@ function setFrameConstants(viewPtr) {
   copyVec(viewPtr,24,frameConstants,8); copyVec(viewPtr,52,frameConstants,12);
   for(let i=0;i<3;i++) frameConstants[16+i]=dv.getFloat32(viewPtr+i*4,true);
   frameConstants[19]=0;
+  for(let i=0;i<16;i++) frameViewProj[i]=dv.getFloat32(viewPtr+VIEW_PROJ_BYTE_OFFSET+i*4,true);
 }
 function batchCompatible(a, b) {
   if (dv.getInt32(a, true) !== dv.getInt32(b, true) || dv.getFloat32(a+160,true) > 0.5 || dv.getFloat32(b+160,true) > 0.5) return false;
@@ -241,14 +244,14 @@ window.g3wgpu = {
       const p=itemsPtr+i*653;
       const mesh=meshes.get(dv.getInt32(p,true));
       if(!mesh||mesh.count===0) continue;
-      instancesChanged=packInstance(p,i*36,!instanceDataValid||i>=packedInstanceCount)||instancesChanged;
+      instancesChanged=packInstance(p,i*INSTANCE_FLOATS,!instanceDataValid||i>=packedInstanceCount)||instancesChanged;
       let batchCount=1;
       const alphaMode=dv.getInt32(p+172,true), alpha=dv.getFloat32(p+144,true);
       const blended=dv.getFloat32(p+160,true)>0.5 || alphaMode===2 || (alphaMode===0 && alpha<0.999);
       if(!blended) while(i+batchCount<count && batchCompatible(p,itemsPtr+(i+batchCount)*653)) batchCount++;
       for(let j=1;j<batchCount;j++) {
         const item=i+j;
-        instancesChanged=packInstance(itemsPtr+item*653,item*36,!instanceDataValid||item>=packedInstanceCount)||instancesChanged;
+        instancesChanged=packInstance(itemsPtr+item*653,item*INSTANCE_FLOATS,!instanceDataValid||item>=packedInstanceCount)||instancesChanged;
       }
       const uniformBase=drawBatchStarts.length*stride/4;
       copyVec(p,148,uniformData,uniformBase);
@@ -256,6 +259,7 @@ window.g3wgpu = {
       uniformData[uniformBase+24]=dv.getUint8(p+236)?1:0;
       uniformData[uniformBase+25]=alphaMode;
       uniformData[uniformBase+26]=dv.getFloat32(p+176,true);
+      uniformData.set(frameViewProj,uniformBase+28);
       drawBatchStarts.push(i); drawBatchLengths.push(batchCount);
       i+=batchCount-1;
     }
@@ -271,7 +275,7 @@ window.g3wgpu = {
         uniformBufferValid=true;
       }
       if(instancesChanged||count>uploadedInstanceCount||!instanceBufferValid) {
-        device.queue.writeBuffer(instanceBuffer,0,instanceData.buffer,0,count*144);
+        device.queue.writeBuffer(instanceBuffer,0,instanceData.buffer,0,count*INSTANCE_BYTES);
         instanceBufferValid=true;
         uploadedInstanceCount=count;
       }
