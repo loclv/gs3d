@@ -90,7 +90,8 @@ texture maps, updates when you switch variants, and has a slider for its
 environment fill and reflection. The animation controls switch between a
 turntable and a vertical bob, pause or resume playback, and seek within the
 active clip. The bundled GLB uses the CC0 Ground Grey texture credited below;
-`web/viewer/generate_sample.py` regenerates it.
+`web/viewer/generate_sample.ts` regenerates it through the dependency-free
+TypeScript model-authoring helpers; see [Code-first model authoring](docs/model-authoring.md).
 
 ### Play Beacon Run
 
@@ -617,6 +618,7 @@ logical cores, with byte-identical output.
 | [`docs/performance.md`](docs/performance.md) | how the numbers were measured, the ablation tables, and what is left |
 | [`docs/threejs-roadmap.md`](docs/threejs-roadmap.md) | gaps and milestones toward a practical Three.js alternative |
 | [`docs/assets.md`](docs/assets.md) | browser image, glTF/GLB loading, transform, skeletal and morph-weight animation, ownership and supported subset |
+| [`docs/model-authoring.md`](docs/model-authoring.md) | code-first TypeScript GLB authoring workflow for humans and AI agents |
 | [`docs/ideals.md`](docs/ideals.md) | the principles the project is built on, and the check that would fail if each were violated |
 | [`.agents/skills/goose3d-tour`](.agents/skills/goose3d-tour/SKILL.md) | a map of the repo and the cheapest verification for a change |
 | [`.agents/skills/goose-language-notes`](.agents/skills/goose-language-notes/SKILL.md) | Goose itself as this codebase uses it: arenas, references vs copies, casts, sidecars, and the compiler warnings that catch these mistakes |

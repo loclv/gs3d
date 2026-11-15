@@ -50,7 +50,9 @@ local reference scene, while actual browser rendering checks are still needed
 to validate WebGL output. Closing the page disposes controls and models, then
 shuts down the engine after any in-flight load finishes.
 
-Regenerate the sample asset with `python3 web/viewer/generate_sample.py`.
+Regenerate the sample asset with `npm run build:sample` from this directory.
+The reusable typed GLB builder and the sample source are documented in
+[`../docs/model-authoring.md`](../docs/model-authoring.md).
 For browser-side checks of WebGL frame output, glTF, standalone raster, and
 Radiance HDR decoding, texture disposal and sampling, HDR environment maps,
 environment fill, animation, camera selection, imported point and spot lights
