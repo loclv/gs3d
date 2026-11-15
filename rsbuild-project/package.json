@@ -15,6 +15,10 @@
     "@rsbuild/core": "^2.3.2",
     "@rslint/core": "^0.9.5",
     "@types/node": "^26.6.6",
+    "@types/three": "^0.180.0",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
   }
 }

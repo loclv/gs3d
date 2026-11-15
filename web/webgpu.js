@@ -7,9 +7,9 @@ struct Frame {
   surface: vec4<f32>,
 };
 struct Instance {
-  // 208 bytes, matching the packed per-node transform and colour uploaded
-  // below. The draw's firstInstance selects its contiguous run in this array.
-  mvp: mat4x4<f32>, model: mat4x4<f32>, normal: mat4x4<f32>, color: vec4<f32>,
+  // 144 bytes. Normals use a cofactor matrix in the vertex shader, avoiding
+  // one CPU inverse-transpose and 64 uploaded bytes per instance.
+  mvp: mat4x4<f32>, model: mat4x4<f32>, color: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: Frame;
 @group(1) @binding(0) var<storage, read> g3_instances: array<Instance>;
@@ -22,7 +22,18 @@ struct Out { @builtin(position) clip: vec4<f32>, @location(0) world: vec3<f32>, 
   o.clip = instance.mvp * vec4<f32>(v.pos, 1.0);
   o.clip.z = (o.clip.z + o.clip.w) * 0.5;
   o.world = world.xyz;
-  o.normal = normalize((instance.normal * vec4<f32>(v.normal, 0.0)).xyz);
+  let c0 = instance.model[0].xyz;
+  let c1 = instance.model[1].xyz;
+  let c2 = instance.model[2].xyz;
+  let n0 = cross(c1, c2);
+  let n1 = cross(c2, c0);
+  let n2 = cross(c0, c1);
+  let determinant = dot(c0, n0);
+  var transformedNormal = vec3<f32>(0.0);
+  if (abs(determinant) > 1e-12) {
+    transformedNormal = (n0 * v.normal.x + n1 * v.normal.y + n2 * v.normal.z) / determinant;
+  }
+  o.normal = normalize(transformedNormal);
   o.color = v.color * instance.color;
   return o;
 }
@@ -52,7 +63,8 @@ struct Out { @builtin(position) clip: vec4<f32>, @location(0) world: vec3<f32>, 
 let adapter, device, context, format, depth;
 let canvas, uniformBuffer, uniformBindGroup, uniformCapacity = 0;
 let uniformData, uniformCache, uniformBufferValid = false;
-let instanceBuffer, instanceBindGroup, instanceCapacity = 0, instanceData, instanceCache, instanceBufferValid = false;
+let instanceBuffer, instanceBindGroup, instanceCapacity = 0, instanceData;
+let instanceBufferValid = false, instanceDataValid = false, packedInstanceCount = 0, uploadedInstanceCount = 0;
 const drawBatchStarts = [], drawBatchLengths = [];
 let width = 1, height = 1, meshes = new Map(), pipelines = {};
 let dv, wasmBuffer, wasmModule, drawCalls = 0, drawCpuMs = 0, frameConstants = new Float32Array(20);
@@ -60,7 +72,7 @@ let dv, wasmBuffer, wasmModule, drawCalls = 0, drawCpuMs = 0, frameConstants = n
 async function createPipelines(gpuDevice, outputFormat) {
   const module = gpuDevice.createShaderModule({ code: shader });
   const frameLayout = gpuDevice.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 112 } }] });
-  const instanceLayout = gpuDevice.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage', minBindingSize: 208 } }] });
+  const instanceLayout = gpuDevice.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage', minBindingSize: 144 } }] });
   const layout = gpuDevice.createPipelineLayout({ bindGroupLayouts: [frameLayout, instanceLayout] });
   const vertex = { module, entryPoint: 'vs', buffers: [{ arrayStride: 120, attributes: [
     { shaderLocation: 0, offset: 0, format: 'float32x3' },
@@ -101,32 +113,28 @@ function allocInstances(count) {
   if (count <= instanceCapacity) return;
   if (instanceBuffer) instanceBuffer.destroy();
   instanceCapacity = Math.max(count, instanceCapacity * 2, 64);
-  instanceData = new Float32Array(instanceCapacity * 52);
-  instanceCache = new Float32Array(instanceCapacity * 52);
+  instanceData = new Float32Array(instanceCapacity * 36);
   instanceBufferValid = false;
-  instanceBuffer = device.createBuffer({ size: instanceCapacity * 208, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  instanceBindGroup = device.createBindGroup({ layout: pipelines.instanceLayout, entries: [{ binding: 0, resource: { buffer: instanceBuffer, offset: 0, size: instanceCapacity * 208 } }] });
+  instanceDataValid = false;
+  packedInstanceCount = 0;
+  uploadedInstanceCount = 0;
+  instanceBuffer = device.createBuffer({ size: instanceCapacity * 144, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  instanceBindGroup = device.createBindGroup({ layout: pipelines.instanceLayout, entries: [{ binding: 0, resource: { buffer: instanceBuffer, offset: 0, size: instanceCapacity * 144 } }] });
 }
 
-function readMatInto(ptr, byteOffset, out, target) {
-  const at = ptr + byteOffset;
-  for (let i=0;i<16;i++) out[target+i]=dv.getFloat32(at+i*4,true);
-}
-function normalMatrixInto(source, out, target) {
-  const a=out[source], b=out[source+4], c=out[source+8], d=out[source+1], e=out[source+5], f=out[source+9], g=out[source+2], h=out[source+6], i=out[source+10];
-  for(let n=0;n<16;n++) out[target+n]=0;
-  const A=e*i-f*h, B=f*g-d*i, C=d*h-e*g, det=a*A+b*B+c*C;
-  if (Math.abs(det) < 1e-12) return;
-  const k = 1/det;
-  out[target]=A*k; out[target+1]=(c*h-b*i)*k; out[target+2]=(b*f-c*e)*k;
-  out[target+4]=B*k; out[target+5]=(a*i-c*g)*k; out[target+6]=(c*d-b*g)*k;
-  out[target+8]=C*k; out[target+9]=(b*g-a*h)*k; out[target+10]=(a*e-b*d)*k; out[target+15]=1;
-}
-function packInstance(p, base) {
-  readMatInto(p,4,instanceData,base);
-  readMatInto(p,68,instanceData,base+16);
-  normalMatrixInto(base+16,instanceData,base+32);
-  copyVec(p,132,instanceData,base+48);
+function packInstance(p, base, force) {
+  let changed=force;
+  for(let i=0;i<16;i++) {
+    const mvp=dv.getFloat32(p+4+i*4,true);
+    if(instanceData[base+i]!==mvp) { instanceData[base+i]=mvp; changed=true; }
+    const model=dv.getFloat32(p+68+i*4,true);
+    if(instanceData[base+16+i]!==model) { instanceData[base+16+i]=model; changed=true; }
+  }
+  for(let i=0;i<4;i++) {
+    const color=dv.getFloat32(p+132+i*4,true);
+    if(instanceData[base+32+i]!==color) { instanceData[base+32+i]=color; changed=true; }
+  }
+  return changed;
 }
 function copyVec(ptr, off, out, target) { for (let i=0;i<4;i++) out[target+i]=dv.getFloat32(ptr+off+i*4,true); }
 function setFrameConstants(viewPtr) {
@@ -217,15 +225,19 @@ window.g3wgpu = {
     allocInstances(count);
     setFrameConstants(viewPtr);
     drawBatchStarts.length=0; drawBatchLengths.length=0;
+    let instancesChanged=!instanceDataValid;
     for(let i=0;i<count;i++) {
       const p=itemsPtr+i*653;
-      packInstance(p,i*52);
+      instancesChanged=packInstance(p,i*36,!instanceDataValid||i>=packedInstanceCount)||instancesChanged;
       let batchCount=1;
       if(!meshes.has(dv.getInt32(p,true))||meshes.get(dv.getInt32(p,true)).count===0) continue;
       const alphaMode=dv.getInt32(p+172,true), alpha=dv.getFloat32(p+144,true);
       const blended=dv.getFloat32(p+160,true)>0.5 || alphaMode===2 || (alphaMode===0 && alpha<0.999);
       if(!blended) while(i+batchCount<count && batchCompatible(p,itemsPtr+(i+batchCount)*653)) batchCount++;
-      for(let j=1;j<batchCount;j++) packInstance(itemsPtr+(i+j)*653,(i+j)*52);
+      for(let j=1;j<batchCount;j++) {
+        const item=i+j;
+        instancesChanged=packInstance(itemsPtr+item*653,item*36,!instanceDataValid||item>=packedInstanceCount)||instancesChanged;
+      }
       const uniformBase=drawBatchStarts.length*stride/4;
       copyVec(p,148,uniformData,uniformBase);
       uniformData.set(frameConstants,uniformBase+4);
@@ -235,6 +247,8 @@ window.g3wgpu = {
       drawBatchStarts.push(i); drawBatchLengths.push(batchCount);
       i+=batchCount-1;
     }
+    if(count>packedInstanceCount) { packedInstanceCount=count; instancesChanged=true; }
+    instanceDataValid=true;
     if(count) {
       const uniformLength=drawBatchStarts.length*stride/4;
       let uniformsChanged=!uniformBufferValid;
@@ -244,13 +258,10 @@ window.g3wgpu = {
         uniformCache.set(uniformData.subarray(0,uniformLength),0);
         uniformBufferValid=true;
       }
-      const instanceLength=count*52;
-      let instancesChanged=!instanceBufferValid;
-      for(let j=0;!instancesChanged&&j<instanceLength;j++) instancesChanged=instanceData[j]!==instanceCache[j];
-      if(instancesChanged) {
-        device.queue.writeBuffer(instanceBuffer,0,instanceData.buffer,0,count*208);
-        instanceCache.set(instanceData.subarray(0,instanceLength),0);
+      if(instancesChanged||count>uploadedInstanceCount||!instanceBufferValid) {
+        device.queue.writeBuffer(instanceBuffer,0,instanceData.buffer,0,count*144);
         instanceBufferValid=true;
+        uploadedInstanceCount=count;
       }
     }
     const clear={r:dv.getFloat32(viewPtr+68,true),g:dv.getFloat32(viewPtr+72,true),b:dv.getFloat32(viewPtr+76,true),a:1};
@@ -276,5 +287,5 @@ window.g3wgpu = {
     pass.end(); device.queue.submit([encoder.finish()]);
     drawCpuMs=performance.now()-started;
   },
-  shutdown() { for(const mesh of meshes.values()){mesh.vb.destroy();mesh.ib.destroy();} meshes.clear(); if(depth)depth.destroy();if(uniformBuffer)uniformBuffer.destroy();if(instanceBuffer)instanceBuffer.destroy(); depth=uniformBuffer=instanceBuffer=null;uniformCapacity=instanceCapacity=0;uniformBindGroup=instanceBindGroup=null;uniformData=uniformCache=instanceData=instanceCache=null;uniformBufferValid=instanceBufferValid=false;wasmBuffer=dv=null; }
+  shutdown() { for(const mesh of meshes.values()){mesh.vb.destroy();mesh.ib.destroy();} meshes.clear(); if(depth)depth.destroy();if(uniformBuffer)uniformBuffer.destroy();if(instanceBuffer)instanceBuffer.destroy(); depth=uniformBuffer=instanceBuffer=null;uniformCapacity=instanceCapacity=0;uniformBindGroup=instanceBindGroup=null;uniformData=uniformCache=instanceData=null;uniformBufferValid=instanceBufferValid=instanceDataValid=false;packedInstanceCount=uploadedInstanceCount=0;wasmBuffer=dv=null; }
 };

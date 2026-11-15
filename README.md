@@ -195,6 +195,26 @@ approximately 15.2 ms GPU median: fewer uploaded bytes did not produce a
 measurable frame-time improvement at that workload. Native tests and worker
 determinism checks pass with the transform fast path.
 
+#### WebGPU instance packing comparison
+
+The WebGPU backend now keeps a 144-byte instance record instead of 208 bytes.
+It computes the inverse-transpose normal transform in WGSL and reuses packed
+CPU-side instance data, which avoids rebuilding normal matrices and scanning a
+second full cache array each frame. A headless Chrome 157 run with 1,024 cubes,
+120 warmup frames, and 300 samples measured:
+
+| Workload | Goose before: frame / submit | Goose after: frame / submit | Three.js WebGPU frame |
+|---|---:|---:|---:|
+| Static instances, median / p95 | 1.50 / 1.70 ms · 0.80 / 0.90 ms | 1.20 / 1.30 ms · 0.50 / 0.60 ms | 0.60 / 0.80 ms |
+| All instances moving, median / p95 | 1.80 / 1.90 ms · 1.00 / 1.10 ms | 1.50 / 1.70 ms · 0.70 / 0.80 ms | 0.70 / 0.90 ms |
+
+The Goose CPU frame-call median fell 20% for the static workload and 17% with
+all instances moving; its WebGPU CPU submission median fell 38% and 30%,
+respectively. Both renderers were capped at 60 FPS in these runs. The benchmark
+does not expose WebGPU GPU timestamp queries, so these numbers describe CPU
+frame work and command submission; they do not measure GPU execution time. The
+smaller instance record also reduces per-frame storage uploads by about 31%.
+
 Rotated TRS construction now computes `T * Rz * Ry * Rx * S` directly,
 avoiding four general 4×4 matrix products. The zero-rotation fast path remains.
 Run the native microbenchmark with:

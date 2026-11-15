@@ -1,5 +1,6 @@
 import './index.css';
 import { authorModel, type AuthoredModel } from './model';
+import * as THREE from 'three/webgpu';
 
 const root = document.querySelector<HTMLDivElement>('#root');
 if (!root) throw new Error('Missing #root app mount');
@@ -68,90 +69,31 @@ const depthInput = $<HTMLInputElement>('#depth');
 const colorInput = $<HTMLInputElement>('#color');
 const canvas = $<HTMLCanvasElement>('#preview');
 const status = $<HTMLDivElement>('#status');
-const gl = canvas.getContext('webgl2', { alpha: false, antialias: true });
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0c0f15);
+const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+camera.position.set(0, 0, 5.3);
+scene.add(new THREE.HemisphereLight(0xcbd8ff, 0x263247, 2.1));
+const keyLight = new THREE.DirectionalLight(0xffe2bd, 3.2);
+keyLight.position.set(-3, 5, 6);
+scene.add(keyLight);
+const modelGroup = new THREE.Group();
+scene.add(modelGroup);
+const renderer = new THREE.WebGPURenderer({ canvas, alpha: false, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-if (!gl) {
-  status.textContent = 'This preview needs WebGL2. You can still use the exported TypeScript model source.';
-  throw new Error('WebGL2 is unavailable');
-}
-
-const vertexShader = `#version 300 es
-in vec3 aPosition;
-in vec3 aNormal;
-uniform float uYaw;
-uniform float uPitch;
-uniform float uAspect;
-uniform vec3 uTranslation;
-out vec3 vNormal;
-void main() {
-  float cy = cos(uYaw), sy = sin(uYaw);
-  float cx = cos(uPitch), sx = sin(uPitch);
-  mat3 rotateY = mat3(cy, 0.0, -sy, 0.0, 1.0, 0.0, sy, 0.0, cy);
-  mat3 rotateX = mat3(1.0, 0.0, 0.0, 0.0, cx, sx, 0.0, -sx, cx);
-  vec3 viewPosition = rotateX * rotateY * (aPosition + uTranslation);
-  viewPosition.z -= 4.2;
-  float nearPlane = 0.1, farPlane = 100.0;
-  float f = 1.65;
-  gl_Position = vec4(viewPosition.x * f / uAspect, viewPosition.y * f,
-    viewPosition.z * (farPlane + nearPlane) / (nearPlane - farPlane) +
-    (2.0 * farPlane * nearPlane) / (nearPlane - farPlane), -viewPosition.z);
-  vNormal = normalize(rotateX * rotateY * aNormal);
-}`;
-const fragmentShader = `#version 300 es
-precision highp float;
-uniform vec3 uColor;
-in vec3 vNormal;
-out vec4 outColor;
-void main() {
-  float diffuse = max(dot(normalize(vNormal), normalize(vec3(-0.45, 0.75, 1.0))), 0.0);
-  float light = 0.24 + 0.76 * diffuse;
-  outColor = vec4(uColor * light, 1.0);
-}`;
-
-function compileShader(type: number, source: string): WebGLShader {
-  const shader = gl!.createShader(type);
-  if (!shader) throw new Error('Could not create preview shader');
-  gl!.shaderSource(shader, source);
-  gl!.compileShader(shader);
-  if (!gl!.getShaderParameter(shader, gl!.COMPILE_STATUS)) {
-    const message = gl!.getShaderInfoLog(shader) ?? 'Unknown shader error';
-    gl!.deleteShader(shader);
-    throw new Error(message);
-  }
-  return shader;
-}
-
-const program = gl.createProgram();
-if (!program) throw new Error('Could not create preview program');
-gl.attachShader(program, compileShader(gl.VERTEX_SHADER, vertexShader));
-gl.attachShader(program, compileShader(gl.FRAGMENT_SHADER, fragmentShader));
-gl.linkProgram(program);
-if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? 'Could not link preview shaders');
-gl.useProgram(program);
-gl.enable(gl.DEPTH_TEST);
-gl.enable(gl.CULL_FACE);
-gl.clearColor(0.047, 0.059, 0.082, 1);
-
-const positionLocation = gl.getAttribLocation(program, 'aPosition');
-const normalLocation = gl.getAttribLocation(program, 'aNormal');
-const yawLocation = gl.getUniformLocation(program, 'uYaw');
-const pitchLocation = gl.getUniformLocation(program, 'uPitch');
-const aspectLocation = gl.getUniformLocation(program, 'uAspect');
-const translationLocation = gl.getUniformLocation(program, 'uTranslation');
-const colorLocation = gl.getUniformLocation(program, 'uColor');
 let model: AuthoredModel;
 let yaw = -0.5;
 let pitch = 0.25;
 let pointer: { id: number; x: number; y: number } | undefined;
 interface PartDraft { name: string; size: [number, number, number]; position: [number, number, number]; color: string }
-interface PartBuffers { positions: WebGLBuffer; normals: WebGLBuffer; indices: WebGLBuffer; indexCount: number }
 const parts: PartDraft[] = [
   { name: 'Body', size: [1.25, 0.72, 0.78], position: [0, 0, 0], color: '#6b8cff' },
   { name: 'Housing', size: [0.76, 0.58, 0.66], position: [0, 0.62, 0], color: '#aabaff' },
   { name: 'Beacon lens', size: [0.28, 0.34, 0.3], position: [0, 1.08, 0], color: '#ffc16f' },
 ];
 let selectedPart = 0;
-let partBuffers: PartBuffers[] = [];
 
 const partList = document.querySelector<HTMLSelectElement>('#part-list')!;
 const partName = document.querySelector<HTMLInputElement>('#part-name')!;
@@ -184,36 +126,40 @@ function refreshPartOptions(): void {
 
 function resizeCanvas(): void {
   const rect = canvas.getBoundingClientRect();
-  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-  const width = Math.max(1, Math.round(rect.width * pixelRatio));
-  const height = Math.max(1, Math.round(rect.height * pixelRatio));
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
+  const width = Math.max(1, rect.width);
+  const height = Math.max(1, rect.height);
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+  renderer.setSize(width, height, false);
+}
+
+function clearPreview(): void {
+  for (const child of [...modelGroup.children]) {
+    if (child instanceof THREE.Mesh) {
+      child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) material.dispose();
+    }
   }
-  gl!.viewport(0, 0, width, height);
+  modelGroup.clear();
 }
 
 function setGeometry(): void {
   syncInputsToPart();
   refreshPartOptions();
   model = authorModel(nameInput.value.trim() || 'Untitled model', parts);
-  for (const buffers of partBuffers) {
-    gl!.deleteBuffer(buffers.positions);
-    gl!.deleteBuffer(buffers.normals);
-    gl!.deleteBuffer(buffers.indices);
+  clearPreview();
+  for (const part of model.parts) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(part.geometry.positions.flat(), 3));
+    if (part.geometry.normals) geometry.setAttribute('normal', new THREE.Float32BufferAttribute(part.geometry.normals.flat(), 3));
+    else geometry.computeVertexNormals();
+    geometry.setIndex([...part.geometry.indices]);
+    const material = new THREE.MeshStandardMaterial({ color: part.color, metalness: 0.12, roughness: 0.38 });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(...part.position);
+    modelGroup.add(mesh);
   }
-  partBuffers = model.parts.map(part => {
-    const positions = gl!.createBuffer(), normals = gl!.createBuffer(), indices = gl!.createBuffer();
-    if (!positions || !normals || !indices) throw new Error('Could not create part preview buffers');
-    gl!.bindBuffer(gl!.ARRAY_BUFFER, positions);
-    gl!.bufferData(gl!.ARRAY_BUFFER, new Float32Array(part.geometry.positions.flatMap(point => [...point])), gl!.STATIC_DRAW);
-    gl!.bindBuffer(gl!.ARRAY_BUFFER, normals);
-    gl!.bufferData(gl!.ARRAY_BUFFER, new Float32Array(part.geometry.normals!.flatMap(normal => [...normal])), gl!.STATIC_DRAW);
-    gl!.bindBuffer(gl!.ELEMENT_ARRAY_BUFFER, indices);
-    gl!.bufferData(gl!.ELEMENT_ARRAY_BUFFER, new Uint16Array(part.geometry.indices), gl!.STATIC_DRAW);
-    return { positions, normals, indices, indexCount: part.geometry.indices.length };
-  });
   const selected = currentPart();
   const axes = ['width', 'height', 'depth'];
   axes.forEach((axis, index) => { $(`#${axis}-value`).textContent = selected.size[index].toFixed(1); });
@@ -221,30 +167,12 @@ function setGeometry(): void {
   $('#color-value').textContent = colorInput.value.toUpperCase();
   $('#preview-name').textContent = (nameInput.value.trim() || 'UNTITLED PROP').toUpperCase();
   $('#mesh-stats').textContent = `${model.parts.length} PARTS · ${model.triangleCount} TRIANGLES · GLB ${(model.glb.byteLength / 1024).toFixed(1)} KB`;
-  status.textContent = `Ready · ${model.parts.length} parts · ${model.vertexCount} vertices · ${model.glb.byteLength.toLocaleString()} byte GLB`;
+  status.textContent = `Ready · ${model.parts.length} parts · ${model.vertexCount} vertices · ${model.glb.byteLength.toLocaleString()} byte GLB · WebGPU first, WebGL2 fallback`;
 }
 
 function render(): void {
-  resizeCanvas();
-  gl!.clear(gl!.COLOR_BUFFER_BIT | gl!.DEPTH_BUFFER_BIT);
-  gl!.uniform1f(yawLocation, yaw);
-  gl!.uniform1f(pitchLocation, pitch);
-  gl!.uniform1f(aspectLocation, canvas.width / canvas.height);
-  model.parts.forEach((part, index) => {
-    const buffers = partBuffers[index];
-    gl!.uniform3fv(translationLocation, part.position);
-    const color = [1, 3, 5].map(offset => Number.parseInt(part.color.slice(offset, offset + 2), 16) / 255);
-    gl!.uniform3fv(colorLocation, color);
-    gl!.bindBuffer(gl!.ARRAY_BUFFER, buffers.positions);
-    gl!.enableVertexAttribArray(positionLocation);
-    gl!.vertexAttribPointer(positionLocation, 3, gl!.FLOAT, false, 0, 0);
-    gl!.bindBuffer(gl!.ARRAY_BUFFER, buffers.normals);
-    gl!.enableVertexAttribArray(normalLocation);
-    gl!.vertexAttribPointer(normalLocation, 3, gl!.FLOAT, false, 0, 0);
-    gl!.bindBuffer(gl!.ELEMENT_ARRAY_BUFFER, buffers.indices);
-    gl!.drawElements(gl!.TRIANGLES, buffers.indexCount, gl!.UNSIGNED_SHORT, 0);
-  });
-  requestAnimationFrame(render);
+  modelGroup.rotation.set(pitch, yaw, 0);
+  renderer.render(scene, camera);
 }
 
 for (const input of [nameInput, partName, widthInput, heightInput, depthInput, colorInput, ...positionInputs]) {
@@ -286,7 +214,6 @@ canvas.addEventListener('pointermove', event => {
 });
 canvas.addEventListener('pointerup', () => { pointer = undefined; });
 canvas.addEventListener('pointercancel', () => { pointer = undefined; });
-new ResizeObserver(resizeCanvas).observe(canvas);
 
 $('#export').addEventListener('click', () => {
   setGeometry();
@@ -304,4 +231,19 @@ $('#export').addEventListener('click', () => {
 refreshPartOptions();
 loadPartInputs();
 setGeometry();
-requestAnimationFrame(render);
+
+async function startRenderer(): Promise<void> {
+  try {
+    await renderer.init();
+    resizeCanvas();
+    new ResizeObserver(resizeCanvas).observe(canvas);
+    const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2 fallback';
+    status.textContent = `Ready · ${model.parts.length} parts · ${model.vertexCount} vertices · ${model.glb.byteLength.toLocaleString()} byte GLB · ${backend}`;
+    renderer.setAnimationLoop(render);
+  } catch (error) {
+    console.error('Could not start the Three.js renderer:', error);
+    status.textContent = 'Could not initialize WebGPU or its WebGL2 fallback. Check browser graphics support.';
+  }
+}
+
+void startRenderer();
