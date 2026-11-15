@@ -4,26 +4,34 @@ import assert from 'node:assert/strict';
 // verify which bytes queue.writeBuffer receives as scene membership changes.
 const writes = [];
 const draws = [];
+const mapResolvers = [];
 let nextBuffer = 0;
 const pass = { setBindGroup() {}, setPipeline() {}, setVertexBuffer() {}, setIndexBuffer() {}, drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance) { draws.push({ indexCount, instanceCount, firstInstance }); }, end() {} };
 const device = {
-  limits: { minUniformBufferOffsetAlignment: 256 }, features: new Set(), lost: new Promise(() => {}),
+  limits: { minUniformBufferOffsetAlignment: 256 }, features: new Set(['timestamp-query']), lost: new Promise(() => {}),
   createShaderModule: () => ({}), createBindGroupLayout: () => ({}), createPipelineLayout: () => ({}),
   createRenderPipelineAsync: async () => ({}), createBindGroup: () => ({}),
-  createBuffer: ({ usage, size }) => ({ id: ++nextBuffer, usage, bytes: new Uint8Array(size), destroy() {} }),
+  createBuffer: ({ usage, size }) => ({
+    id: ++nextBuffer, usage, bytes: new Uint8Array(size), destroy() {},
+    mapAsync: () => new Promise(resolve => mapResolvers.push(resolve)),
+    getMappedRange: () => new BigUint64Array([1000000n, 3000000n]).buffer,
+    unmap() {},
+  }),
+  createQuerySet: () => ({ destroy() {} }),
   createTexture: () => ({ createView: () => ({}), destroy() {} }),
-  createCommandEncoder: () => ({ beginRenderPass: () => pass, finish: () => ({}) }),
+  createCommandEncoder: () => ({ beginRenderPass: () => pass, resolveQuerySet() {}, copyBufferToBuffer() {}, finish: () => ({}) }),
   queue: { writeBuffer: (buffer, offset, data, dataOffset = 0, size = data.byteLength) => {
     buffer.bytes.set(new Uint8Array(data, dataOffset, size), offset);
     writes.push({ buffer, offset, size });
   }, submit() {} },
 };
 globalThis.GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 };
-globalThis.GPUBufferUsage = { UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16 };
+globalThis.GPUBufferUsage = { UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16, QUERY_RESOLVE: 32, COPY_SRC: 64, MAP_READ: 128 };
+globalThis.GPUMapMode = { READ: 1 };
 globalThis.GPUTextureUsage = { RENDER_ATTACHMENT: 1 };
 globalThis.GPUColorWrite = { ALL: 15 };
-Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { gpu: { requestAdapter: async () => ({ features: new Set(), requestDevice: async () => device }), getPreferredCanvasFormat: () => 'rgba8unorm' } } });
-globalThis.location = { search: '' };
+Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { gpu: { requestAdapter: async () => ({ features: new Set(['timestamp-query']), requestDevice: async () => device }), getPreferredCanvasFormat: () => 'rgba8unorm' } } });
+globalThis.location = { search: '?gpu-timing=1' };
 const context = { configure() {}, getCurrentTexture: () => ({ createView: () => ({}) }) };
 const canvas = { getContext: () => context };
 globalThis.document = { getElementById: () => canvas };
@@ -89,5 +97,23 @@ assert.deepEqual(batches(), [[1, 0], [1, 1], [2, 2]], 'mesh changes split the ba
 view.setInt32(stride, -1, true);
 draw(4);
 assert.deepEqual(batches(), [[1, 0], [2, 2]], 'missing meshes do not collapse instance offsets');
+// Completion is asynchronous. Resetting capture must discard pending samples
+// from the prior scene while retaining samples from the new measurement.
+assert.equal(gpu.gpuTimestampAvailable(), true);
+for (const resolve of mapResolvers.splice(0)) resolve();
+await Promise.resolve();
+gpu.gpuTimestampBegin();
+draw(1);
+assert.equal(gpu.gpuTimestampPending(), 1);
+gpu.gpuTimestampBegin();
+draw(1);
+assert.equal(gpu.gpuTimestampPending(), 1, 'pending queries from older epochs are excluded');
+for (const resolve of mapResolvers.splice(0)) resolve();
+await Promise.resolve();
+assert.deepEqual(gpu.gpuTimestampMs(), [2], 'only the current capture contributes a sample');
+assert.equal(gpu.gpuTimestampPending(), 0);
+gpu.gpuTimestampEnd();
+draw(1);
+assert.equal(mapResolvers.length, 0, 'ending capture stops issuing timestamp queries');
 gpu.shutdown();
 console.log('WebGPU instance upload checks passed');

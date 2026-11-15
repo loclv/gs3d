@@ -253,6 +253,13 @@ as 32-bit integer words. With 32 moving cubes, three runs measured 0.115–0.116
 ms before and 0.133–0.134 ms after in the same synchronous SwiftShader harness.
 The slower candidate was discarded.
 
+A vertex shader experiment skipped inverse-transpose normal calculation for
+unlit objects. Two interleaved 1,024-cube static runs on headless Chrome
+SwiftShader, using 300 WebGPU timestamp samples per run at 320×180, measured
+GPU medians of 12.45 and 12.49 ms before, and 12.49 and 12.42 ms with the
+branch. There was no demonstrated gain, so the branch was discarded. These
+software-GPU timings do not establish how the branch performs on physical GPUs.
+
 ## WebGL morph animation benchmark
 
 Build and serve the 64-target morph benchmark with:
