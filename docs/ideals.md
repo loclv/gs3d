@@ -303,7 +303,7 @@ The remaining ideals are checked by the tests they name (`test_math`,
 ## Violations caught so far
 
 - **Ideal 4 (×3).** Three hand-derived expectations were wrong on first run;
-  the engine was right each time. Recorded in `README.md` and the testing skill.
+  the engine was right each time. Recorded in `docs/getting-started.md` and the testing skill.
 - **Ideal 6.** Front-to-back sort, reciprocal-multiply and SIMD were all
   considered and either rejected with numbers or deferred. Recorded in
   `docs/performance.md`.

@@ -257,7 +257,7 @@ everything starts. Every symbol the page calls must appear in
 3. Set the field in `src/g3/render.goose`'s `pack_item()` (or `begin_frame` for
    `ViewState`).
 4. Read it in both backends, or comment why one ignores it.
-5. Update the byte counts in `README.md` and this file.
+5. Update the byte counts in `docs/readme-frame-flow.md` and this file.
 6. Verify: `goose check` all roots (asserts fire at build), then
    `./build_native.sh --test`, then a PPM `cmp` if the change was meant to be
    neutral.
