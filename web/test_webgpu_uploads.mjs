@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 // Exercise the real bridge with a recording WebGPU device; no GPU is needed to
 // verify which bytes queue.writeBuffer receives as scene membership changes.
 const writes = [];
+const draws = [];
 let nextBuffer = 0;
-const pass = { setBindGroup() {}, setPipeline() {}, setVertexBuffer() {}, setIndexBuffer() {}, drawIndexed() {}, end() {} };
+const pass = { setBindGroup() {}, setPipeline() {}, setVertexBuffer() {}, setIndexBuffer() {}, drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance) { draws.push({ indexCount, instanceCount, firstInstance }); }, end() {} };
 const device = {
   limits: { minUniformBufferOffsetAlignment: 256 }, features: new Set(), lost: new Promise(() => {}),
   createShaderModule: () => ({}), createBindGroupLayout: () => ({}), createPipelineLayout: () => ({}),
@@ -42,7 +43,7 @@ for (let i = 0; i < 80; i++) {
   view.setFloat32(p + 144, 1, true);
 }
 function storageWrites() { return writes.filter(w => (w.buffer.usage & GPUBufferUsage.STORAGE) !== 0); }
-function draw(count) { writes.length = 0; gpu.draw(items, count, viewPtr); return storageWrites().map(({ offset, size }) => [offset, size]); }
+function draw(count) { writes.length = 0; draws.length = 0; gpu.draw(items, count, viewPtr); return storageWrites().map(({ offset, size }) => [offset, size]); }
 assert.deepEqual(draw(4), [[0, 4 * 80]], 'first draw initializes all slots');
 assert.deepEqual(draw(4), [], 'unchanged frame uploads nothing');
 view.setFloat32(2 * stride + 68 + 12 * 4, 2, true);
@@ -61,5 +62,32 @@ const grown = storageWrites()[0].buffer;
 assert.notEqual(grown, storage, 'capacity growth replaces the buffer');
 assert.equal(new DataView(grown.bytes.buffer).getFloat32(2 * 80 + 12 * 4, true), 2, 'replacement retains earlier instance values');
 assert.equal(new DataView(grown.bytes.buffer).getFloat32(69 * 80, true), 1, 'replacement includes newly visible instances');
+// Adjacent opaque draws can share a call only when the state represented by
+// the batch uniform and pipeline matches. Draw order and firstInstance matter.
+const batches = () => draws.map(({ instanceCount, firstInstance }) => [instanceCount, firstInstance]);
+draw(4);
+assert.deepEqual(batches(), [[4, 0]], 'matching opaque items batch in order');
+for (const [name, offset, set, value, reset] of [
+  ['blend flag', 160, 'setFloat32', 1, 0],
+  ['alpha', 144, 'setFloat32', 0.5, 1],
+  ['alpha mode', 172, 'setInt32', 1, 0],
+  ['alpha cutoff', 176, 'setFloat32', 0.5, 0],
+  ['double sided', 236, 'setUint8', 1, 0],
+  ['unlit', 148, 'setFloat32', 1, 0],
+  ['specular strength', 152, 'setFloat32', 1, 0],
+  ['shininess', 156, 'setFloat32', 1, 0],
+]) {
+  view[set](stride + offset, value, true);
+  draw(4);
+  assert.deepEqual(batches(), [[1, 0], [1, 1], [2, 2]], `${name} splits the batch without reordering`);
+  view[set](stride + offset, reset, true);
+}
+gpu.uploadMesh(2, 100000, 1, 100120, 3);
+view.setInt32(stride, 2, true);
+draw(4);
+assert.deepEqual(batches(), [[1, 0], [1, 1], [2, 2]], 'mesh changes split the batch');
+view.setInt32(stride, -1, true);
+draw(4);
+assert.deepEqual(batches(), [[1, 0], [2, 2]], 'missing meshes do not collapse instance offsets');
 gpu.shutdown();
 console.log('WebGPU instance upload checks passed');

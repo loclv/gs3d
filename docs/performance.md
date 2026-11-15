@@ -232,6 +232,14 @@ the Chrome executable on systems where the default macOS path is unavailable.
 It requires Node.js with the built-in WebSocket API. Its SwiftShader timings
 measure synchronous CPU submission, not completed GPU work.
 
+A batching experiment cached the first item's compatibility fields once per
+batch instead of reading them again for each neighboring item. Three 1,024-cube
+static bursts measured 0.111–0.112 ms before and 0.109–0.111 ms after; with all
+cubes moving, ranges were 0.333–0.365 ms before and 0.332–0.358 ms after. The
+small, overlapping differences do not establish a speedup, so the experiment
+was discarded. The WebGPU bridge test also verifies that changes to mesh,
+blend, alpha, culling and material parameters split batches without reordering.
+
 ## WebGL morph animation benchmark
 
 Build and serve the 64-target morph benchmark with:
