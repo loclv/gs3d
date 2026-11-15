@@ -64,6 +64,12 @@ lighting, fog, unlit materials, transparency, depth, and resize. Textures,
 render targets, shadows, PBR extensions, and post-processing remain on the
 WebGL2 renderer used by the specialized viewer and reference pages.
 
+The WebGPU path batches adjacent compatible opaque instances and reuses its
+CPU-side upload arrays. On the 11-item demo this cuts WebGPU draw calls from 11
+to 7. In headless Chrome 157, CPU render submission over 133 baseline and 132
+updated frames moved from 0.30/0.50 ms median/p95 to 0.20/0.40 ms. This timer
+covers CPU-side encoding and queue submission; it does not measure GPU completion.
+
 WebGPU requires a secure context; `web/shell.js` redirects the local wildcard
 URL `http://[::]` to trusted `http://localhost` so local development can use it.
 The browser capability check is feature-based: an unavailable adapter or a
