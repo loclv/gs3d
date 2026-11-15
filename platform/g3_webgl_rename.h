@@ -30,3 +30,4 @@
 #define g3p_read_pixel g3glp_read_pixel
 #define g3_backend_resize g3gl_backend_resize
 #define g3_host_scene_draw_calls g3gl_host_scene_draw_calls
+#define g3_host_scene_draw_ms g3gl_host_scene_draw_ms

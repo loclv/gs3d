@@ -36,6 +36,9 @@ extern int32_t g3glp_decode_texture_linear(int32_t, g3_u8_slice);
 extern uint8_t g3glp_save_frame(g3_u8_slice);
 extern uint32_t g3glp_read_pixel(int32_t, int32_t);
 extern int32_t g3gl_host_scene_draw_calls(void);
+#ifdef G3_BENCHMARK_TIMING
+extern double g3gl_host_scene_draw_ms(void);
+#endif
 
 EM_JS(void, gpu_set_module, (), { if (window.g3wgpu) window.g3wgpu.setModule(Module); });
 EM_JS(int, gpu_init, (int w, int h), { return window.g3wgpu && window.g3wgpu.init(w, h) ? 1 : 0; });
@@ -47,6 +50,7 @@ EM_JS(void, gpu_upload_mesh, (int id, int vp, int vn, int ip, int index_count), 
 EM_JS(void, gpu_release_mesh, (int id), { if (window.g3wgpu) window.g3wgpu.releaseMesh(id); });
 EM_JS(void, gpu_draw, (int p, int n, int v), { if (window.g3wgpu) window.g3wgpu.draw(p, n, v); });
 EM_JS(int, gpu_draw_calls, (), { return window.g3wgpu ? window.g3wgpu.drawCalls() : 0; });
+EM_JS(double, gpu_draw_ms, (), { return window.g3wgpu ? window.g3wgpu.drawCpuMs() : 0; });
 EM_JS(void, gpu_reset_canvas, (), { if (window.g3wgpu) window.g3wgpu.resetCanvas(); });
 
 static int active_backend; /* 0 = not initialized, 1 = WebGL2, 2 = WebGPU */
@@ -85,6 +89,11 @@ int g3_backend_resize(int w, int h) {
 EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) {
     return active_backend == 2 ? gpu_draw_calls() : g3gl_host_scene_draw_calls();
 }
+#ifdef G3_BENCHMARK_TIMING
+EMSCRIPTEN_KEEPALIVE double g3_host_scene_draw_ms(void) {
+    return active_backend == 2 ? gpu_draw_ms() : g3gl_host_scene_draw_ms();
+}
+#endif
 
 /* These paths are implemented by WebGL2 and return unsupported on WebGPU
    until their matching WebGPU render-target/texture operations are added. */

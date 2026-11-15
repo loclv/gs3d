@@ -75,7 +75,7 @@ fi
 
 # The default landing page prefers WebGPU and retains the full WebGL2 backend
 # as an automatic fallback. Specialized tools still build their WebGL2 paths.
-if [ "${1:-}" = "" ]; then
+if [ "${1:-}" = "" ] || [ "${1:-}" = "--benchmark" ]; then
   backend_cflags+=(-DG3_DUAL_RENDERER)
   renderer_sources+=(platform/g3_webgpu.c)
 fi

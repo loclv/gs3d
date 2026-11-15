@@ -102,7 +102,7 @@ scene, input, camera, and rendering APIs.
 The arena floor uses [Ground Grey](https://polyhaven.com/a/ground_grey), by
 Rob Tuytel / Poly Haven (CC0); a local copy is included.
 
-### Measure WebGL instancing
+### Measure renderer instancing
 
 Run `./build_web.sh --benchmark --serve` and open
 <http://localhost:8080/benchmark/>. The page varies the number of visible
@@ -117,10 +117,12 @@ Compare Goose 3D with Three.js using the same scene and browser:
 python3 -m http.server 8080 --directory web
 ```
 
-Open <http://localhost:8080/benchmark/compare.html>. Choose a backend with the
-tabs; only that renderer runs at a time. The Three.js mode downloads pinned
-version 0.180.0 from jsDelivr. Match browser, window size, and cube count when
-comparing the reported frame-call median and p95.
+Open <http://localhost:8080/benchmark/compare.html>. Choose Goose WebGPU,
+Three.js WebGPU, or Three.js WebGL2 with the tabs; only that renderer runs at a
+time. Goose WebGPU falls back automatically to WebGL2. Three.js WebGPURenderer
+also falls back automatically when WebGPU is unavailable. Three.js downloads
+pinned version 0.180.0 from jsDelivr. Match browser, window size, cube count,
+and moving-instance count when comparing frame-call median and p95.
 
 #### Headless Playwright result
 
@@ -741,3 +743,30 @@ page after rebuilding to clear its cached JavaScript and WebAssembly.
 For the homepage's temporal rendering regression, build the default web app
 and run `node web/test_browser_reference.mjs --demo-only`. It checks all matrix
 uploads, identical paused frames, and bounded changes over 600 animation frames.
+
+### WebGPU comparison and upload optimization
+
+The WebGPU comparison uses Chrome 157.0.8103.52 in headless mode at 1280×720,
+with 1,024 visible cubes and 120 warmup plus 300 sampled frames. The static and
+fully animated workloads use the same instance grid for Goose and Three.js:
+
+| Workload | Renderer | Frame-call median / p95 | Backend CPU submit median / p95 | Browser FPS |
+|---|---|---:|---:|---:|
+| Static | Goose WebGPU | 1.00 / 1.80 ms | 0.60 / 1.00 ms | 60.0 |
+| Static | Three.js WebGPU | 0.60 / 1.00 ms | — | 60.0 |
+| 1,024 moving | Goose WebGPU | 1.40 / 2.00 ms | 0.80 / 1.10 ms | 60.0 |
+| 1,024 moving | Three.js WebGPU | 0.80 / 1.20 ms | — | 60.0 |
+
+The browser cadence is capped at 60 FPS, so it does not distinguish these CPU
+times. Goose reports one instanced scene draw; Three.js reports two WebGPU
+draw calls. Timestamp queries were unavailable for both WebGPU paths, so these
+results compare CPU frame work and command submission, not GPU execution time.
+The separate Three.js WebGL2 mode provides WebGL timer-query GPU timings.
+
+The WebGPU backend now packs frame/material uniforms once per compatible draw
+batch instead of once per instance. It also caches packed uniforms and instance
+records, skipping unchanged GPU buffer writes for static frames. The prior
+static sample measured 1.50 ms median / 2.50 ms p95 frame-call and 1.10 / 1.70
+ms CPU submit; the updated sample measured 1.00 / 1.80 ms and 0.60 / 1.00 ms.
+This is one sequential run per version in headless Chrome, so treat the change
+as an observed CPU-side improvement rather than a general GPU performance claim.

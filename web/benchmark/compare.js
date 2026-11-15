@@ -3,7 +3,8 @@ import { fitToDisplay } from '../canvas.js';
 const MAX_INSTANCES = 1024;
 const WARMUP_FRAMES = 120;
 const SAMPLE_FRAMES = 300;
-const BACKEND = new URLSearchParams(location.search).get('backend') === 'three' ? 'three' : 'goose';
+const requestedBackend = new URLSearchParams(location.search).get('backend');
+const BACKEND = ['three', 'three-webgpu'].includes(requestedBackend) ? requestedBackend : 'goose';
 const canvas = document.getElementById('canvas');
 const status = document.getElementById('status');
 const slider = document.getElementById('nodes');
@@ -86,9 +87,9 @@ function percentile(values, p) {
 
 function report() {
   const meanRaf = rafTimes.reduce((sum, value) => sum + value, 0) / rafTimes.length;
-  const label = BACKEND === 'three' ? 'Three.js' : 'Goose 3D';
+  const label = BACKEND === 'three' ? 'Three.js WebGL2' : BACKEND === 'three-webgpu' ? `Three.js ${window.threeRenderer ?? 'WebGPU/WebGL2'}` : `Goose 3D ${window.g3Renderer ?? 'renderer'}`;
   const backendLine = backendTimes.length
-    ? `\nWebGL backend median ${percentile(backendTimes, 0.5).toFixed(2)} ms · ` +
+    ? `\n${window.g3Renderer === 'WebGPU' ? 'WebGPU CPU submit' : 'WebGL backend'} median ${percentile(backendTimes, 0.5).toFixed(2)} ms · ` +
       `p95 ${percentile(backendTimes, 0.95).toFixed(2)} ms`
     : '';
   const gpuLine = !gpuTimerExt
@@ -181,11 +182,13 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-function makeThreeScene(THREE, width, height) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
+function makeThreeScene(THREE, width, height, renderer) {
+  renderer ??= new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
   renderer.setSize(width, height, false);
   renderer.setPixelRatio(1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.info.autoReset = false;
+  window.threeRenderer = renderer.backend?.isWebGPUBackend ? 'WebGPU' : renderer.backend?.isWebGLBackend ? 'WebGL2' : 'Three.js backend';
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0.09, 0.1, 0.14);
@@ -211,6 +214,8 @@ function makeThreeScene(THREE, width, height) {
   cubes.count = Number(slider.value);
   scene.add(cubes);
   let motionFrame = 0;
+  let lastDrawCalls = 0;
+  let previousDrawCalls = 0;
   const rotation = new THREE.Euler(0, 0, 0, 'ZYX');
 
   return {
@@ -234,10 +239,14 @@ function makeThreeScene(THREE, width, height) {
         cubes.instanceMatrix.addUpdateRange(0, count * 16);
         cubes.instanceMatrix.needsUpdate = true;
       }
+      renderer.info.reset();
       renderer.render(scene, camera);
+      const calls = renderer.info.render.calls;
+      lastDrawCalls = renderer.backend?.isWebGPUBackend ? calls - previousDrawCalls : calls;
+      previousDrawCalls = calls;
     },
     setCount: count => { cubes.count = count; },
-    drawCalls: () => renderer.info.render.calls,
+    drawCalls: () => lastDrawCalls,
     resize: (w, h) => {
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
@@ -248,18 +257,23 @@ function makeThreeScene(THREE, width, height) {
 
 async function start() {
   try {
-    if (!document.createElement('canvas').getContext('webgl2')) throw new Error('This benchmark needs WebGL2.');
     const size = fitToDisplay(canvas);
 
-    if (BACKEND === 'three') {
+    if (BACKEND === 'three' || BACKEND === 'three-webgpu') {
       // Pinned release keeps the comparison reproducible across visits.
-      const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js');
-      const benchmark = makeThreeScene(THREE, size.width, size.height);
+      const THREE = BACKEND === 'three-webgpu'
+        ? await import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.webgpu.js')
+        : await import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js');
+      const renderer = BACKEND === 'three-webgpu'
+        ? new THREE.WebGPURenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' })
+        : null;
+      if (renderer) await renderer.init();
+      const benchmark = makeThreeScene(THREE, size.width, size.height, renderer);
       frameCall = benchmark.frame;
       getDrawCalls = benchmark.drawCalls;
       getBackendFrameMs = null;
       resizeRenderer = benchmark.resize;
-      gpuGl = canvas.getContext('webgl2');
+      gpuGl = BACKEND === 'three' ? canvas.getContext('webgl2') : null;
       gpuTimerExt = gpuGl?.getExtension('EXT_disjoint_timer_query_webgl2') ?? null;
       slider.addEventListener('input', () => {
         const count = Number(slider.value);
@@ -273,9 +287,11 @@ async function start() {
         resetSample();
       });
     } else {
+      const { prepareWebGPU } = await import('../webgpu.js');
+      await prepareWebGPU(canvas);
       const { default: createGoose3D } = await import('./app.js');
       const engine = await createGoose3D();
-      if (!engine._g3_host_start(size.width, size.height)) throw new Error('The Goose WebGL2 renderer could not start.');
+      if (!engine._g3_host_start(size.width, size.height)) throw new Error('The Goose WebGPU/WebGL2 renderer could not start.');
       gpuGl = canvas.getContext('webgl2');
       gpuTimerExt = gpuGl?.getExtension('EXT_disjoint_timer_query_webgl2') ?? null;
       engine._g3_benchmark_set_count(Number(slider.value));
@@ -307,7 +323,7 @@ async function start() {
     });
     requestAnimationFrame(frame);
   } catch (error) {
-    status.textContent = `${error.message}${BACKEND === 'three' ? ' (Three.js mode needs access to jsDelivr.)' : ''}`;
+    status.textContent = `${error.message}${BACKEND !== 'goose' ? ' (Three.js mode needs access to jsDelivr.)' : ''}`;
   }
 }
 
