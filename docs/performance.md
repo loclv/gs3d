@@ -248,6 +248,17 @@ small, overlapping differences do not establish a speedup, so the experiment
 was discarded. The WebGPU bridge test also verifies that changes to mesh,
 blend, alpha, culling and material parameters split batches without reordering.
 
+Another experiment combined batch discovery and instance packing in one loop,
+instead of scanning each compatible run and then packing it. With 1,024 cubes
+at 320×180 in headless Chrome SwiftShader, three interleaved 500-frame bursts
+with 32 moving instances measured 0.1154–0.1164 ms/frame before and
+0.1144–0.1146 ms after. With all instances moving the ranges were
+0.3504–0.3680 ms before and 0.3510–0.4068 ms after. These synchronous CPU
+submission timings overlap in the fully moving workload; the small sparse
+workload difference does not establish a general improvement, so the change
+was discarded. Both versions submitted one scene draw, and the recording-device
+upload and batch-order checks passed for the candidate.
+
 A separate packing experiment compared and copied the 80-byte instance record
 as 32-bit integer words. With 32 moving cubes, three runs measured 0.115–0.116
 ms before and 0.133–0.134 ms after in the same synchronous SwiftShader harness.
