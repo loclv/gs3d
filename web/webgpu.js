@@ -18,9 +18,9 @@ struct Out { @builtin(position) clip: vec4<f32>, @location(0) world: vec3<f32>, 
 @vertex fn vs(v: In) -> Out {
   var o: Out;
   let instance = g3_instances[v.instance_index];
-  let world = instance.model * vec4<f32>(v.pos, 1.0);
   o.clip = instance.mvp * vec4<f32>(v.pos, 1.0);
   o.clip.z = (o.clip.z + o.clip.w) * 0.5;
+  let world = instance.model * vec4<f32>(v.pos, 1.0);
   o.world = world.xyz;
   let c0 = instance.model[0].xyz;
   let c1 = instance.model[1].xyz;
@@ -65,6 +65,8 @@ let canvas, uniformBuffer, uniformBindGroup, uniformCapacity = 0;
 let uniformData, uniformCache, uniformBufferValid = false;
 let instanceBuffer, instanceBindGroup, instanceCapacity = 0, instanceData;
 let instanceBufferValid = false, instanceDataValid = false, packedInstanceCount = 0, uploadedInstanceCount = 0;
+let timestampQuerySet, timestampResolveBuffer, timestampSlots = [], timestampSlotIndex = 0;
+const gpuTimestampSamples = [];
 const drawBatchStarts = [], drawBatchLengths = [];
 let width = 1, height = 1, meshes = new Map(), pipelines = {};
 let dv, wasmBuffer, wasmModule, drawCalls = 0, drawCpuMs = 0, frameConstants = new Float32Array(20);
@@ -157,17 +159,25 @@ export async function prepareWebGPU(targetCanvas) {
   canvas = targetCanvas;
   if (!navigator.gpu) return false;
   try {
+    const requestGpuTiming = new URLSearchParams(location.search).get('gpu-timing') === '1';
     const result = await Promise.race([
       (async () => {
         const a = await navigator.gpu.requestAdapter(); if (!a) return false;
-        const d = await a.requestDevice(), fmt = navigator.gpu.getPreferredCanvasFormat();
+        const requiredFeatures = requestGpuTiming && a.features.has('timestamp-query') ? ['timestamp-query'] : [];
+        const d = await a.requestDevice({ requiredFeatures }), fmt = navigator.gpu.getPreferredCanvasFormat();
         const built = await createPipelines(d, fmt);
-        return { adapter: a, device: d, format: fmt, pipelines: built };
+        return { adapter: a, device: d, format: fmt, pipelines: built, requestGpuTiming };
       })(),
       new Promise(resolve => setTimeout(() => resolve(false), 5000)),
     ]);
     if (!result) return false;
-    adapter = result.adapter; device = result.device; format = result.format; pipelines = result.pipelines; return true;
+    adapter = result.adapter; device = result.device; format = result.format; pipelines = result.pipelines;
+    if (result.requestGpuTiming && device.features.has('timestamp-query')) {
+      timestampQuerySet = device.createQuerySet({ type: 'timestamp', count: 2 });
+      timestampResolveBuffer = device.createBuffer({ size: 16, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+      timestampSlots = Array.from({ length: 4 }, () => ({ busy: false, buffer: device.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }) }));
+    }
+    return true;
   }
   catch (error) { console.warn('WebGPU unavailable; using WebGL2:', error); adapter = device = null; return false; }
 }
@@ -205,6 +215,7 @@ window.g3wgpu = {
   height: () => height,
   drawCalls: () => drawCalls,
   drawCpuMs: () => drawCpuMs,
+  gpuTimestampMs: () => gpuTimestampSamples.slice(-300),
   uploadMesh(id, vp, vn, ip, inum) {
     const heap = wasmModule.HEAPU8;
     const vertices = new Uint8Array(heap.buffer, vp, vn * 120).slice();
@@ -228,9 +239,10 @@ window.g3wgpu = {
     let instancesChanged=!instanceDataValid;
     for(let i=0;i<count;i++) {
       const p=itemsPtr+i*653;
+      const mesh=meshes.get(dv.getInt32(p,true));
+      if(!mesh||mesh.count===0) continue;
       instancesChanged=packInstance(p,i*36,!instanceDataValid||i>=packedInstanceCount)||instancesChanged;
       let batchCount=1;
-      if(!meshes.has(dv.getInt32(p,true))||meshes.get(dv.getInt32(p,true)).count===0) continue;
       const alphaMode=dv.getInt32(p+172,true), alpha=dv.getFloat32(p+144,true);
       const blended=dv.getFloat32(p+160,true)>0.5 || alphaMode===2 || (alphaMode===0 && alpha<0.999);
       if(!blended) while(i+batchCount<count && batchCompatible(p,itemsPtr+(i+batchCount)*653)) batchCount++;
@@ -266,7 +278,17 @@ window.g3wgpu = {
     }
     const clear={r:dv.getFloat32(viewPtr+68,true),g:dv.getFloat32(viewPtr+72,true),b:dv.getFloat32(viewPtr+76,true),a:1};
     const encoder=device.createCommandEncoder();
-    const pass=encoder.beginRenderPass({colorAttachments:[{view:context.getCurrentTexture().createView(),clearValue:clear,loadOp:'clear',storeOp:'store'}],depthStencilAttachment:{view:depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'}});
+    let timestampSlot=null;
+    if(timestampQuerySet) {
+      for(let i=0;i<timestampSlots.length;i++) {
+        const slot=timestampSlots[timestampSlotIndex];
+        timestampSlotIndex=(timestampSlotIndex+1)%timestampSlots.length;
+        if(!slot.busy) { timestampSlot=slot; slot.busy=true; break; }
+      }
+    }
+    const passDescriptor={colorAttachments:[{view:context.getCurrentTexture().createView(),clearValue:clear,loadOp:'clear',storeOp:'store'}],depthStencilAttachment:{view:depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'}};
+    if(timestampSlot) passDescriptor.timestampWrites={querySet:timestampQuerySet,beginningOfPassWriteIndex:0,endOfPassWriteIndex:1};
+    const pass=encoder.beginRenderPass(passDescriptor);
     pass.setBindGroup(1,instanceBindGroup);
     let boundPipeline=null, boundMesh=null;
     for(let batch=0;batch<drawBatchStarts.length;batch++) {
@@ -284,8 +306,19 @@ window.g3wgpu = {
       pass.drawIndexed(mesh.count,batchCount,0,0,i);
       drawCalls++;
     }
-    pass.end(); device.queue.submit([encoder.finish()]);
+    pass.end();
+    if(timestampSlot) {
+      encoder.resolveQuerySet(timestampQuerySet,0,2,timestampResolveBuffer,0);
+      encoder.copyBufferToBuffer(timestampResolveBuffer,0,timestampSlot.buffer,0,16);
+    }
+    device.queue.submit([encoder.finish()]);
+    if(timestampSlot) timestampSlot.buffer.mapAsync(GPUMapMode.READ).then(() => {
+      const values=new BigUint64Array(timestampSlot.buffer.getMappedRange());
+      gpuTimestampSamples.push(Number(values[1]-values[0])/1e6);
+      if(gpuTimestampSamples.length>2048) gpuTimestampSamples.shift();
+      timestampSlot.buffer.unmap(); timestampSlot.busy=false;
+    }).catch(() => { timestampSlot.busy=false; });
     drawCpuMs=performance.now()-started;
   },
-  shutdown() { for(const mesh of meshes.values()){mesh.vb.destroy();mesh.ib.destroy();} meshes.clear(); if(depth)depth.destroy();if(uniformBuffer)uniformBuffer.destroy();if(instanceBuffer)instanceBuffer.destroy(); depth=uniformBuffer=instanceBuffer=null;uniformCapacity=instanceCapacity=0;uniformBindGroup=instanceBindGroup=null;uniformData=uniformCache=instanceData=null;uniformBufferValid=instanceBufferValid=instanceDataValid=false;packedInstanceCount=uploadedInstanceCount=0;wasmBuffer=dv=null; }
+  shutdown() { for(const mesh of meshes.values()){mesh.vb.destroy();mesh.ib.destroy();} meshes.clear(); if(depth)depth.destroy();if(uniformBuffer)uniformBuffer.destroy();if(instanceBuffer)instanceBuffer.destroy();if(timestampQuerySet)timestampQuerySet.destroy();if(timestampResolveBuffer)timestampResolveBuffer.destroy();for(const slot of timestampSlots)slot.buffer.destroy();timestampQuerySet=timestampResolveBuffer=null;timestampSlots=[];gpuTimestampSamples.length=0; depth=uniformBuffer=instanceBuffer=null;uniformCapacity=instanceCapacity=0;uniformBindGroup=instanceBindGroup=null;uniformData=uniformCache=instanceData=null;uniformBufferValid=instanceBufferValid=instanceDataValid=false;packedInstanceCount=uploadedInstanceCount=0;wasmBuffer=dv=null; }
 };

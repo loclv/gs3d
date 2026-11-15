@@ -35,6 +35,9 @@ var g_view_state: ViewState;
 var g_stats: Stats;
 var g_view: Mat4;
 var g_view_proj: Mat4;
+var g_cached_view_proj: Mat4;
+var g_view_proj_version: i64;
+var g_view_proj_cache_valid: bool;
 var g_frustum: Frustum;
 var g_output_srgb: bool;
 var g_tone_mapping: i32;
@@ -455,6 +458,11 @@ fn draw_list() -> DrawItem[:] { return g_draws[..] }
 fn view_matrix() -> Mat4 { return g_view }
 fn view_proj_matrix() -> Mat4 { return g_view_proj }
 
+fn view_proj_matches(a: Mat4, b: Mat4) -> bool {
+    for i in 16 { if a.m[i] != b.m[i] { return false; } }
+    return true;
+}
+
 // --- the pass
 
 fn begin_frame(time: f64, width: i32, height: i32) {
@@ -467,6 +475,11 @@ fn begin_frame(time: f64, width: i32, height: i32) {
     let h = if rh < 1 { 1 } else { rh };
     g_view = mat4_look_at(g_camera.pos, g_camera.target, g_camera.up);
     g_view_proj = mat4_mul(camera_projection(g_camera, w as f32 / h), g_view);
+    if !g_view_proj_cache_valid || !view_proj_matches(g_view_proj, g_cached_view_proj) {
+        g_cached_view_proj = g_view_proj;
+        g_view_proj_version += 1;
+        g_view_proj_cache_valid = true;
+    }
     g_view_state.view_proj = g_view_proj;
     g_frustum = frustum_from_view_proj(g_view_proj);
     g_view_state.eye = g_camera.pos;
@@ -492,13 +505,19 @@ fn sort_key(mesh_id: i32, dist: f32, blended: bool) -> f32 {
 // One node's worth of a frame: its matrices multiplied out, its colour and
 // shading parameters, and the key that decides where it sorts.
 fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
+    if !n.mvp_cache_valid || n.world_dirty || n.cached_mvp_view_version != g_view_proj_version {
+        n.cached_mvp = mat4_mul(g_view_proj, n.world);
+        n.cached_mvp_view_version = g_view_proj_version;
+        n.mvp_cache_valid = true;
+        n.world_dirty = false;
+    }
     var surface = Material { color: n.color, texture: n.texture, alpha_mode: n.alpha_mode,
         alpha_cutoff: n.alpha_cutoff, unlit: n.unlit, spec: n.spec, shine: n.shine, .. };
     if material_valid(n.material) { surface = g_materials[n.material]; }
     let blended = surface.alpha_mode == 2 || (surface.alpha_mode == 0 && surface.color.w < 0.999);
     return DrawItem {
         mesh: n.mesh,
-        mvp: mat4_mul(g_view_proj, n.world),
+        mvp: n.cached_mvp,
         model: n.world,
         color: surface.color,
         params: float4 { if surface.unlit { 1.0 } else { 0.0 }, surface.spec, surface.shine,

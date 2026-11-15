@@ -38,6 +38,11 @@ struct Node {
     spec: f32 = 0.25,           // specular strength
     shine: f32 = 24.0,          // specular exponent
     world: Mat4,                // filled by `node_update_worlds`, do not set
+    world_dirty: bool = true,   // sticky until a draw item refreshes its cached MVP
+    cached_world_parent: i32 = -2,
+    cached_mvp: Mat4,
+    cached_mvp_view_version: i64 = -1,
+    mvp_cache_valid: bool,
     local_matrix: Mat4,         // optional imported affine transform
     use_local_matrix: bool,
     cached_local: Mat4,          // local transform cache for unparented nodes
@@ -333,13 +338,23 @@ fn node_cache_local(n: Node&) {
     n.local_cache_valid = true;
 }
 
+fn node_world_matches(a: Mat4, b: Mat4) -> bool {
+    for i in 16 { if a.m[i] != b.m[i] { return false; } }
+    return true;
+}
+
 // Multiplied out from the root down, into every node's `world`. A chain
 // longer than 64 is treated as a loop and stops there rather than hanging.
 fn node_update_worlds() {
     for &n in g_nodes {
         if n.parent < 0 {
-            if node_local_cache_changed(n) { node_cache_local(n); }
-            n.world = n.cached_local;
+            let local_changed = node_local_cache_changed(n);
+            if local_changed { node_cache_local(n); }
+            if local_changed || n.cached_world_parent != n.parent {
+                n.world = n.cached_local;
+                n.world_dirty = true;
+            }
+            n.cached_world_parent = n.parent;
             continue;
         }
         var w = node_local(n);
@@ -351,7 +366,11 @@ fn node_update_worlds() {
             p = pn.parent;
             up++;
         }
-        n.world = w;
+        if !node_world_matches(n.world, w) || n.cached_world_parent != n.parent {
+            n.world = w;
+            n.world_dirty = true;
+        }
+        n.cached_world_parent = n.parent;
     }
 }
 
