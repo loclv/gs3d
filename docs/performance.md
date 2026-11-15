@@ -213,7 +213,24 @@ ms per frame before and 0.118–0.120 ms after. Two static runs measured
 bursts include CPU submission and can be affected by queued GPU work; they
 show a substantial improvement for this sparse-motion workload, but do not
 establish a physical-GPU or GPU-execution-time improvement. The fully moving
-result also warrants further measurement for a possible regression.
+result also warrants further measurement for a possible regression. A further
+six interleaved runs measured 0.336–0.376 ms before and 0.334–0.365 ms after;
+the overlapping ranges do not establish whether a regression exists.
+
+To repeat this comparison, build the benchmark and save the baseline bridge:
+
+```sh
+./build_web.sh --benchmark
+git show 6f64bc6^:web/webgpu.js > /tmp/g3-webgpu-baseline.js
+node web/benchmark/measure-webgpu.mjs /tmp/g3-webgpu-baseline.js 32
+```
+
+The second argument selects the number of moving instances (0–1,024). The
+script runs three interleaved samples per version in fresh headless Chrome
+processes and fails if the renderer falls back to WebGL2. Set `G3_CHROME` to
+the Chrome executable on systems where the default macOS path is unavailable.
+It requires Node.js with the built-in WebSocket API. Its SwiftShader timings
+measure synchronous CPU submission, not completed GPU work.
 
 ## WebGL morph animation benchmark
 
