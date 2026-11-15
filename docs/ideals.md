@@ -24,10 +24,11 @@ that re-derives a camera matrix would silently diverge from the engine.
 is the single place a `DrawItem` is built, and it multiplies out
 `view_proj * world` there so no backend ever touches a camera matrix.
 
-**Check.** Both backends render the same demo to the same pixels; the CPU one
-is the reference tests read from.
+**Check.** The WebGL2 and CPU backends render matching reference frames; the
+CPU one is the reference tests read from. The WebGPU default path has a browser
+smoke check.
 
-## 2. Both backends are the same machine
+## 2. The reference backends agree
 
 **Claim.** Depth `LESS`, back faces culled, CCW front faces, and the fragment
 maths term for term — identical in `platform/g3_web.c` and `platform/g3_soft.c`.
@@ -38,7 +39,7 @@ the GLSL, a "passing" pixel test passes the wrong thing.
 **Enforced by.** `docs/architecture.md` lists the drawing rules; `docs/abi.md`
 lists them again as the contract; `src/test_engine.goose` reads pixels.
 
-**Check.** A PPM `cmp` between the two backends on the same frame. A change
+**Check.** A PPM `cmp` between WebGL2 and CPU on the same frame. A change
 to fragment maths in one and not the other fails it.
 
 ## 3. Arenas, not heaps

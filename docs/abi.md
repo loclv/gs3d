@@ -217,7 +217,7 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 int g3_backend_resize(int width, int height);   /* 0 if it cannot resize */
 ```
 
-## Drawing rules (both backends)
+## Drawing rules (render backends)
 
 1. Clear colour and depth from `ViewState.clear`.
 2. Depth test `LESS`, depth write on, front faces CCW. Back faces are culled

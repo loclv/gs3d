@@ -10,6 +10,7 @@
 // hud.js; what is left here is the order things happen in.
 
 import createGoose3D from './app.js';
+import { prepareWebGPU } from './webgpu.js';
 import { fitToDisplay } from './canvas.js';
 import { attachInput } from './input.js';
 import { createStatusLine, createStatsLine } from './hud.js';
@@ -17,7 +18,7 @@ import { createStatusLine, createStatsLine } from './hud.js';
 // A tab that was hidden, or a pause in a debugger, must not jump the animation.
 const MAX_FRAME_SECONDS = 0.1;
 
-const canvas = document.getElementById('canvas');
+let canvas = document.getElementById('canvas');
 const status = createStatusLine(document.getElementById('status'));
 
 let engine = null;      // the wasm module, once it is running frames
@@ -31,11 +32,15 @@ window.gooseError = (message) => {
   else console.error('g3:', message);
 };
 window.gooseSurfaceFailed = () =>
-  status.failIfSilent('WebGL2 could not be started on this device.');
+  status.failIfSilent('Neither WebGPU nor WebGL2 could be started on this device.');
 
-if (!hasWebGL2()) {
-  status.fail('This browser has no WebGL2, which this engine needs.\n' +
-              'Try a recent Chrome, Firefox, Safari or Edge, with hardware acceleration on.');
+// WebGPU is restricted to secure contexts. The local wildcard address often
+// used by development servers (http://[::]) is not trusted by browsers, while
+// localhost is. Keep the same port/path and move local development onto the
+// trusted loopback origin before feature detection.
+const localHost = location.hostname.replace(/^\[|\]$/g, '');
+if (location.protocol === 'http:' && localHost === '::') {
+  location.replace(`http://localhost:${location.port}${location.pathname}${location.search}${location.hash}`);
 } else {
   boot();
 }
@@ -46,6 +51,11 @@ function hasWebGL2() {
 
 async function boot() {
   let module;
+  const webgpuAvailable = await prepareWebGPU(canvas);
+  if (!webgpuAvailable && !hasWebGL2()) {
+    status.fail('This browser supports neither WebGPU nor WebGL2. Try a recent browser with graphics acceleration enabled.');
+    return;
+  }
   try {
     module = await createGoose3D();
   } catch (error) {
@@ -62,6 +72,12 @@ async function boot() {
     return;
   }
 
+  // The renderer may replace a canvas if WebGPU setup fails after obtaining
+  // its context, so attach browser input to the backend's surviving canvas.
+  canvas = document.getElementById('canvas');
+  const actualSize = fitToDisplay(canvas);
+  if (actualSize.width !== size.width || actualSize.height !== size.height)
+    module._g3_input_resize(actualSize.width, actualSize.height);
   engine = module;
   stats = createStatsLine(document.getElementById('hud'), engine);
   status.hide();

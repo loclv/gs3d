@@ -15,6 +15,9 @@
    platform/g3_input.c, which is shared with the other backend and exported to
    JavaScript by that file's Emscripten attribute. */
 
+#ifdef G3_DUAL_RENDERER
+#include "g3_webgl_rename.h"
+#endif
 #include "g3_abi.h"
 #include "g3_input.h"
 

@@ -3,9 +3,9 @@
 A small but complete 3D engine written entirely in
 [Goose](https://github.com/aardappel/goose), the memory-safe systems language
 with no heap, no garbage collector and no lifetime annotations. It runs in a
-browser — Goose compiles to C, C compiles to WebAssembly, and the engine's
-triangles go out through WebGL2 — and it runs headless on the CPU, which is how
-its frames are tested.
+browser — Goose compiles to C and then WebAssembly. The default page renders
+through WebGPU when an adapter is available and automatically falls back to
+WebGL2; the CPU backend runs headless and provides pixel-level reference tests.
 
 ```
       your scene (Goose)                      GoS 3D engine (Goose)
@@ -13,16 +13,16 @@ its frames are tested.
                                                           │  one call per frame
                                     ┌─────────────────────┴─────────────────────┐
                                     ▼                                           ▼
-                     platform/g3_web.c  (WebGL2)              platform/g3_soft.c  (CPU)
-                     Emscripten → app.wasm                    reference rasterizer
+             platform/g3_webgpu.c + platform/g3_web.c          platform/g3_soft.c
+               WebGPU primary · WebGL2 fallback                 CPU reference
                                     │                                           │
                               canvas in a browser                        frame.ppm / pixel checks
 ```
 
 The engine knows nothing about a window, a canvas or a GPU: it hands a backend
-a sorted list of draw items and the frame's constants. That seam (`src/g3/platform.goose`)
-is a dozen `extern fn`s, and both backends here implement the same ones, so the
-same scene renders identically in a tab and on disk.
+a sorted list of draw items and the frame's constants. That seam
+(`src/g3/platform.goose`) keeps scene construction independent of WebGPU,
+WebGL2 and the CPU reference renderer.
 
 ## What's here
 
@@ -46,6 +46,7 @@ same scene renders identically in a tab and on disk.
 | `platform/g3_abi.h` | the C side of the contract, with static asserts on the layout |
 | `platform/g3_input.{h,c}` | the key and mouse queue both backends share; each supplies only `g3_backend_resize` |
 | `platform/g3_web.c` | the WebGL2 backend (Emscripten), scene and shadow shaders, opaque instancing, GPU skin and morph deformation |
+| `platform/g3_webgpu.c`, `web/webgpu.js` | WebGPU backend and JavaScript WebGPU bridge used by the default landing page; WebGL2 remains its fallback |
 | `platform/g3_soft.c` | the CPU backend: a z-buffered reference rasterizer, threaded over row blocks |
 | `docs/` | `architecture.md`, `abi.md`, `performance.md` — the reference detail |
 | `.agents/skills/` | five `SKILL.md` guides for working in this repo (map, language, ABI, features, testing) |
@@ -54,6 +55,21 @@ same scene renders identically in a tab and on disk.
 | `web/canvas.js`, `web/input.js`, `web/hud.js` | sizing in device pixels, events, and the two lines of text |
 
 ## Run it in the browser
+
+The default landing page (`/`) prefers WebGPU. It requests an adapter and
+device before creating the engine; if WebGPU is unavailable or setup fails, it
+replaces the canvas if needed and starts the existing WebGL2 renderer. The
+current WebGPU path covers the built-in demo's indexed meshes, directional
+lighting, fog, unlit materials, transparency, depth, and resize. Textures,
+render targets, shadows, PBR extensions, and post-processing remain on the
+WebGL2 renderer used by the specialized viewer and reference pages.
+
+WebGPU requires a secure context; `web/shell.js` redirects the local wildcard
+URL `http://[::]` to trusted `http://localhost` so local development can use it.
+The browser capability check is feature-based: an unavailable adapter or a
+WebGPU pipeline validation failure takes the fallback path. `./build_web.sh`
+builds both renderers for `/`; `./build_web.sh --all` keeps the specialized
+tool pages on their existing WebGL2 builds.
 
 ### View a textured model
 
@@ -560,7 +576,7 @@ sees runs of the same mesh back to back, where a driver saves state changes.
 Blended items get keys above 1000000 and are ordered far to
 near, so they are drawn after everything opaque and read the depth they should.
 
-**One seam, two backends.** A `DrawItem` is packed data: an `i32` mesh id, two
+**One seam, multiple backends.** A `DrawItem` is packed data: an `i32` mesh id, two
 `Mat4`s, colour, shading parameters, the sort key, texture IDs, alpha settings,
 a double-sided flag, twelve texture-coordinate transforms, clearcoat and sheen factors and maps, and per-material environment intensity, 653 bytes. A
 `Vertex` is 120 bytes, including eight UV sets, tangent and colour. Its
@@ -574,8 +590,10 @@ silently.
 The CPU backend is not a toy: its `shade()` is the same shader as
 `platform/g3_web.c`'s GLSL, term for term, driven by the same matrices. That is
 what makes the headless path a real test of the engine rather than a second
-implementation that agrees with itself. It is also why the two backends'
-frame statistics match exactly (11 draws, 6884 triangles above). It is threaded,
+implementation that agrees with itself. The WebGPU backend renders the same
+built-in scene through its WGSL path, while extended material and post-processing
+APIs remain WebGL2-only. CPU and WebGL2 frame statistics match exactly (11 draws,
+6884 triangles above). The CPU renderer is threaded,
 too: triangles are transformed once into a display list, then 8-row blocks are
 rasterized in parallel by workers that claim them atomically — 4.65× on eight
 logical cores, with byte-identical output.
@@ -691,7 +709,7 @@ stationary and tangent contact. It accepts the combined projectile/target radius
 `./build_native.sh --test` includes combat/state regression checks and writes
 `build/siege.ppm` through the CPU backend.
 
-The browser renderer starts on WebGL2 devices with 16 fragment texture units.
+The WebGL2 material renderer starts on devices with 16 fragment texture units.
 Material shaders are compiled on demand and kept in a bounded 64-program cache.
 Five fragment units are reserved for lighting maps; material maps occupy only
 the remaining units they actually use. On a 16-unit device a single material

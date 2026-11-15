@@ -1,0 +1,32 @@
+/* Compile the existing WebGL2 implementation under private names so the
+   browser can dispatch the stable g3p ABI to WebGPU or WebGL2 at startup. */
+#define g3p_init g3glp_init
+#define g3p_shutdown g3glp_shutdown
+#define g3p_width g3glp_width
+#define g3p_height g3glp_height
+#define g3p_upload_mesh g3glp_upload_mesh
+#define g3p_release_mesh g3glp_release_mesh
+#define g3p_upload_texture g3glp_upload_texture
+#define g3p_upload_texture_srgb g3glp_upload_texture_srgb
+#define g3p_upload_texture_hdr g3glp_upload_texture_hdr
+#define g3p_create_render_target g3glp_create_render_target
+#define g3p_resize_render_target g3glp_resize_render_target
+#define g3p_post_process g3glp_post_process
+#define g3p_post_process_shader_create g3glp_post_process_shader_create
+#define g3p_post_process_shader_release g3glp_post_process_shader_release
+#define g3p_post_process_shader_run g3glp_post_process_shader_run
+#define g3p_texture_width g3glp_texture_width
+#define g3p_texture_height g3glp_texture_height
+#define g3p_load_radiance_hdr g3glp_load_radiance_hdr
+#define g3p_decode_texture_srgb g3glp_decode_texture_srgb
+#define g3p_decode_texture_linear g3glp_decode_texture_linear
+#define g3p_release_texture g3glp_release_texture
+#define g3p_texture_wrap g3glp_texture_wrap
+#define g3p_texture_filter g3glp_texture_filter
+#define g3p_texture_generate_mips g3glp_texture_generate_mips
+#define g3p_texture_generate_env_mips g3glp_texture_generate_env_mips
+#define g3p_draw_frame g3glp_draw_frame
+#define g3p_save_frame g3glp_save_frame
+#define g3p_read_pixel g3glp_read_pixel
+#define g3_backend_resize g3gl_backend_resize
+#define g3_host_scene_draw_calls g3gl_host_scene_draw_calls

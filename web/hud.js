@@ -44,7 +44,7 @@ export function createStatsLine(element, engine) {
   function draw() {
     const rate = fps > 0 ? `${fps.toFixed(0)} fps` : '— fps';
     const sceneCalls = typeof engine._g3_host_scene_draw_calls === 'function'
-      ? ` · ${engine._g3_host_scene_draw_calls()} GPU calls`
+      ? ` · ${engine._g3_host_scene_draw_calls()} ${window.g3Renderer ?? 'GPU'} calls`
       : '';
     const feedbackSkips = typeof engine._g3_app_feedback_items_suppressed === 'function'
       ? engine._g3_app_feedback_items_suppressed()

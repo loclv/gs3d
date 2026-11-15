@@ -11,10 +11,11 @@ A Goose program builds a scene by pushing nodes into a global arena and writing
 through the references it gets back. Each frame the engine multiplies out the
 nodes' world matrices, computes a view-projection matrix, derives six frustum
 planes from it, culls nodes, packs surviving nodes into a `DrawItem` each,
-sorts that list, and hands it to the backend in a single call. The backend —
-WebGL2 in a browser, a CPU rasterizer headless — draws the list in order and
-knows nothing about scenes, cameras or culling. The engine knows nothing about
-canvases, GL state or files.
+sorts that list, and hands it to the backend in a single call. The default
+browser page prefers WebGPU and falls back to WebGL2; specialized browser tools
+use WebGL2, and headless tests use the CPU rasterizer. Backends draw the list in
+order and know nothing about scenes, cameras or culling. The engine knows
+nothing about canvases, GPU state or files.
 
 ## Data model: arenas, handles, references
 
@@ -95,7 +96,7 @@ static asserts. See [`abi.md`](abi.md) for offsets and field semantics.
 The engine never calls GL, never opens a file, never reads a key from the OS.
 Input, presentation and file output all arrive through the seam.
 
-## The two backends
+## The renderer backends
 
 Both must agree on three rules — depth `LESS`, back faces culled, CCW front
 faces — and on the fragment maths, because the CPU one is the reference that
@@ -114,6 +115,19 @@ tests read pixels from.
   nothing and the engine is handed the real delta.
 * The first frame checks `glGetError()` once and reports it to the page, so a
   driver problem is a message rather than a blank canvas.
+
+### `platform/g3_webgpu.c` and `web/webgpu.js` — default page
+
+* The WebGPU path handles the built-in demo's meshes, depth, directional
+  lighting, fog, unlit materials and transparency. JavaScript owns adapter and
+  device setup and copies the packed Goose draw list from WebAssembly memory.
+* `web/shell.js` awaits adapter/device and pipeline creation before starting
+  Goose. The dispatcher uses WebGL2 when WebGPU is missing or setup fails; a
+  failed WebGPU canvas is replaced before WebGL2 takes ownership.
+* Textures, render targets, shadows, PBR material extensions, skinning,
+  morphing and post-processing are not implemented in this WebGPU path. The
+  specialized viewer and reference pages continue to use the complete WebGL2
+  backend.
 
 ### `platform/g3_soft.c` — CPU reference rasterizer
 
@@ -145,8 +159,8 @@ at 1, 3, 5 and 8 workers.
 
 ```
 web/index.html   canvas, #hud (stats), #help (keys), #status (boot/failure)
-web/shell.js     boot: hasWebGL2? -> createGoose3D() -> fitToDisplay() ->
-                 _g3_host_start(w,h) -> attachInput() -> rAF(frame)
+web/shell.js     boot: redirect local [::] to localhost -> prepare WebGPU ->
+                 createGoose3D() -> _g3_host_start(w,h) -> input -> rAF(frame)
 web/canvas.js    device-pixel sizing (DPR capped at 2)
 web/input.js     KEY_CODES map -> g3_input_key(); pointer drag -> g3_input_mouse()
 web/hud.js       status line (with failIfSilent) and the live stats line
@@ -161,7 +175,7 @@ frames and read statistics.
 | decision | why | what was rejected |
 |---|---|---|
 | Arenas + index handles | Goose has no heap; growth keeps identity stable | allocating per node (no heap), a linked list (cache, and no stable handle) |
-| One call per frame (`g3p_draw_frame`) | the seam stays tiny and identical for both backends | per-item extern calls (a wasm boundary crossing per item) |
+| One call per frame (`g3p_draw_frame`) | the seam stays tiny across the renderers | per-item extern calls (a wasm boundary crossing per item) |
 | Sort by mesh for opaque | batching on the GPU is worth more than fewer shaded pixels on the CPU | front-to-back order (would cut CPU overdraw shading ~16 % but break GPU batching) |
 | CPU backend as the reference | tests can read pixels without a GPU, and a wrong frame is the engine's fault | a mock backend (proves nothing about the maths) |
 | Two roots sharing a demo scene | the browser and the headless render obviously run the same thing | one root with `#ifdef`, which Goose does not do |
