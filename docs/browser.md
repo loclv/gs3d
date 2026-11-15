@@ -77,7 +77,7 @@ Headless Playwright runs with Chrome for Testing 159.0.8154.6, a 1280×720
 canvas, and 1,024 cubes produced these before and after results:
 
 | Backend / revision | Scene draw calls | Browser FPS | Frame-call median / p95 | WebGL backend median / p95 | GPU median / p95 |
-|---|---:|---:|---:|---:|---:|
+|---|---|---|---|---|---|
 | Goose 3D before | 1 | 21.4 | 45.60 / 54.00 ms | — | — |
 | Goose 3D optimized, run 1 | 1 | 40.2 | 0.20 / 0.30 ms | 0.10 / 0.20 ms | 15.86 / 20.32 ms |
 | Three.js r180 WebGL2, run 1 (historical) | 1 | 35.0 | 0.10 / 0.20 ms | — | 16.79 / 39.02 ms |
@@ -108,7 +108,7 @@ The benchmark now pins Three.js r187 (npm 0.187.0). Matched headless Chrome
 and 300 sampled frames per renderer and workload:
 
 | Renderer | Workload | Scene calls | Browser FPS | CPU frame-call median / p95 | CPU submit median / p95 | GPU median / p95 |
-|---|---|---:|---:|---:|---:|---:|
+|---|---|---|---|---|---|---|
 | Goose WebGPU | Static | 1 | 60.0 | 1.20 / 1.30 ms | 0.50 / 0.60 ms | unavailable |
 | Three.js r187 WebGPU | Static | 2 | 60.0 | 0.50 / 0.80 ms | — | unavailable |
 | Three.js r187 WebGL2 | Static | 1 | 60.0 | 0.20 / 0.30 ms | — | 0.37 / 0.41 ms |
@@ -139,7 +139,7 @@ improvement with no measured gain for moving scenes. The same synchronous
 workload against Three.js r187 WebGPU measured:
 
 | Renderer | Static frame-call median / p95 | All moving median / p95 |
-|---|---:|---:|
+|---|---|---|
 | Goose 3D before cache (`106552e`) | 0.2 / 0.2 ms | 0.2 / 0.3 ms |
 | Goose 3D with culling cache | 0.1 / 0.2 ms | 0.2 / 0.3 ms |
 | Three.js r187 WebGPU | 0.0 / 0.1 ms | 0.1 / 0.5 ms |
@@ -173,7 +173,7 @@ zero bytes; growing it to 768 uploads 12,288 bytes instead of the previous
 targets passed the 16-unit texture-budget checks. This reduces transfer volume
 for changing batches; it does not change the static-scene FPS measurement.
 
-The comparison page's **Moving instances per frame** selector also supports
+The comparison page's Moving instances per frame selector also supports
 matching animation workloads. Use `?backend=goose&count=1024&motion=32` (or
 `backend=three`); `motion=1024` animates every visible instance. Both renderers
 use the same frame-indexed horizontal motion, and Three.js uses dynamic buffers
@@ -200,7 +200,7 @@ and scanning a second full cache array each frame. A headless Chrome 157 run wit
 120 warmup frames, and 300 samples measured:
 
 | Workload | Goose before: frame / submit | Goose after: frame / submit | Three.js WebGPU frame |
-|---|---:|---:|---:|
+|---|---|---|---|
 | Static instances, median / p95 | 1.50 / 1.70 ms · 0.80 / 0.90 ms | 1.20 / 1.30 ms · 0.50 / 0.60 ms | 0.60 / 0.80 ms |
 | All instances moving, median / p95 | 1.80 / 1.90 ms · 1.00 / 1.10 ms | 1.50 / 1.70 ms · 0.70 / 0.80 ms | 0.70 / 0.90 ms |
 
@@ -220,7 +220,7 @@ Playwright bursts on headless Chrome 157 (1280×720, 1,024 cubes, 500 warmup
 frames, 5,000 measured frames, three runs), average CPU frame-call times were:
 
 | Workload | Goose before (`3eadc7d`) | Goose 80-byte records | Three.js r187 WebGPU |
-|---|---:|---:|---:|
+|---|---|---|---|
 | Static | 0.135 ms | 0.117 ms | 0.172 ms |
 | All 1,024 moving | 0.240 ms | 0.205 ms | 0.203 ms |
 
@@ -252,7 +252,7 @@ after five frames was byte-identical to the committed baseline. Native tests,
 all web builds, and a Playwright animated-homepage smoke check passed. This
 isolated CPU microbenchmark does not establish a whole-frame FPS gain.
 
-For a browser rotation workload, enable **Rotate moving instances** or add
+For a browser rotation workload, enable Rotate moving instances or add
 `&rotate=1&motion=1024&count=1024` to the comparison URL. Both backends use
 the same three Euler angles and `Rz * Ry * Rx` order. At 1280×720 in headless
 Playwright, the original TRS chain measured CPU median/p95 0.40/0.40 ms and
@@ -267,7 +267,7 @@ a general advantage over Three.js or a physical-GPU speedup.
 ### Engine demo
 
 ```bash
-./build_web.sh --serve        # builds web/app.js + app.wasm, serves on :8080
+./build_web.sh --serve # builds web/app.js + app.wasm, serves on :8080
 ```
 
 Then open <http://localhost:8080/>. Arrows orbit, `W`/`S` zoom, `Q`/`E` spin the
@@ -330,7 +330,7 @@ with 1,024 visible cubes and 120 warmup plus 300 sampled frames. The static and
 fully animated workloads use the same instance grid for Goose and Three.js:
 
 | Workload | Renderer | Frame-call median / p95 | Backend CPU submit median / p95 | Browser FPS |
-|---|---|---:|---:|---:|
+|---|---|---|---|---|
 | Static | Goose WebGPU | 1.00 / 1.80 ms | 0.60 / 1.00 ms | 60.0 |
 | Static | Three.js WebGPU | 0.60 / 1.00 ms | — | 60.0 |
 | 1,024 moving | Goose WebGPU | 1.40 / 2.00 ms | 0.80 / 1.10 ms | 60.0 |

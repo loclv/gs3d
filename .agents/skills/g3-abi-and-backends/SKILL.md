@@ -38,7 +38,7 @@ Field meanings that the comments in `platform.goose` state and the code relies o
   engine also sets `params.w = 1`).
 * `DrawItem.params` — `x` unlit (1 = skip lighting), `y` specular strength,
   `z` shininess, `w` blended.
-* `DrawItem.key` — the engine's sort key. **Backends draw in list order**;
+* `DrawItem.key` — the engine's sort key. Backends draw in list order;
   the key is documentation of that order, not a second instruction.
 * `ViewState.ambient` — rgb, `a` = intensity (multiply by it).
 * `ViewState.fog` — rgb, `a` = density (exponential, per world unit; 0 = off).
@@ -85,18 +85,18 @@ int g3_backend_resize(int width, int height);   /* 0 if it cannot */
 
 ## The rules every backend follows
 
-1. **State.** Depth test `GL_LESS`/`z < depth`, back faces culled, front faces
+1. State. Depth test `GL_LESS`/`z < depth`, back faces culled, front faces
    counter-clockwise. The CPU backend implements the same three rules by hand;
    changing one without the other is a bug.
-2. **Blending.** Blended items (`params.w > 0.5`) are drawn with
-   `src_alpha, 1-src_alpha` and **do not write depth**; opaque items write it.
+2. Blending. Blended items (`params.w > 0.5`) are drawn with
+   `src_alpha, 1-src_alpha` and do not write depth; opaque items write it.
    The engine's far→near ordering is what makes this correct.
-3. **Order.** Draw items in list order. Do not re-sort.
-4. **Shading.** The fragment maths must match the other backend term for term
+3. Order. Draw items in list order. Do not re-sort.
+4. Shading. The fragment maths must match the other backend term for term
    (see below).
-5. **Resize.** `g3p_width/height` reflect the current surface; a resize call
+5. Resize. `g3p_width/height` reflect the current surface; a resize call
    updates them and the viewport.
-6. **Failure talks.** If init cannot make a surface, print the reason and, where
+6. Failure talks. If init cannot make a surface, print the reason and, where
    there is a page, report it (`report()` in `g3_web.c` → `window.gooseError`).
 
 ## Keeping the two shaders in step
@@ -113,21 +113,21 @@ the same computation written twice:
 | fog | `mix(col, fog.rgb, clamp(1-exp(-dist*fog.a), 0, 1))` | same |
 
 Test data: a frame rendered by the CPU backend at 960×600 is 11 draw items and
-6,884 triangles, and the browser build reports **the same counts** in its HUD.
+6,884 triangles, and the browser build reports the same counts in its HUD.
 If you change one shader, change the other, then compare those numbers and the
 image.
 
 ## Hosts: who calls `g3p_init`
 
-* **Native** — the Goose root has `main()` and calls `g3::init()`, which calls
+* Native — the Goose root has `main()` and calls `g3::init()`, which calls
   `g3p_init`. Simple, and the loop is a `for`.
-* **Web** — the Goose root is `--standalone` (no `main`) and exports
+* Web — the Goose root is `--standalone` (no `main`) and exports
   `g3_app_init/g3_app_frame/g3_app_shutdown` plus stats getters. `platform/g3_web.c`
   provides `g3_host_start(width, height)` (exported with
   `EMSCRIPTEN_KEEPALIVE`), which calls `goose_init(0, NULL)` and then
   `g3_app_init`; `web/shell.js` calls it once the canvas has its real size and
   then calls `g3_app_frame(dt)` from `requestAnimationFrame`.
-  **Do not rely on `main` running** in the Emscripten module: with
+  Do not rely on `main` running in the Emscripten module: with
   `-sMODULARIZE` + `-sEXPORT_ES6` it is not invoked, which is exactly why the
   host entry point exists. Exported symbols must also be listed in
   `build_web.sh`'s `-sEXPORTED_FUNCTIONS` (or marked `EMSCRIPTEN_KEEPALIVE`).
@@ -136,7 +136,7 @@ image.
 
 1. `src/g3/platform.goose` — add the field with a comment saying what it means
    and who computes it.
-2. `platform/g3_abi.h` — add the matching C field **in the same position**, and
+2. `platform/g3_abi.h` — add the matching C field in the same position, and
    update `sizeof(g3_draw_item)` plus an `offsetof` assert for the new field.
 3. `src/g3/render.goose` — set it in `pack_item()` (it is the only place items
    are built).
@@ -160,7 +160,7 @@ as garbage geometry, not as an error.
    `c_sources = ["../platform/g3_<name>.c", "../platform/g3_input.c"];`
    `c_include = ["../platform"];` `c_libs = [...]` (e.g. `m`, `pthread`).
 3. Implement `shade()` as the GLSL from `g3_web.c`, term for term, unless the
-   backend *is* the GPU one.
+   backend is the GPU one.
 4. Verify against the existing pair: render the same scene and compare images or,
    at minimum, the stats (draw items, triangles) and a handful of pixels from
    `src/test_engine.goose`.

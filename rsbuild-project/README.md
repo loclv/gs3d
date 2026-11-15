@@ -18,7 +18,7 @@ bun run dev
 
 Open the local URL printed by Rsbuild. The starter scene is a three-part signal
 beacon. Select a part to edit its name, size, position, and colour; add or remove
-boxes; drag the preview to orbit it; then choose **Export model** to download a
+boxes; drag the preview to orbit it; then choose Export model to download a
 `.glb`. The exported file is glTF 2.0 and can be loaded by the Goose 3D asset
 loader.
 

@@ -49,27 +49,27 @@ Consequences worth knowing:
 
 `g3::frame(dt)` in `src/g3/engine.goose` is the whole story:
 
-```
+```text
 frame(dt)
-├── g_time += dt; g_frames += 1
-├── sample_input()                     g3p_key_down(i) for all 512 codes,
+├─g_time += dt; g_frames += 1
+├─sample_input()                     g3p_key_down(i) for all 512 codes,
 │                                      previous frame's state kept for edges
-├── g_width/height = g3p_width/height  the surface may have been resized
-├── begin_frame(time, w, h)            render.goose
-│   ├── g_draws.clear(); stats reset
-│   ├── node_update_worlds()           each node's world = parent-chain product
-│   ├── view = look_at(camera)
-│   ├── view_proj = perspective(fov, w/h, near, far) * view
-│   ├── frustum  = frustum_from_view_proj(view_proj)   Gribb–Hartmann, 6 planes
-│   └── view_state.eye = camera.pos; params.x = time
-└── render_scene()
-    ├── for each node: skip invisible / group
+├─g_width/height = g3p_width/height  the surface may have been resized
+├─begin_frame(time, w, h)            render.goose
+│   ├─g_draws.clear(); stats reset
+│   ├─node_update_worlds()           each node's world = parent-chain product
+│   ├─view = look_at(camera)
+│   ├─view_proj = perspective(fov, w/h, near, far) * view
+│   ├─frustum  = frustum_from_view_proj(view_proj)   Gribb–Hartmann, 6 planes
+│   └─view_state.eye = camera.pos; params.x = time
+└─render_scene()
+  ├─for each node: skip invisible / group
     │     box = aabb_transform(mesh.bounds, node.world)
     │     if !frustum_intersects(frustum, box) -> stats.culled += 1; continue
     │     dist = |aabb_center(box) - camera.pos|
     │     g_draws.push(pack_item(node, mesh, dist))
-    ├── sort(g_draws) by key
-    └── g3p_draw_frame(g_draws, view_state)          ← the only call out
+  ├─sort(g_draws) by key
+  └─g3p_draw_frame(g_draws, view_state)          ← the only call out
 ```
 
 `pack_item()` is the single place a `DrawItem` is built: it multiplies out
@@ -78,10 +78,10 @@ frame(dt)
 
 ### The sort is the batching
 
-* **Opaque** (`color.w >= 1`): key = mesh id. Items of one mesh end up adjacent,
+* Opaque (`color.w >= 1`): key = mesh id. Items of one mesh end up adjacent,
   where a GPU driver saves state changes.
-* **Blended** (`color.w < 1`): key = `1000000 + (100000 - distance)`, so blended
-  items sort far→near *and* after every opaque item. A backend must draw in list
+* Blended (`color.w < 1`): key = `1000000 + (100000 - distance)`, so blended
+  items sort far→near and after every opaque item. A backend must draw in list
   order; the blended pass then reads the depth of everything behind it and does
   not write depth itself.
 
@@ -136,13 +136,13 @@ writer, `read_pixel` for tests, and (on native builds) threads.
 
 Its frame has two phases, which is the interesting part:
 
-1. **Transform, serially.** For every item and triangle, `setup_triangle()` does
-   the clip-space transform, the back-face test (`det` is *negative* because the
+1. Transform, serially. For every item and triangle, `setup_triangle()` does
+   the clip-space transform, the back-face test (`det` is negative because the
    screen y axis is flipped against NDC), the depth-range test and the screen
    bbox, then the triangle is appended to a display list (`soft_quad`, ~140 bytes
    per triangle in the frame). Transforming once per frame is what makes phase 2
    cheap: the alternative redoes it for every band a triangle touches.
-2. **Rasterize, in parallel.** Rows are handed out as 8-row blocks that workers
+2. Rasterize, in parallel. Rows are handed out as 8-row blocks that workers
    claim with `atomic_fetch_add`. Each worker walks the display list in order
    and rasterizes the triangles that reach its rows: edge functions first (a
    sign test, no division), then two divisions for inside pixels, depth test,
@@ -157,7 +157,7 @@ at 1, 3, 5 and 8 workers.
 
 ## The web host
 
-```
+```text
 web/index.html   canvas, #hud (stats), #help (keys), #status (boot/failure)
 web/shell.js     boot: redirect local [::] to localhost -> prepare WebGPU ->
                  createGoose3D() -> _g3_host_start(w,h) -> input -> rAF(frame)

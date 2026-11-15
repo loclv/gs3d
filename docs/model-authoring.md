@@ -79,12 +79,12 @@ deterministically from the checked-in source and image asset.
 
 For example:
 
-> Create a small low-poly robot in TypeScript. Use `GlbBuilder` and the geometry
-> helpers in `web/model-authoring.ts`; define named meshes, materials, and nodes
-> in a `.ts` source file. Keep it around 2 world units tall, add a camera-facing
-> key light, and use a limited color palette. Generate a GLB, run
-> `npm --prefix web run test:model-authoring`, and open the asset in
-> `/viewer/`. Do not hand-edit GLB bytes.
+>Create a small low-poly robot in TypeScript. Use `GlbBuilder` and the geometry
+>helpers in `web/model-authoring.ts`; define named meshes, materials, and nodes
+>in a `.ts` source file. Keep it around 2 world units tall, add a camera-facing
+>key light, and use a limited color palette. Generate a GLB, run
+>`npm --prefix web run test:model-authoring`, and open the asset in
+>`/viewer/`. Do not hand-edit GLB bytes.
 
 This keeps an agent's work in a reviewable text diff. Geometry is expressed as
 vertices, normals, UVs, and indices, while the standard glTF document describes

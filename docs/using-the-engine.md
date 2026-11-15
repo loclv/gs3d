@@ -1,6 +1,5 @@
 # Using the engine
 
-
 ```goose
 import std;
 import vec;
@@ -65,7 +64,7 @@ calls them (`src/app_web.goose` is 30 lines long).
 
 What the API gives you:
 
-* **Physics** — `import g3.physics`, attach an axis-aligned box to a node with
+* Physics — `import g3.physics`, attach an axis-aligned box to a node with
   `physics_body_add(node, half_extents, mass)`, and call `physics_step(dt)`
   before `frame(dt)`. Mass zero makes a static collider. Gravity defaults to
   `(0, -9.81, 0)` and can be changed with `physics_set_gravity`; apply forces
@@ -74,7 +73,7 @@ What the API gives you:
   positional correction, and normal and friction impulses. Bodies have no
   angular motion or capsule/sphere colliders; `physics_clear()` removes all
   bodies.
-* **Meshes** — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
+* Meshes — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
   for your own geometry. Pushes stage one mesh and `mesh_close(fv, fi)` closes
   that batch; the two offset arguments remain accepted for source compatibility.
@@ -84,7 +83,7 @@ What the API gives you:
   use an ordinary mesh. Removal releases backend geometry and makes its arena
   spans available to ordinary meshes and asset loads. Numeric mesh IDs are
   never reused.
-* **Textures** — import `g3.texture`, call `texture_create(width, height, rgba)`
+* Textures — import `g3.texture`, call `texture_create(width, height, rgba)`
   with row-major RGBA8 pixels or `texture_create_hdr(width, height, rgba)` with
   linear RGBA32F pixels for HDR radiance, then select an environment with
   `set_environment_map`.
@@ -151,7 +150,7 @@ What the API gives you:
   works with HDR lighting values. Browser projects can use `loadHDRImage`;
   native projects can load the supported Radiance RGBE subset with
   `texture_load_hdr(path)`.
-* **Nodes** — `node_add(mesh)`, `node_group()`, `node(id) -> Node&`,
+* Nodes — `node_add(mesh)`, `node_group()`, `node(id) -> Node&`,
   `node_parent(child, parent)`, `scene_clear()`, and `node_count()`. A node has
   position, euler rotation, scale, colour, `unlit`, `visible`, specular
   strength and shininess. `node_handle(id)` and `node_handle_valid(handle)`
@@ -160,7 +159,7 @@ What the API gives you:
   or texture. Its children are reparented to its former parent with their
   transforms preserved; their local transforms become baked matrices. Raw
   indices and references must not be used after removal or scene reset.
-* **Materials** — `material_add()` creates a shared surface, and
+* Materials — `material_add()` creates a shared surface, and
   `material(id)` exposes its colour, texture, alpha, unlit and specular fields.
   Set `pbr = true` to use metallic-roughness direct lighting with `metallic`
   and `roughness` factors in [0, 1]; set `ior` (default 1.5) to adjust
@@ -175,7 +174,7 @@ What the API gives you:
   materials and their textures are separate resources, and `scene_clear()`
   does not remove them. glTF materials are shared within each loaded model and
   their asset-owned slots are reused after disposal.
-* **Camera** — `camera() -> Camera&` (fov, near, far, up), `camera_look_at`,
+* Camera — `camera() -> Camera&` (fov, near, far, up), `camera_look_at`,
   `camera_orbit(yaw, pitch, distance, target)`, `camera_orbit_nudge`,
   `camera_zoom`. Set `camera().orthographic = true` and a positive
   `camera().ortho_height` (the full vertical extent in world units) for an
@@ -192,7 +191,7 @@ What the API gives you:
   `camera_active()` returns `-1` until the first is added. A reference returned
   by `camera()` refers to the active camera storage and should not be retained
   across a switch.
-* **Lighting** — a primary directional light (`set_light`), up to eight extra
+* Lighting — a primary directional light (`set_light`), up to eight extra
   directional, point or spot lights (`add_directional_light`, `add_point_light`,
   `add_spot_light`, `clear_lights`), ambient light and a hemispherical sky/ground
   fill (`set_ambient`, `set_environment`) or an equirectangular map uploaded
@@ -222,15 +221,15 @@ What the API gives you:
   for all three shadow types; hard shadows are the default. Use
   `set_shadow_resolution(256|512|1024)` to choose map dimensions; 512 is the
   default.
-* **Frame** — `init`, `frame(dt)`, `shutdown`, `width`/`height`/`aspect`/`time`,
+* Frame — `init`, `frame(dt)`, `shutdown`, `width`/`height`/`aspect`/`time`,
   `stats()` (nodes, drawn, culled, triangles, draws), `read_pixel`,
   `save_frame` where the backend can write one.
-* **Input** — `key_down`, `key_pressed`, `key_released` with `KEY_*` codes, and
+* Input — `key_down`, `key_pressed`, `key_released` with `KEY_*` codes, and
   `mouse_dx`/`mouse_dy` deltas.
 
 ## A Goose trap worth knowing
 
-`let c = g3::camera()` **copies** the camera, because a reference to a
+`let c = g3::camera()` copies the camera, because a reference to a
 fixed-size value decays to a copy when the variable's type is inferred. Writing
 `c.pos = ...` then edits the copy and nothing moves. Use one of:
 
@@ -246,7 +245,7 @@ and tests show both forms.
 
 Deliberately out of scope for now, in rough order of how much they would add:
 
-* **Partial PBR.** Shared materials support metallic-roughness factors and
+* Partial PBR. Shared materials support metallic-roughness factors and
   maps, tangent-space normal maps for surface shading, and occlusion maps for
   indirect fill, plus emissive factors and textures. Static, skinned, and
   morphed glTF meshes use authored tangent attributes and tangent morph deltas
@@ -255,7 +254,7 @@ Deliberately out of scope for now, in rough order of how much they would add:
   mapping, FXAA-style edge smoothing, exposure controls, and Radiance RGBE
   environment image loading are available. Full colour
   management remains incomplete.
-* **Limited shadows, environment lighting, and normals.** The primary
+* Limited shadows, environment lighting, and normals. The primary
   directional light, one selected extra point light, and one selected spot
   light cast shadows; PCF filtering has hard, 3×3, and 5×5 settings, and
   blended objects do not cast them. Map resolution is selectable from 256 to
@@ -264,19 +263,19 @@ Deliberately out of scope for now, in rough order of how much they would add:
   Environment textures provide diffuse fill and GGX-prefiltered reflections.
   Browser and native Radiance RGBE loaders preserve HDR radiance; a skybox is
   not available.
-* **WebGL deformation limits.** WebGL morph targets support up to 64 targets
+* WebGL deformation limits. WebGL morph targets support up to 64 targets
   per primitive and a 64 MiB delta-texture budget; larger or unsupported meshes
   fall back to CPU deformation. GPU skin palettes and GPU morph weights can
   combine, and CPU geometry remains synchronized for picking. The CPU reference
   backend always deforms on the CPU. Native glTF loading supports a static subset; see [Assets](assets.md) for browser asset support.
-* **Limited removal.** Ordinary nodes can be removed and reused. Unreferenced
+* Limited removal. Ordinary nodes can be removed and reused. Unreferenced
   ordinary meshes and textures can be removed; mesh backend allocations are
   freed and their arena spans can be reused by ordinary meshes and asset loads.
   Browser-loaded assets recycle their owned nodes, mesh spans, and texture IDs
   on disposal. `mesh_compact()` packs live geometry but retains arena capacity;
   mesh descriptor records remain append-only. `scene_clear()`
   clears the scene; asset handles are invalid after their owner is disposed.
-* **Singular transforms.** A zero-scale transform has no inverse normal matrix;
+* Singular transforms. A zero-scale transform has no inverse normal matrix;
   its surface normals become zero rather than receiving directional lighting.
-* **f32 only**, and no frustum-cone/AABB hierarchy — culling is per node, which
+* f32 only, and no frustum-cone/AABB hierarchy — culling is per node, which
   is fine to a few thousand nodes and would want a BVH beyond that.

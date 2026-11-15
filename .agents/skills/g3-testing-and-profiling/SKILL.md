@@ -27,7 +27,7 @@ that is what `build_native.sh --test` relies on.
 comment above the check, never copied from a debug print of the engine.** Three
 derivations in this file have been wrong on the first run and the engine was
 right — a rotated cube's AABB is not the cube (radius √3 → 2.164), the eye sits
-behind the near plane by definition but *inside* the far one (so the far plane
+behind the near plane by definition but inside the far one (so the far plane
 evaluates to +100 at the eye, not −100), and the inverse of a projection loses
 ~0.005 at a 2000:1 near/far ratio to f32 cancellation in its own w row. Those
 are the failures a self-consistent test suite cannot produce. When a check fails,
@@ -49,15 +49,15 @@ fn case_trs() {
 ```
 
 * Helpers: `close_to`, `close3`, `close_mat`, `box(lo, hi)`, `point_box(p, half)`.
-* Tolerances are chosen per case and justified: **0.0 where f32 is exact**
+* Tolerances are chosen per case and justified: 0.0 where f32 is exact
   (identity products, ±1, powers of two), `1e-6` for one matrix chain, `1e-3`
   for `M · M⁻¹` with a projective row.
 * No backend is linked, so this root needs no surface and runs in milliseconds.
-* Cover the *conventions*, not just the happy path: right-handed rotations
+* Cover the conventions, not just the happy path: right-handed rotations
   (which sign each 90° turn gives), the Z-then-Y-then-X Euler order, GL clip
   space (near → −1, far → +1), aspect scaling, `look_at` for a turned camera,
   the singular-matrix fallback, and frustum planes with a rotated camera.
-* For `trs`, pin the *order* with facts that survive a rewrite: the local origin
+* For `trs`, pin the order with facts that survive a rewrite: the local origin
   lands on the position (translation last), a local axis is scaled before it is
   turned, and a negative scale mirrors instead of collapsing. Comparing
   `trs(t,r,s)` against `translate(t) · rotate_euler(r) · scale(s)` proves nothing
@@ -66,7 +66,7 @@ fn case_trs() {
   `M · M⁻¹ = I` to 1e-6), the bare projection mapping NDC z back to eye space
   (near exactly, far to 0.01 — see above), and a view matrix whose inverse puts
   the origin back at the eye.
-* For frustums, reject a box outside *each* of the six planes individually, and
+* For frustums, reject a box outside each of the six planes individually, and
   add an orthographic frustum: it is the same six-row extraction, but the sides
   come out parallel, so a per-plane sign error in the two x and two y rows
   cannot hide behind a cone.
@@ -93,7 +93,7 @@ Rules that make these checks meaningful:
 * Work out where a point lands by hand: for a camera at `+5z`, fov 0.9 and a
   400×400 surface, `ndc = x / (depth * tan(fov/2))`, `pixel = (ndc*0.5+0.5)*W`.
   `pixel_of()` in the test does exactly that; it must never call engine matrices.
-* Assert with a tolerance of ±2/255 — but also assert *exactness* where the
+* Assert with a tolerance of ±2/255 — but also assert exactness where the
   arithmetic is exact: the 50 % red-over-magenta blend is `(255,0,128)` to the
   byte, precisely because `0.5*255 + 0.5*128` rounds there.
 * Always pair a negative check with its positive: "a plane seen from below is
@@ -107,14 +107,14 @@ Rules that make these checks meaningful:
 The strongest evidence available for a refactor or an optimisation:
 
 ```bash
-./build/app_native --frames 5 --width 480 --height 300 --out before.ppm   # old build
+./build/app_native --frames 5 --width 480 --height 300 --out before.ppm # old build
 # ... change, rebuild ...
 ./build/app_native --frames 5 --width 480 --height 300 --out after.ppm
 cmp before.ppm after.ppm && echo identical
 ```
 
-**Pitfall that cost real time:** the demo scene animates, so `--frames 5` and
-`--frames 120` are different pictures. Compare with the *same* frame count and
+Pitfall that cost real time: the demo scene animates, so `--frames 5` and
+`--frames 120` are different pictures. Compare with the same frame count and
 the same size, or the diff is meaningless.
 
 For the multithreaded rasterizer, also compare across worker counts — the output
@@ -133,7 +133,7 @@ G3_PROFILE=1 ./build/app_native --frames 120 --width 960 --height 600
 
 No rebuild, so the numbers are the shipped code's. It prints per-frame:
 
-```
+```text
   clear      0.07 ms/frame
   setup      0.15 ms/frame  ( 2731 triangles,    55 ns each)
   raster     6.97 ms/frame  (675718 shaded of 692339 pixels, 10.3 ns each)
@@ -142,7 +142,7 @@ No rebuild, so the numbers are the shipped code's. It prints per-frame:
 
 * `G3_THREADS=1` forces one worker: always measure both, or you cannot tell what
   the threads bought.
-* Take the **min of three runs**; single-run numbers move by a few percent.
+* Take the min of three runs; single-run numbers move by a few percent.
 * Overhead when on is ~2 % of wall clock; when off it is two predictable
   branches per triangle.
 
@@ -157,23 +157,23 @@ No rebuild, so the numbers are the shipped code's. It prints per-frame:
 | `expf` (fog) | 0.4 ms | 1 % |
 | two barycentric divisions | 0.3 ms | 1 % |
 | clear + triangle setup | 0.22 ms | 0.7 % |
-| whole frame, 8 workers | 7.2 ms | **4.65×** |
+| whole frame, 8 workers | 7.2 ms | 4.65× |
 
 ### What was tried, and what it measured
 
-* **Defer the divisions behind an exact sign test** — kept, byte-identical,
+* Defer the divisions behind an exact sign test — kept, byte-identical,
   0.1 ms (only 2 % of tested pixels are outside their triangle). Beware:
-  `det` is *negative* because the screen y axis is flipped against NDC; the sign
+  `det` is negative because the screen y axis is flipped against NDC; the sign
   test must fold in `edge_sense` or it silently changes pixels.
-* **One reciprocal per triangle** — rejected: 0.3 ms is not worth changing one
+* One reciprocal per triangle — rejected: 0.3 ms is not worth changing one
   rounding in the reference backend.
-* **Hoist frame constants into a global** — rejected and *slower* (31.9 vs
+* Hoist frame constants into a global — rejected and slower (31.9 vs
   31.0 ms): writes through `fb` force clang to reload the global every pixel.
   Keeping them as `const g3_view_state *` reads was already optimal.
-* **Skip `powf` when the half-vector faces away; skip lighting for unlit items**
+* Skip `powf` when the half-vector faces away; skip lighting for unlit items
   — rejected, slower (31.4 ms) on this scene: it has almost no unlit or
   back-facing pixels, so the branch only disturbed the pipeline.
-* **Row-block threading** — kept: 4.65×, pixel-identical. Equal contiguous bands
+* Row-block threading — kept: 4.65×, pixel-identical. Equal contiguous bands
   only reached 3.1× because the scene's geometry all sits below the horizon; a
   dynamically claimed block (`atomic_fetch_add(&next_block, 1)`, 8 rows) balances
   it.
@@ -181,7 +181,7 @@ No rebuild, so the numbers are the shipped code's. It prints per-frame:
 ### Method, generalised
 
 1. Get a stable baseline (min of three, same command).
-2. **Ablate to attribute**: replace one term with a cheap equivalent, measure,
+2. Ablate to attribute: replace one term with a cheap equivalent, measure,
    restore. That is how `powf` was found to be 21 % — reading the code would not
    have shown it.
 3. Only then optimise, one change at a time, rebuilding and re-measuring.

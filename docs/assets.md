@@ -512,7 +512,7 @@ fetches and decodes assets in JavaScript.
   exact mip generation and derivatives can differ from a GPU. glTF base-colour
   images are decoded from sRGB before filtering; factors and alpha are linear.
 
-This is **not a complete glTF implementation**. It rejects required extensions,
+This is not a complete glTF implementation. It rejects required extensions,
 more than eight skin influences, non-triangle modes and
 advanced texture/sampler extensions. Authored glTF `TANGENT` attributes are
 used for static and skinned meshes. Morphed meshes without authored tangents

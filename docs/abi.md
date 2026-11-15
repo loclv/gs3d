@@ -10,10 +10,10 @@ The procedural checklist lives in
 
 ## Why it looks like this
 
-* Goose structs are **packed with no padding**, so `Mat4` is 64 bytes and a
+* Goose structs are packed with no padding, so `Mat4` is 64 bytes and a
   `float3` is 12 — the same bytes the backend reads are the bytes the engine
   wrote, with no marshalling.
-* `Mat4` is **column-major**, `m[col * 4 + row]`, which is GL's layout for
+* `Mat4` is column-major, `m[col * 4 + row]`, which is GL's layout for
   `glUniformMatrix4fv` with `transpose = GL_FALSE`. The CPU backend indexes it
   the same way (`m[0]*x + m[4]*y + m[8]*z + m[12]`).
 * Slices cross as `{ const T *data; int64_t len; }`. Goose `bool` crosses as
@@ -60,7 +60,7 @@ it, then adds the offset.
 | 68 | `g3_mat4` | `model` | model matrix: world-space normals, fog distance, eye-relative work |
 | 132 | `g3_vec4` | `color` | RGB multiplier and alpha factor |
 | 148 | `g3_vec4` | `params` | x unlit, y specular strength, z shininess, w blended (1.0) |
-| 164 | `float` | `key` | the engine's sort key; **draw in list order** |
+| 164 | `float` | `key` | the engine's sort key; draw in list order |
 | 168 | `int32_t` | `texture` | texture id, or -1 for no texture |
 | 172 | `int32_t` | `alpha_mode` | 0 opaque, 1 mask, 2 blend |
 | 176 | `float` | `alpha_cutoff` | alpha threshold for mask mode |
@@ -175,7 +175,7 @@ typedef struct { const uint8_t *data; int64_t len; }      g3_u8_slice;   /* no N
 typedef struct { const float *data; int64_t len; }        g3_f32_slice;
 ```
 
-`g3_u8_slice` is a Goose `const u8[:]`: **not** null-terminated. `g3_f32_slice`
+`g3_u8_slice` is a Goose `const u8[:]`: not null-terminated. `g3_f32_slice`
 is a float pointer and element count for linear HDR texture uploads. A backend that
 needs a C string copies it and appends `'\0'` (see `path_of()` in
 `platform/g3_soft.c`).
@@ -205,7 +205,7 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 | `void g3p_texture_generate_env_mips(int32_t id)` | build GGX importance-sampled roughness mips without changing ordinary material mipmaps |
 | `void g3p_draw_frame(g3_draw_item_slice, const g3_view_state *)` | clear, then draw every item in order |
 | `uint8_t g3p_key_down(int32_t key)` | is this key down right now |
-| `float g3p_mouse_dx(void)` / `g3p_mouse_dy(void)` | movement since last read; **reading consumes it** |
+| `float g3p_mouse_dx(void)` / `g3p_mouse_dy(void)` | movement since last read; reading consumes it |
 | `uint8_t g3p_save_frame(g3_u8_slice path)` | write the frame; 0 where impossible (browser) |
 | `uint32_t g3p_read_pixel(int32_t x, int32_t y)` | `0xRRGGBB` of the frame just drawn, (0,0) top-left, 0 outside |
 
@@ -224,7 +224,7 @@ int g3_backend_resize(int width, int height);   /* 0 if it cannot resize */
    unless the draw item is double-sided; double-sided back-face normals are
    flipped before lighting.
 3. For `params.w > 0.5`: enable blending
-   `src_alpha, 1 - src_alpha`, **disable depth writes**. Otherwise blending off
+   `src_alpha, 1 - src_alpha`, disable depth writes. Otherwise blending off
    and depth writes on.
 4. Draw items strictly in list order.
 5. Fragment maths exactly as in `docs/architecture.md` — the C `shade()` and the
@@ -237,7 +237,7 @@ These exist for a host, not for the engine:
 | host | function | purpose |
 |---|---|---|
 | native | `g3_input_key(int, int)`, `g3_input_mouse(float, float)`, `g3_input_resize(int, int)` | feed input from a test or script |
-| web | `g3_host_start(int w, int h)` | **the page's entry point**: `goose_init` + `g3_app_init`; exported with `EMSCRIPTEN_KEEPALIVE` |
+| web | `g3_host_start(int w, int h)` | the page's entry point: `goose_init` + `g3_app_init`; exported with `EMSCRIPTEN_KEEPALIVE` |
 | web | `g3_input_key/mouse/resize` | same three, exported to JS by `g3_input.h`'s `G3_HOST_API` |
 | web | `g3_host_scene_draw_calls()` | WebGL scene-pass draw calls for the current frame; shadow and presentation passes are excluded |
 | web | `g3_host_mesh_morph`, `g3_host_morph_weights`, `g3_host_mesh_morph_release` | upload per-mesh glTF position, normal and tangent deltas, update animated weights, and release the optional GPU morph path |

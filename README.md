@@ -3,8 +3,8 @@
 A small 3D engine written in [Goose](https://github.com/aardappel/goose), a memory-safe systems language without a heap or garbage collector. It runs in the browser through WebGPU or WebGL2, and headlessly through a CPU reference renderer.
 
 ```bash
-./build_web.sh --serve       # build and open http://localhost:8080/
-./build_native.sh --test     # build and run native checks
+./build_web.sh --serve # build and open http://localhost:8080/
+./build_native.sh --test # build and run native checks
 ```
 
 See [Getting started](docs/getting-started.md) for prerequisites, native rendering, and tests. The browser build prefers WebGPU and falls back to WebGL2; [Browser examples and benchmarks](docs/browser.md) covers the viewer, games, supported renderer features, and measurements.

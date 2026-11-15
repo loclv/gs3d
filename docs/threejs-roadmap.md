@@ -31,14 +31,14 @@ The browser renderer and asset API are the primary product surface. The native
 loader also supports core node transform, morph-weight, and four-influence
 skeletal animation. Prioritize work in this order:
 
-1. **Close the browser validation gaps.** Repeatable headless rendering and
+1. Close the browser validation gaps. Repeatable headless rendering and
    viewer interaction checks now run in CI for textured materials, environment
    lighting, point and spot shadows, animation, camera switching, and asset
    disposal. Keep CPU pixel tests as fast regression checks; still capture
    reference images on target GPUs and validate touch behavior on physical
    devices, since SwiftShader cannot establish hardware-specific output or
    touch ergonomics.
-2. **Complete — native scene contract.** The supported glTF subset and
+2. Complete — native scene contract. The supported glTF subset and
    failure behavior are documented in [assets.md](assets.md). Native tests
    cover queryable load errors, GLB binary data, external and base64 buffers, GLB buffer-view,
    external and data-URI images, malformed and unsafe paths, PPM/PNG/JPEG/HDR
@@ -47,7 +47,7 @@ skeletal animation. Prioritize work in this order:
    palettes. Add matching fixtures and lifecycle checks when expanding this
    supported subset. Native loaders reject malformed or unsupported required
    extension lists before creating scene resources.
-3. **Finish package adoption.** The local consumer example at
+3. Finish package adoption. The local consumer example at
    `web/examples/model-loader/` uses both package subpaths, accepts a CORS-
    enabled remote model URL, reports load errors, preserves the current model
    after failed replacements, disposes superseded results, and protects
@@ -57,7 +57,7 @@ skeletal animation. Prioritize work in this order:
    offline use. Package files, subpaths, declarations, and prepublish tests are
    ready under Apache-2.0. Publish the package and verify an installed consumer
    against the registry artifact.
-4. **Expand Three.js coverage from demonstrated use cases.** Add renderer or
+4. Expand Three.js coverage from demonstrated use cases. Add renderer or
    asset features when a concrete viewer or game needs them. Record unsupported
    extensions and rendering differences in the docs instead of implying full
    Three.js API or visual compatibility.
@@ -80,9 +80,9 @@ and a browser integration check for behavior exposed through WebGL.
 
 ### 1. Reliable model viewer
 
-* **Implemented:** view-volume clipping and inverse-transpose normals for
+* Implemented: view-volume clipping and inverse-transpose normals for
   non-uniform scale. Continue expanding CPU and browser rendering checks.
-* **Partly implemented:** asset-owned slots are reused, adjacent free mesh
+* Partly implemented: asset-owned slots are reused, adjacent free mesh
   spans are split and coalesced, ordinary mesh creation reuses released spans,
   checked ordinary mesh removal releases backend geometry, ordinary textures
   can be removed when no live node, material or environment references them,
@@ -94,29 +94,29 @@ and a browser integration check for behavior exposed through WebGL.
   compaction reuses the packed tail without returning backing storage. Revisit
   physical reclamation only with an API and runtime design that preserves handle
   safety and stable ordinary IDs.
-* **Implemented:** texture alpha, wrapping, filtering, and opt-in sRGB output,
+* Implemented: texture alpha, wrapping, filtering, and opt-in sRGB output,
   including glTF base-colour decoding and per-texture sampler settings. The
   supported material maps and extensions are listed below; broader glTF
   extension support remains future work.
-* **Implemented:** dense and sparse accessors, including zero-initialized
+* Implemented: dense and sparse accessors, including zero-initialized
   sparse-only data and validated sparse indices, ranges, component alignment,
   vertex-only byte strides and normalized flags. Continue expanding validation
   for the rest of the glTF specification.
-* **Implemented:** node matrices and TRS transforms, texture transforms, camera
+* Implemented: node matrices and TRS transforms, texture transforms, camera
   projection values, default morph weights, and unbounded material scalars are
   checked against the engine's finite float32 range before they cross the
   JavaScript-to-Wasm boundary. Derived camera planes and orthographic view height
   are checked too; animation results are checked when sampled.
-* **Implemented:** `KHR_mesh_quantization` decodes quantized base and morph
+* Implemented: `KHR_mesh_quantization` decodes quantized base and morph
   position, normal, tangent and texture-coordinate accessors into engine floats.
   Quantized assets must declare the extension as required.
-* **Implemented:** the browser loader selects the glTF default scene or an
+* Implemented: the browser loader selects the glTF default scene or an
   explicit scene index. When `scenes` is omitted, it builds an implicit scene
   from unparented nodes and reports scene index `-1`; invalid selections and
   cyclic implicit hierarchies fail before engine resource creation.
-* **Implemented:** `EXT_texture_webp` loads its WebP source when decodable and
+* Implemented: `EXT_texture_webp` loads its WebP source when decodable and
   falls back to the core source when fetching or decoding WebP fails.
-* **Partly implemented:** native Goose programs can load selected scene static
+* Partly implemented: native Goose programs can load selected scene static
   mesh instances and their node hierarchy beneath a checked scene group, or
   load and dispose every primitive on one selected GLB/glTF node beneath its checked group root,
   including float and required `KHR_mesh_quantization` positions, normals,
@@ -143,46 +143,46 @@ and a browser integration check for behavior exposed through WebGL.
   meshes, including bounds. Native scene skins accept one four-influence
   `JOINTS_0`/`WEIGHTS_0` set with optional inverse-bind matrices; standalone
   primitive APIs remain static.
-* **Implemented:** glTF `doubleSided` materials disable face culling in colour
+* Implemented: glTF `doubleSided` materials disable face culling in colour
   and shadow passes and reverse back-face normals before colour lighting.
   Validate these paths against browser reference images.
-* **Implemented:** `KHR_materials_unlit` maps to the engine's unlit material
+* Implemented: `KHR_materials_unlit` maps to the engine's unlit material
   path; unsupported required extensions are rejected with an asset error.
-* **Implemented:** `KHR_materials_emissive_strength` scales emissive factors,
+* Implemented: `KHR_materials_emissive_strength` scales emissive factors,
   including values above 1 for HDR emission.
-* **Implemented:** `KHR_materials_ior` sets dielectric Fresnel reflectance for
+* Implemented: `KHR_materials_ior` sets dielectric Fresnel reflectance for
   direct and environment lighting; glTF's default IOR of 1.5 preserves the
   existing dielectric response.
-* **Implemented:** `KHR_materials_specular` scales and tints dielectric
+* Implemented: `KHR_materials_specular` scales and tints dielectric
   reflections with factors and optional strength/colour maps in both backends;
   metallic specular response remains driven by base colour.
-* **Implemented:** `KHR_materials_clearcoat` factors, R/G strength and
+* Implemented: `KHR_materials_clearcoat` factors, R/G strength and
   roughness maps, and a tangent-space normal map layer direct and environment
   specular highlights and Fresnel-attenuate the base layer in both backends.
-* **Implemented:** `KHR_materials_sheen` colour and roughness factors/maps use
+* Implemented: `KHR_materials_sheen` colour and roughness factors/maps use
   independent texture transforms and add a Charlie-style grazing response to
   direct lighting and a roughness-blurred reflection from environment maps in
   both backends.
-* **Implemented:** `KHR_materials_anisotropy` validates and loads the strength,
+* Implemented: `KHR_materials_anisotropy` validates and loads the strength,
   rotation, and optional linear RG direction/B strength map with its UV
   transform. Both backends apply anisotropic GGX to direct lights; environment
   reflections use the bent-normal single-sample approximation. Browser reference
   validation remains outstanding.
-* **Implemented:** `KHR_materials_variants` loads each referenced material,
+* Implemented: `KHR_materials_variants` loads each referenced material,
   switches mapped primitives by variant name or index, and restores the
   original materials when passed `null`.
-* **Implemented:** glTF `COLOR_0` multiplies material base colour on both
+* Implemented: glTF `COLOR_0` multiplies material base colour on both
   backends; `VEC3` and `VEC4` float or normalized unsigned-byte/unsigned-short
   attributes are supported, and vertex alpha participates in mask and blend
   alpha.
-* **Implemented:** `KHR_texture_transform` applies independent offset,
+* Implemented: `KHR_texture_transform` applies independent offset,
   rotation, scale and coordinate-set selection to each texture slot on
   `TEXCOORD_0` through `_7` in the browser loader and both rendering backends.
-* **Implemented:** glTF meshes use authored `TANGENT` frames for normal maps;
+* Implemented: glTF meshes use authored `TANGENT` frames for normal maps;
   skinning and tangent morph deltas deform tangent directions alongside
   positions and normals. Meshes without authored tangents use the derivative
   frame. Validate browser references.
-* **Partly implemented:** triangle picking and an example viewer with reusable
+* Partly implemented: triangle picking and an example viewer with reusable
   orbit, pan and pinch controls, selection, camera switching, selectable point
   or spot shadow casters, and reload. Its bundled textured animation sample
   includes perspective and orthographic cameras, point and spot lights, and a
@@ -223,14 +223,14 @@ and a browser integration check for behavior exposed through WebGL.
   intensity, and HDR equirectangular environment yaw. Validate these controls
   and actual WebGL output in a browser.
 
-**Done when:** a documented example loads a static textured GLB, orbits it,
+Done when: a documented example loads a static textured GLB, orbits it,
 selects a mesh with a click, and repeatedly loads and disposes models without
 unbounded memory growth. Native and headless browser tests cover malformed files,
 selection, orbit interaction, model reload, and WebGL rendering.
 
 ### 2. Materials and lighting
 
-* **Implemented:** shared materials, metallic-roughness, normal, occlusion,
+* Implemented: shared materials, metallic-roughness, normal, occlusion,
   emissive, specular, clearcoat, and sheen maps. Static and skinned non-morphed
   meshes use authored glTF
   tangents when provided; morphed geometry without tangents uses a UV-derived
@@ -239,7 +239,7 @@ selection, orbit interaction, model reload, and WebGL rendering.
   a split-sum BRDF integration LUT, and a radians-based world-up yaw control
   shared by CPU and WebGL sampling. Reinhard and ACES tone mapping, exposure
   controls, and browser/native Radiance HDR environment loading are implemented.
-* **Implemented:** shadows from the primary directional light, one
+* Implemented: shadows from the primary directional light, one
   selected extra point light, and one selected spot light. Point shadows use a
   six-face cube map; spot shadows use a perspective map. Both backends use
   256, 512, or 1024-pixel maps, opaque and masked casters, and optional 3×3 or
@@ -247,24 +247,24 @@ selection, orbit interaction, model reload, and WebGL rendering.
   reflections; browser and native Radiance RGBE loading retain HDR radiance.
   CPU pixel regressions now verify that point and spot casters darken their
   projected ground footprints while nearby illuminated samples remain lit.
-* **Implemented:** browser Radiance HDR environment image loading. The CPU
+* Implemented: browser Radiance HDR environment image loading. The CPU
   backend composites in floating point; WebGL uses a floating-point render
   target when supported and has an inline fallback. Verify colour output
   against browser reference images. The reference page checks hand-derived
   linear output, sRGB encoding, Reinhard and ACES tone mapping, and exposure
   pixels.
-* **Implemented:** browser applications can set linear sky and ground RGB
+* Implemented: browser applications can set linear sky and ground RGB
   hemisphere colours and intensity independently from the equirectangular map.
   Inputs are checked for finite non-negative float32 values; verify the visual
   result against browser reference images.
 
-**Done when:** representative glTF materials and a shadow-casting scene render
+Done when: representative glTF materials and a shadow-casting scene render
 with documented limitations in both backends, with pixel tests for lighting and
 shadow behavior and browser reference images for the GPU path.
 
 ### 3. Animated assets and richer scenes
 
-* **Partly implemented:** glTF translation, rotation, scale, morph-weight and
+* Partly implemented: glTF translation, rotation, scale, morph-weight and
   skeletal clips support LINEAR, STEP and CUBICSPLINE sampling with play, pause,
   seek, stop and loop controls. WebGL skin palettes and POSITION/NORMAL/TANGENT morph
   textures avoid pose-driven vertex-buffer uploads, including combined
@@ -280,27 +280,27 @@ shadow behavior and browser reference images for the GPU path.
   deformation keeps CPU geometry and bounds synchronized. Native skinning is
   also supported through CPU geometry updates using one JOINTS_0/WEIGHTS_0 set;
   the browser path continues to use joint-palette textures.
-* **Partly implemented:** selectable perspective and orthographic cameras have
+* Partly implemented: selectable perspective and orthographic cameras have
   stable IDs, active-camera fallback, and removal. The browser glTF loader
   imports perspective and orthographic cameras, applies node and animated
   parent transforms and authored aspect framing, and restores the previous view
   when a model camera is deselected or disposed. Reusable orbit, pinch, pan and
   keyboard controls are available; validate camera switching and input in a
   real browser.
-* **Partly implemented:** the browser loader reads `KHR_lights_punctual` and
+* Partly implemented: the browser loader reads `KHR_lights_punctual` and
   can apply eight scene lights with nested, out-of-order-safe restoration and
   animated node transforms. Imported point and spot lights use inverse-square
   attenuation and omit the lighting cutoff when `range` is absent. Shadows
   remain opt-in through `model.applyLights({ pointShadow, spotShadow, bias })`;
   unbounded lights use a 1000-unit shadow projection far plane when selected.
 
-**Done when:** an imported animated character plays, pauses, and switches
+Done when: an imported animated character plays, pauses, and switches
 clips, and a scene can switch between perspective and orthographic cameras.
 Tests cover animation interpolation, skinning, and camera projection.
 
 ### 4. Larger scenes and integration
 
-* **Partly implemented:** the WebGL backend batches adjacent opaque items when
+* Partly implemented: the WebGL backend batches adjacent opaque items when
   mesh and complete material state match, and uses the same instance matrices
   for directional, point and spot shadow passes. Blended items retain their
   sorted order and draw individually. The CPU backend remains the reference
@@ -314,12 +314,12 @@ Tests cover animation interpolation, skinning, and camera projection.
   repeated-mesh benchmark page reports draw calls, browser frame rate,
   and engine-call median and p95; capture results across representative browser
   and GPU configurations before selecting further optimisations.
-* **Implemented:** optional FXAA-style luma edge smoothing runs as a full-screen
+* Implemented: optional FXAA-style luma edge smoothing runs as a full-screen
   WebGL output pass and in the CPU reference renderer.
-* **Partly implemented:** user render targets have explicit creation, selection, resizing, checked handles, and disposal; the texture can be sampled by later frames. Both backends render linear RGBA8 clamped to 0..1 with opaque alpha, use target dimensions for camera projection, and bypass screen tone mapping, sRGB encoding, and FXAA. Resizing clears target contents. Sampling the active target is suppressed to avoid framebuffer feedback, and `Stats.feedback_items_suppressed` plus the browser HUD report how many draw items were skipped. The dedicated browser reference build checks a known linear colour under screen effects, resize, later-frame sampling, active-target feedback suppression, and disposal; the headless runner executes these checks in CI.
-* **Partly implemented:** `post_process_run(source, destination, effect)` provides copy, grayscale, invert, and FXAA passes over explicit texture inputs and render-target outputs; the fixed eight-entry queue executes built-in or custom passes in order. The browser reference page checks each built-in effect's pixel output and a grayscale-then-invert queue result. Keep the existing FXAA convenience switch as a built-in pass.
-* **Partly implemented:** WebGL2 supports a bounded fragment-body post-process with one source texture, UVs, and a colour value; shader creation, execution, and disposal are explicit, with fixed input/output resources and no custom vertex stage or uniforms. The CPU backend returns unsupported. The browser reference page checks a custom shader output, verifies invalid shader diagnostics reach the page, and checks that ordinary rendering recovers from a failed queued pass; the headless runner executes these checks in CI. Define a pass-list integration before expanding uniforms or stages.
-* **Partly implemented:** the browser asset package documents loading, ownership,
+* Partly implemented: user render targets have explicit creation, selection, resizing, checked handles, and disposal; the texture can be sampled by later frames. Both backends render linear RGBA8 clamped to 0..1 with opaque alpha, use target dimensions for camera projection, and bypass screen tone mapping, sRGB encoding, and FXAA. Resizing clears target contents. Sampling the active target is suppressed to avoid framebuffer feedback, and `Stats.feedback_items_suppressed` plus the browser HUD report how many draw items were skipped. The dedicated browser reference build checks a known linear colour under screen effects, resize, later-frame sampling, active-target feedback suppression, and disposal; the headless runner executes these checks in CI.
+* Partly implemented: `post_process_run(source, destination, effect)` provides copy, grayscale, invert, and FXAA passes over explicit texture inputs and render-target outputs; the fixed eight-entry queue executes built-in or custom passes in order. The browser reference page checks each built-in effect's pixel output and a grayscale-then-invert queue result. Keep the existing FXAA convenience switch as a built-in pass.
+* Partly implemented: WebGL2 supports a bounded fragment-body post-process with one source texture, UVs, and a colour value; shader creation, execution, and disposal are explicit, with fixed input/output resources and no custom vertex stage or uniforms. The CPU backend returns unsupported. The browser reference page checks a custom shader output, verifies invalid shader diagnostics reach the page, and checks that ordinary rendering recovers from a failed queued pass; the headless runner executes these checks in CI. Define a pass-list integration before expanding uniforms or stages.
+* Partly implemented: the browser asset package documents loading, ownership,
   and errors. `npm test` runs parser and lifecycle checks against a fake engine,
   plus orbit-control input checks against a fake canvas through the published
   package subpath; the repository-only `test_build_exports.mjs` check verifies
@@ -338,7 +338,7 @@ Tests cover animation interpolation, skinning, and camera projection.
   scenes; extend its supported glTF subset when native applications need more
   formats or extensions.
 
-**Done when:** a documented benchmark demonstrates instancing and resource
+Done when: a documented benchmark demonstrates instancing and resource
 reuse, and published examples build and run through the supported API.
 
 ## Validation principles

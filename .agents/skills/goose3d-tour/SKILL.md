@@ -14,7 +14,7 @@ to build and verify, and which properties the codebase treats as contractual.
 
 ## The shape of it
 
-```
+```text
 your scene (Goose: nodes, camera, materials)
         │
         ▼
@@ -31,7 +31,7 @@ WebGL2 / Emscripten      CPU rasterizer, PPM out, N threads
 canvas in a browser      frame.ppm / read_pixel for tests
 ```
 
-The engine owns everything except *presentation*. It computes matrices, culls
+The engine owns everything except presentation. It computes matrices, culls
 nodes, packs and sorts a draw list, and hands the backends one call per frame.
 No GL call, no window, no file I/O appears anywhere in `src/g3/`.
 
@@ -78,21 +78,21 @@ pointer capture), `web/hud.js` (status line + stats line).
 ## Build and verify
 
 ```bash
-./build_native.sh --test     # builds app_native + both tests, runs both
+./build_native.sh --test # builds app_native + both tests, runs both
 ./build/app_native --frames 8 --width 960 --height 600 --out f.ppm
-./build_web.sh               # web/app.js + app.wasm
-./build_web.sh --serve       # ... and serve on :8080
-goose check src/app_native.goose          # typecheck one root, expect 0 warnings
+./build_web.sh # web/app.js + app.wasm
+./build_web.sh --serve # ... and serve on :8080
+goose check src/app_native.goose # typecheck one root, expect 0 warnings
 ```
 
 Verification ladder, cheapest first — use the lowest rung that proves the change:
 
-1. `goose check <root>` — must print **zero warnings**. The repo has none; a new
+1. `goose check <root>` — must print zero warnings. The repo has none; a new
    warning is a defect, not noise.
 2. `./build_native.sh --test` — 98 math + 19 frame checks, exit non-zero on failure.
-3. **Byte-identical frames.** Any change that is meant to be behaviour-preserving
+3. Byte-identical frames. Any change that is meant to be behaviour-preserving
    must render the same bytes as before: keep a PPM from the old build and `cmp`
-   it. *Pitfall:* the demo scene animates, so compare renders with the **same
+   it. Pitfall: the demo scene animates, so compare renders with the **same
    `--frames` and same size** — `--frames 5` and `--frames 120` are different
    pictures.
 4. `./build_web.sh` then a headless-Chrome DOM dump to confirm the browser path
@@ -100,21 +100,21 @@ Verification ladder, cheapest first — use the lowest rung that proves the chan
 
 ## Invariants
 
-* **No `g3p_` call from `src/g3/` outside `platform.goose`.** The engine stays
+* No `g3p_` call from `src/g3/` outside `platform.goose`. The engine stays
   backend-agnostic; that is what lets two very different backends serve it.
-* **Draw list order is the contract.** Backends draw items in the order given;
+* Draw list order is the contract. Backends draw items in the order given;
   `key` only explains the order. Opaque keys are mesh ids (batching), blended
   keys are far→near above 1000000.
-* **The ABI is packed and static-asserted.** Adding or moving a field means
+* The ABI is packed and static-asserted. Adding or moving a field means
   updating `platform/g3_abi.h`, its asserts, and the README table together.
-* **The two backends share their fragment math term for term.** `g3_soft.c`'s
+* The two backends share their fragment math term for term. `g3_soft.c`'s
   `shade()` is the GLSL in `g3_web.c` written out in C; changing one without the
   other is a bug even if nothing fails.
-* **The CPU backend's output is deterministic.** Same inputs → same bytes,
+* The CPU backend's output is deterministic. Same inputs → same bytes,
   regardless of thread count (verified: 1/3/5/8 workers `cmp` clean).
-* **Nothing is heap-allocated in Goose.** Geometry, nodes and the draw list are
+* Nothing is heap-allocated in Goose. Geometry, nodes and the draw list are
   grow-only globals; handles are indices into them.
-* **Records are never shrunk.** `node_add` hands out references that stay valid
+* Records are never shrunk. `node_add` hands out references that stay valid
   for the life of the program; `scene_clear()` is the only reset and the
   compiler enforces that no live reference survives it.
 
