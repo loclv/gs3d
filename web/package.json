@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "test": "node ./test_assets.mjs && node ./test_orbit_controls.mjs && node ./test_package_exports.mjs && node ./test_reference_test_server.mjs && node ./test_publish_metadata.mjs && node ./test_package_tarball.mjs && npm run test:model-authoring",
+    "test": "node ./test_webgpu_uploads.mjs && node ./test_assets.mjs && node ./test_orbit_controls.mjs && node ./test_package_exports.mjs && node ./test_reference_test_server.mjs && node ./test_publish_metadata.mjs && node ./test_package_tarball.mjs && npm run test:model-authoring",
     "build:robot": "node --experimental-strip-types ./viewer/generate_robot.ts",
     "build:sample": "node --experimental-strip-types ./viewer/generate_sample.ts",
     "test:model-authoring": "node --experimental-strip-types ./test_model_authoring.ts",

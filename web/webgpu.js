@@ -239,19 +239,20 @@ window.g3wgpu = {
     allocInstances(count);
     setFrameConstants(viewPtr);
     drawBatchStarts.length=0; drawBatchLengths.length=0;
-    let instancesChanged=!instanceDataValid;
+    let firstChanged=count, lastChanged=-1;
+    const markChanged = i => { firstChanged=Math.min(firstChanged,i); lastChanged=Math.max(lastChanged,i); };
     for(let i=0;i<count;i++) {
       const p=itemsPtr+i*653;
       const mesh=meshes.get(dv.getInt32(p,true));
       if(!mesh||mesh.count===0) continue;
-      instancesChanged=packInstance(p,i*INSTANCE_FLOATS,!instanceDataValid||i>=packedInstanceCount)||instancesChanged;
+      if(packInstance(p,i*INSTANCE_FLOATS,!instanceDataValid||i>=packedInstanceCount)) markChanged(i);
       let batchCount=1;
       const alphaMode=dv.getInt32(p+172,true), alpha=dv.getFloat32(p+144,true);
       const blended=dv.getFloat32(p+160,true)>0.5 || alphaMode===2 || (alphaMode===0 && alpha<0.999);
       if(!blended) while(i+batchCount<count && batchCompatible(p,itemsPtr+(i+batchCount)*653)) batchCount++;
       for(let j=1;j<batchCount;j++) {
         const item=i+j;
-        instancesChanged=packInstance(itemsPtr+item*653,item*INSTANCE_FLOATS,!instanceDataValid||item>=packedInstanceCount)||instancesChanged;
+        if(packInstance(itemsPtr+item*653,item*INSTANCE_FLOATS,!instanceDataValid||item>=packedInstanceCount)) markChanged(item);
       }
       const uniformBase=drawBatchStarts.length*stride/4;
       copyVec(p,148,uniformData,uniformBase);
@@ -263,7 +264,7 @@ window.g3wgpu = {
       drawBatchStarts.push(i); drawBatchLengths.push(batchCount);
       i+=batchCount-1;
     }
-    if(count>packedInstanceCount) { packedInstanceCount=count; instancesChanged=true; }
+    if(count>packedInstanceCount) packedInstanceCount=count;
     instanceDataValid=true;
     if(count) {
       const uniformLength=drawBatchStarts.length*stride/4;
@@ -274,10 +275,15 @@ window.g3wgpu = {
         uniformCache.set(uniformData.subarray(0,uniformLength),0);
         uniformBufferValid=true;
       }
-      if(instancesChanged||count>uploadedInstanceCount||!instanceBufferValid) {
-        device.queue.writeBuffer(instanceBuffer,0,instanceData.buffer,0,count*INSTANCE_BYTES);
+      // Slots beyond the uploaded high-water mark have no GPU contents yet,
+      // even if the corresponding draw item currently references no mesh.
+      if(!instanceBufferValid) { firstChanged=0; lastChanged=count-1; }
+      else if(count>uploadedInstanceCount) { firstChanged=Math.min(firstChanged,uploadedInstanceCount); lastChanged=count-1; }
+      if(lastChanged>=firstChanged) {
+        const offset=firstChanged*INSTANCE_BYTES;
+        device.queue.writeBuffer(instanceBuffer,offset,instanceData.buffer,offset,(lastChanged-firstChanged+1)*INSTANCE_BYTES);
         instanceBufferValid=true;
-        uploadedInstanceCount=count;
+        uploadedInstanceCount=Math.max(uploadedInstanceCount,count);
       }
     }
     const clear={r:dv.getFloat32(viewPtr+68,true),g:dv.getFloat32(viewPtr+72,true),b:dv.getFloat32(viewPtr+76,true),a:1};

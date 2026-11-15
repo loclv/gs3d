@@ -196,6 +196,14 @@ two modes in the same browser session and device state, at the same cube count
 and canvas dimensions. The report is a local diagnostic, not a general claim
 that one engine is faster across workloads or hardware.
 
+The WebGPU instance buffer uploads the smallest contiguous span containing
+changed records. For example, one changed instance in a 1,024-instance batch
+uploads 80 bytes instead of 81,920; changing a prefix of 32 uploads 2,560
+bytes. Initial allocation and buffer growth still upload all visible records.
+`node web/test_webgpu_uploads.mjs` verifies these transfer rules with a recording
+device, including shrinking and growing the visible count. These byte counts do
+not by themselves demonstrate a frame-time improvement on a GPU.
+
 ## WebGL morph animation benchmark
 
 Build and serve the 64-target morph benchmark with:
