@@ -122,8 +122,8 @@ Open <http://localhost:8080/benchmark/compare.html>. Choose Goose WebGPU,
 Three.js WebGPU, or Three.js WebGL2 with the tabs; only that renderer runs at a
 time. Goose WebGPU falls back automatically to WebGL2. Three.js WebGPURenderer
 also falls back automatically when WebGPU is unavailable. Three.js downloads
-pinned version 0.180.0 from jsDelivr. Match browser, window size, cube count,
-and moving-instance count when comparing frame-call median and p95.
+pinned version 0.187.0 (r187) from jsDelivr. Match browser, window size, cube
+count, and moving-instance count when comparing frame-call median and p95.
 
 #### Headless Playwright result
 
@@ -134,9 +134,9 @@ canvas, and 1,024 cubes produced these before and after results:
 |---|---:|---:|---:|---:|---:|
 | Goose 3D before | 1 | 21.4 | 45.60 / 54.00 ms | — | — |
 | Goose 3D optimized, run 1 | 1 | 40.2 | 0.20 / 0.30 ms | 0.10 / 0.20 ms | 15.86 / 20.32 ms |
-| Three.js 0.180.0, run 1 | 1 | 35.0 | 0.10 / 0.20 ms | — | 16.79 / 39.02 ms |
+| Three.js r180 WebGL2, run 1 (historical) | 1 | 35.0 | 0.10 / 0.20 ms | — | 16.79 / 39.02 ms |
 | Goose 3D optimized, run 2 | 1 | 34.9 | 0.20 / 0.30 ms | 0.10 / 0.20 ms | 16.44 / 32.72 ms |
-| Three.js 0.180.0, run 2 | 1 | 30.0 | 0.10 / 0.20 ms | — | 19.08 / 43.35 ms |
+| Three.js r180 WebGL2, run 2 (historical) | 1 | 30.0 | 0.10 / 0.20 ms | — | 19.08 / 43.35 ms |
 
 Each row uses 120 warmup frames followed by 300 sampled frames. GPU time uses
 the asynchronous `EXT_disjoint_timer_query_webgl2` extension; unavailable and
@@ -154,6 +154,29 @@ software WebGL rather than a physical GPU; treat them as environment-specific
 diagnostics. Frame-call timings measure CPU work and GPU command submission;
 GPU-query timings measure rendering commands and exclude browser compositing
 and display refresh. Playwright reported no browser errors.
+
+#### Three.js r187 headless comparison
+
+The benchmark now pins Three.js r187 (npm 0.187.0). Matched headless Chrome
+157.0.8103.52 runs at a 1280×720 viewport used 1,024 cubes, 120 warmup frames,
+and 300 sampled frames per renderer and workload:
+
+| Renderer | Workload | Scene calls | Browser FPS | CPU frame-call median / p95 | CPU submit median / p95 | GPU median / p95 |
+|---|---|---:|---:|---:|---:|---:|
+| Goose WebGPU | Static | 1 | 60.0 | 1.20 / 1.30 ms | 0.50 / 0.60 ms | unavailable |
+| Three.js r187 WebGPU | Static | 2 | 60.0 | 0.50 / 0.80 ms | — | unavailable |
+| Three.js r187 WebGL2 | Static | 1 | 60.0 | 0.20 / 0.30 ms | — | 0.37 / 0.41 ms |
+| Goose WebGPU | All 1,024 moving | 1 | 60.0 | 1.50 / 1.60 ms | 0.70 / 0.80 ms | unavailable |
+| Three.js r187 WebGPU | All 1,024 moving | 2 | 60.0 | 0.50 / 0.90 ms | — | unavailable |
+| Three.js r187 WebGL2 | All 1,024 moving | 1 | 60.0 | 0.30 / 0.40 ms | — | 0.38 / 0.46 ms |
+
+In this run, Three.js r187 had lower CPU frame-call times than Goose in both
+backends. WebGPU median was 0.50 ms for Three.js and 1.20 ms static / 1.50 ms
+with all instances moving for Goose. WebGL2 median was 0.20 / 0.30 ms. Browser
+cadence stayed at 60 FPS for every run. WebGPU GPU timestamp queries were
+unavailable, so GPU execution time cannot be compared here. WebGL2 GPU query
+values are reported for that backend only. These are single-run headless
+SwiftShader diagnostics; repeat on physical GPUs for hardware conclusions.
 
 A subsequent texture-specialization experiment compiles absent base-color and
 emissive texture paths out of unlit shaders, allowing unused UV inputs to be

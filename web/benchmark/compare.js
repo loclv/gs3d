@@ -262,8 +262,8 @@ async function start() {
     if (BACKEND === 'three' || BACKEND === 'three-webgpu') {
       // Pinned release keeps the comparison reproducible across visits.
       const THREE = BACKEND === 'three-webgpu'
-        ? await import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.webgpu.js')
-        : await import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js');
+        ? await import('https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.webgpu.js')
+        : await import('https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js');
       const renderer = BACKEND === 'three-webgpu'
         ? new THREE.WebGPURenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' })
         : null;

@@ -22,10 +22,11 @@ boxes; drag the preview to orbit it; then choose **Export model** to download a
 `.glb`. The exported file is glTF 2.0 and can be loaded by the Goose 3D asset
 loader.
 
-The preview imports `WebGPURenderer` from `three/webgpu`. It initializes WebGPU
-when available and falls back to Three.js's WebGL2 backend otherwise. Use a
-secure browser context (localhost is fine) for WebGPU; the fallback keeps the
-sample usable on browsers and devices without WebGPU.
+The preview uses Three.js r187 (0.187.0) and imports `WebGPURenderer` from
+`three/webgpu`. It initializes WebGPU when available and falls back to Three.js's
+WebGL2 backend otherwise. Use a secure browser context (localhost is fine) for
+WebGPU; the fallback keeps the sample usable on browsers and devices without
+WebGPU.
 
 ```sh
 bun run check

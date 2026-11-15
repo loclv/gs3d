@@ -186,11 +186,11 @@ the page and run one renderer on one canvas, avoiding simultaneous rendering
 work. Both scenes use 1,024 or fewer cubes on the same 32×32 grid, cube size,
 color, camera, and pixel-sized canvas. Goose uses its regular scene nodes and
 render path; Three.js uses `InstancedMesh`. The Three.js module is pinned to
-0.180.0 and loaded from jsDelivr, so that mode needs network access.
+0.187.0 (r187) and loaded from jsDelivr, so that mode needs network access.
 
 After 120 warmup frames, the page records 300 synchronous frame calls and
 reports median/p95, browser frame rate, and scene draw calls. These frame-call
-times capture CPU scene processing and WebGL command submission; they do not
+times capture CPU scene processing and renderer command submission; they do not
 wait for GPU completion. Browser FPS is capped by display refresh. Compare the
 two modes in the same browser session and device state, at the same cube count
 and canvas dimensions. The report is a local diagnostic, not a general claim
