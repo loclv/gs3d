@@ -322,6 +322,9 @@ async function start() {
       previous = 0;
     });
     requestAnimationFrame(frame);
+    if (params.get('sync') === '1') {
+      window.g3BenchmarkSync = { frame: frameCall, backendMs: getBackendFrameMs };
+    }
   } catch (error) {
     status.textContent = `${error.message}${BACKEND !== 'goose' ? ' (Three.js mode needs access to jsDelivr.)' : ''}`;
   }

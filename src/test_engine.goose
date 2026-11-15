@@ -181,6 +181,29 @@ fn case_culling() {
     testing::check(is_color(g3::read_pixel(200, 200), 255, 0, 255, 2), "the frame is background only");
 }
 
+// Cached frustum results must follow transform and camera changes between frames.
+fn case_culling_cache_invalidation() {
+    g3::scene_clear();
+    flat_camera();
+    let n .= g3::node(g3::node_add(g3::mesh_cube(1.0)));
+    n.unlit = true;
+    g3::frame(1.0 / 60.0);
+    testing::check(g3::stats().drawn == 1, "the initial visible node is drawn");
+
+    n.pos.x = 100.0;
+    g3::frame(1.0 / 60.0);
+    testing::check(g3::stats().culled == 1, "a changed node transform invalidates its cull result");
+
+    n.pos.x = 0.0;
+    g3::frame(1.0 / 60.0);
+    testing::check(g3::stats().drawn == 1, "restoring the node transform makes it visible again");
+
+    let c .= g3::camera();
+    c.target = float3 { 0.0, 0.0, 60.0 };
+    g3::frame(1.0 / 60.0);
+    testing::check(g3::stats().culled == 1, "a changed camera invalidates cached frustum results");
+}
+
 // The ground plane faces up, so from below it is a back face and is not drawn:
 // the two backends must agree on the winding they cull.
 fn case_backface() {
@@ -2276,6 +2299,11 @@ fn case_asset_mesh_update() {
     ];
     let indices: u32[3] = [0, 1, 2];
     let mesh = g3::mesh_asset_create(verts[..], indices[..]);
+    let node = g3::node_add(mesh);
+    g3::node(node).color = float4_1;
+    g3::node(node).spec = 0.0;
+    g3::frame(1.0 / 60.0);
+    testing::check(g3::stats().drawn == 1, "the original mesh bounds are cached after drawing");
     let positions: f32[9] = [-0.5, -1.0, 0.0, 1.5, -1.0, 0.0, 0.5, 1.0, 0.0];
     let normals: f32[9] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
     let tangents: f32[12] = [1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0];
@@ -2286,9 +2314,6 @@ fn case_asset_mesh_update() {
         "asset mesh deformation updates retained tangent directions and handedness");
     testing::check(g3::mesh(mesh).bounds.lo.x == -0.5 && g3::mesh(mesh).bounds.hi.x == 1.5,
                     "asset mesh deformation refreshes local bounds");
-    let node = g3::node_add(mesh);
-    g3::node(node).color = float4_1;
-    g3::node(node).spec = 0.0;
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(241, 200), 255, 255, 255, 2), "updated vertex data renders at its deformed position");
     testing::check(is_color(g3::read_pixel(188, 200), 255, 0, 255, 2), "the original left-side position is no longer rendered");
@@ -2307,6 +2332,7 @@ fn main() {
     case_hierarchy();
     case_import_matrix();
     case_culling();
+    case_culling_cache_invalidation();
     case_backface();
     case_texture();
     case_vertex_colors();

@@ -24,6 +24,7 @@ struct Mesh {
     first_vertex: i64, vertex_count: i64,
     first_index: i64, index_count: i64,
     bounds: Aabb,           // local space, for frustum culling
+    bounds_version: i64 = 1, // increments when deformation changes local bounds
     vertex_capacity: i64, index_capacity: i64,
     asset_owned: bool,
     asset_free: bool,
@@ -353,6 +354,7 @@ fn mesh_asset_update_internal(id: i32, positions: const f32[:], normals: const f
         g_verts[m.first_vertex + i].tangent = float4 { tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3] };
     }
     m.bounds = bounds;
+    m.bounds_version += 1;
     if upload {
         g3p_upload_mesh(id, g_verts[m.first_vertex..m.first_vertex + m.vertex_count],
                         g_indices[m.first_index..m.first_index + m.index_count]);

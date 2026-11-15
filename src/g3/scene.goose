@@ -40,9 +40,16 @@ struct Node {
     world: Mat4,                // filled by `node_update_worlds`, do not set
     world_dirty: bool = true,   // sticky until a draw item refreshes its cached MVP
     cached_world_parent: i32 = -2,
+    world_version: i64,        // increments when the world matrix changes
     cached_mvp: Mat4,
     cached_mvp_view_version: i64 = -1,
     mvp_cache_valid: bool,
+    cached_cull_world_version: i64 = -1, // cache key: transform
+    cached_cull_view_version: i64 = -1,  // cache key: camera frustum
+    cached_cull_mesh: i32 = -2,          // cache key: mesh bounds owner
+    cached_cull_bounds_version: i64 = -1,
+    cached_cull_intersects: bool,
+    cull_cache_valid: bool,
     local_matrix: Mat4,         // optional imported affine transform
     use_local_matrix: bool,
     cached_local: Mat4,          // local transform cache for unparented nodes
@@ -353,6 +360,7 @@ fn node_update_worlds() {
             if local_changed || n.cached_world_parent != n.parent {
                 n.world = n.cached_local;
                 n.world_dirty = true;
+                n.world_version += 1;
             }
             n.cached_world_parent = n.parent;
             continue;
@@ -369,6 +377,7 @@ fn node_update_worlds() {
         if !node_world_matches(n.world, w) || n.cached_world_parent != n.parent {
             n.world = w;
             n.world_dirty = true;
+            n.world_version += 1;
         }
         n.cached_world_parent = n.parent;
     }

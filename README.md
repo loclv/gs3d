@@ -178,6 +178,33 @@ unavailable, so GPU execution time cannot be compared here. WebGL2 GPU query
 values are reported for that backend only. These are single-run headless
 SwiftShader diagnostics; repeat on physical GPUs for hardware conclusions.
 
+#### Static-scene culling-cache follow-up
+
+The WebGPU path reuses each node's frustum result while its world transform,
+camera view-projection, mesh, and mesh bounds remain unchanged. A warmed
+synchronous Playwright microbenchmark (Chrome 157, 1280×720, 1,024 cubes; 120
+warmup calls followed by 1,000 measured calls, repeated three times) compared
+commit `106552e` with the culling cache. Static frame-call medians across the
+three runs were 0.2 ms before and 0.1 ms after; backend-submit medians were
+0.1 ms for both. With all instances moving, both versions measured 0.2 ms
+frame-call median and 0.1 ms submit median. Values are quantized at 0.1 ms in
+this environment, so the culling cache gives a small static-scene CPU
+improvement with no measured gain for moving scenes. The same synchronous
+workload against Three.js r187 WebGPU measured:
+
+| Renderer | Static frame-call median / p95 | All moving median / p95 |
+|---|---:|---:|
+| Goose 3D before cache (`106552e`) | 0.2 / 0.2 ms | 0.2 / 0.3 ms |
+| Goose 3D with culling cache | 0.1 / 0.2 ms | 0.2 / 0.3 ms |
+| Three.js r187 WebGPU | 0.0 / 0.1 ms | 0.1 / 0.5 ms |
+
+Rows report the median of three run medians and p95 values; the timer's 0.1 ms
+granularity limits interpretation at this scale. Goose remains slower by about
+0.1 ms in these synchronous medians. Native rendering tests passed, including
+the mesh-deformation checks that invalidate cached bounds. Add `sync=1` to the
+comparison URL to expose `window.g3BenchmarkSync.frame` and `backendMs` for a
+Playwright burst that excludes RAF scheduling.
+
 A subsequent texture-specialization experiment compiles absent base-color and
 emissive texture paths out of unlit shaders, allowing unused UV inputs to be
 removed by the shader compiler. At the same 1,024 cubes and 1280×720, two

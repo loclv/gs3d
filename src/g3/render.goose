@@ -588,12 +588,37 @@ fn render_scene() {
         if !n.visible || n.mesh < 0 || n.mesh >= g_meshes.len || !mesh_handle_valid(mesh_handle(n.mesh)) { continue; }
         g_stats.nodes += 1;
         let m .= mesh(n.mesh);
-        let box = aabb_transform_affine(m.bounds, n.world);
-        if !frustum_intersects(g_frustum, box) && g_view_state.shadow_params.x < 0.5 && g_view_state.point_shadow_params.x < 0.5 && g_view_state.spot_shadow_params.x < 0.5 {
+        let cull_enabled = g_view_state.shadow_params.x < 0.5 && g_view_state.point_shadow_params.x < 0.5 && g_view_state.spot_shadow_params.x < 0.5;
+        var box = m.bounds;
+        var intersects = true;
+        var box_ready = false;
+        if cull_enabled {
+            let cache_matches = n.cull_cache_valid &&
+                n.cached_cull_world_version == n.world_version &&
+                n.cached_cull_view_version == g_view_proj_version &&
+                n.cached_cull_mesh == n.mesh &&
+                n.cached_cull_bounds_version == m.bounds_version;
+            if cache_matches {
+                intersects = n.cached_cull_intersects;
+            } else {
+                box = aabb_transform_affine(m.bounds, n.world);
+                box_ready = true;
+                intersects = frustum_intersects(g_frustum, box);
+                n.cached_cull_world_version = n.world_version;
+                n.cached_cull_view_version = g_view_proj_version;
+                n.cached_cull_mesh = n.mesh;
+                n.cached_cull_bounds_version = m.bounds_version;
+                n.cached_cull_intersects = intersects;
+                n.cull_cache_valid = true;
+            }
+        }
+        if cull_enabled && !intersects {
             g_stats.culled += 1;
             continue;
         }
-        let dist = if node_is_blended(n) {
+        let blended = node_is_blended(n);
+        if blended && !box_ready { box = aabb_transform_affine(m.bounds, n.world); }
+        let dist = if blended {
             let center = aabb_center(box);
             if g_camera.orthographic { -mat4_apply(g_view, center).z }
             else { length(center - g_camera.pos) }
