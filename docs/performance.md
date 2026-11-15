@@ -259,6 +259,16 @@ workload difference does not establish a general improvement, so the change
 was discarded. Both versions submitted one scene draw, and the recording-device
 upload and batch-order checks passed for the candidate.
 
+An unrolled instance-packing loop also failed to show a gain: with 32 moving
+instances, three interleaved bursts ranged from 0.1164 to 0.1382 ms/frame
+before and 0.1172 to 0.1498 ms after. A separate experiment specialized the
+WebGPU shader for unlit materials to remove normal and lighting calculations.
+Two static SwiftShader runs collected 300 timestamp samples each and reported
+render-pass medians of 12.30 and 12.33 ms before, versus 12.58 and 12.16 ms
+after. The page's animation loop was also running during these samples, so
+these are exploratory measurements rather than isolated paired GPU timings.
+Neither experiment demonstrated a repeatable gain and neither was retained.
+
 A separate packing experiment compared and copied the 80-byte instance record
 as 32-bit integer words. With 32 moving cubes, three runs measured 0.115–0.116
 ms before and 0.133–0.134 ms after in the same synchronous SwiftShader harness.
