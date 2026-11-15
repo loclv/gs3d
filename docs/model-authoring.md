@@ -24,6 +24,15 @@ an optional output path, which makes it easy to build isolated previews:
 node --experimental-strip-types web/viewer/generate_sample.ts /tmp/preview.glb
 ```
 
+## Detailed robot example
+
+Run `npm --prefix web run build:robot` to generate `web/viewer/robot.glb` from
+[`generate_robot.ts`](../web/viewer/generate_robot.ts). Start the web server with
+`./build_web.sh --serve`, then open `/viewer/?model=robot`. Orbit and zoom to
+inspect its separate armor plates, joints, eyes, vents, and small hardware. The
+source uses shared meshes and named nodes, so each part can be edited independently.
+An optional output path can be passed directly to the generator as with the sample.
+
 ## Add a model in source
 
 ```ts

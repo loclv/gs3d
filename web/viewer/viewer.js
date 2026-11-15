@@ -111,7 +111,7 @@ async function loadModel() {
   reload.disabled = true;
   status.textContent = 'Loading model…';
   try {
-    const next = await loadGLTF(engine, './sample.glb');
+    const next = await loadGLTF(engine, new URLSearchParams(location.search).get('model') === 'robot' ? './robot.glb' : './sample.glb');
     if (pageClosed) { next.dispose(); return; }
     if (model) model.dispose();
     model = next;
