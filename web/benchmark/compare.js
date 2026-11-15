@@ -305,7 +305,7 @@ async function start() {
       frameCall = dt => engine._g3_app_frame(dt);
       getDrawCalls = () => engine._g3_host_scene_draw_calls();
       getBackendFrameMs = () => engine._g3_host_scene_draw_ms();
-      if (window.g3Renderer === 'WebGPU' && window.g3wgpu.gpuTimestampAvailable()) {
+      if (window.g3Renderer === 'WebGPU' && window.g3wgpu.gpuTimestampAvailable?.()) {
         webgpuTimer = window.g3wgpu;
         webgpuTimer.gpuTimestampEnd();
       }
