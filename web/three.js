@@ -105,6 +105,46 @@ export class Color {
     const toByte = c => Math.round(Math.min(Math.max(linearToSrgb(c), 0), 1) * 255);
     return `rgb(${toByte(this.r)}, ${toByte(this.g)}, ${toByte(this.b)})`;
   }
+  lerp(color, alpha) {
+    this.r += (color.r - this.r) * alpha;
+    this.g += (color.g - this.g) * alpha;
+    this.b += (color.b - this.b) * alpha;
+    return this;
+  }
+  // HSL helpers operate in linear space like the stored components.
+  getHSL(target = {}) {
+    const r = this.r, g = this.g, b = this.b;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2, d = max - min;
+    let h = 0, s = 0;
+    if (d > 1e-12) {
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h /= 6;
+    }
+    target.h = h; target.s = s; target.l = l;
+    return target;
+  }
+  offsetHSL(h, s, l) {
+    const hsl = this.getHSL({ h: 0, s: 0, l: 0 });
+    hsl.h = (hsl.h + h) % 1; if (hsl.h < 0) hsl.h += 1;
+    hsl.s = Math.min(1, Math.max(0, hsl.s + s));
+    hsl.l = Math.min(1, Math.max(0, hsl.l + l));
+    const { h: hh, s: ss, l: ll } = hsl;
+    if (ss === 0) { const v = ll; return this.setRGB(v, v, v); }
+    const q = ll < 0.5 ? ll * (1 + ss) : ll + ss - ll * ss;
+    const p = 2 * ll - q;
+    const f = t => {
+      t = ((t % 1) + 1) % 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    return this.setRGB(f(hh + 1 / 3), f(hh), f(hh - 1 / 3));
+  }
 }
 
 /* --- vectors and transforms ---------------------------------------------- */
@@ -450,6 +490,24 @@ export class Object3D {
       if (found) return found;
     }
     return null;
+  }
+  getObjectByProperty(name, value) {
+    if (this[name] === value) return this;
+    for (const child of this.children) {
+      const found = child.getObjectByProperty(name, value);
+      if (found) return found;
+    }
+    return null;
+  }
+  traverseAncestors(callback) {
+    let parent = this.parent;
+    while (parent) { callback(parent); parent = parent.parent; }
+    return this;
+  }
+  get ancestors() {
+    const out = [];
+    this.traverseAncestors(o => out.push(o));
+    return out;
   }
   updateMatrix() {
     if (this.matrixAutoUpdate) {
@@ -2813,4 +2871,26 @@ export class WebGPURenderer {
 export class Vector2 {
   constructor(x = 0, y = 0) { this.isVector2 = true; this.x = x; this.y = y; }
   set(x, y) { this.x = x; this.y = y; return this; }
+  setScalar(s) { this.x = s; this.y = s; return this; }
+  copy(v) { this.x = v.x; this.y = v.y; return this; }
+  clone() { return new Vector2(this.x, this.y); }
+  add(v) { this.x += v.x; this.y += v.y; return this; }
+  sub(v) { this.x -= v.x; this.y -= v.y; return this; }
+  multiplyScalar(s) { this.x *= s; this.y *= s; return this; }
+  divideScalar(s) { return this.multiplyScalar(1 / (s || 1)); }
+  negate() { return this.set(-this.x, -this.y); }
+  dot(v) { return this.x * v.x + this.y * v.y; }
+  cross(v) { return this.x * v.y - this.y * v.x; }
+  length() { return Math.hypot(this.x, this.y); }
+  lengthSq() { return this.x * this.x + this.y * this.y; }
+  normalize() { const l = this.length() || 1; return this.multiplyScalar(1 / l); }
+  distanceTo(v) { return Math.hypot(this.x - v.x, this.y - v.y); }
+  distanceToSquared(v) { const dx = this.x - v.x, dy = this.y - v.y; return dx * dx + dy * dy; }
+  lerp(v, alpha) { this.x += (v.x - this.x) * alpha; this.y += (v.y - this.y) * alpha; return this; }
+  clamp(min, max) {
+    this.x = Math.min(Math.max(this.x, min.x), max.x);
+    this.y = Math.min(Math.max(this.y, min.y), max.y);
+    return this;
+  }
+  equals(v) { return this.x === v.x && this.y === v.y; }
 }

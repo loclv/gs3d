@@ -14,12 +14,34 @@ export class Color {
   getHex(): number;
   getHexString(): string;
   getStyle(): string;
+  lerp(color: Color, alpha: number): this;
+  getHSL(target?: { h: number; s: number; l: number }): { h: number; s: number; l: number };
+  offsetHSL(h: number, s: number, l: number): this;
 }
 
 export class Vector2 {
   constructor(x?: number, y?: number);
+  readonly isVector2: true;
   x: number; y: number;
   set(x: number, y: number): this;
+  setScalar(s: number): this;
+  copy(v: Vector2): this;
+  clone(): Vector2;
+  add(v: Vector2): this;
+  sub(v: Vector2): this;
+  multiplyScalar(s: number): this;
+  divideScalar(s: number): this;
+  negate(): this;
+  dot(v: Vector2): number;
+  cross(v: Vector2): number;
+  length(): number;
+  lengthSq(): number;
+  normalize(): this;
+  distanceTo(v: Vector2): number;
+  distanceToSquared(v: Vector2): number;
+  lerp(v: Vector2, alpha: number): this;
+  clamp(min: Vector2, max: Vector2): this;
+  equals(v: Vector2): boolean;
 }
 
 export class Vector3 {
@@ -379,6 +401,9 @@ export class Object3D {
   clear(): this;
   traverse(callback: (object: Object3D) => void): void;
   getObjectByName(name: string): Object3D | null;
+  getObjectByProperty(name: string, value: unknown): Object3D | null;
+  traverseAncestors(callback: (object: Object3D) => void): this;
+  readonly ancestors: Object3D[];
   updateMatrixWorld(force?: boolean): this;
   updateMatrix(): this;
   lookAt(target?: Object3D | Vector3): this;

@@ -969,4 +969,23 @@ function buildTestGLB() {
   assert.ok(holed.index.count > 0, 'shape with hole still produces geometry');
 }
 
+{
+  // Vector2 math, Color HSL, ancestor traversal.
+  const v2 = new THREE.Vector2(3, 4);
+  assert.ok(Math.abs(v2.length() - 5) < 1e-9, 'Vector2.length');
+  assert.ok(Math.abs(v2.distanceTo(new THREE.Vector2(0, 0)) - 5) < 1e-9, 'Vector2.distanceTo');
+  const c = new THREE.Color(0xff0000);
+  const hsl = c.getHSL({ h: 0, s: 0, l: 0 });
+  assert.ok(hsl.h < 0.05 && hsl.s > 0.9, 'red -> hue ~0, high saturation');
+  const shifted = c.clone().offsetHSL(1 / 3, 0, 0);
+  const hsl2 = shifted.getHSL({ h: 0, s: 0, l: 0 });
+  assert.ok(Math.abs(hsl2.h - 1 / 3) < 0.05, 'offsetHSL rotates hue');
+  const root = new THREE.Group();
+  const mid = new THREE.Group();
+  const leaf = new THREE.Object3D();
+  mid.add(leaf); root.add(mid);
+  assert.equal(leaf.getObjectByProperty('isObject3D', true) !== null, true, 'getObjectByProperty');
+  assert.deepEqual(leaf.ancestors.map(o => o.isGroup), [true, true], 'ancestors chain');
+}
+
 console.log('three.js facade checks passed');
