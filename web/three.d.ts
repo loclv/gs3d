@@ -64,7 +64,7 @@ export class Quaternion {
   identity(): this;
   setFromEuler(e: Euler): this;
   setFromAxisAngle(axis: Vector3, angle: number): this;
-  setFromRotationMatrix(): this;
+  setFromRotationMatrix(m: ArrayLike<number>): this;
   normalize(): this;
   dot(q: Quaternion): number;
   multiply(q: Quaternion): this;
@@ -157,6 +157,26 @@ export class LatheGeometry extends BufferGeometry {
   constructor(points?: { x: number; y: number }[] | Vector2[], segments?: number,
     phiStart?: number, phiLength?: number);
 }
+export class TubeGeometry extends BufferGeometry {
+  constructor(path: { getPoint(t: number): { x: number; y: number; z: number } | number[] },
+    tubularSegments?: number, radius?: number, radialSegments?: number, closed?: boolean);
+}
+export class Curve {
+  getPoint(t: number): number[];
+  getPointAt(t: number): number[];
+}
+export class CatmullRomCurve3 extends Curve {
+  constructor(points?: ({ x: number; y: number; z: number } | number[])[],
+    closed?: boolean, curveType?: string, tension?: number);
+}
+export const MathUtils: {
+  DEG2RAD: number; RAD2DEG: number;
+  clamp(v: number, min: number, max: number): number;
+  lerp(a: number, b: number, t: number): number;
+  mapLinear(v: number, inMin: number, inMax: number, outMin: number, outMax: number): number;
+  degToRad(d: number): number;
+  radToDeg(r: number): number;
+};
 
 export const FrontSide: 0;
 export const BackSide: 1;
@@ -310,6 +330,7 @@ export class Object3D {
   lookAt(): this;
   getWorldPosition(target?: Vector3): Vector3;
   getWorldDirection(target?: Vector3): Vector3;
+  getWorldQuaternion(target?: Quaternion): Quaternion;
 }
 export class Group extends Object3D { constructor(); readonly isGroup: true; }
 export class Scene extends Object3D {

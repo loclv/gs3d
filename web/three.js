@@ -182,7 +182,35 @@ export class Quaternion {
     const l = Math.hypot(axis.x, axis.y, axis.z) || 1;
     return this.set(axis.x / l * s, axis.y / l * s, axis.z / l * s, Math.cos(h));
   }
-  setFromRotationMatrix() { return this; }
+  // Column-major 4x4 (matches composeLocal/multiplyMat4 layout). Columns are
+  // normalized first so non-uniform scale doesn't skew the rotation.
+  setFromRotationMatrix(m) {
+    const col = i => {
+      const x = m[i], y = m[i + 1], z = m[i + 2];
+      const l = Math.hypot(x, y, z) || 1;
+      return [x / l, y / l, z / l];
+    };
+    const c0 = col(0), c1 = col(4), c2 = col(8);
+    // m_rc = row r, column c (three.js naming).
+    const m11 = c0[0], m21 = c0[1], m31 = c0[2];
+    const m12 = c1[0], m22 = c1[1], m32 = c1[2];
+    const m13 = c2[0], m23 = c2[1], m33 = c2[2];
+    const trace = m11 + m22 + m33;
+    if (trace > 0) {
+      const s = 0.5 / Math.sqrt(trace + 1);
+      return this.set((m32 - m23) * s, (m13 - m31) * s, (m21 - m12) * s, 0.25 / s);
+    }
+    if (m11 > m22 && m11 > m33) {
+      const s = 2 * Math.sqrt(Math.max(1e-12, 1 + m11 - m22 - m33));
+      return this.set(0.25 * s, (m12 + m21) / s, (m13 + m31) / s, (m32 - m23) / s);
+    }
+    if (m22 > m33) {
+      const s = 2 * Math.sqrt(Math.max(1e-12, 1 + m22 - m11 - m33));
+      return this.set((m12 + m21) / s, 0.25 * s, (m23 + m32) / s, (m13 - m31) / s);
+    }
+    const s = 2 * Math.sqrt(Math.max(1e-12, 1 + m33 - m11 - m22));
+    return this.set((m13 + m31) / s, (m23 + m32) / s, 0.25 * s, (m21 - m12) / s);
+  }
   normalize() {
     const l = Math.hypot(this.x, this.y, this.z, this.w) || 1;
     return this.set(this.x / l, this.y / l, this.z / l, this.w / l);
@@ -366,6 +394,9 @@ export class Object3D {
   getWorldDirection(target = new Vector3()) {
     const d = normalize3(transformDir(worldMatrixOf(this), 0, 0, -1));
     return target.set(d[0], d[1], d[2]);
+  }
+  getWorldQuaternion(target = new Quaternion()) {
+    return target.setFromRotationMatrix(worldMatrixOf(this));
   }
 }
 
@@ -926,6 +957,115 @@ export class TorusKnotGeometry extends BufferGeometry {
     this.isTorusKnotGeometry = true;
   }
 }
+
+export class TubeGeometry extends BufferGeometry {
+  // path: object with getPoint(t) -> {x,y,z} or [x,y,z] (Curve, CatmullRomCurve3, ...)
+  constructor(path, tubularSegments = 64, radius = 1, radialSegments = 8, closed = false) {
+    super();
+    const getPoint = t => {
+      const p = path.getPoint ? path.getPoint(t) : path.getPointAt ? path.getPointAt(t) : null;
+      if (!p) throw new Error('gs3d: TubeGeometry path needs getPoint(t)');
+      return Array.isArray(p) ? p : [p.x, p.y, p.z];
+    };
+    const positions = [], normals = [], uvs = [], indices = [];
+    const frames = [];
+    const eps = 1e-4;
+    const segs = closed ? tubularSegments : tubularSegments;
+    for (let j = 0; j <= segs; j++) {
+      const u = j / segs;
+      const t = closed ? u % 1 : Math.min(1, u);
+      const P = getPoint(t);
+      const P2 = getPoint(Math.min(1, t + eps));
+      const T = normalize3([P2[0] - P[0], P2[1] - P[1], P2[2] - P[2]]);
+      const up = Math.abs(T[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+      const N = normalize3([
+        T[1] * up[2] - T[2] * up[1], T[2] * up[0] - T[0] * up[2], T[0] * up[1] - T[1] * up[0]]);
+      const B = [
+        T[1] * N[2] - T[2] * N[1], T[2] * N[0] - T[0] * N[2], T[0] * N[1] - T[1] * N[0]];
+      frames.push([P, N, B]);
+    }
+    for (let j = 0; j <= segs; j++) {
+      const u = j / segs;
+      const [P, N, B] = frames[j];
+      for (let i = 0; i <= radialSegments; i++) {
+        const v = i / radialSegments;
+        const theta = v * Math.PI * 2;
+        const ct = Math.cos(theta), st = Math.sin(theta);
+        const nx = N[0] * ct + B[0] * st, ny = N[1] * ct + B[1] * st, nz = N[2] * ct + B[2] * st;
+        positions.push(P[0] + radius * nx, P[1] + radius * ny, P[2] + radius * nz);
+        normals.push(nx, ny, nz);
+        uvs.push(u, v);
+      }
+    }
+    const stride = radialSegments + 1;
+    const rings = closed ? segs : segs + 1;
+    for (let j = 0; j < rings - 1; j++) for (let i = 0; i < radialSegments; i++) {
+      const a = j * stride + i;
+      indices.push(a, a + stride, a + 1, a + 1, a + stride, a + stride + 1);
+    }
+    if (closed) {
+      // Wrap last ring to first.
+      const last = (rings - 1) * stride, first = 0;
+      for (let i = 0; i < radialSegments; i++) {
+        indices.push(last + i, first + i, last + i + 1);
+        indices.push(last + i + 1, first + i, first + i + 1);
+      }
+    }
+    this.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    this.setIndex(new Uint32BufferAttribute(indices, 1));
+    this.isTubeGeometry = true;
+  }
+}
+
+/* --- curves -------------------------------------------------------------------- */
+
+export class Curve {
+  getPoint(t) { return this.getPointAt ? this.getPointAt(t) : [0, 0, 0]; }
+  getPointAt(t) { return this.getPoint(t); }
+}
+
+export class CatmullRomCurve3 extends Curve {
+  constructor(points = [], closed = false, curveType = 'centripetal', tension = 0.5) {
+    super();
+    this.points = points.map(p => Array.isArray(p) ? p : [p.x, p.y, p.z]);
+    this.closed = closed;
+    this.curveType = curveType;
+    this.tension = tension;
+    this.isCatmullRomCurve3 = true;
+  }
+  getPoint(t) {
+    const pts = this.points, n = pts.length;
+    if (n === 0) return [0, 0, 0];
+    if (n === 1) return pts[0];
+    const scaled = this.closed ? t * n : t * (n - 1);
+    let i = Math.floor(scaled);
+    const u = scaled - i;
+    const at = k => this.closed ? pts[((k % n) + n) % n] : pts[Math.max(0, Math.min(n - 1, k))];
+    const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+    const cr = (a, b, c, d, t) => {
+      const t2 = t * t, t3 = t2 * t;
+      return 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+    };
+    return [cr(p0[0], p1[0], p2[0], p3[0], u),
+      cr(p0[1], p1[1], p2[1], p3[1], u),
+      cr(p0[2], p1[2], p2[2], p3[2], u)];
+  }
+}
+
+/* --- math utils --------------------------------------------------------------- */
+
+export const MathUtils = {
+  DEG2RAD: Math.PI / 180,
+  RAD2DEG: 180 / Math.PI,
+  clamp: (v, min, max) => Math.max(min, Math.min(max, v)),
+  lerp: (a, b, t) => a + (b - a) * t,
+  mapLinear: (v, inMin, inMax, outMin, outMax) =>
+    outMin + (outMax - outMin) * ((v - inMin) / (inMax - inMin || 1)),
+  degToRad: d => d * Math.PI / 180,
+  radToDeg: r => r * 180 / Math.PI,
+};
 
 export class LatheGeometry extends BufferGeometry {
   // points: array of Vector2-like {x: radius, y: height}; spun around Y.

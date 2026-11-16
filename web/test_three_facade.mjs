@@ -398,6 +398,30 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   const lathe = new THREE.LatheGeometry([new THREE.Vector2(0, 0), new THREE.Vector2(1, 0), new THREE.Vector2(0.5, 1)], 8);
   assert.ok(lathe.attributes.position.count > 0 && lathe.index.count > 0, 'lathe generated');
 
+  const curve = new THREE.CatmullRomCurve3([[0, 0, 0], [1, 1, 0], [2, 0, 0]]);
+  const tube = new THREE.TubeGeometry(curve, 16, 0.2, 6);
+  assert.ok(tube.attributes.position.count > 0 && tube.index.count > 0, 'tube generated');
+  const mid = curve.getPoint(0.5);
+  assert.ok(Math.abs(mid[0] - 1) < 0.6 && mid[1] > 0, 'catmull-rom interpolates');
+
+  // getWorldQuaternion round-trips a rotated parent chain.
+  const parent = new THREE.Group();
+  parent.rotation.set(0, Math.PI / 2, 0);
+  const child = new THREE.Object3D();
+  child.rotation.set(0, 0, Math.PI / 4);
+  parent.add(child);
+  const wq = child.getWorldQuaternion();
+  const expected = new THREE.Quaternion()
+    .setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2)
+    .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 4));
+  assert.ok(Math.abs(wq.dot(expected)) > 0.999, 'world quaternion matches euler composition');
+  const sq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 3);
+  sq.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 4));
+  const m = new Float64Array(16);
+  m[0] = 1; m[5] = 1; m[10] = 1; m[15] = 1;
+  const qr = new THREE.Quaternion().setFromRotationMatrix(m);
+  assert.ok(Math.abs(qr.w - 1) < 1e-6, 'identity matrix -> identity quaternion');
+
   // Geometries flow through the facade's upload path unchanged.
   const engine = createMockEngine();
   const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
