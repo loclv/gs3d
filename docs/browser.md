@@ -65,11 +65,13 @@ python3 -m http.server 8080 --directory web
 ```
 
 Open <http://localhost:8080/benchmark/compare.html>. Choose Goose WebGPU,
-Three.js WebGPU, or Three.js WebGL2 with the tabs; only that renderer runs at a
-time. Goose WebGPU falls back automatically to WebGL2. Three.js WebGPURenderer
-also falls back automatically when WebGPU is unavailable. Three.js downloads
-pinned version 0.187.0 (r187) from jsDelivr. Match browser, window size, cube
-count, and moving-instance count when comparing frame-call median and p95.
+Three.js WebGPU, Three.js WebGL2, PixiJS WebGL2, or PixiJS WebGPU with the
+tabs; only that renderer runs at a time. Goose WebGPU falls back automatically
+to WebGL2. Three.js WebGPURenderer and PixiJS also fall back automatically
+when WebGPU is unavailable. Three.js downloads pinned version 0.187.0 (r187)
+and PixiJS pinned version 8.22.0 from jsDelivr; PixiJS draws the grid as flat
+2D sprites rather than 3D cubes. Match browser, window size, instance count,
+and moving-instance count when comparing frame-call median and p95.
 
 #### Headless Playwright result
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Goose 3D vs Three.js WebGPU benchmark</title>
+<title>Goose 3D vs Three.js / PixiJS benchmark</title>
 <style>
   :root { color-scheme: dark; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #171a24; color: #e0e7f1; }
@@ -26,11 +26,13 @@
 <body>
   <canvas id="canvas"></canvas>
   <section id="panel">
-    <h1>Goose 3D vs Three.js · WebGPU / WebGL2</h1>
+    <h1>Goose 3D vs Three.js / PixiJS</h1>
     <nav aria-label="Benchmark backend">
       <a id="goose-link" href="?backend=goose">Goose 3D</a>
       <a id="three-webgpu-link" href="?backend=three-webgpu">Three.js WebGPU</a>
       <a id="three-link" href="?backend=three">Three.js WebGL2</a>
+      <a id="pixi-link" href="?backend=pixi">PixiJS WebGL2</a>
+      <a id="pixi-webgpu-link" href="?backend=pixi-webgpu">PixiJS WebGPU</a>
     </nav>
     <label for="nodes"><span>Visible repeated cubes</span><output id="count">1024</output></label>
     <input id="nodes" type="range" min="1" max="1024" step="1" value="1024">
@@ -39,7 +41,7 @@
     </label>
     <label for="rotate">Rotate moving instances <input id="rotate" type="checkbox"></label>
     <div id="results">warming up…</div>
-    <div id="note">Same cube grid, camera, canvas size, and opaque color. Goose uses WebGPU first and falls back to WebGL2; Three.js WebGPURenderer also falls back when needed. Frame-call timing measures CPU work and command submission. GPU timing uses asynchronous WebGL timer queries where available. Add gpu-timing=1 to enable WebGPU timestamp queries on supported devices. Timing excludes browser compositing and display refresh. FPS follows browser frame cadence.</div>
+    <div id="note">Same instance grid, camera, canvas size, and opaque color for the 3D backends. Goose uses WebGPU first and falls back to WebGL2; Three.js WebGPURenderer and PixiJS also fall back when needed. PixiJS draws the same grid as flat 2D sprites — no perspective, lighting, or depth — and its "rotation" is a single in-plane angle rather than the 3D Euler rotation. Frame-call timing measures CPU work and command submission. GPU timing uses asynchronous WebGL timer queries where available. Add gpu-timing=1 to enable WebGPU timestamp queries on supported devices. Timing excludes browser compositing and display refresh. FPS follows browser frame cadence.</div>
   </section>
   <div id="status">Starting renderer…</div>
   <script type="module" src="./compare.js"></script>

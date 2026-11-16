@@ -4,7 +4,7 @@ const MAX_INSTANCES = 1024;
 const WARMUP_FRAMES = 120;
 const SAMPLE_FRAMES = 300;
 const requestedBackend = new URLSearchParams(location.search).get('backend');
-const BACKEND = ['three', 'three-webgpu'].includes(requestedBackend) ? requestedBackend : 'goose';
+const BACKEND = ['three', 'three-webgpu', 'pixi', 'pixi-webgpu'].includes(requestedBackend) ? requestedBackend : 'goose';
 const canvas = document.getElementById('canvas');
 const status = document.getElementById('status');
 const slider = document.getElementById('nodes');
@@ -91,7 +91,12 @@ function percentile(values, p) {
 
 function report() {
   const meanRaf = rafTimes.reduce((sum, value) => sum + value, 0) / rafTimes.length;
-  const label = BACKEND === 'three' ? 'Three.js WebGL2' : BACKEND === 'three-webgpu' ? `Three.js ${window.threeRenderer ?? 'WebGPU/WebGL2'}` : `Goose 3D ${window.g3Renderer ?? 'renderer'}`;
+  const label = BACKEND === 'three' ? 'Three.js WebGL2'
+    : BACKEND === 'three-webgpu' ? `Three.js ${window.threeRenderer ?? 'WebGPU/WebGL2'}`
+    : BACKEND === 'pixi' ? `PixiJS ${window.pixiRenderer ?? 'WebGL2'}`
+    : BACKEND === 'pixi-webgpu' ? `PixiJS ${window.pixiRenderer ?? 'WebGPU/WebGL2'}`
+    : `Goose 3D ${window.g3Renderer ?? 'renderer'}`;
+  const drawCalls = getDrawCalls();
   const backendLine = backendTimes.length
     ? `\n${window.g3Renderer === 'WebGPU' ? 'WebGPU CPU submit' : 'WebGL backend'} median ${percentile(backendTimes, 0.5).toFixed(2)} ms · ` +
       `p95 ${percentile(backendTimes, 0.95).toFixed(2)} ms`
@@ -105,7 +110,8 @@ function report() {
         (gpuSkippedCount ? ` · ${gpuSkippedCount} skipped` : '')
       : `\nGPU timing unavailable (${gpuDisjointCount} disjoint, ${gpuSkippedCount} skipped)`;
   results.textContent =
-    `${label} · ${slider.value} visible cubes · ${getDrawCalls()} scene draw call(s)\n` +
+    `${label} · ${slider.value} visible ${BACKEND.startsWith('pixi') ? 'sprites' : 'cubes'} · ` +
+    `${drawCalls == null ? 'draw calls n/a' : `${drawCalls} scene draw call(s)`}\n` +
     `${Math.min(movingCount, Number(slider.value))} moving instances/frame${rotating ? ' · rotating' : ''}\n` +
     `${(1000 / meanRaf).toFixed(1)} browser frames/s\n` +
     `frame call median ${percentile(cpuTimes, 0.5).toFixed(2)} ms · ` +
@@ -265,6 +271,85 @@ function makeThreeScene(THREE, width, height, renderer) {
   };
 }
 
+async function initPixi(PIXI, preference) {
+  const app = new PIXI.Application();
+  const resolution = Math.min(window.devicePixelRatio || 1, 2);
+  await app.init({
+    canvas,
+    width: canvas.clientWidth,
+    height: canvas.clientHeight,
+    resolution,
+    antialias: true,
+    background: 0x555968,
+    preference,
+    autoStart: false,
+  });
+  return { app, resolution };
+}
+
+async function makePixiScene(PIXI, preference) {
+  let app, resolution;
+  try {
+    ({ app, resolution } = await initPixi(PIXI, preference));
+  } catch (error) {
+    if (preference === 'webgl') throw error;
+    ({ app, resolution } = await initPixi(PIXI, 'webgl'));
+  }
+  window.pixiRenderer = app.renderer.gl ? 'WebGL2' : 'WebGPU';
+
+  // Match the 3D backends' perspective camera (54 units out, 0.9 rad fov):
+  // sprites live in world units on a container scaled to CSS pixels per unit.
+  const stage = new PIXI.Container();
+  app.stage.addChild(stage);
+  const layout = () => {
+    const scale = (app.screen.height / 2) / (54 * Math.tan(0.45));
+    stage.scale.set(scale, -scale);
+    stage.position.set(app.screen.width / 2, app.screen.height / 2);
+  };
+  layout();
+
+  const sprites = [];
+  for (let i = 0; i < MAX_INSTANCES; i++) {
+    const sprite = new PIXI.Sprite(PIXI.Texture.WHITE);
+    sprite.anchor.set(0.5);
+    sprite.width = sprite.height = 0.76;
+    sprite.tint = 0x89cef9;
+    sprite.x = (i % 32) - 15.5;
+    sprite.y = Math.floor(i / 32) - 15.5;
+    sprite.visible = i < Number(slider.value);
+    sprites.push(sprite);
+    stage.addChild(sprite);
+  }
+  let visibleCount = Number(slider.value);
+  let motionFrame = 0;
+
+  return {
+    frame: () => {
+      if (movingCount) {
+        motionFrame++;
+        const count = Math.min(movingCount, visibleCount);
+        for (let j = 0; j < count; j++) {
+          const i = spread && count > 1 ? Math.floor(j * (visibleCount - 1) / (count - 1)) : j;
+          const sprite = sprites[i];
+          sprite.x = (i % 32) - 15.5 + Math.sin(motionFrame * 0.03 + i * 0.1) * 0.2;
+          if (rotating) sprite.rotation = Math.fround(motionFrame * 0.01 + i * 0.001);
+        }
+      }
+      app.render();
+    },
+    setCount: count => {
+      visibleCount = count;
+      for (let i = 0; i < MAX_INSTANCES; i++) sprites[i].visible = i < count;
+    },
+    drawCalls: () => null,
+    gpu: app.renderer.gl ?? null,
+    resize: (w, h) => {
+      app.renderer.resize(w / resolution, h / resolution);
+      layout();
+    },
+  };
+}
+
 async function start() {
   try {
     const size = fitToDisplay(canvas);
@@ -293,6 +378,27 @@ async function start() {
         target.searchParams.set('count', String(count));
         link.href = target;
       }
+        benchmark.setCount(count);
+        resetSample();
+      });
+    } else if (BACKEND === 'pixi' || BACKEND === 'pixi-webgpu') {
+      // Pinned release keeps the comparison reproducible across visits.
+      const PIXI = await import('https://cdn.jsdelivr.net/npm/pixi.js@8.22.0/dist/pixi.min.mjs');
+      const benchmark = await makePixiScene(PIXI, BACKEND === 'pixi-webgpu' ? 'webgpu' : 'webgl');
+      frameCall = benchmark.frame;
+      getDrawCalls = benchmark.drawCalls;
+      getBackendFrameMs = null;
+      resizeRenderer = benchmark.resize;
+      gpuGl = benchmark.gpu;
+      gpuTimerExt = gpuGl?.getExtension('EXT_disjoint_timer_query_webgl2') ?? null;
+      slider.addEventListener('input', () => {
+        const count = Number(slider.value);
+        countLabel.value = String(count);
+        for (const link of document.querySelectorAll('nav a')) {
+          const target = new URL(link.href);
+          target.searchParams.set('count', String(count));
+          link.href = target;
+        }
         benchmark.setCount(count);
         resetSample();
       });
@@ -341,7 +447,7 @@ async function start() {
       window.g3BenchmarkSync = { frame: frameCall, backendMs: getBackendFrameMs };
     }
   } catch (error) {
-    status.textContent = `${error.message}${BACKEND !== 'goose' ? ' (Three.js mode needs access to jsDelivr.)' : ''}`;
+    status.textContent = `${error.message}${BACKEND !== 'goose' ? ' (Three.js and PixiJS modes need access to jsDelivr.)' : ''}`;
   }
 }
 

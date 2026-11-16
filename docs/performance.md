@@ -183,10 +183,18 @@ python3 -m http.server 8080 --directory web
 
 Open <http://localhost:8080/benchmark/compare.html>. The backend tabs reload
 the page and run one renderer on one canvas, avoiding simultaneous rendering
-work. Both scenes use 1,024 or fewer cubes on the same 32×32 grid, cube size,
-color, camera, and pixel-sized canvas. Goose uses its regular scene nodes and
-render path; Three.js uses `InstancedMesh`. The Three.js module is pinned to
-0.187.0 (r187) and loaded from jsDelivr, so that mode needs network access.
+work. The 3D backends use 1,024 or fewer cubes on the same 32×32 grid, cube
+size, color, camera, and pixel-sized canvas. Goose uses its regular scene
+nodes and render path; Three.js uses `InstancedMesh`. The Three.js module is
+pinned to 0.187.0 (r187) and the PixiJS module to 8.22.0, both loaded from
+jsDelivr, so those modes need network access.
+
+The PixiJS tabs draw the same grid and count as flat 2D sprites: no
+perspective, lighting, or depth, and "rotation" is a single in-plane angle
+rather than the 3D Euler rotation. PixiJS does not expose a draw-call count,
+so its report shows draw calls as n/a, and its WebGPU backend has no GPU
+timer query. Treat the PixiJS rows as a sprite-batching baseline, not an
+apples-to-apples 3D comparison.
 
 After 120 warmup frames, the page records 300 synchronous frame calls and
 reports median/p95, browser frame rate, and scene draw calls. These frame-call
