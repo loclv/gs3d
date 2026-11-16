@@ -862,4 +862,25 @@ function buildTestGLB() {
   controls.dispose();
 }
 
+// material.flatShading expands indexed geometry into per-face normals.
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 5);
+  const geometry = new THREE.BoxGeometry(1, 1, 1); // 24 verts, 12 tris indexed
+  const flatMesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ flatShading: true }));
+  const smoothMesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+  smoothMesh.position.x = 3;
+  scene.add(flatMesh, smoothMesh);
+  renderer.render(scene, camera);
+  // Flat mesh expands to 36 vertex uploads; smooth mesh keeps 24 indexed.
+  const uploads = named(engine, '_g3_asset_mesh_end').map(c => c.slice(1));
+  assert.ok(uploads.some(u => u[0] === 36 && u[1] === 12), 'flat mesh expands to 36 verts/12 tris');
+  assert.ok(uploads.some(u => u[0] === 24 && u[1] === 12), 'smooth mesh keeps indexed 24/12');
+  renderer.dispose();
+}
+
 console.log('three.js facade checks passed');

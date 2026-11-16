@@ -1113,6 +1113,7 @@ export class Material {
     this.visible = true;
     this.map = null;
     this.vertexColors = false;
+    this.flatShading = false;
     this.normalMap = null;
     this.normalScale = new Vector2(1, 1);
     this.roughnessMap = null;
@@ -1744,27 +1745,85 @@ function worldMatrixOf(object) {
   return world;
 }
 
-function ensureGeometry(engine, geometry, useVertexColors = false) {
+// material.flatShading is emulated by expanding the geometry into
+// non-indexed triangles with per-face normals. Cached per source geometry
+// and rebuilt whenever its version bumps.
+const flatGeometryCache = new WeakMap();
+function flatShadedGeometry(geometry) {
+  const cached = flatGeometryCache.get(geometry);
+  if (cached && cached.version === geometry.version) return cached.geo;
+  const src = geometry.attributes.position;
+  const p = src.array, is = src.itemSize;
+  const index = geometry.index && geometry.index.array;
+  const triCount = index ? index.length / 3 : src.count / 3;
+  const vertCount = triCount * 3;
+  const positions = new Float32Array(vertCount * 3);
+  const normals = new Float32Array(vertCount * 3);
+  const uvs = [], colors = [];
+  const uvAttr = geometry.attributes.uv || null;
+  const colorAttr = geometry.attributes.color || null;
+  const readVert = vi => {
+    const i = vi * is;
+    return [p[i], p[i + 1] || 0, p[i + 2] || 0];
+  };
+  let w = 0;
+  for (let t = 0; t < triCount; t++) {
+    const ia = index ? index[t * 3] : t * 3;
+    const ib = index ? index[t * 3 + 1] : t * 3 + 1;
+    const ic = index ? index[t * 3 + 2] : t * 3 + 2;
+    const a = readVert(ia), b = readVert(ib), c = readVert(ic);
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const nl = Math.hypot(nx, ny, nz);
+    if (nl > 1e-12) { nx /= nl; ny /= nl; nz /= nl; }
+    for (const vi of [ia, ib, ic]) {
+      const v = readVert(vi);
+      positions[w] = v[0]; positions[w + 1] = v[1]; positions[w + 2] = v[2];
+      normals[w] = nx; normals[w + 1] = ny; normals[w + 2] = nz;
+      w += 3;
+      if (uvAttr) {
+        const ui = vi * uvAttr.itemSize;
+        uvs.push(uvAttr.array[ui] || 0, uvAttr.array[ui + 1] || 0);
+      }
+      if (colorAttr) {
+        const ci = vi * colorAttr.itemSize;
+        colors.push(colorAttr.array[ci] || 1, colorAttr.array[ci + 1] || 1,
+          colorAttr.array[ci + 2] || 1, colorAttr.array[ci + 3] ?? 1);
+      }
+    }
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+  if (uvAttr) geo.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+  if (colorAttr) geo.setAttribute('color', new Float32BufferAttribute(colors, colorAttr.itemSize));
+  flatGeometryCache.set(geometry, { version: geometry.version, geo });
+  return geo;
+}
+
+function ensureGeometry(engine, geometry, useVertexColors = false, flatShading = false) {
   if (!geometry || !geometry.attributes || !geometry.attributes.position) return -1;
-  const flag = useVertexColors ? 1 : 0;
+  const flag = `${useVertexColors ? 1 : 0}${flatShading ? 1 : 0}`;
   const byFlag = geometryStates.get(geometry) || {};
   const state = byFlag[flag];
   if (state && state.version === geometry.version) return state.id;
   if (state) engine._g3_asset_release_mesh(state.id, state.generation);
 
-  if (!geometry.attributes.normal) geometry.computeVertexNormals();
-  const position = geometry.attributes.position;
-  const normal = geometry.attributes.normal;
+  const src = flatShading ? flatShadedGeometry(geometry) : geometry;
+  if (!src.attributes.normal) src.computeVertexNormals();
+  const position = src.attributes.position;
+  const normal = src.attributes.normal;
   const uvSets = [];
   for (let set = 0; set < 8; set++) {
-    const attr = geometry.attributes[set === 0 ? 'uv' : `uv${set}`];
+    const attr = src.attributes[set === 0 ? 'uv' : `uv${set}`];
     uvSets.push(attr ? attr.array : null);
   }
-  const color = useVertexColors ? geometry.attributes.color : null;
+  const color = useVertexColors ? src.attributes.color : null;
   const p = position.array, n = normal ? normal.array : null;
   const c = color ? color.array : null;
   const ns = normal ? normal.itemSize : 3, cs = color ? color.itemSize : 4;
-  const uvAttrs = uvSets.map((arr, i) => arr ? geometry.attributes[i === 0 ? 'uv' : `uv${i}`] : null);
+  const uvAttrs = uvSets.map((arr, i) => arr ? src.attributes[i === 0 ? 'uv' : `uv${i}`] : null);
   const count = position.count;
 
   engine._g3_asset_mesh_begin();
@@ -1787,7 +1846,7 @@ function ensureGeometry(engine, geometry, useVertexColors = false) {
       c && cs > 3 ? c[ci + 3] : 1,
     );
   }
-  const index = geometry.index;
+  const index = src.index;
   if (index) {
     const ids = index.array;
     for (let i = 0; i + 2 < ids.length; i += 3) engine._g3_asset_triangle(ids[i], ids[i + 1], ids[i + 2]);
@@ -1890,7 +1949,8 @@ function ensureMaterial(engine, material) {
 function syncNode(engine, object, parentEngineIndex, local) {
   const isMesh = object.isMesh === true;
   const material = isMesh ? (Array.isArray(object.material) ? object.material[0] : object.material) : null;
-  const meshId = isMesh ? ensureGeometry(engine, object.geometry, !!(material && material.vertexColors)) : -1;
+  const meshId = isMesh ? ensureGeometry(engine, object.geometry,
+    !!(material && material.vertexColors), !!(material && material.flatShading)) : -1;
   let record = nodeStates.get(object);
   if (record && (record.parent !== parentEngineIndex || record.mesh !== meshId)) {
     releaseNodeRecord(record);

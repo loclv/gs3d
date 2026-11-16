@@ -74,7 +74,8 @@ absolute URLs, including `KHR_texture_transform`. Primitive geometries cover
 box, sphere, plane, circle, ring, cylinder, cone, torus, capsule and the
 platonic solids (tetrahedron, octahedron, icosahedron, dodecahedron, with
 `detail` subdivision), plus `material.vertexColors` for vertex-coloured
-meshes. `Object3D.quaternion` and `rotation` stay in sync (XYZ Euler order).
+meshes and `material.flatShading` (expanded to per-face normals at upload).
+`Object3D.quaternion` and `rotation` stay in sync (XYZ Euler order).
 Pure-JS helpers cover `Ray`/`Raycaster` (Möller–Trumbore against geometry,
 `setFromCamera` for perspective cameras) and `Box3` (`setFromObject` walks
 the scene graph). `scene.environment` accepts an equirectangular texture

@@ -230,6 +230,7 @@ export class Material {
   color: Color;
   map: Texture | null;
   vertexColors: boolean;
+  flatShading: boolean;
   normalMap: Texture | null;
   normalScale: Vector2;
   roughnessMap: Texture | null;
@@ -253,6 +254,7 @@ export class MeshStandardMaterial extends Material {
     color?: number | string | Color;
     map?: Texture | null;
     vertexColors?: boolean;
+    flatShading?: boolean;
     normalMap?: Texture | null;
     normalScale?: Vector2 | number;
     roughnessMap?: Texture | null;
