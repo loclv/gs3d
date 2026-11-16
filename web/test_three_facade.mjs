@@ -27,6 +27,13 @@ function createMockEngine() {
     _g3_asset_light_directional: record('_g3_asset_light_directional'),
     _g3_asset_light_point: record('_g3_asset_light_point'),
     _g3_asset_light_spot: record('_g3_asset_light_spot'),
+    _g3_asset_light_point_shadow: record('_g3_asset_light_point_shadow'),
+    _g3_asset_light_spot_shadow: record('_g3_asset_light_spot_shadow'),
+    _g3_asset_light_key: record('_g3_asset_light_key'),
+    _g3_asset_light_key_shadow: record('_g3_asset_light_key_shadow'),
+    _g3_asset_light_key_shadow_clear: record('_g3_asset_light_key_shadow_clear'),
+    _g3_asset_shadow_resolution: record('_g3_asset_shadow_resolution'),
+    _g3_asset_shadow_filter_radius: record('_g3_asset_shadow_filter_radius'),
     _g3_asset_scene_epoch: () => 1,
     _g3_asset_node: (mesh, parent) => { calls.push(['_g3_asset_node', mesh, parent]); return nextNode++; },
     _g3_asset_node_generation: () => 1,
@@ -159,6 +166,63 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   const frames = named(engine, '_g3_app_frame');
   assert.equal(frames.length, 1);
   assert.ok(frames[0][1] > 0 && frames[0][1] <= 0.1);
+}
+
+// --- directional light shadows ---------------------------------------------------
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  await renderer.init();
+
+  const scene = new THREE.Scene();
+  const sun = new THREE.DirectionalLight(0xffffff, 1);
+  sun.position.set(0, 10, 0);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.bias = -0.001;
+  sun.shadow.normalBias = 0.02;
+  sun.shadow.camera.left = -4;
+  sun.shadow.camera.right = 4;
+  sun.shadow.camera.top = 4;
+  sun.shadow.camera.bottom = -4;
+  scene.add(sun);
+  renderer.render(scene, new THREE.PerspectiveCamera());
+
+  // The shadow-casting directional is routed to the primary light slot, not
+  // the eight-light array: direction is the travel direction (target - pos).
+  assert.equal(named(engine, '_g3_asset_light_directional').length, 0,
+    'shadow caster leaves the extra-light array');
+  const keyCalls = named(engine, '_g3_asset_light_key');
+  assert.equal(keyCalls.length, 1);
+  assert.deepEqual(keyCalls[0].slice(1, 4), [0, -1, 0], 'key light travels toward the target');
+
+  // Shadow box: centred on the target (origin), extent reaches upstream to
+  // the light (distance/2 + 1 = 6 beats the ortho half-size of 4), and the
+  // bias folds normalBias into depth units over the extent*4 depth range.
+  const shadowCalls = named(engine, '_g3_asset_light_key_shadow');
+  assert.equal(shadowCalls.length, 1);
+  const sc = shadowCalls[0].slice(1);
+  assert.deepEqual(sc.slice(0, 3), [0, 0, 0], 'shadow box centred on target');
+  assert.equal(sc[3], 6, 'extent reaches the light at distance 10');
+  assert.ok(Math.abs(sc[4] - 0.02 / 24) < 1e-9, 'normalBias converted to depth units');
+
+  assert.deepEqual(named(engine, '_g3_asset_shadow_resolution')[0].slice(1), [1024],
+    '2048 map clamps to the largest engine resolution');
+  assert.deepEqual(named(engine, '_g3_asset_shadow_filter_radius')[0].slice(1), [2],
+    'PCFSoft maps to the 5x5 PCF radius');
+
+  // Turning shadows off restores the default key light and clears the map.
+  renderer.shadowMap.enabled = false;
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  assert.equal(named(engine, '_g3_asset_light_directional').length, 1,
+    'without shadows the directional rejoins the light array');
+  assert.ok(named(engine, '_g3_asset_light_key_shadow_clear').length >= 1,
+    'shadow map cleared when disabled');
+  const restore = named(engine, '_g3_asset_light_key').at(-1).slice(1);
+  assert.deepEqual(restore.slice(0, 3), [-0.45, -0.8, -0.4], 'default key light restored');
 }
 
 // --- transform caching -------------------------------------------------------

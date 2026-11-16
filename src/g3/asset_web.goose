@@ -194,3 +194,18 @@ export fn g3_asset_light_spot(px: f32, py: f32, pz: f32, dx: f32, dy: f32, dz: f
 }
 export fn g3_asset_light_point_shadow(index: i32, bias: f32) -> bool { return g3::set_point_light_shadows(index, bias); }
 export fn g3_asset_light_spot_shadow(index: i32, bias: f32) -> bool { return g3::set_spot_light_shadows(index, bias); }
+// The primary directional light, independent of the eight-light asset set: the
+// facade routes the shadow-casting directional light here so it owns the one
+// shadow map. dir is the direction the light travels; colour is linear.
+export fn g3_asset_light_key(dx: f32, dy: f32, dz: f32, r: f32, g: f32, b: f32) {
+    g3::set_light(float3 { dx, dy, dz }, float3 { r, g, b });
+}
+// The key light's shadow box: world-space centre, half extent, depth bias.
+export fn g3_asset_light_key_shadow(cx: f32, cy: f32, cz: f32, extent: f32, bias: f32) -> bool {
+    return g3::set_directional_shadows(float3 { cx, cy, cz }, extent, bias);
+}
+export fn g3_asset_light_key_shadow_clear() { g3::clear_shadows(); }
+// Shadow maps are square: 256, 512 or 1024.
+export fn g3_asset_shadow_resolution(resolution: i32) -> bool { return g3::set_shadow_resolution(resolution); }
+// PCF radius in texels: 0 hard, 1 is 3x3, 2 is 5x5.
+export fn g3_asset_shadow_filter_radius(radius: i32) -> bool { return g3::set_shadow_filter_radius(radius); }

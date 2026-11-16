@@ -12,9 +12,10 @@
 // change, and geometry/material uploads are cached per object and rebuilt
 // when their version or signature changes.
 //
-// Deliberate subset: no textures, skinning, morph targets, shadows, fog
-// objects beyond Fog/FogExp2 approximation, quaternion editing, or
-// post-processing. The renderer class is named WebGPURenderer for API
+// Deliberate subset: no skinning, morph targets, fog objects beyond
+// Fog/FogExp2 approximation, quaternion editing, or post-processing. One
+// directional light can cast a single shadow map; point and spot lights do
+// not shadow yet. The renderer class is named WebGPURenderer for API
 // compatibility; the engine currently renders through its WebGL2 backend.
 
 import createGoose3D from './gs3d/app.js';
@@ -451,6 +452,8 @@ export class Object3D {
     this.children = [];
     this.parent = null;
     this.visible = true;
+    this.castShadow = false;
+    this.receiveShadow = false;
     this.matrixAutoUpdate = true;
     this.matrix = new Matrix4();
     this.matrixWorld = new Matrix4();
@@ -1716,11 +1719,36 @@ export class HemisphereLight extends Light {
   }
 }
 
+// The engine has one directional shadow map, so a light's shadow settings
+// collapse into a world-space box: mapSize picks the map resolution (256,
+// 512 or 1024 — larger requests clamp), the camera's ortho bounds pick the
+// coverage, and bias/normalBias fold into a single depth bias. autoUpdate
+// and needsUpdate are accepted for API compatibility; the map re-renders
+// every frame while shadows are enabled.
+export class DirectionalLightShadow {
+  constructor() {
+    this.mapSize = new Vector2(512, 512);
+    this.bias = 0;
+    this.normalBias = 0;
+    this.radius = 1;
+    this.camera = {
+      left: -5, right: 5, top: 5, bottom: -5, near: 0.5, far: 500,
+      updateProjectionMatrix() {},
+    };
+    this.map = null;
+    this.mapPass = null;
+    this.autoUpdate = true;
+    this.needsUpdate = true;
+  }
+  dispose() {}
+}
+
 export class DirectionalLight extends Light {
   constructor(color = 0xffffff, intensity = 1) {
     super(color, intensity);
     this.isDirectionalLight = true;
     this.target = new Object3D();
+    this.shadow = new DirectionalLightShadow();
   }
 }
 
@@ -2547,7 +2575,8 @@ function collectLights(scene) {
         if (object.isDirectionalLight) {
           const target = targetWorldPosition(object);
           const delta = [target[0] - position[0], target[1] - position[1], target[2] - position[2]];
-          result.lights.push({ kind: 'directional', direction: normalize3(delta), color: scaled });
+          result.lights.push({ kind: 'directional', direction: normalize3(delta), color: scaled,
+            source: object, position, target });
         } else if (object.isPointLight) {
           result.lights.push({ kind: 'point', position, color: scaled, range: object.distance || 0 });
         } else if (object.isSpotLight) {
@@ -2565,9 +2594,66 @@ function collectLights(scene) {
   return result;
 }
 
-function syncLights(engine, collected) {
+function shadowMapResolution(size) {
+  const s = Math.max(size || 0, 0);
+  return s >= 1024 ? 1024 : s >= 512 ? 512 : 256;
+}
+
+function shadowFilterRadius(type) {
+  if (type === BasicShadowMap) return 0;
+  if (type === PCFSoftShadowMap || type === VSMShadowMap) return 2;
+  return 1;
+}
+
+// The engine has a single directional shadow map, so the shadow-casting
+// directional light is routed to the primary light slot and its ortho
+// camera collapses into one world-space box. The box's half extent must
+// cover the frustum horizontally and reach upstream to the light itself
+// (the shadow camera sits 2*extent behind the target and sees extent*4
+// deep), so light distance and ortho bounds share one number. Every mesh
+// inside the box casts and receives; per-object flags are accepted for
+// API compatibility but only light.castShadow selects the caster.
+function syncKeyLight(engine, light, renderer) {
+  if (typeof engine._g3_asset_light_key !== 'function') return;
+  if (!light) {
+    // No facade key light: restore the engine's default key and drop shadows.
+    engine._g3_asset_light_key(-0.45, -0.8, -0.4, 1.0, 0.96, 0.88);
+    engine._g3_asset_light_key_shadow_clear();
+    return;
+  }
+  engine._g3_asset_light_key(light.direction[0], light.direction[1], light.direction[2],
+    light.color[0], light.color[1], light.color[2]);
+  const shadow = light.source.shadow || {};
+  const camera = shadow.camera || {};
+  const halfWidth = Math.max(0, ((camera.right ?? 5) - (camera.left ?? -5)) / 2);
+  const halfHeight = Math.max(0, ((camera.top ?? 5) - (camera.bottom ?? -5)) / 2);
+  const distance = Math.hypot(
+    light.position[0] - light.target[0],
+    light.position[1] - light.target[1],
+    light.position[2] - light.target[2]);
+  const extent = Math.max(halfWidth, halfHeight, distance / 2 + 1);
+  // normalBias is a world-space offset; the shadow camera's depth range is
+  // extent*4, so the same offset is that much smaller in depth units.
+  const bias = Math.max(0, shadow.bias ?? 0) + Math.max(0, shadow.normalBias ?? 0) / (extent * 4);
+  engine._g3_asset_light_key_shadow(light.target[0], light.target[1], light.target[2], extent, bias);
+  if (typeof engine._g3_asset_shadow_resolution === 'function') {
+    const size = Math.max(shadow.mapSize?.x ?? 512, shadow.mapSize?.y ?? 512);
+    engine._g3_asset_shadow_resolution(shadowMapResolution(size));
+  }
+  if (typeof engine._g3_asset_shadow_filter_radius === 'function') {
+    engine._g3_asset_shadow_filter_radius(shadowFilterRadius(renderer?.shadowMap?.type));
+  }
+}
+
+function syncLights(engine, collected, renderer) {
   engine._g3_asset_lights_clear();
+  const shadowsOn = !!(renderer && renderer.shadowMap && renderer.shadowMap.enabled);
+  let keyLight = null;
   for (const light of collected.lights) {
+    if (light.kind === 'directional' && shadowsOn && !keyLight && light.source && light.source.castShadow) {
+      keyLight = light;
+      continue;
+    }
     if (light.kind === 'directional') engine._g3_asset_light_directional(...light.direction, ...light.color);
     else if (light.kind === 'point') engine._g3_asset_light_point(...light.position, ...light.color, light.range);
     else engine._g3_asset_light_spot(...light.position, ...light.direction, ...light.color,
@@ -2581,6 +2667,7 @@ function syncLights(engine, collected) {
   } else {
     engine._g3_asset_environment_lighting(0, 0, 0, 0, 0, 0, 0);
   }
+  syncKeyLight(engine, keyLight, renderer);
 }
 
 function syncBackground(engine, scene, renderer) {
@@ -2688,6 +2775,11 @@ export const CustomToneMapping = 5;
 export const AgXToneMapping = 6;
 export const NeutralToneMapping = 7;
 
+export const BasicShadowMap = 0;
+export const PCFShadowMap = 1;
+export const PCFSoftShadowMap = 2;
+export const VSMShadowMap = 3;
+
 // Three.js tone-mapping constants mapped onto the engine's three modes.
 const TONE_MODES = {
   0: 'none',   // NoToneMapping
@@ -2724,7 +2816,12 @@ export class WebGPURenderer {
     // Advanced/testing hook: a prebuilt engine module (or promise of one)
     // replaces the bundled wasm loader. The browser path never sets this.
     this._engineOverride = parameters.engine ?? null;
-    this.shadowMap = { enabled: false };
+    // autoUpdate/needsUpdate are accepted for API compatibility: the engine
+    // re-renders the shadow map on every frame while it is enabled.
+    this.shadowMap = { enabled: false, type: PCFShadowMap, autoUpdate: true, needsUpdate: true };
+    // Conservative stand-ins for the GL caps apps probe; the engine owns the
+    // context, so these cannot be queried without a second getContext call.
+    this.capabilities = { maxTextureSize: 8192, getMaxAnisotropy: () => 16 };
     this.setPixelRatio(parameters.pixelRatio ?? (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1));
     this._measure();
   }
@@ -2832,7 +2929,7 @@ export class WebGPURenderer {
       syncBackground(engine, scene, this);
       syncFog(engine, scene);
       syncEnvironment(engine, scene);
-      syncLights(engine, collected);
+      syncLights(engine, collected, this);
       camera.updateMatrixWorld();
       syncCamera(engine, this, camera);
     }

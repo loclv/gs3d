@@ -87,8 +87,15 @@ with `environmentIntensity`/`environmentRotation`, and materials support
 merged loop triangulates cleanly, otherwise filled) and `ExtrudeGeometry`
 (bevel parameters accepted but ignored). `TubeGeometry` sweeps a radius
 along any `getPoint(t)` path, and `CatmullRomCurve3` provides splines.
-Skinning, morph targets, shadows, line/points primitives and
-post-processing are not implemented;
+Skinning, morph targets, line/points primitives and post-processing are
+not implemented. Shadows are limited to one directional light: the first
+`castShadow` directional light owns the engine's single shadow map
+(256/512/1024 px, PCF radius derived from `shadowMap.type`), its
+`shadow.camera` ortho bounds and `shadow.bias`/`normalBias` fold into one
+world-space shadow box and depth bias, and `shadow.mapSize` above 1024
+clamps. `shadow.mapSize.set`, `autoUpdate`/`needsUpdate` and
+`renderer.shadowMap.autoUpdate` are accepted for compatibility; the map
+re-renders every frame while enabled;
 `WebGPURenderer` renders through the engine's WebGL2 backend and reports
 `backend.isWebGPUBackend === false`.
 
