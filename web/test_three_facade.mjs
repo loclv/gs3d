@@ -4,6 +4,7 @@
 
 import assert from 'node:assert/strict';
 import * as THREE from './three.js';
+import { GLTFLoader } from './gltf-loader.js';
 
 function createMockEngine() {
   const calls = [];
@@ -369,6 +370,105 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   assert.ok(linear.r > 0.99, 'white hex maps to linear white');
   const half = new THREE.Color(0x808080);
   assert.ok(half.r < 0.25 && half.r > 0.2, 'mid grey linearizes below sRGB value');
+}
+
+// --- GLTFLoader ---------------------------------------------------------------------
+
+function buildTestGLB() {
+  // One triangle, one material, one node with TRS and a child with a matrix.
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]);
+  const indices = new Uint16Array([0, 1, 2]);
+  const binLength = positions.byteLength + normals.byteLength + indices.byteLength;
+  const bin = new Uint8Array(binLength);
+  bin.set(new Uint8Array(positions.buffer), 0);
+  bin.set(new Uint8Array(normals.buffer), positions.byteLength);
+  bin.set(new Uint8Array(indices.buffer), positions.byteLength + normals.byteLength);
+
+  const json = {
+    asset: { version: '2.0' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { name: 'tri', mesh: 0, translation: [1, 2, 3], rotation: [0, 0, Math.SQRT1_2, Math.SQRT1_2], children: [1] },
+      { name: 'child', mesh: 0, matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 4, 5, 6, 1] },
+    ],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, indices: 2, material: 0 }] }],
+    materials: [{ pbrMetallicRoughness: { baseColorFactor: [1, 0, 0, 1], metallicFactor: 0.5, roughnessFactor: 0.25 }, doubleSided: true }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3' },
+      { bufferView: 1, componentType: 5126, count: 3, type: 'VEC3' },
+      { bufferView: 2, componentType: 5123, count: 3, type: 'SCALAR' },
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: positions.byteLength },
+      { buffer: 0, byteOffset: positions.byteLength, byteLength: normals.byteLength },
+      { buffer: 0, byteOffset: positions.byteLength + normals.byteLength, byteLength: indices.byteLength },
+    ],
+    buffers: [{ byteLength: binLength }],
+  };
+
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(json));
+  const jsonPad = (4 - (jsonBytes.length % 4)) % 4;
+  const binPad = (4 - (bin.length % 4)) % 4;
+  const total = 12 + 8 + jsonBytes.length + jsonPad + 8 + bin.length + binPad;
+  const glb = new ArrayBuffer(total);
+  const view = new DataView(glb);
+  view.setUint32(0, 0x46546c67, true);
+  view.setUint32(4, 2, true);
+  view.setUint32(8, total, true);
+  view.setUint32(12, jsonBytes.length + jsonPad, true);
+  view.setUint32(16, 0x4e4f534a, true);
+  new Uint8Array(glb, 20, jsonBytes.length).set(jsonBytes);
+  let offset = 20 + jsonBytes.length + jsonPad;
+  view.setUint32(offset, bin.length + binPad, true);
+  view.setUint32(offset + 4, 0x004e4942, true);
+  new Uint8Array(glb, offset + 8, bin.length).set(bin);
+  return glb;
+}
+
+{
+  const glb = buildTestGLB();
+  const loader = new GLTFLoader();
+  const { json, bin } = (() => {
+    // parseGLB is internal; exercise the public path via a .glb sniff in load()
+    // is async, so use parse() on the JSON chunk extracted here.
+    const view = new DataView(glb);
+    const jsonLen = view.getUint32(12, true);
+    const jsonText = new TextDecoder().decode(new Uint8Array(glb, 20, jsonLen));
+    const binStart = 20 + jsonLen;
+    const binLen = view.getUint32(binStart, true);
+    return { json: JSON.parse(jsonText), bin: new Uint8Array(glb, binStart + 8, binLen) };
+  })();
+  const gltf = loader.parse(json, bin);
+  assert.ok(gltf.scene, 'gltf.scene exists');
+  assert.equal(gltf.animations.length, 0, 'animations unsupported -> empty');
+
+  const root = gltf.scene.children[0];
+  assert.equal(root.name, 'tri');
+  assert.ok(Math.abs(root.position.x - 1) < 1e-6 && Math.abs(root.position.z - 3) < 1e-6,
+    'node translation applied');
+  assert.ok(Math.abs(root.rotation.z - Math.PI / 2) < 1e-3, 'quaternion converted to euler z');
+
+  const mesh = root.children[0];
+  assert.ok(mesh.isMesh, 'matrix-transformed child became a Mesh');
+  assert.ok(Math.abs(mesh.position.x - 4) < 1e-6 && Math.abs(mesh.position.z - 6) < 1e-6,
+    'node matrix decomposed to translation');
+  assert.equal(mesh.geometry.attributes.position.count, 3);
+  assert.equal(mesh.geometry.index.count, 3);
+  assert.ok(mesh.material.isMeshStandardMaterial);
+  assert.ok(Math.abs(mesh.material.metalness - 0.5) < 1e-6, 'metallic factor mapped');
+  assert.ok(Math.abs(mesh.material.roughness - 0.25) < 1e-6, 'roughness factor mapped');
+  assert.equal(mesh.material.side, THREE.DoubleSide, 'doubleSided mapped');
+
+  // The parsed scene renders through the facade.
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  scene.add(gltf.scene);
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  assert.ok(named(engine, '_g3_asset_mesh_end').length >= 1, 'glTF geometry uploads');
 }
 
 console.log('three.js facade checks passed');

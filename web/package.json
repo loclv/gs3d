@@ -28,6 +28,10 @@
     "./webgpu": {
       "types": "./three.d.ts",
       "import": "./three.js"
+    },
+    "./gltf-loader": {
+      "types": "./gltf-loader.d.ts",
+      "import": "./gltf-loader.js"
     }
   },
   "files": [
@@ -37,6 +41,8 @@
     "orbit-controls.d.ts",
     "three.js",
     "three.d.ts",
+    "gltf-loader.js",
+    "gltf-loader.d.ts",
     "gs3d/app.js",
     "gs3d/app.wasm",
     "LICENSE"

@@ -236,7 +236,21 @@ export class Object3D {
   }
   updateMatrixWorld(force) { return this; }
   updateMatrix() { return this; }
-  lookAt() { return this; }
+  // Yaw/pitch look-at: cameras and lights face -Z toward the target like
+  // three.js; other objects face +Z. Roll and non-uniform parent scale are
+  // not modelled.
+  lookAt(target) {
+    const pos = transformPoint(worldMatrixOf(this), 0, 0, 0);
+    const tp = target && target.isVector3 ? [target.x, target.y, target.z]
+      : target ? transformPoint(worldMatrixOf(target), 0, 0, 0) : [0, 0, 0];
+    let dx = tp[0] - pos[0], dy = tp[1] - pos[1], dz = tp[2] - pos[2];
+    const len = Math.hypot(dx, dy, dz) || 1;
+    dx /= len; dy /= len; dz /= len;
+    if (!this.isCamera && !this.isLight) { dx = -dx; dy = -dy; dz = -dz; }
+    const dyz = Math.hypot(dy, dz);
+    this.rotation.set(Math.atan2(dy, -dz), Math.atan2(-dx, dyz || 1e-9), 0);
+    return this;
+  }
   getWorldPosition(target = new Vector3()) {
     const p = transformPoint(worldMatrixOf(this), 0, 0, 0);
     return target.set(p[0], p[1], p[2]);
@@ -975,10 +989,12 @@ function syncLights(engine, collected) {
   }
 }
 
-function syncBackground(engine, scene) {
+function syncBackground(engine, scene, renderer) {
   const background = scene.background;
   if (background && background.isColor) {
     engine._g3_asset_background(background.r, background.g, background.b, 1);
+  } else if (renderer._clearColor) {
+    engine._g3_asset_background(renderer._clearColor.r, renderer._clearColor.g, renderer._clearColor.b, renderer._clearAlpha ?? 1);
   } else {
     engine._g3_asset_background(0, 0, 0, 1);
   }
@@ -1202,7 +1218,7 @@ export class WebGPURenderer {
       }
       for (const object of seen) syncedObjects.add(object);
       this._applyOutputSettings();
-      syncBackground(engine, scene);
+      syncBackground(engine, scene, this);
       syncFog(engine, scene);
       syncLights(engine, collected);
       syncCamera(engine, this, camera);

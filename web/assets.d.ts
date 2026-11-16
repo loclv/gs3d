@@ -251,3 +251,5 @@ export function loadGLTF(
 ): Promise<LoadedModel>;
 
 export * from "./three.js";
+
+export { GLTFLoader } from "./gltf-loader.js";

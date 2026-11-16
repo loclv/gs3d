@@ -70,6 +70,25 @@ In this repository the facade's engine is built with `./build_web.sh --gs3d`,
 which writes `web/gs3d/app.js` and `web/gs3d/app.wasm` (gitignored build
 output, packed into the published tarball).
 
+## Loading glTF assets into the facade
+
+`gs3d/gltf-loader` (also exported from the package root) provides a
+`GLTFLoader` matching the three.js examples API. It parses glTF 2.0 JSON and
+GLB files — including node hierarchies, TRS and matrix transforms, and
+untextured PBR materials — into the facade's scene graph:
+
+```js
+import * as THREE from 'gs3d/three';
+import { GLTFLoader } from 'gs3d/gltf-loader';
+
+new GLTFLoader().load('./model.glb', gltf => {
+  scene.add(gltf.scene);
+});
+```
+
+Textures, images, skins, morph targets, animations and compressed buffers
+(Draco/meshopt) are not supported; files requiring those extensions throw.
+
 ## Reference viewer
 
 From the repository root, run `./build_web.sh --viewer --serve` and open

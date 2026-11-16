@@ -1943,3 +1943,5 @@ export async function loadGLTF(engine, url, options = {}) {
 
 // The Three.js-compatible scene facade ships through the root and ./three.
 export * from "./three.js";
+
+export { GLTFLoader } from "./gltf-loader.js";
