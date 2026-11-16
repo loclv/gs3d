@@ -376,6 +376,52 @@ export class Points extends Object3D {
   constructor(geometry?: BufferGeometry, material?: Material | Material[]);
   readonly isPoints: true; geometry: BufferGeometry; material: Material | Material[];
 }
+export class Ray {
+  constructor(origin?: Vector3, direction?: Vector3);
+  origin: Vector3;
+  direction: Vector3;
+  set(origin: Vector3, direction: Vector3): this;
+  at(t: number, target?: Vector3): Vector3;
+}
+
+export interface Intersection {
+  distance: number;
+  point: Vector3;
+  face: { a: number; b: number; c: number; normal: Vector3 } | null;
+  object: Object3D;
+  uv: Vector2 | null;
+}
+
+export class Raycaster {
+  constructor(origin?: Vector3, direction?: Vector3, near?: number, far?: number);
+  ray: Ray;
+  near: number;
+  far: number;
+  camera: Camera | null;
+  set(origin: Vector3, direction: Vector3): this;
+  setFromCamera(coords: Vector2, camera: Camera): this;
+  intersectObject(object: Object3D, recursive?: boolean): Intersection[];
+  intersectObjects(objects: Object3D[], recursive?: boolean): Intersection[];
+}
+
+export class Box3 {
+  constructor(min?: Vector3, max?: Vector3);
+  readonly isBox3: true;
+  min: Vector3;
+  max: Vector3;
+  set(min: Vector3, max: Vector3): this;
+  makeEmpty(): this;
+  isEmpty(): boolean;
+  getCenter(target?: Vector3): Vector3;
+  getSize(target?: Vector3): Vector3;
+  expandByPoint(point: Vector3): this;
+  expandByScalar(scalar: number): this;
+  containsPoint(point: Vector3): boolean;
+  intersectsBox(box: Box3): boolean;
+  clone(): Box3;
+  setFromObject(object: Object3D): this;
+}
+
 export class Sprite extends Object3D {
   constructor(material?: Material | Material[]);
   readonly isSprite: true; material: Material | Material[];

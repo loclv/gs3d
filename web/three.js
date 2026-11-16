@@ -269,6 +269,33 @@ function normalize3(v) {
   return [v[0] / l, v[1] / l, v[2] / l];
 }
 
+// General column-major 4x4 inverse (cofactor expansion).
+function invertMat4(m) {
+  const inv = new Float64Array(16);
+  const a = m;
+  inv[0] = a[5] * a[10] * a[15] - a[5] * a[11] * a[14] - a[9] * a[6] * a[15] + a[9] * a[7] * a[14] + a[13] * a[6] * a[11] - a[13] * a[7] * a[10];
+  inv[4] = -a[4] * a[10] * a[15] + a[4] * a[11] * a[14] + a[8] * a[6] * a[15] - a[8] * a[7] * a[14] - a[12] * a[6] * a[11] + a[12] * a[7] * a[10];
+  inv[8] = a[4] * a[9] * a[15] - a[4] * a[11] * a[13] - a[8] * a[5] * a[15] + a[8] * a[7] * a[13] + a[12] * a[5] * a[11] - a[12] * a[7] * a[9];
+  inv[12] = -a[4] * a[9] * a[14] + a[4] * a[10] * a[13] + a[8] * a[5] * a[14] - a[8] * a[6] * a[13] - a[12] * a[5] * a[10] + a[12] * a[6] * a[9];
+  inv[1] = -a[1] * a[10] * a[15] + a[1] * a[11] * a[14] + a[9] * a[2] * a[15] - a[9] * a[3] * a[14] - a[13] * a[2] * a[11] + a[13] * a[3] * a[10];
+  inv[5] = a[0] * a[10] * a[15] - a[0] * a[11] * a[14] - a[8] * a[2] * a[15] + a[8] * a[3] * a[14] + a[12] * a[2] * a[11] - a[12] * a[3] * a[10];
+  inv[9] = -a[0] * a[9] * a[15] + a[0] * a[11] * a[13] + a[8] * a[1] * a[15] - a[8] * a[3] * a[13] - a[12] * a[1] * a[11] + a[12] * a[3] * a[9];
+  inv[13] = a[0] * a[9] * a[14] - a[0] * a[10] * a[13] - a[8] * a[1] * a[14] + a[8] * a[2] * a[13] + a[12] * a[1] * a[10] - a[12] * a[2] * a[9];
+  inv[2] = a[1] * a[6] * a[15] - a[1] * a[7] * a[14] - a[5] * a[2] * a[15] + a[5] * a[3] * a[14] + a[13] * a[2] * a[7] - a[13] * a[3] * a[6];
+  inv[6] = -a[0] * a[6] * a[15] + a[0] * a[7] * a[14] + a[4] * a[2] * a[15] - a[4] * a[3] * a[14] - a[12] * a[2] * a[7] + a[12] * a[3] * a[6];
+  inv[10] = a[0] * a[5] * a[15] - a[0] * a[7] * a[13] - a[4] * a[1] * a[15] + a[4] * a[3] * a[13] + a[12] * a[1] * a[7] - a[12] * a[3] * a[5];
+  inv[14] = -a[0] * a[5] * a[14] + a[0] * a[6] * a[13] + a[4] * a[1] * a[14] - a[4] * a[2] * a[13] - a[12] * a[1] * a[6] + a[12] * a[2] * a[5];
+  inv[3] = -a[1] * a[6] * a[11] + a[1] * a[7] * a[10] + a[5] * a[2] * a[11] - a[5] * a[3] * a[10] - a[9] * a[2] * a[7] + a[9] * a[3] * a[6];
+  inv[7] = a[0] * a[6] * a[11] - a[0] * a[7] * a[10] - a[4] * a[2] * a[11] + a[4] * a[3] * a[10] + a[8] * a[2] * a[7] - a[8] * a[3] * a[6];
+  inv[11] = -a[0] * a[5] * a[11] + a[0] * a[7] * a[9] + a[4] * a[1] * a[11] - a[4] * a[3] * a[9] - a[8] * a[1] * a[7] + a[8] * a[3] * a[5];
+  inv[15] = a[0] * a[5] * a[10] - a[0] * a[6] * a[9] - a[4] * a[1] * a[10] + a[4] * a[2] * a[9] + a[8] * a[1] * a[6] - a[8] * a[2] * a[5];
+  let det = a[0] * inv[0] + a[1] * inv[4] + a[2] * inv[8] + a[3] * inv[12];
+  if (Math.abs(det) < 1e-12) return null;
+  det = 1 / det;
+  for (let i = 0; i < 16; i++) inv[i] *= det;
+  return inv;
+}
+
 /* --- scene graph ---------------------------------------------------------- */
 
 export class Object3D {
@@ -1133,6 +1160,185 @@ export class Points extends Object3D {
 }
 export class Sprite extends Object3D {
   constructor(material) { super(); this.isSprite = true; this.material = material; }
+}
+
+/* --- raycasting and bounds ------------------------------------------------------ */
+
+export class Ray {
+  constructor(origin = new Vector3(), direction = new Vector3(0, 0, -1)) {
+    this.origin = origin;
+    this.direction = direction;
+  }
+  set(origin, direction) { this.origin.copy(origin); this.direction.copy(direction).normalize(); return this; }
+  at(t, target = new Vector3()) {
+    return target.set(this.origin.x + this.direction.x * t,
+      this.origin.y + this.direction.y * t, this.origin.z + this.direction.z * t);
+  }
+}
+
+// Möller–Trumbore ray/triangle test in the mesh's local space.
+function rayTriangle(ox, oy, oz, dx, dy, dz, ax, ay, az, bx, by, bz, cx, cy, cz) {
+  const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+  const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+  const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+  const det = e1x * px + e1y * py + e1z * pz;
+  if (Math.abs(det) < 1e-12) return null;
+  const inv = 1 / det;
+  const tx = ox - ax, ty = oy - ay, tz = oz - az;
+  const u = (tx * px + ty * py + tz * pz) * inv;
+  if (u < 0 || u > 1) return null;
+  const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+  const v = (dx * qx + dy * qy + dz * qz) * inv;
+  if (v < 0 || u + v > 1) return null;
+  const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+  return t >= 0 ? { t, u, v } : null;
+}
+
+export class Raycaster {
+  constructor(origin = new Vector3(), direction = new Vector3(0, 0, -1), near = 0, far = Infinity) {
+    this.ray = new Ray(origin, direction);
+    this.near = near;
+    this.far = far;
+    this.camera = null;
+    this.layers = { mask: 1 };
+  }
+  set(origin, direction) { this.ray.set(origin, direction); return this; }
+  setFromCamera(coords, camera) {
+    // coords are normalized device coordinates (-1..1); camera is a facade camera.
+    const world = worldMatrixOf(camera);
+    const pos = transformPoint(world, 0, 0, 0);
+    const tanFov = Math.max(1e-4, Math.tan(((camera.fov ?? 50) * Math.PI / 180) / 2));
+    const aspect = camera.aspect > 0 ? camera.aspect : 1;
+    // Camera-space ray through the NDC point, then rotate into world space.
+    const lx = coords.x * tanFov * aspect, ly = coords.y * tanFov;
+    const local = normalize3([lx, ly, -1]);
+    const dir = normalize3(transformDir(world, local[0], local[1], local[2]));
+    this.ray.origin.set(pos[0], pos[1], pos[2]);
+    this.ray.direction.set(dir[0], dir[1], dir[2]);
+    return this;
+  }
+  intersectObject(object, recursive = true) {
+    const hits = [];
+    const walk = node => {
+      if (node.isMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
+        const hit = this._intersectMesh(node);
+        if (hit) hits.push(hit);
+      }
+      if (recursive) for (const child of node.children) walk(child);
+    };
+    walk(object);
+    hits.sort((a, b) => a.distance - b.distance);
+    return hits;
+  }
+  intersectObjects(objects, recursive = true) {
+    const hits = [];
+    for (const object of objects) hits.push(...this.intersectObject(object, recursive));
+    hits.sort((a, b) => a.distance - b.distance);
+    return hits;
+  }
+  _intersectMesh(mesh) {
+    const geometry = mesh.geometry;
+    const pos = geometry.attributes.position;
+    if (!pos) return null;
+    const p = pos.array, is = pos.itemSize;
+    const index = geometry.index && geometry.index.array;
+    const world = worldMatrixOf(mesh);
+    const inv = invertMat4(world);
+    if (!inv) return null;
+    // Ray into mesh-local space.
+    const lo = transformPoint(inv, this.ray.origin.x, this.ray.origin.y, this.ray.origin.z);
+    const ld = normalize3(transformDir(inv, this.ray.direction.x, this.ray.direction.y, this.ray.direction.z));
+    const count = pos.count;
+    const triCount = index ? index.length / 3 : count / 3;
+    let best = null;
+    for (let t = 0; t < triCount; t++) {
+      const ia = index ? index[t * 3] : t * 3, ib = index ? index[t * 3 + 1] : t * 3 + 1, ic = index ? index[t * 3 + 2] : t * 3 + 2;
+      const a = ia * is, b = ib * is, c = ic * is;
+      const hit = rayTriangle(lo[0], lo[1], lo[2], ld[0], ld[1], ld[2],
+        p[a], p[a + 1], p[a + 2], p[b], p[b + 1], p[b + 2], p[c], p[c + 1], p[c + 2]);
+      if (!hit || hit.t < this.near || hit.t > this.far) continue;
+      if (!best || hit.t < best.t) best = { t: hit.t, u: hit.u, v: hit.v, a: ia, b: ib, c: ic };
+    }
+    if (!best) return null;
+    // Distance in world units: local t scaled by the world scale along the ray.
+    // Approximate with the average world scale of the mesh.
+    const ws = Math.cbrt(Math.abs(world[0] * world[5] * world[10]) || 1);
+    const distance = best.t * ws;
+    const point = this.ray.at(distance);
+    const pa = best.a * is, pb = best.b * is, pc = best.c * is;
+    const e1 = [p[pb] - p[pa], p[pb + 1] - p[pa + 1], p[pb + 2] - p[pa + 2]];
+    const e2 = [p[pc] - p[pa], p[pc + 1] - p[pa + 1], p[pc + 2] - p[pa + 2]];
+    const n = normalize3([e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]);
+    const wn = normalize3(transformDir(world, n[0], n[1], n[2]));
+    return {
+      distance, point,
+      face: { a: best.a, b: best.b, c: best.c, normal: new Vector3(wn[0], wn[1], wn[2]) },
+      object: mesh,
+      uv: null,
+    };
+  }
+}
+
+export class Box3 {
+  constructor(min = new Vector3(Infinity, Infinity, Infinity), max = new Vector3(-Infinity, -Infinity, -Infinity)) {
+    this.min = min; this.max = max; this.isBox3 = true;
+  }
+  set(min, max) { this.min.copy(min); this.max.copy(max); return this; }
+  makeEmpty() { this.min.set(Infinity, Infinity, Infinity); this.max.set(-Infinity, -Infinity, -Infinity); return this; }
+  isEmpty() { return this.max.x < this.min.x || this.max.y < this.min.y || this.max.z < this.min.z; }
+  getCenter(target = new Vector3()) {
+    return this.isEmpty() ? target.set(0, 0, 0)
+      : target.set((this.min.x + this.max.x) / 2, (this.min.y + this.max.y) / 2, (this.min.z + this.max.z) / 2);
+  }
+  getSize(target = new Vector3()) {
+    return this.isEmpty() ? target.set(0, 0, 0)
+      : target.set(this.max.x - this.min.x, this.max.y - this.min.y, this.max.z - this.min.z);
+  }
+  expandByPoint(point) {
+    this.min.set(Math.min(this.min.x, point.x), Math.min(this.min.y, point.y), Math.min(this.min.z, point.z));
+    this.max.set(Math.max(this.max.x, point.x), Math.max(this.max.y, point.y), Math.max(this.max.z, point.z));
+    return this;
+  }
+  expandByScalar(scalar) {
+    this.min.set(this.min.x - scalar, this.min.y - scalar, this.min.z - scalar);
+    this.max.set(this.max.x + scalar, this.max.y + scalar, this.max.z + scalar);
+    return this;
+  }
+  containsPoint(point) {
+    return point.x >= this.min.x && point.x <= this.max.x &&
+      point.y >= this.min.y && point.y <= this.max.y && point.z >= this.min.z && point.z <= this.max.z;
+  }
+  intersectsBox(box) {
+    return !(box.max.x < this.min.x || box.min.x > this.max.x ||
+      box.max.y < this.min.y || box.min.y > this.max.y ||
+      box.max.z < this.min.z || box.min.z > this.max.z);
+  }
+  clone() { return new Box3(this.min.clone(), this.max.clone()); }
+  setFromObject(object) {
+    this.makeEmpty();
+    object.traverse(node => {
+      if (!node.isMesh || !node.geometry || !node.geometry.attributes || !node.geometry.attributes.position) return;
+      const geometry = node.geometry;
+      let bb = geometry._bbox;
+      if (!bb) {
+        bb = geometry._bbox = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+        const p = geometry.attributes.position.array, is = geometry.attributes.position.itemSize;
+        for (let i = 0; i < p.length; i += is) {
+          for (let k = 0; k < 3; k++) {
+            const v = p[i + k];
+            if (v < bb[k]) bb[k] = v;
+            if (v > bb[3 + k]) bb[3 + k] = v;
+          }
+        }
+      }
+      const world = worldMatrixOf(node);
+      for (let cx = 0; cx <= 1; cx++) for (let cy = 0; cy <= 1; cy++) for (let cz = 0; cz <= 1; cz++) {
+        const w = transformPoint(world, cx ? bb[3] : bb[0], cy ? bb[4] : bb[1], cz ? bb[5] : bb[2]);
+        this.expandByPoint(new Vector3(w[0], w[1], w[2]));
+      }
+    });
+    return this;
+  }
 }
 
 /* --- fog ------------------------------------------------------------------------- */

@@ -757,6 +757,41 @@ function buildTestGLB() {
   assert.ok(Math.abs(a.z - Math.SQRT1_2) < 1e-3 && Math.abs(a.w - Math.SQRT1_2) < 1e-3, 'slerp midpoint');
 }
 
+// --- Raycaster and Box3 -----------------------------------------------------------------
+
+{
+  const scene = new THREE.Scene();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial());
+  box.position.set(0, 0, -5);
+  scene.add(box);
+
+  const bounds = new THREE.Box3().setFromObject(box);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const size = bounds.getSize(new THREE.Vector3());
+  assert.ok(Math.abs(center.x) < 1e-6 && Math.abs(center.z + 5) < 1e-6, 'Box3 center follows object');
+  assert.ok(Math.abs(size.x - 2) < 1e-6, 'Box3 size from geometry');
+  assert.ok(bounds.containsPoint(new THREE.Vector3(0, 0, -5)), 'Box3 contains center');
+
+  // Ray from origin toward the box.
+  const rc = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1));
+  const hits = rc.intersectObject(scene, true);
+  assert.equal(hits.length, 1, 'ray hits the box once');
+  assert.ok(Math.abs(hits[0].distance - 4) < 0.5, `hit distance ~4 (got ${hits[0].distance.toFixed(2)})`);
+  assert.equal(hits[0].object, box, 'hit reports the mesh');
+  assert.ok(hits[0].face.normal.z > 0, 'face normal is the outward geometric normal');
+
+  // Miss: ray along +X.
+  const miss = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0));
+  assert.equal(miss.intersectObject(scene, true).length, 0, 'ray misses');
+
+  // setFromCamera: NDC center of a perspective camera looking down -Z.
+  const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+  cam.position.set(0, 0, 10);
+  const rc2 = new THREE.Raycaster().setFromCamera(new THREE.Vector2(0, 0), cam);
+  const hits2 = rc2.intersectObject(scene, true);
+  assert.ok(hits2.length >= 1, 'setFromCamera ray hits');
+}
+
 // --- OrbitControls ---------------------------------------------------------------------
 
 {

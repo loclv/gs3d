@@ -75,8 +75,10 @@ box, sphere, plane, circle, ring, cylinder, cone, torus, capsule and the
 platonic solids (tetrahedron, octahedron, icosahedron, dodecahedron, with
 `detail` subdivision), plus `material.vertexColors` for vertex-coloured
 meshes. `Object3D.quaternion` and `rotation` stay in sync (XYZ Euler order).
-Skinning, morph targets, shadows, curve/extrude/lathe geometries and
-post-processing are not implemented;
+Pure-JS helpers cover `Ray`/`Raycaster` (Möller–Trumbore against geometry,
+`setFromCamera` for perspective cameras) and `Box3` (`setFromObject` walks
+the scene graph). Skinning, morph targets, shadows, curve/extrude/lathe
+geometries and post-processing are not implemented;
 `WebGPURenderer` renders through the engine's WebGL2 backend and reports
 `backend.isWebGPUBackend === false`.
 
