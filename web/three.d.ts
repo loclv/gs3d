@@ -149,6 +149,14 @@ export class IcosahedronGeometry extends PolyhedronGeometry {
 export class DodecahedronGeometry extends PolyhedronGeometry {
   constructor(radius?: number, detail?: number);
 }
+export class TorusKnotGeometry extends BufferGeometry {
+  constructor(radius?: number, tube?: number, tubularSegments?: number,
+    radialSegments?: number, p?: number, q?: number);
+}
+export class LatheGeometry extends BufferGeometry {
+  constructor(points?: { x: number; y: number }[] | Vector2[], segments?: number,
+    phiStart?: number, phiLength?: number);
+}
 
 export const FrontSide: 0;
 export const BackSide: 1;

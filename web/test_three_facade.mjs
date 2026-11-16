@@ -393,6 +393,11 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
     assert.ok(outward(g), 'polyhedron faces point outward');
   }
 
+  const knot = new THREE.TorusKnotGeometry(1, 0.3, 16, 8);
+  assert.ok(knot.attributes.position.count > 100 && knot.index.count > 0, 'torus knot generated');
+  const lathe = new THREE.LatheGeometry([new THREE.Vector2(0, 0), new THREE.Vector2(1, 0), new THREE.Vector2(0.5, 1)], 8);
+  assert.ok(lathe.attributes.position.count > 0 && lathe.index.count > 0, 'lathe generated');
+
   // Geometries flow through the facade's upload path unchanged.
   const engine = createMockEngine();
   const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });

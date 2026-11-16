@@ -875,6 +875,101 @@ export class DodecahedronGeometry extends PolyhedronGeometry {
   }
 }
 
+export class TorusKnotGeometry extends BufferGeometry {
+  // p/q are the winding numbers (default trefoil 2,3).
+  constructor(radius = 1, tube = 0.4, tubularSegments = 64, radialSegments = 8, p = 2, q = 3) {
+    super();
+    const positions = [], normals = [], uvs = [], indices = [];
+    // Curve C(u) = ((2+cos(q u)) cos(p u), (2+cos(q u)) sin(p u), sin(q u))
+    const curve = u => {
+      const a = p * u * Math.PI * 2, b = q * u * Math.PI * 2;
+      const r = 2 + Math.cos(b);
+      return [r * Math.cos(a) * radius, r * Math.sin(a) * radius, Math.sin(b) * radius];
+    };
+    const eps = 1e-4;
+    const frames = [];
+    for (let j = 0; j <= tubularSegments; j++) {
+      const u = j / tubularSegments;
+      const P = curve(u);
+      const P2 = curve(Math.min(1, u + eps));
+      const T = normalize3([P2[0] - P[0], P2[1] - P[1], P2[2] - P[2]]);
+      // Normal = component of radial dir perpendicular to tangent.
+      const up = Math.abs(T[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+      const N = normalize3([
+        T[1] * up[2] - T[2] * up[1], T[2] * up[0] - T[0] * up[2], T[0] * up[1] - T[1] * up[0]]);
+      const B = [
+        T[1] * N[2] - T[2] * N[1], T[2] * N[0] - T[0] * N[2], T[0] * N[1] - T[1] * N[0]];
+      frames.push([P, T, N, B]);
+    }
+    for (let j = 0; j <= tubularSegments; j++) {
+      const u = j / tubularSegments;
+      const [P, T, N, B] = frames[j];
+      for (let i = 0; i <= radialSegments; i++) {
+        const v = i / radialSegments;
+        const theta = v * Math.PI * 2;
+        const ct = Math.cos(theta), st = Math.sin(theta);
+        const nx = N[0] * ct + B[0] * st, ny = N[1] * ct + B[1] * st, nz = N[2] * ct + B[2] * st;
+        positions.push(P[0] + tube * nx, P[1] + tube * ny, P[2] + tube * nz);
+        normals.push(nx, ny, nz);
+        uvs.push(u, v);
+      }
+    }
+    const stride = radialSegments + 1;
+    for (let j = 0; j < tubularSegments; j++) for (let i = 0; i < radialSegments; i++) {
+      const a = j * stride + i;
+      indices.push(a, a + stride, a + 1, a + 1, a + stride, a + stride + 1);
+    }
+    this.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    this.setIndex(new Uint32BufferAttribute(indices, 1));
+    this.isTorusKnotGeometry = true;
+  }
+}
+
+export class LatheGeometry extends BufferGeometry {
+  // points: array of Vector2-like {x: radius, y: height}; spun around Y.
+  constructor(points = [], segments = 32, phiStart = 0, phiLength = Math.PI * 2) {
+    super();
+    const positions = [], normals = [], uvs = [], indices = [];
+    const n = points.length;
+    for (let j = 0; j <= segments; j++) {
+      const u = j / segments;
+      const phi = phiStart + u * phiLength;
+      const c = Math.cos(phi), s = Math.sin(phi);
+      for (let i = 0; i < n; i++) {
+        const pt = points[i];
+        positions.push(pt.x * c, pt.y, pt.x * s);
+        uvs.push(u, i / (n - 1 || 1));
+      }
+    }
+    const ringNormals = [];
+    for (let i = 0; i < n; i++) {
+      const pPrev = points[Math.max(0, i - 1)], pNext = points[Math.min(n - 1, i + 1)];
+      const dx = pNext.x - pPrev.x, dy = pNext.y - pPrev.y;
+      const nl = Math.hypot(dx, dy) || 1;
+      ringNormals.push([-dy / nl, dx / nl]);
+    }
+    for (let j = 0; j <= segments; j++) {
+      const phi = phiStart + (j / segments) * phiLength;
+      const c = Math.cos(phi), s = Math.sin(phi);
+      for (let i = 0; i < n; i++) {
+        normals.push(ringNormals[i][0] * c, ringNormals[i][1], ringNormals[i][0] * s);
+      }
+    }
+    const stride = n;
+    for (let j = 0; j < segments; j++) for (let i = 0; i < n - 1; i++) {
+      const a = j * stride + i;
+      indices.push(a, a + stride, a + 1, a + 1, a + stride, a + stride + 1);
+    }
+    this.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    this.setIndex(new Uint32BufferAttribute(indices, 1));
+    this.isLatheGeometry = true;
+  }
+}
+
 /* --- textures ------------------------------------------------------------------ */
 
 export const RepeatWrapping = 1000;
