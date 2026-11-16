@@ -62,14 +62,18 @@ await renderer.init();
 renderer.setAnimationLoop(() => renderer.render(scene, camera));
 ```
 
-The facade currently covers meshes with base-color `Texture`/`DataTexture`/
-`CanvasTexture` maps (via `material.map`, `TextureLoader`, sRGB/linear colour
-spaces, wrap and filter modes, and repeat/offset/rotation UV transforms),
-the lighting and camera model above, and basic output settings. Normal,
-metallic-roughness, emissive, occlusion and environment maps, skinning,
-morph targets, shadows, quaternion editing, curve/extrude geometries and
-post-processing are not implemented; `WebGPURenderer` renders through the
-engine's WebGL2 backend and reports `backend.isWebGPUBackend === false`.
+The facade currently covers meshes with `Texture`/`DataTexture`/
+`CanvasTexture` maps — base color (`material.map`), packed
+metallic-roughness (`metalnessMap`/`roughnessMap`, glTF G=roughness/B=metallic
+convention), `normalMap`/`normalScale`, `aoMap`/`aoMapIntensity` and
+`emissiveMap` — with sRGB/linear colour spaces, wrap and filter modes,
+repeat/offset/rotation UV transforms and `texture.channel` UV-set selection
+(`uv`…`uv7` geometry attributes). `TextureLoader` and `GLTFLoader` handle
+PNG/JPEG images embedded in GLBs, `data:` URIs and (for `.gltf`) relative or
+absolute URLs, including `KHR_texture_transform`. Skinning, morph targets,
+shadows, quaternion editing, curve/extrude geometries and post-processing are
+not implemented; `WebGPURenderer` renders through the engine's WebGL2 backend
+and reports `backend.isWebGPUBackend === false`.
 
 In this repository the facade's engine is built with `./build_web.sh --gs3d`,
 which writes `web/gs3d/app.js` and `web/gs3d/app.wasm` (gitignored build

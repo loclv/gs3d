@@ -627,6 +627,7 @@ export class Texture {
     this.repeat = new Vector2(1, 1);
     this.rotation = 0;
     this.center = new Vector2(0.5, 0.5);
+    this.channel = 0;
     this.matrixAutoUpdate = true;
     this.generateMipmaps = true;
     this.version = 0;
@@ -714,6 +715,13 @@ export class Material {
     this.side = FrontSide;
     this.visible = true;
     this.map = null;
+    this.normalMap = null;
+    this.normalScale = new Vector2(1, 1);
+    this.roughnessMap = null;
+    this.metalnessMap = null;
+    this.emissiveMap = null;
+    this.aoMap = null;
+    this.aoMapIntensity = 1;
     Object.assign(this, parameters);
     if (parameters.color !== undefined && !(parameters.color instanceof Color)) this.color = new Color(parameters.color);
   }
@@ -1138,22 +1146,33 @@ function ensureGeometry(engine, geometry) {
   if (!geometry.attributes.normal) geometry.computeVertexNormals();
   const position = geometry.attributes.position;
   const normal = geometry.attributes.normal;
-  const uv = geometry.attributes.uv;
+  const uvSets = [];
+  for (let set = 0; set < 8; set++) {
+    const attr = geometry.attributes[set === 0 ? 'uv' : `uv${set}`];
+    uvSets.push(attr ? attr.array : null);
+  }
   const color = geometry.attributes.color;
   const p = position.array, n = normal ? normal.array : null;
-  const u = uv ? uv.array : null, c = color ? color.array : null;
-  const ns = normal ? normal.itemSize : 3, us = uv ? uv.itemSize : 2, cs = color ? color.itemSize : 4;
+  const c = color ? color.array : null;
+  const ns = normal ? normal.itemSize : 3, cs = color ? color.itemSize : 4;
+  const uvAttrs = uvSets.map((arr, i) => arr ? geometry.attributes[i === 0 ? 'uv' : `uv${i}`] : null);
   const count = position.count;
 
   engine._g3_asset_mesh_begin();
   for (let i = 0; i < count; i++) {
-    const pi = i * position.itemSize, ni = i * ns;
-    const ui = i * us, ci = i * cs;
+    const pi = i * position.itemSize, ni = i * ns, ci = i * cs;
+    const uvArgs = [];
+    for (let set = 0; set < 8; set++) {
+      const attr = uvAttrs[set];
+      if (attr) {
+        const ui = i * attr.itemSize;
+        uvArgs.push(attr.array[ui] || 0, attr.array[ui + 1] || 0);
+      } else uvArgs.push(0, 0);
+    }
     engine._g3_asset_vertex(
       p[pi], p[pi + 1], p[pi + 2],
       n && ns > 0 ? n[ni] : 0, n && ns > 1 ? n[ni + 1] : 0, n && ns > 2 ? n[ni + 2] : 1,
-      u && us > 0 ? u[ui] : 0, u && us > 1 ? u[ui + 1] : 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // uv1..uv7
+      ...uvArgs,
       0, 0, 0, 0, // tangent
       c && cs > 0 ? c[ci] : 1, c && cs > 1 ? c[ci + 1] : 1, c && cs > 2 ? c[ci + 2] : 1,
       c && cs > 3 ? c[ci + 3] : 1,
@@ -1184,12 +1203,36 @@ function materialSignature(material) {
   return parts.join(',');
 }
 
+// Engine texture slots mirror the g3_asset_material argument order:
+// 0 base color, 1 metallic-roughness (packed G=roughness, B=metallic),
+// 2 normal, 3 occlusion (R channel), 4 emissive.
+const MATERIAL_MAPS = [
+  ['map', 0],
+  ['metalnessMap', 1], ['roughnessMap', 1],
+  ['normalMap', 2],
+  ['aoMap', 3],
+  ['emissiveMap', 4],
+];
+
+function materialMaps(material) {
+  const maps = [null, null, null, null, null];
+  for (const [key, slot] of MATERIAL_MAPS) {
+    const texture = material[key];
+    if (texture && texture.isTexture && !maps[slot]) maps[slot] = texture;
+  }
+  return maps;
+}
+
+function textureUvSignature(texture) {
+  return `${texture.offset.x},${texture.offset.y},${texture.repeat.x},${texture.repeat.y},${texture.rotation},${texture.channel || 0}`;
+}
+
 function ensureMaterial(engine, material) {
   if (!material) material = new MeshBasicMaterial();
-  const mapTexture = material.map && material.map.isTexture ? material.map : null;
-  const textureId = mapTexture ? ensureTexture(engine, mapTexture) : -1;
-  const signature = materialSignature(material) + `|tex:${textureId}` +
-    (mapTexture ? `|uv:${mapTexture.offset.x},${mapTexture.offset.y},${mapTexture.repeat.x},${mapTexture.repeat.y},${mapTexture.rotation}` : '');
+  const maps = materialMaps(material);
+  const textureIds = maps.map(t => t ? ensureTexture(engine, t) : -1);
+  const signature = materialSignature(material) + '|tex:' + textureIds.join(',') +
+    '|' + maps.map(t => t ? textureUvSignature(t) : '-').join(';');
   const state = materialStates.get(material);
   if (state && state.signature === signature) return state.id;
   if (state) engine._g3_asset_release_material(state.id, state.generation);
@@ -1203,16 +1246,22 @@ function ensureMaterial(engine, material) {
   const roughness = material.roughness ?? 1;
   const emissive = material.emissive || new Color(0);
   const emissiveStrength = material.emissiveIntensity ?? 1;
+  const normalScale = material.normalScale;
+  const normalScaleValue = normalScale instanceof Vector2 ? normalScale.x : (normalScale ?? 1);
   const id = engine._g3_asset_material(
-    color.r, color.g, color.b, opacity, textureId, alphaMode, alphaCutoff,
-    metallic, roughness, -1, -1, 1, -1, 1,
-    emissive.r * emissiveStrength, emissive.g * emissiveStrength, emissive.b * emissiveStrength, -1,
+    color.r, color.g, color.b, opacity, textureIds[0], alphaMode, alphaCutoff,
+    metallic, roughness, textureIds[1], textureIds[2], normalScaleValue, textureIds[3],
+    material.aoMapIntensity ?? 1,
+    emissive.r * emissiveStrength, emissive.g * emissiveStrength, emissive.b * emissiveStrength, textureIds[4],
     material.side === DoubleSide ? 1 : 0, unlit, material.ior ?? 1.5,
   );
-  if (mapTexture && textureId >= 0) {
-    engine._g3_asset_material_uv_transform(id, 0,
-      mapTexture.offset.x, mapTexture.offset.y,
-      mapTexture.repeat.x, mapTexture.repeat.y, mapTexture.rotation, 0);
+  for (let slot = 0; slot < maps.length; slot++) {
+    const texture = maps[slot];
+    if (texture && textureIds[slot] >= 0) {
+      engine._g3_asset_material_uv_transform(id, slot,
+        texture.offset.x, texture.offset.y,
+        texture.repeat.x, texture.repeat.y, texture.rotation, texture.channel || 0);
+    }
   }
   if (!unlit) {
     // Dielectric F0 of about 0.04 matches three.js's standard-material sheen.

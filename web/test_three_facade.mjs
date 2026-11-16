@@ -480,6 +480,93 @@ function buildTestGLB() {
   assert.ok(named(engine, '_g3_asset_mesh_end').length >= 1, 'glTF geometry uploads');
 }
 
+{
+  // glTF textures: samplers, texture slots, TEXCOORD_n and KHR_texture_transform.
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const uvs0 = new Float32Array([0, 0, 1, 0, 0, 1]);
+  const uvs1 = new Float32Array([0.5, 0.5, 1, 0.5, 0.5, 1]);
+  const indices = new Uint16Array([0, 1, 2]);
+  const bin = new Uint8Array(positions.byteLength + uvs0.byteLength + uvs1.byteLength + indices.byteLength + 16);
+  bin.set(new Uint8Array(positions.buffer), 0);
+  bin.set(new Uint8Array(uvs0.buffer), positions.byteLength);
+  bin.set(new Uint8Array(uvs1.buffer), positions.byteLength + uvs0.byteLength);
+  bin.set(new Uint8Array(indices.buffer), positions.byteLength + uvs0.byteLength + uvs1.byteLength);
+  // Dummy image bytes (never decoded under node; the loader tolerates that).
+  bin.set([137, 80, 78, 71], positions.byteLength + uvs0.byteLength + uvs1.byteLength + indices.byteLength);
+
+  const json = {
+    asset: { version: '2.0' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ name: 'quad', mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, TEXCOORD_0: 1, TEXCOORD_1: 2 }, indices: 3, material: 0 }] }],
+    materials: [{
+      pbrMetallicRoughness: {
+        baseColorTexture: { index: 0, texCoord: 0 },
+        metallicRoughnessTexture: { index: 1 },
+      },
+      normalTexture: { index: 2, texCoord: 1, scale: 0.8 },
+      occlusionTexture: { index: 3, strength: 0.5 },
+      emissiveTexture: { index: 4 },
+      emissiveFactor: [1, 1, 1],
+    }],
+    textures: [
+      { source: 0, sampler: 0, extensions: { KHR_texture_transform: { offset: [0.25, 0.75], scale: [2, 3], rotation: 0.5, texCoord: 1 } } },
+      { source: 1, sampler: 1 },
+      { source: 2, sampler: 1 },
+      { source: 3, sampler: 1 },
+      { source: 3, sampler: 1 },
+    ],
+    samplers: [
+      { wrapS: 33071, wrapT: 10497, minFilter: 9987, magFilter: 9729 },
+      { wrapS: 10497, wrapT: 33648 },
+    ],
+    images: [0, 1, 2, 3].map(() => ({ bufferView: 4, mimeType: 'image/png' })),
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3' },
+      { bufferView: 1, componentType: 5126, count: 3, type: 'VEC2' },
+      { bufferView: 2, componentType: 5126, count: 3, type: 'VEC2' },
+      { bufferView: 3, componentType: 5123, count: 3, type: 'SCALAR' },
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: positions.byteLength },
+      { buffer: 0, byteOffset: positions.byteLength, byteLength: uvs0.byteLength },
+      { buffer: 0, byteOffset: positions.byteLength + uvs0.byteLength, byteLength: uvs1.byteLength },
+      { buffer: 0, byteOffset: positions.byteLength + uvs0.byteLength + uvs1.byteLength, byteLength: indices.byteLength },
+      { buffer: 0, byteOffset: positions.byteLength + uvs0.byteLength + uvs1.byteLength + indices.byteLength, byteLength: 4 },
+    ],
+    buffers: [{ byteLength: bin.byteLength }],
+  };
+
+  const gltf = new GLTFLoader().parse(json, bin);
+  const mesh = gltf.scene.children[0];
+  const material = mesh.material;
+
+  assert.ok(material.map?.isTexture, 'baseColorTexture -> material.map');
+  assert.equal(material.map.colorSpace, 'srgb', 'base color is sRGB');
+  assert.equal(material.map.channel, 1, 'KHR_texture_transform texCoord override');
+  assert.ok(Math.abs(material.map.offset.x - 0.25) < 1e-6 && Math.abs(material.map.offset.y - 0.75) < 1e-6, 'transform offset');
+  assert.ok(Math.abs(material.map.repeat.x - 2) < 1e-6 && Math.abs(material.map.repeat.y - 3) < 1e-6, 'transform scale');
+  assert.ok(Math.abs(material.map.rotation + 0.5) < 1e-6, 'transform rotation negated for UV space');
+  assert.equal(material.map.wrapS, THREE.ClampToEdgeWrapping, 'sampler wrapS 33071 -> clamp');
+  assert.equal(material.map.wrapT, THREE.RepeatWrapping, 'sampler wrapT 10497 -> repeat');
+  assert.equal(material.map.minFilter, THREE.LinearMipmapLinearFilter, 'sampler minFilter 9987');
+
+  assert.ok(material.metalnessMap?.isTexture, 'metallicRoughnessTexture -> metalnessMap');
+  assert.equal(material.metalnessMap, material.roughnessMap, 'MR texture shared by both maps');
+  assert.equal(material.metalnessMap.colorSpace, 'none', 'MR texture is linear');
+  assert.ok(material.normalMap?.isTexture, 'normal map assigned');
+  assert.equal(material.normalMap.channel, 1, 'normalTexture texCoord');
+  assert.ok(Math.abs(material.normalScale.x - 0.8) < 1e-6, 'normalTexture scale');
+  assert.ok(material.aoMap?.isTexture, 'occlusionTexture -> aoMap');
+  assert.ok(Math.abs(material.aoMapIntensity - 0.5) < 1e-6, 'occlusion strength');
+  assert.ok(material.emissiveMap?.isTexture, 'emissiveTexture -> emissiveMap');
+
+  assert.ok(mesh.geometry.attributes.uv, 'TEXCOORD_0 -> uv');
+  assert.ok(mesh.geometry.attributes.uv1, 'TEXCOORD_1 -> uv1');
+  assert.ok(Math.abs(mesh.geometry.attributes.uv1.array[0] - 0.5) < 1e-6, 'uv1 data uploaded');
+}
+
 // --- textures -------------------------------------------------------------------------
 
 {
@@ -539,6 +626,49 @@ function buildTestGLB() {
   renderer.render(scene, new THREE.PerspectiveCamera());
   const lastMat = named(engine, '_g3_asset_material').at(-1).slice(1);
   assert.equal(lastMat[4], -1, 'map removal clears texture slot');
+}
+
+{
+  // PBR map slots: normal, occlusion, emissive and packed metallic-roughness.
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+
+  const makeTex = () => {
+    const pixels = new Uint8Array(4 * 4);
+    for (let i = 0; i < 16; i++) { pixels[i * 4] = 128; pixels[i * 4 + 1] = 128; pixels[i * 4 + 2] = 128; pixels[i * 4 + 3] = 255; }
+    const t = new THREE.Texture({ width: 2, height: 2, pixels });
+    t.needsUpdate = true;
+    return t;
+  };
+  const normalMap = makeTex(); normalMap.channel = 1;
+  const aoMap = makeTex();
+  const emissiveMap = makeTex();
+  const mrMap = makeTex();
+
+  const material = new THREE.MeshStandardMaterial({
+    normalMap, normalScale: new THREE.Vector2(0.5, 0.5),
+    aoMap, aoMapIntensity: 0.7,
+    emissiveMap, metalnessMap: mrMap, roughnessMap: mrMap,
+  });
+  scene.add(new THREE.Mesh(geometry, material));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+
+  const args = named(engine, '_g3_asset_material')[0].slice(1);
+  assert.equal(args[9], 1, 'mr texture slot');
+  assert.equal(args[10], 2, 'normal texture slot');
+  assert.ok(Math.abs(args[11] - 0.5) < 1e-6, 'normal scale');
+  assert.equal(args[12], 3, 'occlusion texture slot');
+  assert.ok(Math.abs(args[13] - 0.7) < 1e-6, 'occlusion strength');
+  assert.equal(args[17], 4, 'emissive texture slot');
+
+  const uvCalls = named(engine, '_g3_asset_material_uv_transform');
+  const slots = uvCalls.map(c => c[2]);
+  assert.deepEqual(slots.sort((a, b) => a - b), [1, 2, 3, 4], 'uv transforms for slots 1-4');
+  const normalUv = uvCalls.find(c => c[2] === 2);
+  assert.equal(normalUv[8], 1, 'normal map texcoord channel 1');
 }
 
 // --- OrbitControls ---------------------------------------------------------------------

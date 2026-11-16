@@ -4,19 +4,27 @@
 // examples path: loader.load(url, gltf => scene.add(gltf.scene)). It parses
 // glTF 2.0 JSON and GLB containers and builds the facade's Object3D/Mesh/
 // BufferGeometry scene graph, including node hierarchies, TRS and matrix
-// transforms, and untextured PBR materials.
+// transforms, and PBR materials with textures (base color, metallic-roughness,
+// normal, occlusion and emissive maps).
 //
-// Scope: no textures, images, skins, morph targets, animations, or
-// Draco/meshopt compression — files that require extensions throw. Cameras
-// defined by the asset are exposed on gltf.cameras but are not added to the
-// scene graph (add them yourself like three.js examples do).
+// Scope: no skins, morph targets, animations, or Draco/meshopt compression —
+// files that require extensions throw. Cameras defined by the asset are
+// exposed on gltf.cameras but are not added to the scene graph (add them
+// yourself like three.js examples do). Images embedded in the GLB or in
+// data: URIs decode through createImageBitmap; external image URIs are
+// fetched relative to the .gltf URL.
 
 import {
   BufferGeometry, BufferAttribute, Float32BufferAttribute, Uint16BufferAttribute, Uint32BufferAttribute,
   Object3D, Group, Mesh, Scene,
   MeshStandardMaterial, MeshBasicMaterial,
   PerspectiveCamera, OrthographicCamera,
-  Color, DoubleSide,
+  Color, DoubleSide, Vector2,
+  Texture, SRGBColorSpace, NoColorSpace,
+  RepeatWrapping, ClampToEdgeWrapping, MirroredRepeatWrapping,
+  NearestFilter, LinearFilter,
+  NearestMipmapNearestFilter, NearestMipmapLinearFilter,
+  LinearMipmapNearestFilter, LinearMipmapLinearFilter,
 } from './three.js';
 
 const COMPONENTS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
@@ -174,7 +182,74 @@ function decomposeMatrix(elements) {
   };
 }
 
-function materialFromGltf(def) {
+const GLTF_WRAP = { 33071: ClampToEdgeWrapping, 10497: RepeatWrapping, 33648: MirroredRepeatWrapping };
+const GLTF_MIN_FILTER = {
+  9728: NearestFilter, 9729: LinearFilter,
+  9984: NearestMipmapNearestFilter, 9985: NearestMipmapLinearFilter,
+  9986: LinearMipmapNearestFilter, 9987: LinearMipmapLinearFilter,
+};
+const GLTF_MAG_FILTER = { 9728: NearestFilter, 9729: LinearFilter };
+
+// Decode image bytes (PNG/JPEG) into the {width, height, pixels} form the
+// facade's texture bridge consumes. Returns null where decode is unavailable.
+function decodeImageBytes(bytes, mimeType = 'image/png') {
+  if (typeof createImageBitmap === 'undefined' || typeof Blob === 'undefined' ||
+      typeof document === 'undefined') return Promise.resolve(null);
+  return createImageBitmap(new Blob([bytes], { type: mimeType }))
+    .then(bitmap => {
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { bitmap.close(); return null; }
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      return { width: canvas.width, height: canvas.height, pixels: data.data };
+    })
+    .catch(() => null);
+}
+
+function base64ToBytes(data) {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+// Resolve a glTF image definition to encoded bytes + mime type. Returns
+// {bytes, mimeType} or a promise for remote URIs is handled by the caller.
+function imageSourceBytes(json, bufferViews, buffers, imageDef, baseUrl) {
+  if (imageDef.bufferView !== undefined) {
+    const view = bufferViews[imageDef.bufferView];
+    const buffer = buffers[view.buffer];
+    const start = (view.byteOffset || 0);
+    return { bytes: new Uint8Array(buffer, start, view.byteLength), mimeType: imageDef.mimeType || 'image/png' };
+  }
+  const uri = imageDef.uri;
+  if (uri === undefined) return null;
+  if (uri.startsWith('data:')) {
+    const comma = uri.indexOf(',');
+    const meta = uri.slice(0, comma);
+    const data = uri.slice(comma + 1);
+    const mimeType = (meta.match(/data:([^;,]+)/) || [])[1] || imageDef.mimeType || 'image/png';
+    const bytes = meta.includes('base64') ? base64ToBytes(data) : new TextEncoder().encode(decodeURIComponent(data));
+    return { bytes, mimeType };
+  }
+  if (/^(https?:)?\/\//.test(uri) || uri.startsWith('/')) {
+    const url = baseUrl ? new URL(uri, baseUrl).href : uri;
+    return fetch(url)
+      .then(response => {
+        if (!response.ok) throw new Error(`gs3d: failed to fetch texture image ${url} (${response.status})`);
+        return response.blob();
+      })
+      .then(blob => blob.arrayBuffer())
+      .then(arrayBuffer => ({ bytes: new Uint8Array(arrayBuffer), mimeType: imageDef.mimeType || blob.type || 'image/png' }));
+  }
+  return null;
+}
+
+function materialFromGltf(def, resolveTexture) {
   if (!def) return new MeshStandardMaterial();
   const pbr = def.pbrMetallicRoughness || {};
   const base = pbr.baseColorFactor || [1, 1, 1, 1];
@@ -187,6 +262,19 @@ function materialFromGltf(def) {
     alphaTest: def.alphaMode === 'MASK' ? (def.alphaCutoff ?? 0.5) : 0,
     side: def.doubleSided ? DoubleSide : 0,
   };
+  // Only baseColorTexture is sRGB in glTF; the rest are linear.
+  params.map = resolveTexture(pbr.baseColorTexture, true);
+  const mrTexture = resolveTexture(pbr.metallicRoughnessTexture, false);
+  params.metalnessMap = mrTexture;
+  params.roughnessMap = mrTexture;
+  params.normalMap = resolveTexture(def.normalTexture, false);
+  if (def.normalTexture) {
+    const scale = def.normalTexture.scale ?? 1;
+    params.normalScale = new Vector2(scale, scale);
+  }
+  params.aoMap = resolveTexture(def.occlusionTexture, false);
+  params.aoMapIntensity = def.occlusionTexture?.strength ?? 1;
+  params.emissiveMap = resolveTexture(def.emissiveTexture, false);
   if (def.emissiveFactor) {
     const strength = def.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1;
     params.emissive = new Color().setRGB(
@@ -226,7 +314,50 @@ export class GLTFLoader {
       throw new Error(`gs3d: glTF requires unsupported extensions: ${json.extensionsRequired.join(', ')}`);
     }
     const buffers = (json.buffers || []).map((_, i) => resolveBuffer(json, bin, i));
+    const bufferViews = json.bufferViews || [];
     const accessors = (json.accessors || []).map((_, i) => new GltfAccessor(json, buffers, i));
+
+    // Texture cache keyed by glTF texture index + color space so base-color
+    // (sRGB) and data (linear) uses of the same image stay independent.
+    const textureCache = new Map();
+    const resolveTexture = (info, srgb) => {
+      if (!info || info.index === undefined) return null;
+      const key = `${info.index}:${srgb ? 'srgb' : 'lin'}`;
+      if (textureCache.has(key)) return textureCache.get(key);
+      const def = json.textures?.[info.index];
+      if (!def) return null;
+      const sampler = json.samplers?.[def.sampler] || {};
+      const texture = new Texture(null);
+      texture.wrapS = GLTF_WRAP[sampler.wrapS] ?? RepeatWrapping;
+      texture.wrapT = GLTF_WRAP[sampler.wrapT] ?? RepeatWrapping;
+      texture.minFilter = GLTF_MIN_FILTER[sampler.minFilter] ?? LinearMipmapLinearFilter;
+      texture.magFilter = GLTF_MAG_FILTER[sampler.magFilter] ?? LinearFilter;
+      texture.channel = info.texCoord ?? 0;
+      const transform = def.extensions?.KHR_texture_transform;
+      if (transform) {
+        if (transform.offset) texture.offset.set(transform.offset[0], transform.offset[1]);
+        if (transform.scale) texture.repeat.set(transform.scale[0], transform.scale[1]);
+        else texture.repeat.set(1, 1);
+        if (transform.rotation !== undefined) texture.rotation = -transform.rotation;
+        if (transform.texCoord !== undefined) texture.channel = transform.texCoord;
+      }
+      texture.colorSpace = srgb ? SRGBColorSpace : NoColorSpace;
+      const imageDef = json.images?.[def.source];
+      if (imageDef) {
+        Promise.resolve(imageSourceBytes(json, bufferViews, buffers, imageDef, baseUrl))
+          .then(source => source && decodeImageBytes(source.bytes, source.mimeType))
+          .then(image => {
+            if (image) {
+              texture.image = image;
+              texture.needsUpdate = true;
+              texture.version++;
+            }
+          })
+          .catch(() => {});
+      }
+      textureCache.set(key, texture);
+      return texture;
+    };
 
     const geometries = (json.meshes || []).map(mesh => {
       // Multi-primitive meshes are merged into one geometry only when they
@@ -241,9 +372,12 @@ export class GLTFLoader {
           const normal = accessors[attrs.NORMAL];
           geometry.setAttribute('normal', new Float32BufferAttribute(normal.array, 3));
         }
-        if (attrs.TEXCOORD_0 !== undefined) {
-          const uv = accessors[attrs.TEXCOORD_0];
-          geometry.setAttribute('uv', new Float32BufferAttribute(uv.array, uv.itemSize));
+        for (let set = 0; set < 8; set++) {
+          const attrName = set === 0 ? 'TEXCOORD_0' : `TEXCOORD_${set}`;
+          if (attrs[attrName] !== undefined) {
+            const uv = accessors[attrs[attrName]];
+            geometry.setAttribute(set === 0 ? 'uv' : `uv${set}`, new Float32BufferAttribute(uv.array, uv.itemSize));
+          }
         }
         if (attrs.COLOR_0 !== undefined) {
           const color = accessors[attrs.COLOR_0];
@@ -255,7 +389,7 @@ export class GLTFLoader {
           const IndexType = index.array instanceof Uint16Array ? Uint16BufferAttribute : Uint32BufferAttribute;
           geometry.setIndex(new IndexType(index.array, 1));
         }
-        return { geometry, material: materialFromGltf(json.materials?.[primitive.material]) };
+        return { geometry, material: materialFromGltf(json.materials?.[primitive.material], resolveTexture) };
       });
     });
 

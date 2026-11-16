@@ -142,6 +142,7 @@ export class Texture {
   repeat: Vector2;
   rotation: number;
   center: Vector2;
+  channel: number;
   matrixAutoUpdate: boolean;
   generateMipmaps: boolean;
   version: number;
@@ -178,6 +179,13 @@ export class Material {
   name: string;
   color: Color;
   map: Texture | null;
+  normalMap: Texture | null;
+  normalScale: Vector2;
+  roughnessMap: Texture | null;
+  metalnessMap: Texture | null;
+  emissiveMap: Texture | null;
+  aoMap: Texture | null;
+  aoMapIntensity: number;
   opacity: number;
   transparent: boolean;
   alphaTest: number;
@@ -192,6 +200,13 @@ export class MeshStandardMaterial extends Material {
   constructor(parameters?: {
     color?: number | string | Color;
     map?: Texture | null;
+    normalMap?: Texture | null;
+    normalScale?: Vector2 | number;
+    roughnessMap?: Texture | null;
+    metalnessMap?: Texture | null;
+    emissiveMap?: Texture | null;
+    aoMap?: Texture | null;
+    aoMapIntensity?: number;
     metalness?: number;
     roughness?: number;
     emissive?: number | string | Color;
