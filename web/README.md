@@ -46,7 +46,9 @@ subset of the three.js API backed by the bundled WebAssembly engine: `Scene`,
 `RingGeometry`, `CylinderGeometry` and `TorusGeometry` primitives,
 `MeshStandardMaterial` and `MeshBasicMaterial`, the common lights,
 `PerspectiveCamera` and `OrthographicCamera`, `Color`/`Vector2`/`Vector3`/`Euler`,
-`Fog`/`FogExp2`, and a `WebGPURenderer` with `init()`, `setSize()`,
+`Fog`/`FogExp2`, an `OrbitControls` class matching the three.js addon API
+(`new OrbitControls(camera, domElement)` with `target`, `update()` and
+`dispose()`), and a `WebGPURenderer` with `init()`, `setSize()`,
 `setAnimationLoop()` and `render()`. An application written against three.js
 can switch its import to `gs3d/three` (or `gs3d/webgpu`, matching the
 `three/webgpu` specifier) and its dependency to `gs3d` with no other changes

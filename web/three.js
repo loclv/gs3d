@@ -745,6 +745,163 @@ export class FogExp2 {
   }
 }
 
+/* --- orbit controls ---------------------------------------------------------------
+   A three.js-style OrbitControls: it owns a camera's position around a
+   target and answers pointer/wheel events on a DOM element. Call update()
+   once per frame (or rely on the event handlers, which update immediately). */
+
+export class OrbitControls {
+  constructor(object, domElement) {
+    if (!object || !object.isCamera) throw new TypeError('gs3d: OrbitControls requires a camera');
+    this.object = object;
+    this.domElement = domElement;
+    this.target = new Vector3();
+    this.enabled = true;
+    this.enableDamping = false;
+    this.dampingFactor = 0.05;
+    this.enableZoom = true;
+    this.enablePan = true;
+    this.enableRotate = true;
+    this.rotateSpeed = 1;
+    this.zoomSpeed = 1;
+    this.panSpeed = 1;
+    this.minDistance = 0;
+    this.maxDistance = Infinity;
+    this.minPolarAngle = 0;
+    this.maxPolarAngle = Math.PI;
+    this.screenSpacePanning = true;
+
+    // Spherical offset of the camera around the target (three.js convention:
+    // theta azimuth from +Z, phi polar angle from +Y).
+    this._radius = 1; this._theta = 0; this._phi = Math.PI / 2;
+    this._thetaDelta = 0; this._phiDelta = 0; this._radiusDelta = 1;
+    this._panOffset = new Vector3();
+    this._pointers = new Map();
+    this._disposed = false;
+
+    this._onPointerDown = e => this._pointerDown(e);
+    this._onPointerMove = e => this._pointerMove(e);
+    this._onPointerUp = e => this._pointerUp(e);
+    this._onWheel = e => this._wheel(e);
+    this._onContextMenu = e => e.preventDefault();
+    const el = domElement;
+    el.addEventListener('pointerdown', this._onPointerDown);
+    el.addEventListener('pointermove', this._onPointerMove);
+    el.addEventListener('pointerup', this._onPointerUp);
+    el.addEventListener('pointercancel', this._onPointerUp);
+    el.addEventListener('wheel', this._onWheel, { passive: false });
+    el.addEventListener('contextmenu', this._onContextMenu);
+    if (el.setPointerCapture) { /* capture happens per-pointer */ }
+    if (el.style) el.style.touchAction = 'none';
+
+    this._readSpherical();
+  }
+
+  _readSpherical() {
+    const p = this.object.position, t = this.target;
+    const dx = p.x - t.x, dy = p.y - t.y, dz = p.z - t.z;
+    this._radius = Math.hypot(dx, dy, dz) || 1e-4;
+    this._theta = Math.atan2(dx, dz);
+    this._phi = Math.acos(Math.max(-1, Math.min(1, dy / this._radius)));
+  }
+
+  _sphericalVector(out) {
+    const sp = Math.sin(this._phi);
+    return out.set(this._radius * sp * Math.sin(this._theta),
+      this._radius * Math.cos(this._phi),
+      this._radius * sp * Math.cos(this._theta));
+  }
+
+  _pointerDown(event) {
+    if (!this.enabled) return;
+    this._pointers.set(event.pointerId, {
+      x: event.clientX, y: event.clientY,
+      pan: event.button === 2 || (event.button === 0 && event.shiftKey),
+    });
+    try { this.domElement.setPointerCapture(event.pointerId); } catch {}
+  }
+
+  _pointerMove(event) {
+    const point = this._pointers.get(event.pointerId);
+    if (!point || !this.enabled) return;
+    const dx = event.clientX - point.x, dy = event.clientY - point.y;
+    const height = this.domElement.clientHeight || 1;
+    if (this._pointers.size === 2 && this.enableZoom) {
+      // Pinch: the moved pointer's old position vs its new one, relative to
+      // the other pointer's last position.
+      const other = [...this._pointers.values()].find(p => p !== point);
+      if (other) {
+        const before = Math.hypot(point.x - other.x, point.y - other.y);
+        const after = Math.hypot(event.clientX - other.x, event.clientY - other.y);
+        if (before > 0 && after > 0) this._radiusDelta *= before / after;
+      }
+    } else if (this._pointers.size === 1) {
+      if (point.pan) {
+        if (this.enablePan) this._pan(dx, dy);
+      } else if (this.enableRotate) {
+        this._thetaDelta -= (2 * Math.PI * dx) / height * this.rotateSpeed;
+        this._phiDelta -= (2 * Math.PI * dy) / height * this.rotateSpeed;
+      }
+    }
+    point.x = event.clientX; point.y = event.clientY;
+    this.update();
+  }
+
+  _pointerUp(event) {
+    this._pointers.delete(event.pointerId);
+    try { this.domElement.releasePointerCapture?.(event.pointerId); } catch {}
+  }
+
+  _wheel(event) {
+    if (!this.enabled || !this.enableZoom) return;
+    event.preventDefault();
+    const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? (this.domElement.clientHeight || 1) : 1;
+    const dy = Math.max(-1, Math.min(1, event.deltaY * units * 0.002)) * this.zoomSpeed;
+    this._radiusDelta *= Math.exp(dy);
+    this.update();
+  }
+
+  _pan(dx, dy) {
+    const s = this._radius * 0.0016 * this.panSpeed;
+    // Camera right and up in world space (roll-free approximation).
+    const world = worldMatrixOf(this.object);
+    const right = normalize3(transformDir(world, 1, 0, 0));
+    const up = normalize3(transformDir(world, 0, 1, 0));
+    const pan = this._panOffset;
+    pan.x += (-right[0] * dx + up[0] * dy) * s;
+    pan.y += (-right[1] * dx + up[1] * dy) * s;
+    pan.z += (-right[2] * dx + up[2] * dy) * s;
+  }
+
+  update() {
+    if (this._disposed) return false;
+    this._phi = Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._phi + this._phiDelta));
+    this._theta += this._thetaDelta;
+    this._radius = Math.max(this.minDistance, Math.min(this.maxDistance, this._radius * this._radiusDelta));
+    this._thetaDelta = 0; this._phiDelta = 0; this._radiusDelta = 1;
+    const offset = this._sphericalVector(new Vector3());
+    this.object.position.set(this.target.x + offset.x + this._panOffset.x,
+      this.target.y + offset.y + this._panOffset.y,
+      this.target.z + offset.z + this._panOffset.z);
+    this._panOffset.set(0, 0, 0);
+    this.object.lookAt(this.target);
+    return true;
+  }
+
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    const el = this.domElement;
+    el.removeEventListener('pointerdown', this._onPointerDown);
+    el.removeEventListener('pointermove', this._onPointerMove);
+    el.removeEventListener('pointerup', this._onPointerUp);
+    el.removeEventListener('pointercancel', this._onPointerUp);
+    el.removeEventListener('wheel', this._onWheel);
+    el.removeEventListener('contextmenu', this._onContextMenu);
+    this._pointers.clear();
+  }
+}
+
 /* --- engine bridge state ----------------------------------------------------------- */
 
 // One wasm engine per page. Entries are WeakMaps so scenes collect normally.

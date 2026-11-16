@@ -272,6 +272,29 @@ export class FogExp2 {
   density: number;
 }
 
+export class OrbitControls {
+  constructor(object: Camera, domElement: HTMLElement);
+  object: Camera;
+  domElement: HTMLElement;
+  target: Vector3;
+  enabled: boolean;
+  enableDamping: boolean;
+  dampingFactor: number;
+  enableZoom: boolean;
+  enablePan: boolean;
+  enableRotate: boolean;
+  rotateSpeed: number;
+  zoomSpeed: number;
+  panSpeed: number;
+  minDistance: number;
+  maxDistance: number;
+  minPolarAngle: number;
+  maxPolarAngle: number;
+  screenSpacePanning: boolean;
+  update(): boolean;
+  dispose(): void;
+}
+
 /* --- renderer ----------------------------------------------------------------- */
 
 export const NoColorSpace: 'none';

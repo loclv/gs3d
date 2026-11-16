@@ -471,4 +471,36 @@ function buildTestGLB() {
   assert.ok(named(engine, '_g3_asset_mesh_end').length >= 1, 'glTF geometry uploads');
 }
 
+// --- OrbitControls ---------------------------------------------------------------------
+
+{
+  const listeners = {};
+  const fakeEl = {
+    clientHeight: 600, style: {},
+    addEventListener: (name, fn) => { (listeners[name] ??= []).push(fn); },
+    removeEventListener: () => {},
+    setPointerCapture: () => {}, releasePointerCapture: () => {},
+  };
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 5);
+  const controls = new THREE.OrbitControls(camera, fakeEl);
+  controls.target.set(0, 0, 0);
+  controls.update();
+  assert.ok(Math.abs(camera.position.z - 5) < 1e-6, 'controls keep initial radius');
+
+  const fire = (name, event) => (listeners[name] || []).forEach(fn => fn(event));
+  fire('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, button: 0, shiftKey: false });
+  fire('pointermove', { pointerId: 1, clientX: 200, clientY: 100 });
+  assert.ok(camera.position.x !== 0 || camera.position.z !== 5, 'drag orbits the camera');
+  const dist = camera.position.length();
+  assert.ok(Math.abs(dist - 5) < 1e-3, 'orbit preserves distance to target');
+
+  const before = camera.position.length();
+  fire('wheel', { deltaY: 100, deltaMode: 0, preventDefault: () => {} });
+  assert.ok(camera.position.length() > before, 'scroll down dollies out');
+  fire('wheel', { deltaY: -300, deltaMode: 0, preventDefault: () => {} });
+  assert.ok(camera.position.length() < before, 'scroll up dollies in');
+  controls.dispose();
+}
+
 console.log('three.js facade checks passed');
