@@ -734,6 +734,29 @@ function buildTestGLB() {
   assert.equal(named(engine, '_g3_asset_mesh_end').length, 2, 'per-flag geometry cache');
 }
 
+// --- quaternion -------------------------------------------------------------------------
+
+{
+  const o = new THREE.Object3D();
+  // Euler writes sync into quaternion on resolve.
+  o.rotation.set(0, 0, Math.PI / 2);
+  o.getWorldDirection(new THREE.Vector3());
+  assert.ok(Math.abs(o.quaternion.z - Math.SQRT1_2) < 1e-6 && Math.abs(o.quaternion.w - Math.SQRT1_2) < 1e-6,
+    'euler z-rotation produces quaternion z=w=sqrt(1/2)');
+
+  // Quaternion writes take over and sync the euler back.
+  o.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+  const dir = o.getWorldDirection(new THREE.Vector3());
+  assert.ok(Math.abs(dir.x + 1) < 1e-6, 'quaternion y-rotation drives world direction');
+  assert.ok(Math.abs(o.rotation.y - Math.PI / 2) < 1e-3, 'euler synced from quaternion');
+
+  // slerp halfway between identity and a half-turn about Z.
+  const a = new THREE.Quaternion();
+  const b = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI);
+  a.slerp(b, 0.5).normalize();
+  assert.ok(Math.abs(a.z - Math.SQRT1_2) < 1e-3 && Math.abs(a.w - Math.SQRT1_2) < 1e-3, 'slerp midpoint');
+}
+
 // --- OrbitControls ---------------------------------------------------------------------
 
 {

@@ -74,8 +74,9 @@ absolute URLs, including `KHR_texture_transform`. Primitive geometries cover
 box, sphere, plane, circle, ring, cylinder, cone, torus, capsule and the
 platonic solids (tetrahedron, octahedron, icosahedron, dodecahedron, with
 `detail` subdivision), plus `material.vertexColors` for vertex-coloured
-meshes. Skinning, morph targets, shadows, quaternion editing,
-curve/extrude/lathe geometries and post-processing are not implemented;
+meshes. `Object3D.quaternion` and `rotation` stay in sync (XYZ Euler order).
+Skinning, morph targets, shadows, curve/extrude/lathe geometries and
+post-processing are not implemented;
 `WebGPURenderer` renders through the engine's WebGL2 backend and reports
 `backend.isWebGPUBackend === false`.
 

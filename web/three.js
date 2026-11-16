@@ -145,16 +145,93 @@ export class Euler {
   clone() { return new Euler(this.x, this.y, this.z, this.order); }
 }
 
-// Column-major 4x4, the layout both three.js and the engine's Mat4 use.
-function composeLocal(position, rotation, scale) {
-  const hx = rotation.x * 0.5, hy = rotation.y * 0.5, hz = rotation.z * 0.5;
+// XYZ-order Euler <-> quaternion, matching the convention composeLocal used.
+function quatFromEulerXYZ(x, y, z) {
+  const hx = x * 0.5, hy = y * 0.5, hz = z * 0.5;
   const sx = Math.sin(hx), sy = Math.sin(hy), sz = Math.sin(hz);
   const cx = Math.cos(hx), cy = Math.cos(hy), cz = Math.cos(hz);
-  // Quaternion from Euler XYZ, three.js convention.
-  const qx = sx * cy * cz + cx * sy * sz;
-  const qy = cx * sy * cz - sx * cy * sz;
-  const qz = cx * cy * sz + sx * sy * cz;
-  const qw = cx * cy * cz - sx * sy * sz;
+  return {
+    x: sx * cy * cz + cx * sy * sz,
+    y: cx * sy * cz - sx * cy * sz,
+    z: cx * cy * sz + sx * sy * cz,
+    w: cx * cy * cz - sx * sy * sz,
+  };
+}
+
+function eulerFromQuatXYZ(q) {
+  // Returns [x, y, z]; gimbal-lock safe enough for facade use.
+  const x = q.x, y = q.y, z = q.z, w = q.w;
+  const sinrCosp = 2 * (w * x + y * z), cosrCosp = 1 - 2 * (x * x + y * y);
+  const sinp = 2 * (w * y - z * x);
+  const sinyCosp = 2 * (w * z + x * y), cosyCosp = 1 - 2 * (y * y + z * z);
+  const ex = Math.atan2(sinrCosp, cosrCosp);
+  const ey = Math.abs(sinp) >= 1 ? Math.sign(sinp) * Math.PI / 2 : Math.asin(sinp);
+  const ez = Math.atan2(sinyCosp, cosyCosp);
+  return [ex, ey, ez];
+}
+
+export class Quaternion {
+  constructor(x = 0, y = 0, z = 0, w = 1) { this.isQuaternion = true; this.x = x; this.y = y; this.z = z; this.w = w; }
+  set(x, y, z, w) { this.x = x; this.y = y; this.z = z; this.w = w; return this; }
+  copy(q) { this.x = q.x; this.y = q.y; this.z = q.z; this.w = q.w; return this; }
+  clone() { return new Quaternion(this.x, this.y, this.z, this.w); }
+  identity() { return this.set(0, 0, 0, 1); }
+  setFromEuler(e) { const q = quatFromEulerXYZ(e.x, e.y, e.z); return this.set(q.x, q.y, q.z, q.w); }
+  setFromAxisAngle(axis, angle) {
+    const h = angle / 2, s = Math.sin(h);
+    const l = Math.hypot(axis.x, axis.y, axis.z) || 1;
+    return this.set(axis.x / l * s, axis.y / l * s, axis.z / l * s, Math.cos(h));
+  }
+  setFromRotationMatrix() { return this; }
+  normalize() {
+    const l = Math.hypot(this.x, this.y, this.z, this.w) || 1;
+    return this.set(this.x / l, this.y / l, this.z / l, this.w / l);
+  }
+  dot(q) { return this.x * q.x + this.y * q.y + this.z * q.z + this.w * q.w; }
+  // this = this * q (apply q in local space first, like three.js multiply).
+  multiply(q) {
+    const ax = this.x, ay = this.y, az = this.z, aw = this.w;
+    const bx = q.x, by = q.y, bz = q.z, bw = q.w;
+    return this.set(
+      aw * bx + ax * bw + ay * bz - az * by,
+      aw * by - ax * bz + ay * bw + az * bx,
+      aw * bz + ax * by - ay * bx + az * bw,
+      aw * bw - ax * bx - ay * by - az * bz,
+    );
+  }
+  premultiply(q) {
+    const ax = q.x, ay = q.y, az = q.z, aw = q.w;
+    const bx = this.x, by = this.y, bz = this.z, bw = this.w;
+    return this.set(
+      aw * bx + ax * bw + ay * bz - az * by,
+      aw * by - ax * bz + ay * bw + az * bx,
+      aw * bz + ax * by - ay * bx + az * bw,
+      aw * bw - ax * bx - ay * by - az * bz,
+    );
+  }
+  conjugate() { this.x = -this.x; this.y = -this.y; this.z = -this.z; return this; }
+  invert() { return this.conjugate().normalize(); }
+  slerp(qb, t) {
+    let cosHalf = this.w * qb.w + this.x * qb.x + this.y * qb.y + this.z * qb.z;
+    let bx = qb.x, by = qb.y, bz = qb.z, bw = qb.w;
+    if (cosHalf < 0) { cosHalf = -cosHalf; bx = -bx; by = -by; bz = -bz; bw = -bw; }
+    if (cosHalf > 0.9995) {
+      this.x += (bx - this.x) * t; this.y += (by - this.y) * t;
+      this.z += (bz - this.z) * t; this.w += (bw - this.w) * t;
+      return this.normalize();
+    }
+    const half = Math.acos(Math.min(1, cosHalf));
+    const sinHalf = Math.sin(half);
+    const ra = Math.sin((1 - t) * half) / sinHalf, rb = Math.sin(t * half) / sinHalf;
+    return this.set(this.x * ra + bx * rb, this.y * ra + by * rb,
+      this.z * ra + bz * rb, this.w * ra + bw * rb);
+  }
+}
+
+// Column-major 4x4, the layout both three.js and the engine's Mat4 use.
+// `quat` is {x,y,z,w}; callers resolve object.rotation/object.quaternion first.
+function composeLocal(position, quat, scale) {
+  const qx = quat.x, qy = quat.y, qz = quat.z, qw = quat.w;
   const x2 = qx + qx, y2 = qy + qy, z2 = qz + qz;
   const xx = qx * x2, xy = qx * y2, xz = qx * z2;
   const yy = qy * y2, yz = qy * z2, zz = qz * z2;
@@ -200,7 +277,11 @@ export class Object3D {
     this.name = '';
     this.position = new Vector3();
     this.rotation = new Euler();
+    this.quaternion = new Quaternion();
     this.scale = new Vector3(1, 1, 1);
+    // Rotation snapshots for resolvedQuaternion's change detection.
+    this._qCache = { x: 0, y: 0, z: 0, w: 1 };
+    this._eCache = { x: 0, y: 0, z: 0 };
     this.children = [];
     this.parent = null;
     this.visible = true;
@@ -1325,8 +1406,28 @@ function ensureTexture(engine, texture) {
   return id;
 }
 
+// rotation (Euler) and quaternion are two views of the same orientation.
+// Whichever changed since the last resolve wins; the other is synced so
+// reads stay consistent. Both-changed resolves to the quaternion.
+function resolvedQuaternion(object) {
+  const q = object.quaternion, e = object.rotation;
+  const qc = object._qCache, ec = object._eCache;
+  const qChanged = q.x !== qc.x || q.y !== qc.y || q.z !== qc.z || q.w !== qc.w;
+  const eChanged = e.x !== ec.x || e.y !== ec.y || e.z !== ec.z;
+  if (qChanged) {
+    const [ex, ey, ez] = eulerFromQuatXYZ(q);
+    e.set(ex, ey, ez);
+  } else if (eChanged) {
+    const nq = quatFromEulerXYZ(e.x, e.y, e.z);
+    q.set(nq.x, nq.y, nq.z, nq.w);
+  }
+  qc.x = q.x; qc.y = q.y; qc.z = q.z; qc.w = q.w;
+  ec.x = e.x; ec.y = e.y; ec.z = e.z;
+  return q;
+}
+
 function localMatrixOf(object) {
-  return composeLocal(object.position, object.rotation, object.scale);
+  return composeLocal(object.position, resolvedQuaternion(object), object.scale);
 }
 
 function worldMatrixOf(object) {

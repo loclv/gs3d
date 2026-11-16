@@ -54,6 +54,26 @@ export class Euler {
   clone(): Euler;
 }
 
+export class Quaternion {
+  constructor(x?: number, y?: number, z?: number, w?: number);
+  readonly isQuaternion: true;
+  x: number; y: number; z: number; w: number;
+  set(x: number, y: number, z: number, w: number): this;
+  copy(q: Quaternion): this;
+  clone(): Quaternion;
+  identity(): this;
+  setFromEuler(e: Euler): this;
+  setFromAxisAngle(axis: Vector3, angle: number): this;
+  setFromRotationMatrix(): this;
+  normalize(): this;
+  dot(q: Quaternion): number;
+  multiply(q: Quaternion): this;
+  premultiply(q: Quaternion): this;
+  conjugate(): this;
+  invert(): this;
+  slerp(qb: Quaternion, t: number): this;
+}
+
 export class BufferAttribute {
   constructor(array: ArrayLike<number>, itemSize: number, normalized?: boolean);
   readonly isBufferAttribute: true;
@@ -262,6 +282,7 @@ export class Object3D {
   name: string;
   position: Vector3;
   rotation: Euler;
+  quaternion: Quaternion;
   scale: Vector3;
   children: Object3D[];
   parent: Object3D | null;
