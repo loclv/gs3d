@@ -116,6 +116,14 @@ struct Material {
     anisotropy_texture: i32 = -1,
     anisotropy_uv: g3::UvTransform = g3::UvTransform { scale: float2 { 1.0, 1.0 }, .. },
     environment_intensity: f32 = 1.0,
+    // Custom fragment program (WebGL-only): -1 standard, else a shader id
+    // registered through g3::material_shader_create.
+    shader: i32 = -1,
+    // Sixteen floats exposed to the custom shader as `uniform vec4 u_user[4]`.
+    user0: float4 = float4_0,
+    user1: float4 = float4_0,
+    user2: float4 = float4_0,
+    user3: float4 = float4_0,
     removed: bool,
     asset_owned: bool,
     generation: i32 = 1,

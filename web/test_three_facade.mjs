@@ -50,6 +50,10 @@ function createMockEngine() {
     _g3_asset_release_mesh: record('_g3_asset_release_mesh'),
     _g3_asset_material: (...args) => { calls.push(['_g3_asset_material', ...args]); return nextMaterial++; },
     _g3_asset_material_specular: record('_g3_asset_material_specular'),
+    _g3_asset_material_shader_create: (...args) => { calls.push(['_g3_asset_material_shader_create', ...args]); return 42; },
+    _g3_asset_material_shader_release: record('_g3_asset_material_shader_release'),
+    _g3_asset_material_set_shader: record('_g3_asset_material_set_shader'),
+    _g3_asset_material_user: record('_g3_asset_material_user'),
     _g3_asset_material_uv_transform: record('_g3_asset_material_uv_transform'),
     _g3_asset_material_generation: () => 1,
     _g3_asset_material_valid: () => 1,
@@ -330,6 +334,41 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   const second = named(engine, '_g3_asset_material')[1].slice(1);
   assert.equal(second[3], 0.25, 'opacity change re-uploads material');
   assert.equal(named(engine, '_g3_asset_release_material').length, 1);
+}
+
+// --- custom material shaders ---------------------------------------------------------
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  const customShader = { header: 'float g3_extra() { return 1.0; }', body: 'base *= g3_extra();' };
+  const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+  material.customShader = customShader;
+  material.customUniforms = [1, 2, 3, 4, 5, 6, 7, 8];
+  scene.add(new THREE.Mesh(geometry, material));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+
+  const creates = named(engine, '_g3_asset_material_shader_create');
+  assert.equal(creates.length, 1, 'shader source uploaded once');
+  assert.equal(creates[0].length, 5, 'create receives header and body slices');
+  const setCalls = named(engine, '_g3_asset_material_set_shader');
+  assert.equal(setCalls.length, 1);
+  assert.equal(setCalls[0][2], 42, 'engine shader id bound to material');
+  const userCalls = named(engine, '_g3_asset_material_user');
+  assert.equal(userCalls.length, 4, 'four vec4 user slots uploaded');
+  assert.deepEqual(userCalls.map(c => c.slice(3)), [[1, 2, 3, 4], [5, 6, 7, 8], [0, 0, 0, 0], [0, 0, 0, 0]]);
+
+  // A second material sharing the shader object reuses the compiled program.
+  const other = new THREE.MeshStandardMaterial({ color: 0xffffff });
+  other.customShader = customShader;
+  scene.add(new THREE.Mesh(geometry, other));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  assert.equal(named(engine, '_g3_asset_material_shader_create').length, 1, 'shared shader object compiles once');
+  assert.equal(named(engine, '_g3_asset_material_set_shader').length, 2);
 }
 
 // --- fog -------------------------------------------------------------------------

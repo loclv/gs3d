@@ -51,7 +51,7 @@ The procedural checklist lives in
 selected `texcoord` set (0 through 7). The renderer scales the selected UV, rotates
 it, then adds the offset.
 
-### `g3_draw_item` — 653 bytes
+### `g3_draw_item` — 721 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -100,6 +100,8 @@ it, then adds the offset.
 | 621 | `int32_t` | `anisotropy_texture` | linear RG direction and B strength map; -1 disables |
 | 625 | `g3_uv_transform` | `anisotropy_uv` | anisotropy-map transform |
 | 649 | `float` | `environment_intensity` | per-material multiplier for hemispherical and texture-based environment lighting |
+| 653 | `int32_t` | `shader` | custom fragment program id, -1 selects the standard program; WebGL-only, ignored by the CPU backend |
+| 657 | `g3_vec4` | `user0`–`user3` | sixteen floats exposed to custom shaders as `uniform vec4 u_user[4]` |
 
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
@@ -270,7 +272,7 @@ everything starts. Every symbol the page calls must appear in
 | `platform/g3_input.{h,c}` extracted | the key table, mouse deltas and resize wrapper now exist once instead of in both backends; each backend implements only `g3_backend_resize`. |
 
 WebGL matrix uploads must first copy packed matrices into aligned float
-storage. A DrawItem has a 653-byte stride; matrix members in successive
+storage. A DrawItem has a 721-byte stride; matrix members in successive
 records are often unaligned. Emscripten passes uniform arrays through HEAPF32,
 whose pointer-to-index conversion discards low address bits. Passing packed
 members directly corrupts transforms. The WebGL backend's `upload_matrix4`

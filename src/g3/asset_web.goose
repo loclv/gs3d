@@ -209,3 +209,25 @@ export fn g3_asset_light_key_shadow_clear() { g3::clear_shadows(); }
 export fn g3_asset_shadow_resolution(resolution: i32) -> bool { return g3::set_shadow_resolution(resolution); }
 // PCF radius in texels: 0 hard, 1 is 3x3, 2 is 5x5.
 export fn g3_asset_shadow_filter_radius(radius: i32) -> bool { return g3::set_shadow_filter_radius(radius); }
+// Custom material fragment shaders: `header` GLSL is inserted before main()
+// (helpers, extra uniforms/samplers); `body` statements run inside main()
+// where the material's lighting inputs are still writable. Assign to
+// `g3_emissive_extra` to add emission. WebGL-only; returns -1 elsewhere.
+export fn g3_asset_material_shader_create(header: const u8[:], body: const u8[:]) -> i32 {
+    return g3::material_shader_create(header, body);
+}
+export fn g3_asset_material_shader_release(id: i32) -> bool { return g3::material_shader_remove(id); }
+export fn g3_asset_material_set_shader(id: i32, shader: i32) -> bool {
+    guard g3::material_valid(id) && (shader < 0 || g3::material_shader_valid(shader)) else { return false; }
+    g3::material(id).shader = shader;
+    return true;
+}
+export fn g3_asset_material_user(id: i32, index: i32, x: f32, y: f32, z: f32, w: f32) -> bool {
+    guard g3::material_valid(id) && index >= 0 && index < 4 else { return false; }
+    let m .= g3::material(id);
+    if index == 0 { m.user0 = float4 { x, y, z, w }; }
+    else if index == 1 { m.user1 = float4 { x, y, z, w }; }
+    else if index == 2 { m.user2 = float4 { x, y, z, w }; }
+    else { m.user3 = float4 { x, y, z, w }; }
+    return true;
+}

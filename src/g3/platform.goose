@@ -75,6 +75,12 @@ struct DrawItem {
     anisotropy_texture: i32, // linear RG direction and B strength map
     anisotropy_uv: UvTransform,
     environment_intensity: f32, // scales environment lighting for this material
+    // Custom fragment program: -1 selects the standard program, otherwise the
+    // id of a shader registered through material_shader_create. WebGL-only;
+    // the CPU backend ignores it.
+    shader: i32,
+    // Sixteen floats exposed to custom shaders as `uniform vec4 u_user[4]`.
+    user0: float4, user1: float4, user2: float4, user3: float4,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;
@@ -140,6 +146,8 @@ extern fn g3p_post_process(source: i32, destination: i32, effect: i32) -> bool;
 extern fn g3p_post_process_shader_create(id: i32, body: const u8[:]) -> bool;
 extern fn g3p_post_process_shader_release(id: i32);
 extern fn g3p_post_process_shader_run(shader: i32, source: i32, destination: i32) -> bool;
+extern fn g3p_material_shader_create(id: i32, header: const u8[:], body: const u8[:]) -> bool;
+extern fn g3p_material_shader_release(id: i32);
 extern fn g3p_texture_width(id: i32) -> i32;
 extern fn g3p_texture_height(id: i32) -> i32;
 extern fn g3p_load_radiance_hdr(id: i32, path: const u8[:]) -> bool;

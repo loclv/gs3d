@@ -49,6 +49,8 @@ var g_shadow_bias: f32;
 var g_shadow_filter_radius: i32;
 var g_post_process_shader_count: i32;
 var g_post_process_shader_live: bool[>..];
+var g_material_shader_count: i32;
+var g_material_shader_live: bool[>..];
 
 let POST_PROCESS_COPY = 0;
 let POST_PROCESS_GRAYSCALE = 1;
@@ -413,6 +415,32 @@ fn post_process_shader_remove(shader: i32) -> bool {
     return true;
 }
 
+// Register a custom material fragment shader (WebGL-only). `header` is GLSL
+// inserted before main() (helper functions, globals, extra uniforms such as
+// samplers); `body` is statements inside main() where the material's lighting
+// inputs are still writable. The backend owns the source copies; the CPU
+// backend reports unsupported by returning -1.
+fn material_shader_create(header: const u8[:], body: const u8[:]) -> i32 {
+    guard header.len + body.len > 0 && header.len + body.len <= 131072 && g_material_shader_count < 64 else { return -1; }
+    let id = g_material_shader_count;
+    g_material_shader_count += 1;
+    g_material_shader_live.push(false);
+    if !g3p_material_shader_create(id, header, body) { return -1; }
+    g_material_shader_live[id] = true;
+    return id;
+}
+
+fn material_shader_valid(shader: i32) -> bool {
+    return shader >= 0 && shader < g_material_shader_live.len && g_material_shader_live[shader];
+}
+
+fn material_shader_remove(shader: i32) -> bool {
+    guard material_shader_valid(shader) else { return false; }
+    g3p_material_shader_release(shader);
+    g_material_shader_live[shader] = false;
+    return true;
+}
+
 fn post_process_queue_clear() { g_post_process_queue.clear(); }
 
 fn post_process_queue_add(source: i32, destination: i32, effect: i32) -> bool {
@@ -563,6 +591,11 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         anisotropy_texture: surface.anisotropy_texture,
         anisotropy_uv: surface.anisotropy_uv,
         environment_intensity: surface.environment_intensity,
+        shader: surface.shader,
+        user0: surface.user0,
+        user1: surface.user1,
+        user2: surface.user2,
+        user3: surface.user3,
     };
 }
 

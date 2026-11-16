@@ -81,7 +81,7 @@ typedef struct {
     GLsizei morph_target_count;
 } web_mesh;
 
-/* Goose records are packed: DrawItem's 653-byte stride leaves three of
+/* Goose records are packed: DrawItem's 721-byte stride leaves three of
    every four matrix addresses unaligned. Emscripten's WebGL bridge indexes
    HEAPF32 with pointer >> 2, so passing those addresses directly truncates
    them. Copy through aligned float storage before every matrix upload. */
@@ -124,12 +124,18 @@ typedef struct {
     GLint skin_enabled, joint_palette, joint_count;
     GLint morph_enabled, morph_positions, morph_normals, morph_tangents, morph_weights, morph_target_count;
     GLint instanced;
+    GLint user;         /* u_user[0]: sixteen per-item floats for custom shaders */
+    int custom_id;      /* DrawItem.shader this variant serves, -1 standard */
 } web_shader;
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx;
 static web_shader shader;
 static web_shader shader_cache[64];
 static unsigned shader_cache_next;
+/* Custom material fragment shader sources, defined with their g3p_ entry
+   points below; select_material_shader reads them for lazy compiles. */
+typedef struct { char *header, *body; } web_material_shader_source;
+static web_material_shader_source material_shader_sources[64];
 static GLint fragment_texture_units;
 static const char *material_samplers[13] = {
     "u_tex", "u_mr_tex", "u_normal_tex", "u_occlusion_tex", "u_emissive_tex",
@@ -774,6 +780,7 @@ static void find_uniforms(void) {
     shader.morph_weights = glGetUniformLocation(shader.program, "u_morph_weights");
     shader.morph_target_count = glGetUniformLocation(shader.program, "u_morph_target_count");
     shader.instanced = glGetUniformLocation(shader.program, "u_instanced");
+    shader.user = glGetUniformLocation(shader.program, "u_user[0]");
     for (int i = 0; i < 8; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_lights[%d].position", i); shader.light_position[i] = glGetUniformLocation(shader.program, name);
@@ -784,13 +791,60 @@ static void find_uniforms(void) {
     }
 }
 
+/* Splice user GLSL into a copy of the lit fragment shader: `header` lands at
+   global scope just before main() — after every helper, so it can call them —
+   and `u_user[4]` is declared alongside it. `body` runs inside main() where
+   the material inputs (base, n, ao, mr, f0, specular_*, coat_*, sheen_*,
+   aniso_*, v, l) are resolved but before lighting accumulates; it may
+   reassign them, and `g3_emissive_extra` is added into the emissive term. */
+static char *assemble_custom_fragment(const char *header, const char *body) {
+    const char *main_at = strstr(FRAGMENT_SRC, "void main() {");
+    const char *inject_at = strstr(FRAGMENT_SRC, "    float coat_fresnel");
+    const char *emissive_at = strstr(FRAGMENT_SRC, "col += u_emissive.rgb * emissive_texel;");
+    if (!main_at || !inject_at || !emissive_at || inject_at <= main_at || emissive_at <= inject_at) return NULL;
+    const char *inject_line = inject_at;
+    while (inject_line > FRAGMENT_SRC && inject_line[-1] != '\n') inject_line--;
+    static const char user_decl[] = "uniform vec4 u_user[4];\n";
+    static const char extra_decl[] = "    vec3 g3_emissive_extra = vec3(0.0);\n";
+    static const char emissive_orig[] = "col += u_emissive.rgb * emissive_texel;";
+    static const char emissive_patched[] = "col += u_emissive.rgb * emissive_texel + g3_emissive_extra;";
+    size_t total = (size_t)(main_at - FRAGMENT_SRC) + sizeof(user_decl) - 1 + strlen(header) + 1 +
+        (size_t)(inject_line - main_at) + sizeof(extra_decl) - 1 + strlen(body) + 1 +
+        (size_t)(emissive_at - inject_line) + sizeof(emissive_patched) - 1 +
+        strlen(FRAGMENT_SRC) - (size_t)(emissive_at + sizeof(emissive_orig) - 1 - FRAGMENT_SRC);
+    char *out = malloc(total + 1);
+    if (!out) return NULL;
+    char *p = out;
+    memcpy(p, FRAGMENT_SRC, (size_t)(main_at - FRAGMENT_SRC)); p += main_at - FRAGMENT_SRC;
+    memcpy(p, user_decl, sizeof(user_decl) - 1); p += sizeof(user_decl) - 1;
+    size_t hl = strlen(header); memcpy(p, header, hl); p += hl; *p++ = '\n';
+    memcpy(p, main_at, (size_t)(inject_line - main_at)); p += inject_line - main_at;
+    memcpy(p, extra_decl, sizeof(extra_decl) - 1); p += sizeof(extra_decl) - 1;
+    size_t bl = strlen(body); memcpy(p, body, bl); p += bl; *p++ = '\n';
+    memcpy(p, inject_line, (size_t)(emissive_at - inject_line)); p += emissive_at - inject_line;
+    memcpy(p, emissive_patched, sizeof(emissive_patched) - 1); p += sizeof(emissive_patched) - 1;
+    const char *tail = emissive_at + sizeof(emissive_orig) - 1;
+    size_t tl = strlen(tail); memcpy(p, tail, tl); p += tl;
+    *p = 0;
+    return out;
+}
+
 /* Compile both stages, link them, and look the uniforms up. 0 on any failure,
-   after telling the page why. */
-static int build_program(unsigned mask, int fast_unlit, int no_fog) {
+   after telling the page why. custom_header/custom_body splice user GLSL into
+   the lit fragment shader (see assemble_custom_fragment); both NULL builds a
+   standard variant. */
+static int build_program(unsigned mask, int fast_unlit, int no_fog,
+                         const char *custom_header, const char *custom_body) {
     /* Compile only the material samplers this draw actually uses. Disabled
        maps alias the environment sampler but their existing boolean guards
        stay false. No material/shading terms are approximated or dropped. */
     const char *fragment_source = fast_unlit ? UNLIT_FRAGMENT_SRC : FRAGMENT_SRC;
+    char *assembled = NULL;
+    if (custom_body) {
+        assembled = assemble_custom_fragment(custom_header ? custom_header : "", custom_body);
+        if (!assembled) return 0;
+        fragment_source = assembled;
+    }
     char *fragment = malloc(strlen(fragment_source) + 1024);
     if (!fragment) return 0;
     if (fast_unlit) {
@@ -822,6 +876,7 @@ static int build_program(unsigned mask, int fast_unlit, int no_fog) {
         }
         *out = 0;
     }
+    free(assembled);
     GLuint vs = compile_shader(GL_VERTEX_SHADER, fast_unlit ? UNLIT_VERTEX_SRC : VERTEX_SRC, "vertex");
     if (!vs) { free(fragment); return 0; }
     GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fragment, fast_unlit ? "unlit fragment" : "fragment");
@@ -838,6 +893,7 @@ static int build_program(unsigned mask, int fast_unlit, int no_fog) {
     shader.texture_mask = mask;
     shader.fast_unlit = fast_unlit;
     shader.no_fog = no_fog;
+    shader.custom_id = -1; /* select_material_shader stamps the real id after */
     int unit = 5; /* environment, directional shadow, point, spot, BRDF: 0..4 */
     for (int i = 0; i < 13; i++)
         shader.texture_units[i] = mask & (1u << i) ? unit++ : -1;
@@ -922,7 +978,7 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     hdr_color_buffer_supported=float_color_buffer_supported;
     set_surface_size(width, height);
 
-    if (!build_program(0, 0, 0) || !ensure_brdf_lut()) return 0;
+    if (!build_program(0, 0, 0, NULL, NULL) || !ensure_brdf_lut()) return 0;
     shader_cache[0] = shader; shader_cache_next = 1;
 
     /* The state the CPU backend also sets: depth LESS, back faces culled,
@@ -1365,7 +1421,10 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            same_uv_transform(a->clearcoat_normal_uv, b->clearcoat_normal_uv) &&
            same_uv_transform(a->sheen_color_uv,b->sheen_color_uv) &&
            same_uv_transform(a->sheen_roughness_uv,b->sheen_roughness_uv) &&
-           same_uv_transform(a->anisotropy_uv,b->anisotropy_uv);
+           same_uv_transform(a->anisotropy_uv,b->anisotropy_uv) &&
+           a->shader == b->shader &&
+           same_vec4(a->user0,b->user0) && same_vec4(a->user1,b->user1) &&
+           same_vec4(a->user2,b->user2) && same_vec4(a->user3,b->user3);
 }
 
 EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_calls; }
@@ -1987,7 +2046,12 @@ static void render_point_shadow_maps(g3_draw_item_slice items, const g3_view_sta
 }
 
 static int select_material_shader(const g3_draw_item *it) {
-    int fast_unlit = it->params.x > 0.5f && it->clearcoat.x == 0.0f &&
+    /* A registered custom shader id selects the spliced lit program; an
+       unknown or released id falls back to the standard program. Custom
+       programs always run the lit path so the injected code sees lighting. */
+    int custom = it->shader >= 0 && it->shader < 64 && material_shader_sources[it->shader].body != NULL;
+    int shader_id = custom ? it->shader : -1;
+    int fast_unlit = !custom && it->params.x > 0.5f && it->clearcoat.x == 0.0f &&
         it->mesh >= 0 && it->mesh < mesh_count &&
         meshes[it->mesh].joint_count == 0 && meshes[it->mesh].morph_target_count == 0;
     int no_fog = fast_unlit && !frame_fog_enabled;
@@ -2014,11 +2078,15 @@ static int select_material_shader(const g3_draw_item *it) {
     }
     for (int i = 0; i < 64; i++)
         if (shader_cache[i].program && shader_cache[i].texture_mask == mask &&
-            shader_cache[i].fast_unlit == fast_unlit && shader_cache[i].no_fog == no_fog) {
+            shader_cache[i].fast_unlit == fast_unlit && shader_cache[i].no_fog == no_fog &&
+            shader_cache[i].custom_id == shader_id) {
             shader = shader_cache[i]; return 1;
         }
     web_shader previous = shader;
-    if (!build_program(mask, fast_unlit, no_fog)) { shader = previous; return 0; }
+    if (!build_program(mask, fast_unlit, no_fog,
+                       custom ? material_shader_sources[it->shader].header : NULL,
+                       custom ? material_shader_sources[it->shader].body : NULL)) { shader = previous; return 0; }
+    shader.custom_id = shader_id;
     unsigned slot = shader_cache_next++ % 64;
     if (shader_cache[slot].program) {
         glDeleteProgram(shader_cache[slot].program);
@@ -2085,6 +2153,12 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform4f(shader.color, it->color.x, it->color.y, it->color.z, it->color.w);
     glUniform4f(shader.params, it->params.x, it->params.y, it->params.z, it->params.w);
     glUniform4f(shader.pbr, it->pbr.x, it->pbr.y, it->pbr.z, it->pbr.w);
+    if (shader.custom_id >= 0) {
+        /* user0 sits at an unaligned offset; copy like upload_matrix4 does. */
+        float user[16];
+        memcpy(user, &it->user0, sizeof(user));
+        glUniform4fv(shader.user, 4, user);
+    }
     const g3_uv_transform *uv_transforms[13] = { &it->base_color_uv, &it->metallic_roughness_uv,
         &it->normal_uv, &it->occlusion_uv, &it->emissive_uv, &it->specular_uv, &it->specular_color_uv,
         &it->clearcoat_uv, &it->clearcoat_roughness_uv, &it->clearcoat_normal_uv,
@@ -2395,6 +2469,39 @@ void g3p_post_process_shader_release(int32_t id) {
     if (id < 0 || id >= 64 || !custom_post_shaders[id].program) return;
     glDeleteProgram(custom_post_shaders[id].program);
     custom_post_shaders[id] = (web_custom_post_shader){0};
+}
+
+/* Custom material fragment shaders keep their GLSL source so programs can be
+   rebuilt lazily per texture-mask variant; ids are never reused, so a cached
+   program for a released id simply becomes unreachable. */
+static char *dup_glsl(g3_u8_slice s) {
+    if (!s.data || s.len <= 0) return NULL;
+    char *out = malloc((size_t)s.len + 1);
+    if (!out) return NULL;
+    memcpy(out, s.data, (size_t)s.len);
+    out[s.len] = 0;
+    return out;
+}
+
+uint8_t g3p_material_shader_create(int32_t id, g3_u8_slice header, g3_u8_slice body) {
+    if (id < 0 || id >= 64 || material_shader_sources[id].body || !body.data || body.len <= 0 ||
+        header.len < 0 || header.len + body.len > 131072) return 0;
+    for (int64_t i = 0; i < body.len; i++) if (body.data[i] == 0) return 0;
+    for (int64_t i = 0; i < header.len; i++) if (header.data[i] == 0) return 0;
+    char *h = header.len > 0 ? dup_glsl(header) : malloc(1);
+    char *b = dup_glsl(body);
+    if (!h || !b) { free(h); free(b); return 0; }
+    if (header.len == 0) h[0] = 0;
+    material_shader_sources[id].header = h;
+    material_shader_sources[id].body = b;
+    return 1;
+}
+
+void g3p_material_shader_release(int32_t id) {
+    if (id < 0 || id >= 64) return;
+    free(material_shader_sources[id].header);
+    free(material_shader_sources[id].body);
+    material_shader_sources[id] = (web_material_shader_source){0};
 }
 
 uint8_t g3p_post_process_shader_run(int32_t shader_id, int32_t source, int32_t destination) {

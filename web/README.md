@@ -88,7 +88,19 @@ merged loop triangulates cleanly, otherwise filled) and `ExtrudeGeometry`
 (bevel parameters accepted but ignored). `TubeGeometry` sweeps a radius
 along any `getPoint(t)` path, and `CatmullRomCurve3` provides splines.
 Skinning, morph targets, line/points primitives and post-processing are
-not implemented. Shadows are limited to one directional light: the first
+not implemented. Materials accept a `customShader` extension —
+`material.customShader = { header, body }` splices GLSL into a copy of the
+lit fragment shader (WebGL only): `header` lands at global scope before
+`main()` where it can declare helpers and extra uniforms, and `body`
+statements run inside `main()` after the material inputs (`base`, `n`,
+`ao`, `mr`, `metal`, `f0`, `specular_*`, `coat_*`, `sheen_*`, `aniso_*`,
+`v`, `l`, all `u_*` uniforms and `v_uv`–`v_uv7` varyings) are resolved but
+before lighting accumulates, so they can be reassigned; adding to
+`g3_emissive_extra` (declared just before `body`) contributes emission.
+`material.customUniforms` is a 16-float array exposed as
+`uniform vec4 u_user[4]`. The CPU backend ignores custom shaders and
+renders the standard program. Custom shaders always run the lit path and
+participate in the same texture-mask program cache (64 variants). Shadows are limited to one directional light: the first
 `castShadow` directional light owns the engine's single shadow map
 (256/512/1024 px, PCF radius derived from `shadowMap.type`), its
 `shadow.camera` ortho bounds and `shadow.bias`/`normalBias` fold into one

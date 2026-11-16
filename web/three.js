@@ -2181,6 +2181,10 @@ let sharedEngine = null;
 const nodeStates = new WeakMap();   // Object3D -> engine node record
 const geometryStates = new WeakMap(); // BufferGeometry -> {flag: {id,generation,version}}
 const materialStates = new WeakMap(); // Material -> {id,generation,signature}
+// Custom fragment shaders ({header, body} GLSL) are compiled once per object
+// and shared by every material that references it.
+const customShaderIds = new WeakMap(); // customShader object -> engine shader id
+let customShaderSeq = 0;
 const cameraStates = new WeakMap();  // Camera -> engine camera id
 const textureStates = new WeakMap(); // Texture -> {id,generation,signature}
 let engineCanvasSeq = 0;
@@ -2430,6 +2434,13 @@ function materialSignature(material) {
     parts.push(material.metalness, material.roughness, material.emissive.r, material.emissive.g,
       material.emissive.b, material.emissiveIntensity, material.ior, material.envMapIntensity);
   }
+  const cs = material.customShader;
+  if (cs) {
+    if (!cs._gs3dKey) cs._gs3dKey = ++customShaderSeq;
+    parts.push('cs' + cs._gs3dKey);
+    const u = material.customUniforms;
+    if (u) for (let i = 0; i < 16; i++) parts.push(u[i] ?? 0);
+  }
   return parts.join(',');
 }
 
@@ -2499,6 +2510,36 @@ function ensureMaterial(engine, material) {
   if (!unlit) {
     // Dielectric F0 of about 0.04 matches three.js's standard-material sheen.
     engine._g3_asset_material_specular(id, 0.04, 1, 1, 1, -1, -1);
+  }
+  const customShader = material.customShader;
+  if (customShader && typeof engine._g3_asset_material_shader_create === 'function') {
+    let shaderId = customShaderIds.get(customShader);
+    if (shaderId === undefined) {
+      const upload = text => {
+        const bytes = new TextEncoder().encode(text || '');
+        const ptr = engine._malloc(bytes.length);
+        engine.HEAPU8.set(bytes, ptr);
+        return [ptr, bytes.length];
+      };
+      const header = upload(customShader.header);
+      const body = upload(customShader.body);
+      try {
+        shaderId = engine._g3_asset_material_shader_create(header[0], header[1], body[0], body[1]);
+      } finally {
+        engine._free(header[0]);
+        engine._free(body[0]);
+      }
+      customShaderIds.set(customShader, shaderId);
+    }
+    if (shaderId >= 0) engine._g3_asset_material_set_shader(id, shaderId);
+  }
+  const customUniforms = material.customUniforms;
+  if (customUniforms && typeof engine._g3_asset_material_user === 'function') {
+    for (let i = 0; i < 4; i++) {
+      engine._g3_asset_material_user(id, i,
+        customUniforms[i * 4] ?? 0, customUniforms[i * 4 + 1] ?? 0,
+        customUniforms[i * 4 + 2] ?? 0, customUniforms[i * 4 + 3] ?? 0);
+    }
   }
   const record = { id, generation: engine._g3_asset_material_generation(id), signature };
   materialStates.set(material, record);
