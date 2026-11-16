@@ -34,7 +34,14 @@ export class Vector3 {
   sub(v: Vector3): this;
   multiplyScalar(s: number): this;
   length(): number;
+  lengthSq(): number;
   normalize(): this;
+  distanceTo(v: Vector3): number;
+  distanceToSquared(v: Vector3): number;
+  dot(v: Vector3): number;
+  cross(v: Vector3): this;
+  lerp(v: Vector3, alpha: number): this;
+  negate(): this;
   fromArray(a: ArrayLike<number>, offset?: number): this;
 }
 
@@ -71,6 +78,34 @@ export class BufferGeometry {
   setIndex(index: ArrayLike<number> | BufferAttribute | null): this;
   computeVertexNormals(): this;
   dispose(): void;
+}
+
+export class BoxGeometry extends BufferGeometry {
+  constructor(width?: number, height?: number, depth?: number,
+    widthSegments?: number, heightSegments?: number, depthSegments?: number);
+}
+export class SphereGeometry extends BufferGeometry {
+  constructor(radius?: number, widthSegments?: number, heightSegments?: number,
+    phiStart?: number, phiLength?: number, thetaStart?: number, thetaLength?: number);
+}
+export class PlaneGeometry extends BufferGeometry {
+  constructor(width?: number, height?: number, widthSegments?: number, heightSegments?: number);
+}
+export class CircleGeometry extends BufferGeometry {
+  constructor(radius?: number, segments?: number, thetaStart?: number, thetaLength?: number);
+}
+export class RingGeometry extends BufferGeometry {
+  constructor(innerRadius?: number, outerRadius?: number, thetaSegments?: number,
+    phiSegments?: number, thetaStart?: number, thetaLength?: number);
+}
+export class CylinderGeometry extends BufferGeometry {
+  constructor(radiusTop?: number, radiusBottom?: number, height?: number,
+    radialSegments?: number, heightSegments?: number, openEnded?: boolean,
+    thetaStart?: number, thetaLength?: number);
+}
+export class TorusGeometry extends BufferGeometry {
+  constructor(radius?: number, tube?: number, radialSegments?: number,
+    tubularSegments?: number, arc?: number);
 }
 
 export const FrontSide: 0;
@@ -139,6 +174,8 @@ export class Object3D {
   updateMatrixWorld(force?: boolean): this;
   updateMatrix(): this;
   lookAt(): this;
+  getWorldPosition(target?: Vector3): Vector3;
+  getWorldDirection(target?: Vector3): Vector3;
 }
 export class Group extends Object3D { constructor(); readonly isGroup: true; }
 export class Scene extends Object3D {

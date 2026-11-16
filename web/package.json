@@ -24,6 +24,10 @@
     "./three": {
       "types": "./three.d.ts",
       "import": "./three.js"
+    },
+    "./webgpu": {
+      "types": "./three.d.ts",
+      "import": "./three.js"
     }
   },
   "files": [

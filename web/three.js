@@ -119,7 +119,20 @@ export class Vector3 {
   sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
   multiplyScalar(s) { this.x *= s; this.y *= s; this.z *= s; return this; }
   length() { return Math.hypot(this.x, this.y, this.z); }
+  lengthSq() { return this.x * this.x + this.y * this.y + this.z * this.z; }
   normalize() { const l = this.length() || 1; return this.multiplyScalar(1 / l); }
+  distanceTo(v) { return Math.hypot(this.x - v.x, this.y - v.y, this.z - v.z); }
+  distanceToSquared(v) { const dx = this.x - v.x, dy = this.y - v.y, dz = this.z - v.z; return dx * dx + dy * dy + dz * dz; }
+  dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
+  cross(v) {
+    const x = this.y * v.z - this.z * v.y, y = this.z * v.x - this.x * v.z, z = this.x * v.y - this.y * v.x;
+    return this.set(x, y, z);
+  }
+  lerp(v, alpha) {
+    this.x += (v.x - this.x) * alpha; this.y += (v.y - this.y) * alpha; this.z += (v.z - this.z) * alpha;
+    return this;
+  }
+  negate() { return this.set(-this.x, -this.y, -this.z); }
   fromArray(a, offset = 0) { this.x = a[offset]; this.y = a[offset + 1]; this.z = a[offset + 2]; return this; }
 }
 
@@ -224,6 +237,14 @@ export class Object3D {
   updateMatrixWorld(force) { return this; }
   updateMatrix() { return this; }
   lookAt() { return this; }
+  getWorldPosition(target = new Vector3()) {
+    const p = transformPoint(worldMatrixOf(this), 0, 0, 0);
+    return target.set(p[0], p[1], p[2]);
+  }
+  getWorldDirection(target = new Vector3()) {
+    const d = normalize3(transformDir(worldMatrixOf(this), 0, 0, -1));
+    return target.set(d[0], d[1], d[2]);
+  }
 }
 
 export class Group extends Object3D {
@@ -315,6 +336,226 @@ export class BufferGeometry {
   dispose() {
     this.version++;
     releaseGeometry(this);
+  }
+}
+
+/* --- primitive geometries -----------------------------------------------------
+   Parametric generators matching three.js vertex layouts: positions,
+   normals and uvs plus an index buffer, so lighting and UV mapping behave
+   the same as the real thing. */
+
+function gridGeometry(nu, nv, vertexAt, uvAt, flip = false) {
+  // vertexAt(u, v) -> [x, y, z, nx, ny, nz]; uvAt(u, v) -> [u, v]
+  const positions = [], normals = [], uvs = [], indices = [];
+  for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+    const u = i / nu, v = j / nv;
+    const [x, y, z, nx, ny, nz] = vertexAt(u, v);
+    positions.push(x, y, z); normals.push(nx, ny, nz);
+    const [tu, tv] = uvAt(u, v); uvs.push(tu, tv);
+  }
+  const stride = nu + 1;
+  for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+    const a = j * stride + i, b = a + 1, c = a + stride, d = c + 1;
+    if (flip) indices.push(a, c, b, b, c, d);
+    else indices.push(a, b, c, b, d, c);
+  }
+  return { positions, normals, uvs, indices };
+}
+
+function makeGeometry(data) {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute(data.positions, 3));
+  geometry.setAttribute('normal', new Float32BufferAttribute(data.normals, 3));
+  geometry.setAttribute('uv', new Float32BufferAttribute(data.uvs, 2));
+  geometry.setIndex(new Uint32BufferAttribute(data.indices, 1));
+  return geometry;
+}
+
+export class BoxGeometry extends BufferGeometry {
+  constructor(width = 1, height = 1, depth = 1, widthSegments = 1, heightSegments = 1, depthSegments = 1) {
+    super();
+    const positions = [], normals = [], uvs = [], indices = [];
+    const hw = width / 2, hh = height / 2, hd = depth / 2;
+    // Each face is a grid in its own two axes; three.js duplicates vertices
+    // per face so normals and uvs stay per-face.
+    const face = (nu, nv, normal, build) => {
+      const base = positions.length / 3;
+      for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+        const [p, uv] = build(i / nu, j / nv);
+        positions.push(p[0], p[1], p[2]); normals.push(normal[0], normal[1], normal[2]); uvs.push(uv[0], uv[1]);
+      }
+      const stride = nu + 1;
+      for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+        const a = base + j * stride + i;
+        indices.push(a, a + 1, a + stride, a + 1, a + stride + 1, a + stride);
+      }
+    };
+    // +X / -X faces span z (u) and y (v).
+    face(depthSegments, heightSegments, [1, 0, 0], (u, v) => [[hw, (0.5 - v) * height, (u - 0.5) * depth], [u, v]]);
+    face(depthSegments, heightSegments, [-1, 0, 0], (u, v) => [[-hw, (0.5 - v) * height, (0.5 - u) * depth], [u, v]]);
+    // +Y / -Y faces span x (u) and z (v).
+    face(widthSegments, depthSegments, [0, 1, 0], (u, v) => [[(u - 0.5) * width, hh, (0.5 - v) * depth], [u, v]]);
+    face(widthSegments, depthSegments, [0, -1, 0], (u, v) => [[(u - 0.5) * width, -hh, (v - 0.5) * depth], [u, v]]);
+    // +Z / -Z faces span x (u) and y (v).
+    face(widthSegments, heightSegments, [0, 0, 1], (u, v) => [[(u - 0.5) * width, (v - 0.5) * height, hd], [u, v]]);
+    face(widthSegments, heightSegments, [0, 0, -1], (u, v) => [[(0.5 - u) * width, (v - 0.5) * height, -hd], [u, v]]);
+    this.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    this.setIndex(new Uint32BufferAttribute(indices, 1));
+  }
+}
+
+export class SphereGeometry extends BufferGeometry {
+  constructor(radius = 1, widthSegments = 32, heightSegments = 16, phiStart = 0, phiLength = Math.PI * 2, thetaStart = 0, thetaLength = Math.PI) {
+    super();
+    const data = gridGeometry(widthSegments, heightSegments,
+      (u, v) => {
+        const phi = phiStart + u * phiLength;
+        const theta = thetaStart + v * thetaLength;
+        const x = -radius * Math.cos(phi) * Math.sin(theta);
+        const y = radius * Math.cos(theta);
+        const z = radius * Math.sin(phi) * Math.sin(theta);
+        const l = radius || 1;
+        return [x, y, z, x / l, y / l, z / l];
+      },
+      (u, v) => [u, 1 - v], true);
+    const g = makeGeometry(data);
+    this.attributes = g.attributes; this.index = g.index; this.version++;
+  }
+}
+
+export class PlaneGeometry extends BufferGeometry {
+  constructor(width = 1, height = 1, widthSegments = 1, heightSegments = 1) {
+    super();
+    const data = gridGeometry(widthSegments, heightSegments,
+      (u, v) => [(u - 0.5) * width, (0.5 - v) * height, 0, 0, 0, 1],
+      (u, v) => [u, 1 - v], true);
+    const g = makeGeometry(data);
+    this.attributes = g.attributes; this.index = g.index; this.version++;
+  }
+}
+
+export class CircleGeometry extends BufferGeometry {
+  constructor(radius = 1, segments = 32, thetaStart = 0, thetaLength = Math.PI * 2) {
+    super();
+    const positions = [0, 0, 0], normals = [0, 0, 1], uvs = [0.5, 0.5], indices = [];
+    for (let i = 0; i <= segments; i++) {
+      const theta = thetaStart + (i / segments) * thetaLength;
+      positions.push(Math.cos(theta) * radius, Math.sin(theta) * radius, 0);
+      normals.push(0, 0, 1);
+      uvs.push(Math.cos(theta) * 0.5 + 0.5, Math.sin(theta) * 0.5 + 0.5);
+    }
+    for (let i = 1; i <= segments; i++) indices.push(0, i, i + 1);
+    this.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    this.setIndex(new Uint32BufferAttribute(indices, 1));
+  }
+}
+
+export class RingGeometry extends BufferGeometry {
+  constructor(innerRadius = 0.5, outerRadius = 1, thetaSegments = 32, phiSegments = 1, thetaStart = 0, thetaLength = Math.PI * 2) {
+    super();
+    const positions = [], normals = [], uvs = [], indices = [];
+    for (let j = 0; j <= phiSegments; j++) for (let i = 0; i <= thetaSegments; i++) {
+      const theta = thetaStart + (i / thetaSegments) * thetaLength;
+      const phi = (j / phiSegments) * Math.PI; // radial rings from inner to outer edge-on? use simple radial blend
+      const r = innerRadius + (outerRadius - innerRadius) * (j / phiSegments);
+      positions.push(Math.cos(theta) * r, Math.sin(theta) * r, 0);
+      normals.push(0, 0, 1);
+      uvs.push((Math.cos(theta) * r / outerRadius + 1) / 2, (Math.sin(theta) * r / outerRadius + 1) / 2);
+    }
+    const stride = thetaSegments + 1;
+    for (let j = 0; j < phiSegments; j++) for (let i = 0; i < thetaSegments; i++) {
+      const a = j * stride + i;
+      indices.push(a, a + stride, a + 1, a + 1, a + stride, a + stride + 1);
+    }
+    this.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    this.setIndex(new Uint32BufferAttribute(indices, 1));
+  }
+}
+
+export class CylinderGeometry extends BufferGeometry {
+  constructor(radiusTop = 1, radiusBottom = 1, height = 1, radialSegments = 32, heightSegments = 1, openEnded = false, thetaStart = 0, thetaLength = Math.PI * 2) {
+    super();
+    const positions = [], normals = [], uvs = [], indices = [];
+    const half = height / 2;
+    const slope = (radiusBottom - radiusTop) / height;
+    for (let j = 0; j <= heightSegments; j++) {
+      const v = j / heightSegments;
+      const r = radiusBottom + (radiusTop - radiusBottom) * v;
+      const y = -half + v * height;
+      for (let i = 0; i <= radialSegments; i++) {
+        const u = i / radialSegments;
+        const theta = thetaStart + u * thetaLength;
+        const c = Math.cos(theta), s = Math.sin(theta);
+        positions.push(c * r, y, s * r);
+        const nl = Math.hypot(1, slope) || 1;
+        normals.push(c / nl, slope / nl, s / nl);
+        uvs.push(u, 1 - v);
+      }
+    }
+    const stride = radialSegments + 1;
+    for (let j = 0; j < heightSegments; j++) for (let i = 0; i < radialSegments; i++) {
+      const a = j * stride + i;
+      indices.push(a, a + stride, a + 1, a + 1, a + stride, a + stride + 1);
+    }
+    if (!openEnded) {
+      // Caps as triangle fans.
+      for (const [y, r, ny] of [[half, radiusTop, 1], [-half, radiusBottom, -1]]) {
+        if (r <= 0) continue;
+        const center = positions.length / 3;
+        positions.push(0, y, 0); normals.push(0, ny, 0); uvs.push(0.5, 0.5);
+        const ringStart = positions.length / 3;
+        for (let i = 0; i <= radialSegments; i++) {
+          const theta = thetaStart + (i / radialSegments) * thetaLength;
+          positions.push(Math.cos(theta) * r, y, Math.sin(theta) * r);
+          normals.push(0, ny, 0);
+          uvs.push(Math.cos(theta) * 0.5 + 0.5, Math.sin(theta) * 0.5 + 0.5);
+        }
+        for (let i = 0; i < radialSegments; i++) {
+          if (ny > 0) indices.push(center, ringStart + i + 1, ringStart + i);
+          else indices.push(center, ringStart + i, ringStart + i + 1);
+        }
+      }
+    }
+    this.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    this.setIndex(new Uint32BufferAttribute(indices, 1));
+  }
+}
+
+export class TorusGeometry extends BufferGeometry {
+  constructor(radius = 1, tube = 0.4, radialSegments = 12, tubularSegments = 48, arc = Math.PI * 2) {
+    super();
+    const positions = [], normals = [], uvs = [], indices = [];
+    for (let j = 0; j <= tubularSegments; j++) {
+      const u = j / tubularSegments;
+      const phi = u * arc;
+      for (let i = 0; i <= radialSegments; i++) {
+        const v = i / radialSegments;
+        const theta = v * Math.PI * 2;
+        const cx = Math.cos(phi), sx = Math.sin(phi);
+        const ct = Math.cos(theta), st = Math.sin(theta);
+        const nx = ct * cx, ny = st, nz = ct * sx;
+        positions.push((radius + tube * ct) * cx, tube * st, (radius + tube * ct) * sx);
+        normals.push(nx, ny, nz);
+        uvs.push(u, v);
+      }
+    }
+    const stride = radialSegments + 1;
+    for (let j = 0; j < tubularSegments; j++) for (let i = 0; i < radialSegments; i++) {
+      const a = j * stride + i;
+      indices.push(a, a + 1, a + stride, a + 1, a + stride + 1, a + stride);
+    }
+    this.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    this.setIndex(new Uint32BufferAttribute(indices, 1));
   }
 }
 

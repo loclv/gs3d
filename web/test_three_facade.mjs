@@ -299,6 +299,64 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   assert.equal(named(engine, '_g3_app_shutdown').length, 1);
 }
 
+// --- primitive geometries ---------------------------------------------------------
+
+{
+  const box = new THREE.BoxGeometry(2, 3, 4);
+  assert.equal(box.attributes.position.count, 24, 'box has 24 vertices');
+  assert.equal(box.index.count, 36, 'box has 36 indices');
+  const bp = box.attributes.position.array;
+  let minX = 1e9, maxX = -1e9;
+  for (let i = 0; i < bp.length; i += 3) { minX = Math.min(minX, bp[i]); maxX = Math.max(maxX, bp[i]); }
+  assert.ok(Math.abs(minX + 1) < 1e-6 && Math.abs(maxX - 1) < 1e-6, 'box spans width');
+
+  const sphere = new THREE.SphereGeometry(2, 16, 8);
+  const sp = sphere.attributes.position.array;
+  const sn = sphere.attributes.normal.array;
+  assert.equal(sphere.attributes.position.count, (16 + 1) * (8 + 1));
+  let maxR = 0, badNormal = 0;
+  for (let i = 0; i < sp.length; i += 3) {
+    maxR = Math.max(maxR, Math.hypot(sp[i], sp[i + 1], sp[i + 2]));
+  }
+  for (let i = 0; i < sn.length; i += 3) {
+    const l = Math.hypot(sn[i], sn[i + 1], sn[i + 2]);
+    if (Math.abs(l - 1) > 1e-3) badNormal++;
+  }
+  assert.ok(Math.abs(maxR - 2) < 1e-5, 'sphere radius respected');
+  assert.equal(badNormal, 0, 'sphere normals are unit length');
+
+  const plane = new THREE.PlaneGeometry(4, 2, 4, 2);
+  assert.equal(plane.attributes.position.count, 15);
+  assert.equal(plane.index.count, 48);
+  assert.ok(Math.abs(plane.attributes.position.array[0] - -2) < 1e-6, 'plane centred on origin');
+
+  const cyl = new THREE.CylinderGeometry(1, 0.5, 2, 12, 1);
+  const cp = cyl.attributes.position.array;
+  let topY = -1e9, botY = 1e9;
+  for (let i = 0; i < cp.length; i += 3) { topY = Math.max(topY, cp[i + 1]); botY = Math.min(botY, cp[i + 1]); }
+  assert.ok(Math.abs(topY - 1) < 1e-6 && Math.abs(botY + 1) < 1e-6, 'cylinder height centred');
+  const open = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true);
+  assert.ok(open.index.count < cyl.index.count, 'openEnded drops the caps');
+
+  const circle = new THREE.CircleGeometry(1, 8);
+  assert.equal(circle.attributes.position.count, 10, 'circle fan has centre + seam-duplicated rim');
+  const ring = new THREE.RingGeometry(0.5, 1, 8);
+  assert.equal(ring.attributes.position.count, 18);
+  const torus = new THREE.TorusGeometry(1, 0.25, 8, 16);
+  assert.equal(torus.attributes.position.count, 9 * 17);
+  assert.equal(torus.index.count, 8 * 16 * 6);
+
+  // Geometries flow through the facade's upload path unchanged.
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  scene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  const upload = named(engine, '_g3_asset_mesh_end')[0];
+  assert.deepEqual(upload.slice(1), [24, 12], 'box uploads 24 vertices and 12 triangles');
+}
+
 // --- colour parsing -------------------------------------------------------------------
 
 {
