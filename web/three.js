@@ -380,6 +380,8 @@ export class Scene extends Object3D {
     this.background = null;
     this.fog = null;
     this.environment = null;
+    this.environmentIntensity = 1;
+    this.environmentRotation = 0;
   }
 }
 
@@ -1023,6 +1025,7 @@ export class Material {
     this.emissiveMap = null;
     this.aoMap = null;
     this.aoMapIntensity = 1;
+    this.envMapIntensity = 1;
     Object.assign(this, parameters);
     if (parameters.color !== undefined && !(parameters.color instanceof Color)) this.color = new Color(parameters.color);
   }
@@ -1710,7 +1713,7 @@ function materialSignature(material) {
     material.transparent, material.alphaTest, material.side, material.visible];
   if (material.isMeshStandardMaterial || material.isMeshPhysicalMaterial) {
     parts.push(material.metalness, material.roughness, material.emissive.r, material.emissive.g,
-      material.emissive.b, material.emissiveIntensity, material.ior);
+      material.emissive.b, material.emissiveIntensity, material.ior, material.envMapIntensity);
   }
   return parts.join(',');
 }
@@ -1774,6 +1777,9 @@ function ensureMaterial(engine, material) {
         texture.offset.x, texture.offset.y,
         texture.repeat.x, texture.repeat.y, texture.rotation, texture.channel || 0);
     }
+  }
+  if (!unlit && typeof engine._g3_asset_material_environment === 'function') {
+    engine._g3_asset_material_environment(id, material.envMapIntensity ?? 1);
   }
   if (!unlit) {
     // Dielectric F0 of about 0.04 matches three.js's standard-material sheen.
@@ -1911,6 +1917,22 @@ function syncFog(engine, scene) {
     engine._g3_asset_fog(fog.color.r, fog.color.g, fog.color.b, density);
   } else {
     engine._g3_asset_fog(0, 0, 0, 0);
+  }
+}
+
+// scene.environment is an equirectangular texture in the engine; three.js
+// also accepts it directly for PMREM-processed environments, which we pass
+// through unchanged.
+function syncEnvironment(engine, scene) {
+  const env = scene.environment;
+  if (env && env.isTexture) {
+    const id = ensureTexture(engine, env);
+    if (id >= 0) engine._g3_asset_environment_map(id, scene.environmentIntensity ?? 1);
+  } else {
+    engine._g3_asset_environment_map(-1, 0);
+  }
+  if (typeof engine._g3_asset_environment_rotation === 'function') {
+    engine._g3_asset_environment_rotation(scene.environmentRotation ?? 0);
   }
 }
 
@@ -2120,6 +2142,7 @@ export class WebGPURenderer {
       this._applyOutputSettings();
       syncBackground(engine, scene, this);
       syncFog(engine, scene);
+      syncEnvironment(engine, scene);
       syncLights(engine, collected);
       syncCamera(engine, this, camera);
     }

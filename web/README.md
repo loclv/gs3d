@@ -77,8 +77,10 @@ platonic solids (tetrahedron, octahedron, icosahedron, dodecahedron, with
 meshes. `Object3D.quaternion` and `rotation` stay in sync (XYZ Euler order).
 Pure-JS helpers cover `Ray`/`Raycaster` (Möller–Trumbore against geometry,
 `setFromCamera` for perspective cameras) and `Box3` (`setFromObject` walks
-the scene graph). Skinning, morph targets, shadows, curve/extrude/lathe
-geometries and post-processing are not implemented;
+the scene graph). `scene.environment` accepts an equirectangular texture
+with `environmentIntensity`/`environmentRotation`, and materials support
+`envMapIntensity`. Skinning, morph targets, shadows, curve/extrude geometries
+and post-processing are not implemented;
 `WebGPURenderer` renders through the engine's WebGL2 backend and reports
 `backend.isWebGPUBackend === false`.
 

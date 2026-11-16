@@ -55,6 +55,9 @@ function createMockEngine() {
     _g3_host_texture_srgb: record('_g3_host_texture_srgb'),
     _g3_host_texture_wrap: record('_g3_host_texture_wrap'),
     _g3_host_texture_filter: record('_g3_host_texture_filter'),
+    _g3_asset_environment_map: record('_g3_asset_environment_map'),
+    _g3_asset_environment_rotation: record('_g3_asset_environment_rotation'),
+    _g3_asset_material_environment: record('_g3_asset_material_environment'),
     _g3_asset_camera_add: (...args) => { calls.push(['_g3_asset_camera_add', ...args]); return nextCamera++; },
     _g3_asset_camera_update: record('_g3_asset_camera_update'),
     _g3_asset_camera_select: record('_g3_asset_camera_select'),
@@ -790,6 +793,36 @@ function buildTestGLB() {
   const rc2 = new THREE.Raycaster().setFromCamera(new THREE.Vector2(0, 0), cam);
   const hits2 = rc2.intersectObject(scene, true);
   assert.ok(hits2.length >= 1, 'setFromCamera ray hits');
+}
+
+// --- scene.environment -------------------------------------------------------------------
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const pixels = new Uint8Array(4 * 4);
+  for (let i = 0; i < 16; i++) { pixels[i * 4] = 200; pixels[i * 4 + 3] = 255; }
+  const env = new THREE.Texture({ width: 2, height: 2, pixels });
+  scene.environment = env;
+  scene.environmentIntensity = 0.8;
+  scene.environmentRotation = 0.25;
+  scene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ envMapIntensity: 0.5 })));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+
+  const envCall = named(engine, '_g3_asset_environment_map').at(-1);
+  assert.equal(envCall[1], 1, 'environment texture uploaded and bound');
+  assert.ok(Math.abs(envCall[2] - 0.8) < 1e-6, 'environmentIntensity passed');
+  const rotCall = named(engine, '_g3_asset_environment_rotation').at(-1);
+  assert.ok(Math.abs(rotCall[1] - 0.25) < 1e-6, 'environmentRotation passed');
+  const matEnv = named(engine, '_g3_asset_material_environment').at(-1);
+  assert.ok(Math.abs(matEnv[2] - 0.5) < 1e-6, 'material envMapIntensity passed');
+
+  // Clearing the environment unbinds it.
+  scene.environment = null;
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  assert.equal(named(engine, '_g3_asset_environment_map').at(-1)[1], -1, 'environment cleared');
 }
 
 // --- OrbitControls ---------------------------------------------------------------------

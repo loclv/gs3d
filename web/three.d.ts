@@ -229,6 +229,7 @@ export class Material {
   emissiveMap: Texture | null;
   aoMap: Texture | null;
   aoMapIntensity: number;
+  envMapIntensity: number;
   opacity: number;
   transparent: boolean;
   alphaTest: number;
@@ -251,6 +252,7 @@ export class MeshStandardMaterial extends Material {
     emissiveMap?: Texture | null;
     aoMap?: Texture | null;
     aoMapIntensity?: number;
+    envMapIntensity?: number;
     metalness?: number;
     roughness?: number;
     emissive?: number | string | Color;
@@ -305,7 +307,9 @@ export class Scene extends Object3D {
   readonly isScene: true;
   background: Color | null;
   fog: Fog | FogExp2 | null;
-  environment: unknown;
+  environment: Texture | null;
+  environmentIntensity: number;
+  environmentRotation: number;
 }
 
 export class Light extends Object3D {
