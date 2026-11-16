@@ -112,11 +112,72 @@ export const FrontSide: 0;
 export const BackSide: 1;
 export const DoubleSide: 2;
 
+export const RepeatWrapping: 1000;
+export const ClampToEdgeWrapping: 1001;
+export const MirroredRepeatWrapping: 1002;
+export const NearestFilter: 1003;
+export const LinearFilter: 1006;
+export const NearestMipmapNearestFilter: 1004;
+export const NearestMipmapLinearFilter: 1005;
+export const LinearMipmapNearestFilter: 1007;
+export const LinearMipmapLinearFilter: 1008;
+
+export interface TextureImageSource {
+  width: number;
+  height: number;
+  data?: ArrayLike<number>;
+  pixels?: ArrayLike<number>;
+}
+
+export class Texture {
+  constructor(image?: TextureImageSource | HTMLCanvasElement | HTMLImageElement | ImageBitmap | ImageData | null);
+  readonly isTexture: true;
+  image: unknown;
+  colorSpace: string;
+  wrapS: number;
+  wrapT: number;
+  magFilter: number;
+  minFilter: number;
+  offset: Vector2;
+  repeat: Vector2;
+  rotation: number;
+  center: Vector2;
+  matrixAutoUpdate: boolean;
+  generateMipmaps: boolean;
+  version: number;
+  needsUpdate: boolean;
+  updateMatrix(): this;
+  dispose(): void;
+}
+export class DataTexture extends Texture {
+  constructor(data?: ArrayLike<number> | null, width?: number, height?: number);
+  readonly isDataTexture: true;
+  flipY: boolean;
+  unpackAlignment: number;
+}
+export class CanvasTexture extends Texture { readonly isCanvasTexture: true; }
+export class CompressedTexture extends Texture { readonly isCompressedTexture: true; }
+export class CubeTexture extends Texture {
+  readonly isCubeTexture: true;
+  images: unknown[];
+}
+export class TextureLoader {
+  constructor();
+  manager: unknown;
+  load(url: string, onLoad?: (texture: Texture) => void, onProgress?: (event: ProgressEvent) => void, onError?: (error: unknown) => void): this;
+}
+export class ImageLoader {
+  constructor();
+  manager: unknown;
+  load(url: string, onLoad?: (image: HTMLImageElement) => void, onProgress?: (event: ProgressEvent) => void, onError?: (event: unknown) => void): HTMLImageElement;
+}
+
 export class Material {
   constructor(parameters?: Record<string, unknown>);
   readonly isMaterial: true;
   name: string;
   color: Color;
+  map: Texture | null;
   opacity: number;
   transparent: boolean;
   alphaTest: number;
@@ -130,6 +191,7 @@ export class MeshBasicMaterial extends Material {
 export class MeshStandardMaterial extends Material {
   constructor(parameters?: {
     color?: number | string | Color;
+    map?: Texture | null;
     metalness?: number;
     roughness?: number;
     emissive?: number | string | Color;

@@ -9,11 +9,11 @@ import { GLTFLoader } from './gltf-loader.js';
 function createMockEngine() {
   const calls = [];
   const record = name => (...args) => { calls.push([name, ...args]); };
-  let nextNode = 1, nextMesh = 1, nextMaterial = 1, nextCamera = 1, meshVertices = 0, meshTriangles = 0;
+  let nextNode = 1, nextMesh = 1, nextMaterial = 1, nextCamera = 1, nextTexture = 1, meshVertices = 0, meshTriangles = 0;
   const engine = {
     calls,
-    HEAPU8: new Uint8Array(16),
-    _malloc: size => { engine._mallocSize = size; return 0; },
+    HEAPU8: new Uint8Array(1 << 20),
+    _malloc: size => { engine._mallocSize = size; return 16; },
     _free: record('_free'),
     _g3_host_set_canvas: record('_g3_host_set_canvas'),
     _g3_host_start: (w, h) => { calls.push(['_g3_host_start', w, h]); return 1; },
@@ -43,9 +43,18 @@ function createMockEngine() {
     _g3_asset_release_mesh: record('_g3_asset_release_mesh'),
     _g3_asset_material: (...args) => { calls.push(['_g3_asset_material', ...args]); return nextMaterial++; },
     _g3_asset_material_specular: record('_g3_asset_material_specular'),
+    _g3_asset_material_uv_transform: record('_g3_asset_material_uv_transform'),
     _g3_asset_material_generation: () => 1,
     _g3_asset_material_valid: () => 1,
     _g3_asset_release_material: record('_g3_asset_release_material'),
+    _g3_asset_texture: () => nextTexture++,
+    _g3_asset_texture_generation: () => 1,
+    _g3_asset_texture_valid: () => 1,
+    _g3_asset_release_texture: record('_g3_asset_release_texture'),
+    _g3_host_texture: record('_g3_host_texture'),
+    _g3_host_texture_srgb: record('_g3_host_texture_srgb'),
+    _g3_host_texture_wrap: record('_g3_host_texture_wrap'),
+    _g3_host_texture_filter: record('_g3_host_texture_filter'),
     _g3_asset_camera_add: (...args) => { calls.push(['_g3_asset_camera_add', ...args]); return nextCamera++; },
     _g3_asset_camera_update: record('_g3_asset_camera_update'),
     _g3_asset_camera_select: record('_g3_asset_camera_select'),
@@ -469,6 +478,67 @@ function buildTestGLB() {
   scene.add(gltf.scene);
   renderer.render(scene, new THREE.PerspectiveCamera());
   assert.ok(named(engine, '_g3_asset_mesh_end').length >= 1, 'glTF geometry uploads');
+}
+
+// --- textures -------------------------------------------------------------------------
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+
+  // 2x2 RGBA checker.
+  const pixels = new Uint8Array(2 * 2 * 4);
+  for (let i = 0; i < 4; i++) { pixels[i * 4] = 255; pixels[i * 4 + 3] = 255; }
+  const texture = new THREE.Texture({ width: 2, height: 2, pixels });
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.repeat.set(2, 2);
+  texture.offset.set(0.1, 0.2);
+  texture.rotation = 0.5;
+
+  const material = new THREE.MeshStandardMaterial({ map: texture });
+  const mesh = new THREE.Mesh(geometry, material);
+  scene.add(mesh);
+  renderer.render(scene, new THREE.PerspectiveCamera());
+
+  // sRGB upload path chosen by colorSpace.
+  assert.equal(named(engine, '_g3_host_texture_srgb').length, 1, 'srgb texture upload');
+  assert.equal(named(engine, '_g3_host_texture').length, 0);
+  const wrapCall = named(engine, '_g3_host_texture_wrap')[0];
+  assert.deepEqual(wrapCall.slice(2), [1, 0], 'wrap modes map repeat->1 clamp->0');
+
+  // Material carries the texture id and UV transform.
+  const matArgs = named(engine, '_g3_asset_material')[0].slice(1);
+  assert.equal(matArgs[4], 1, 'baseColor texture slot gets texture id');
+  const uvCall = named(engine, '_g3_asset_material_uv_transform')[0];
+  assert.equal(uvCall[2], 0);            // slot 0 = base color
+  assert.ok(Math.abs(uvCall[3] - 0.1) < 1e-6 && Math.abs(uvCall[4] - 0.2) < 1e-6, 'uv offset');
+  assert.ok(Math.abs(uvCall[5] - 2) < 1e-6 && Math.abs(uvCall[6] - 2) < 1e-6, 'uv repeat');
+  assert.ok(Math.abs(uvCall[7] - 0.5) < 1e-6, 'uv rotation');
+  assert.equal(uvCall[8], 0, 'uv texcoord 0');
+
+  // Steady state: no re-upload.
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  assert.equal(named(engine, '_g3_asset_material').length, 1, 'material cached');
+  assert.equal(named(engine, '_g3_host_texture_srgb').length, 1, 'texture cached');
+
+  // needsUpdate bumps version -> texture and material re-upload.
+  texture.needsUpdate = true;
+  texture.version++;
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  assert.equal(named(engine, '_g3_host_texture_srgb').length, 2, 'texture re-uploaded');
+  assert.equal(named(engine, '_g3_asset_release_texture').length, 1, 'old texture released');
+  assert.equal(named(engine, '_g3_asset_material').length, 2, 'material re-uploaded with new texture');
+
+  // Removing the map drops the texture slot.
+  material.map = null;
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  const lastMat = named(engine, '_g3_asset_material').at(-1).slice(1);
+  assert.equal(lastMat[4], -1, 'map removal clears texture slot');
 }
 
 // --- OrbitControls ---------------------------------------------------------------------

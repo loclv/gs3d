@@ -573,6 +573,130 @@ export class TorusGeometry extends BufferGeometry {
   }
 }
 
+/* --- textures ------------------------------------------------------------------ */
+
+export const RepeatWrapping = 1000;
+export const ClampToEdgeWrapping = 1001;
+export const MirroredRepeatWrapping = 1002;
+
+export const NearestFilter = 1003;
+export const LinearFilter = 1006;
+export const NearestMipmapNearestFilter = 1004;
+export const NearestMipmapLinearFilter = 1005;
+export const LinearMipmapNearestFilter = 1007;
+export const LinearMipmapLinearFilter = 1008;
+
+const WRAP_TO_ENGINE = { [ClampToEdgeWrapping]: 0, [RepeatWrapping]: 1, [MirroredRepeatWrapping]: 2 };
+const FILTER_TO_GL = { [NearestFilter]: 9728, [LinearFilter]: 9729 };
+
+// Normalizes the accepted image sources to {width, height, pixels} where
+// pixels is RGBA8. Returns null while the image is not ready.
+function textureImageData(image) {
+  if (!image) return null;
+  if (image.pixels && image.width && image.height) return image;
+  if (image.data && image.width && image.height) {
+    return { width: image.width, height: image.height, pixels: image.data };
+  }
+  if (typeof document !== 'undefined' &&
+      (image instanceof HTMLCanvasElement || image instanceof HTMLImageElement ||
+       (typeof ImageBitmap !== 'undefined' && image instanceof ImageBitmap))) {
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width || image.videoWidth || image.naturalWidth;
+    canvas.height = image.height || image.videoHeight || image.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(image, 0, 0);
+    return { width: canvas.width, height: canvas.height, pixels: ctx.getImageData(0, 0, canvas.width, canvas.height).data };
+  }
+  if (image instanceof ImageData) {
+    return { width: image.width, height: image.height, pixels: image.data };
+  }
+  return null;
+}
+
+export class Texture {
+  constructor(image = null) {
+    this.isTexture = true;
+    this.image = image;
+    this.colorSpace = NoColorSpace;
+    this.wrapS = RepeatWrapping;
+    this.wrapT = RepeatWrapping;
+    this.magFilter = LinearFilter;
+    this.minFilter = LinearMipmapLinearFilter;
+    this.offset = new Vector2();
+    this.repeat = new Vector2(1, 1);
+    this.rotation = 0;
+    this.center = new Vector2(0.5, 0.5);
+    this.matrixAutoUpdate = true;
+    this.generateMipmaps = true;
+    this.version = 0;
+    this.needsUpdate = false;
+  }
+  updateMatrix() { return this; }
+  dispose() {
+    this.version++;
+    releaseTexture(this);
+  }
+}
+
+export class DataTexture extends Texture {
+  constructor(data = null, width = 1, height = 1) {
+    super(data ? { data, width, height } : null);
+    this.isDataTexture = true;
+    this.flipY = false;
+    this.unpackAlignment = 4;
+  }
+}
+
+export class CanvasTexture extends Texture {
+  constructor(canvas = document.createElement('canvas')) {
+    super(canvas);
+    this.isCanvasTexture = true;
+  }
+}
+
+export class CompressedTexture extends Texture {
+  constructor() { super(null); this.isCompressedTexture = true; }
+}
+export class CubeTexture extends Texture {
+  constructor() { super(null); this.isCubeTexture = true; this.images = []; }
+}
+
+export class TextureLoader {
+  constructor() { this.manager = null; }
+  load(url, onLoad, onProgress, onError) {
+    fetch(url)
+      .then(response => {
+        if (!response.ok) throw new Error(`gs3d: failed to fetch texture ${url} (${response.status})`);
+        return response.blob();
+      })
+      .then(blob => createImageBitmap(blob))
+      .then(bitmap => {
+        const image = textureImageData(bitmap);
+        bitmap.close();
+        const texture = new Texture(image);
+        texture.needsUpdate = true;
+        texture.version++;
+        if (onLoad) onLoad(texture);
+        return texture;
+      })
+      .catch(error => onError ? onError(error) : console.error(error));
+    return this;
+  }
+}
+
+export class ImageLoader {
+  constructor() { this.manager = null; }
+  load(url, onLoad, onProgress, onError) {
+    const image = new Image();
+    image.onload = () => onLoad && onLoad(image);
+    image.onerror = event => onError && onError(event);
+    if (onProgress) image.onprogress = onProgress;
+    image.src = url;
+    return image;
+  }
+}
+
 /* --- materials --------------------------------------------------------------- */
 
 export const FrontSide = 0;
@@ -589,6 +713,7 @@ export class Material {
     this.alphaTest = 0;
     this.side = FrontSide;
     this.visible = true;
+    this.map = null;
     Object.assign(this, parameters);
     if (parameters.color !== undefined && !(parameters.color instanceof Color)) this.color = new Color(parameters.color);
   }
@@ -910,6 +1035,7 @@ const nodeStates = new WeakMap();   // Object3D -> engine node record
 const geometryStates = new WeakMap(); // BufferGeometry -> {id,generation,version}
 const materialStates = new WeakMap(); // Material -> {id,generation,signature}
 const cameraStates = new WeakMap();  // Camera -> engine camera id
+const textureStates = new WeakMap(); // Texture -> {id,generation,signature}
 let engineCanvasSeq = 0;
 // Objects that currently own an engine node. render() releases records for
 // objects absent from the scene being drawn, so switching scenes cannot leak
@@ -940,6 +1066,53 @@ function releaseMaterial(material) {
   const state = materialStates.get(material);
   if (state && sharedEngine) sharedEngine._g3_asset_release_material(state.id, state.generation);
   materialStates.delete(material);
+}
+function releaseTexture(texture) {
+  const state = textureStates.get(texture);
+  if (state && sharedEngine) sharedEngine._g3_asset_release_texture(state.id, state.generation);
+  textureStates.delete(texture);
+}
+
+function textureSignature(texture) {
+  // Only upload-affecting fields; UV transform lives on the material.
+  const image = textureImageData(texture.image);
+  return [
+    image ? `${image.width}x${image.height}` : 'pending',
+    texture.colorSpace, texture.wrapS, texture.wrapT,
+    texture.magFilter, texture.minFilter, texture.version,
+  ].join(',');
+}
+
+function ensureTexture(engine, texture) {
+  const signature = textureSignature(texture);
+  const state = textureStates.get(texture);
+  if (state && state.signature === signature) return state.id;
+  if (state) engine._g3_asset_release_texture(state.id, state.generation);
+  const image = textureImageData(texture.image);
+  if (!image || !image.pixels || !image.pixels.length) return -1;
+
+  const id = engine._g3_asset_texture();
+  if (id < 0) return -1;
+  const ptr = engine._malloc(image.pixels.length);
+  if (!ptr) { engine._g3_asset_release_texture(id, engine._g3_asset_texture_generation(id)); return -1; }
+  try {
+    engine.HEAPU8.set(image.pixels instanceof Uint8Array || image.pixels instanceof Uint8ClampedArray
+      ? image.pixels : new Uint8ClampedArray(image.pixels), ptr);
+    const srgb = texture.colorSpace === SRGBColorSpace;
+    if (srgb) engine._g3_host_texture_srgb(id, ptr, image.width, image.height);
+    else engine._g3_host_texture(id, ptr, image.width, image.height);
+    const wrapU = WRAP_TO_ENGINE[texture.wrapS] ?? 1;
+    const wrapV = WRAP_TO_ENGINE[texture.wrapT] ?? 1;
+    engine._g3_host_texture_wrap(id, wrapU, wrapV);
+    const minFilter = FILTER_TO_GL[texture.minFilter] ?? 9729;
+    const magFilter = FILTER_TO_GL[texture.magFilter] ?? 9729;
+    engine._g3_host_texture_filter(id, minFilter, magFilter);
+  } finally {
+    engine._free(ptr);
+  }
+  const record = { id, generation: engine._g3_asset_texture_generation(id), signature };
+  textureStates.set(texture, record);
+  return id;
 }
 
 function localMatrixOf(object) {
@@ -1013,7 +1186,10 @@ function materialSignature(material) {
 
 function ensureMaterial(engine, material) {
   if (!material) material = new MeshBasicMaterial();
-  const signature = materialSignature(material);
+  const mapTexture = material.map && material.map.isTexture ? material.map : null;
+  const textureId = mapTexture ? ensureTexture(engine, mapTexture) : -1;
+  const signature = materialSignature(material) + `|tex:${textureId}` +
+    (mapTexture ? `|uv:${mapTexture.offset.x},${mapTexture.offset.y},${mapTexture.repeat.x},${mapTexture.repeat.y},${mapTexture.rotation}` : '');
   const state = materialStates.get(material);
   if (state && state.signature === signature) return state.id;
   if (state) engine._g3_asset_release_material(state.id, state.generation);
@@ -1028,11 +1204,16 @@ function ensureMaterial(engine, material) {
   const emissive = material.emissive || new Color(0);
   const emissiveStrength = material.emissiveIntensity ?? 1;
   const id = engine._g3_asset_material(
-    color.r, color.g, color.b, opacity, -1, alphaMode, alphaCutoff,
+    color.r, color.g, color.b, opacity, textureId, alphaMode, alphaCutoff,
     metallic, roughness, -1, -1, 1, -1, 1,
     emissive.r * emissiveStrength, emissive.g * emissiveStrength, emissive.b * emissiveStrength, -1,
     material.side === DoubleSide ? 1 : 0, unlit, material.ior ?? 1.5,
   );
+  if (mapTexture && textureId >= 0) {
+    engine._g3_asset_material_uv_transform(id, 0,
+      mapTexture.offset.x, mapTexture.offset.y,
+      mapTexture.repeat.x, mapTexture.repeat.y, mapTexture.rotation, 0);
+  }
   if (!unlit) {
     // Dielectric F0 of about 0.04 matches three.js's standard-material sheen.
     engine._g3_asset_material_specular(id, 0.04, 1, 1, 1, -1, -1);
