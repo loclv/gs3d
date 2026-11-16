@@ -35,7 +35,7 @@ function createMockEngine() {
     _g3_asset_node_material: record('_g3_asset_node_material'),
     _g3_asset_matrix: record('_g3_asset_matrix'),
     _g3_asset_mesh_begin: () => { meshVertices = 0; meshTriangles = 0; calls.push(['_g3_asset_mesh_begin']); },
-    _g3_asset_vertex: () => { meshVertices++; },
+    _g3_asset_vertex: (...args) => { meshVertices++; calls.push(['_g3_asset_vertex', ...args]); },
     _g3_asset_triangle: () => { meshTriangles++; },
     _g3_asset_mesh_end: () => { calls.push(['_g3_asset_mesh_end', meshVertices, meshTriangles]); return nextMesh++; },
     _g3_asset_mesh_generation: () => 1,
@@ -356,6 +356,40 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   assert.equal(torus.attributes.position.count, 9 * 17);
   assert.equal(torus.index.count, 8 * 16 * 6);
 
+  // Cone reuses the cylinder generator with a zero top radius.
+  const cone = new THREE.ConeGeometry(1, 2, 8, 1);
+  assert.ok(cone.isConeGeometry);
+  assert.equal(cone.index.count, 72, 'cone side + base cap indices');
+
+  const capsule = new THREE.CapsuleGeometry(0.5, 1, 4, 8);
+  const capp = capsule.attributes.position.array;
+  let capMinY = 1e9, capMaxY = -1e9;
+  for (let i = 0; i < capp.length; i += 3) { capMinY = Math.min(capMinY, capp[i + 1]); capMaxY = Math.max(capMaxY, capp[i + 1]); }
+  assert.ok(Math.abs(capMinY + 1) < 1e-6 && Math.abs(capMaxY - 1) < 1e-6, 'capsule spans radius+halfLength');
+
+  // Polyhedra: correct face counts and all normals point outward.
+  const outward = g => {
+    const p = g.attributes.position.array, idx = g.index.array;
+    for (let i = 0; i < idx.length; i += 3) {
+      const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
+      const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
+      const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const cx = (p[a] + p[b] + p[c]) / 3, cy = (p[a + 1] + p[b + 1] + p[c + 1]) / 3, cz = (p[a + 2] + p[b + 2] + p[c + 2]) / 3;
+      if (nx * cx + ny * cy + nz * cz < 0) return false;
+    }
+    return true;
+  };
+  assert.equal(new THREE.TetrahedronGeometry(1).index.count, 12);
+  assert.equal(new THREE.OctahedronGeometry(1).index.count, 24);
+  assert.equal(new THREE.IcosahedronGeometry(1).index.count, 60, 'icosahedron has 20 faces');
+  assert.equal(new THREE.DodecahedronGeometry(1).index.count, 108, 'dodecahedron has 36 triangles');
+  for (const g of [new THREE.TetrahedronGeometry(1), new THREE.OctahedronGeometry(1),
+    new THREE.IcosahedronGeometry(1), new THREE.DodecahedronGeometry(1),
+    new THREE.IcosahedronGeometry(1, 1), new THREE.DodecahedronGeometry(1, 1)]) {
+    assert.ok(outward(g), 'polyhedron faces point outward');
+  }
+
   // Geometries flow through the facade's upload path unchanged.
   const engine = createMockEngine();
   const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
@@ -669,6 +703,35 @@ function buildTestGLB() {
   assert.deepEqual(slots.sort((a, b) => a - b), [1, 2, 3, 4], 'uv transforms for slots 1-4');
   const normalUv = uvCalls.find(c => c[2] === 2);
   assert.equal(normalUv[8], 1, 'normal map texcoord channel 1');
+}
+
+// --- vertexColors ---------------------------------------------------------------------
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1], 3));
+  geometry.setIndex([0, 1, 2]);
+  const scene = new THREE.Scene();
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+  scene.add(mesh);
+
+  // Default: vertex colors ignored (uploaded as white).
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  let verts = named(engine, '_g3_asset_vertex').slice(-3);
+  assert.deepEqual(verts[0].slice(-4), [1, 1, 1, 1], 'vertexColors off -> white vertex color');
+
+  // Opt-in: color attribute flows through.
+  mesh.material.vertexColors = true;
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  verts = named(engine, '_g3_asset_vertex').slice(-3);
+  assert.deepEqual(verts[0].slice(-4), [1, 0, 0, 1], 'vertexColors on -> red channel');
+  assert.deepEqual(verts[1].slice(-4), [0, 1, 0, 1], 'vertexColors on -> green channel');
+  // A second engine mesh was created for the flagged geometry.
+  assert.equal(named(engine, '_g3_asset_mesh_end').length, 2, 'per-flag geometry cache');
 }
 
 // --- OrbitControls ---------------------------------------------------------------------

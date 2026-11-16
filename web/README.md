@@ -70,10 +70,14 @@ convention), `normalMap`/`normalScale`, `aoMap`/`aoMapIntensity` and
 repeat/offset/rotation UV transforms and `texture.channel` UV-set selection
 (`uv`…`uv7` geometry attributes). `TextureLoader` and `GLTFLoader` handle
 PNG/JPEG images embedded in GLBs, `data:` URIs and (for `.gltf`) relative or
-absolute URLs, including `KHR_texture_transform`. Skinning, morph targets,
-shadows, quaternion editing, curve/extrude geometries and post-processing are
-not implemented; `WebGPURenderer` renders through the engine's WebGL2 backend
-and reports `backend.isWebGPUBackend === false`.
+absolute URLs, including `KHR_texture_transform`. Primitive geometries cover
+box, sphere, plane, circle, ring, cylinder, cone, torus, capsule and the
+platonic solids (tetrahedron, octahedron, icosahedron, dodecahedron, with
+`detail` subdivision), plus `material.vertexColors` for vertex-coloured
+meshes. Skinning, morph targets, shadows, quaternion editing,
+curve/extrude/lathe geometries and post-processing are not implemented;
+`WebGPURenderer` renders through the engine's WebGL2 backend and reports
+`backend.isWebGPUBackend === false`.
 
 In this repository the facade's engine is built with `./build_web.sh --gs3d`,
 which writes `web/gs3d/app.js` and `web/gs3d/app.wasm` (gitignored build

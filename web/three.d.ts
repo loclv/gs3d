@@ -107,6 +107,28 @@ export class TorusGeometry extends BufferGeometry {
   constructor(radius?: number, tube?: number, radialSegments?: number,
     tubularSegments?: number, arc?: number);
 }
+export class ConeGeometry extends CylinderGeometry {
+  constructor(radius?: number, height?: number, radialSegments?: number,
+    heightSegments?: number, openEnded?: boolean, thetaStart?: number, thetaLength?: number);
+}
+export class CapsuleGeometry extends BufferGeometry {
+  constructor(radius?: number, length?: number, capSegments?: number, radialSegments?: number);
+}
+export class PolyhedronGeometry extends BufferGeometry {
+  constructor(vertices: number[][], indices: number[], radius?: number, detail?: number);
+}
+export class TetrahedronGeometry extends PolyhedronGeometry {
+  constructor(radius?: number, detail?: number);
+}
+export class OctahedronGeometry extends PolyhedronGeometry {
+  constructor(radius?: number, detail?: number);
+}
+export class IcosahedronGeometry extends PolyhedronGeometry {
+  constructor(radius?: number, detail?: number);
+}
+export class DodecahedronGeometry extends PolyhedronGeometry {
+  constructor(radius?: number, detail?: number);
+}
 
 export const FrontSide: 0;
 export const BackSide: 1;
@@ -179,6 +201,7 @@ export class Material {
   name: string;
   color: Color;
   map: Texture | null;
+  vertexColors: boolean;
   normalMap: Texture | null;
   normalScale: Vector2;
   roughnessMap: Texture | null;
@@ -200,6 +223,7 @@ export class MeshStandardMaterial extends Material {
   constructor(parameters?: {
     color?: number | string | Color;
     map?: Texture | null;
+    vertexColors?: boolean;
     normalMap?: Texture | null;
     normalScale?: Vector2 | number;
     roughnessMap?: Texture | null;

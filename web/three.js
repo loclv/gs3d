@@ -573,6 +573,198 @@ export class TorusGeometry extends BufferGeometry {
   }
 }
 
+export class ConeGeometry extends CylinderGeometry {
+  constructor(radius = 1, height = 1, radialSegments = 32, heightSegments = 1, openEnded = false, thetaStart = 0, thetaLength = Math.PI * 2) {
+    super(radius, 0, height, radialSegments, heightSegments, openEnded, thetaStart, thetaLength);
+    this.isConeGeometry = true;
+  }
+}
+
+export class CapsuleGeometry extends BufferGeometry {
+  // Radius, cylindrical mid-section length, and segment counts; axis is Y.
+  constructor(radius = 0.5, length = 1, capSegments = 8, radialSegments = 16) {
+    super();
+    const halfLen = length / 2;
+    const positions = [], normals = [], uvs = [], indices = [];
+    const rings = capSegments * 2 + 1; // -90..+90 across both caps plus equator rows
+    // Build profile: angle from -PI (bottom pole) to +PI (top pole) excluding poles.
+    const profile = [];
+    for (let i = 1; i <= capSegments * 2; i++) {
+      const t = i / (capSegments * 2);           // 0..1
+      const phi = -Math.PI / 2 + t * Math.PI;    // -90..90 deg
+      profile.push(phi);
+    }
+    const rows = profile.length;
+    for (let j = 0; j <= rows; j++) {
+      const phi = j === 0 ? -Math.PI / 2 : j === rows ? Math.PI / 2 : profile[j - 1];
+      const cy = Math.sin(phi) * radius + (phi < 0 ? -halfLen : phi > 0 ? halfLen : 0);
+      const ringR = Math.cos(phi) * radius;
+      for (let i = 0; i <= radialSegments; i++) {
+        const theta = (i / radialSegments) * Math.PI * 2;
+        const c = Math.cos(theta), s = Math.sin(theta);
+        positions.push(c * ringR, cy, s * ringR);
+        // Normal points away from the capsule segment axis.
+        const ny = Math.sin(phi);
+        normals.push(c * Math.cos(phi), ny, s * Math.cos(phi));
+        uvs.push(i / radialSegments, j / rows);
+      }
+    }
+    // Pole vertices.
+    const bottomCenter = positions.length / 3;
+    positions.push(0, -halfLen - radius, 0); normals.push(0, -1, 0); uvs.push(0.5, 0);
+    const topCenter = positions.length / 3;
+    positions.push(0, halfLen + radius, 0); normals.push(0, 1, 0); uvs.push(0.5, 1);
+    const stride = radialSegments + 1;
+    for (let j = 0; j < rows; j++) for (let i = 0; i < radialSegments; i++) {
+      const a = j * stride + i;
+      indices.push(a, a + stride, a + 1, a + 1, a + stride, a + stride + 1);
+    }
+    for (let i = 0; i < radialSegments; i++) indices.push(bottomCenter, stride + i, stride + i + 1);
+    const lastRing = rows * stride;
+    for (let i = 0; i < radialSegments; i++) indices.push(topCenter, lastRing + i + 1, lastRing + i);
+    this.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    this.setIndex(new Uint32BufferAttribute(indices, 1));
+  }
+}
+
+// Convex polyhedron from vertex/face lists; `detail` subdivides faces and
+// projects new vertices onto the circumsphere. Face winding is fixed
+// automatically so normals point outward.
+export class PolyhedronGeometry extends BufferGeometry {
+  constructor(vertices, indices, radius = 1, detail = 0) {
+    super();
+    let verts = vertices.map(v => {
+      const l = Math.hypot(v[0], v[1], v[2]) || 1;
+      return [v[0] / l * radius, v[1] / l * radius, v[2] / l * radius];
+    });
+    let faces = [];
+    for (let i = 0; i < indices.length; i += 3) {
+      let [a, b, c] = [indices[i], indices[i + 1], indices[i + 2]];
+      const ab = [verts[b][0] - verts[a][0], verts[b][1] - verts[a][1], verts[b][2] - verts[a][2]];
+      const ac = [verts[c][0] - verts[a][0], verts[c][1] - verts[a][1], verts[c][2] - verts[a][2]];
+      const n = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]];
+      const cx = (verts[a][0] + verts[b][0] + verts[c][0]) / 3;
+      const cy = (verts[a][1] + verts[b][1] + verts[c][1]) / 3;
+      const cz = (verts[a][2] + verts[b][2] + verts[c][2]) / 3;
+      if (n[0] * cx + n[1] * cy + n[2] * cz < 0) [b, c] = [c, b];
+      faces.push([a, b, c]);
+    }
+    const midpointCache = new Map();
+    const midpoint = (i, j) => {
+      const key = i < j ? `${i},${j}` : `${j},${i}`;
+      if (midpointCache.has(key)) return midpointCache.get(key);
+      const a = verts[i], b = verts[j];
+      const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+      const l = Math.hypot(...m) || 1;
+      const idx = verts.length;
+      verts.push([m[0] / l * radius, m[1] / l * radius, m[2] / l * radius]);
+      midpointCache.set(key, idx);
+      return idx;
+    };
+    for (let d = 0; d < detail; d++) {
+      const next = [];
+      midpointCache.clear();
+      for (const [a, b, c] of faces) {
+        const ab = midpoint(a, b), bc = midpoint(b, c), ca = midpoint(c, a);
+        next.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]);
+      }
+      faces = next;
+    }
+    const positions = [], normals = [], uvs = [], indexList = [];
+    for (const [a, b, c] of faces) {
+      const base = positions.length / 3;
+      for (const vi of [a, b, c]) {
+        const v = verts[vi];
+        positions.push(v[0], v[1], v[2]);
+        const l = Math.hypot(v[0], v[1], v[2]) || 1;
+        normals.push(v[0] / l, v[1] / l, v[2] / l);
+        // Spherical UVs like three.js.
+        uvs.push(Math.atan2(v[2], v[0]) / (Math.PI * 2) + 0.5, Math.acos(Math.max(-1, Math.min(1, v[1] / l))) / Math.PI);
+      }
+      indexList.push(base, base + 1, base + 2);
+    }
+    this.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    this.setIndex(new Uint32BufferAttribute(indexList, 1));
+    this.isPolyhedronGeometry = true;
+  }
+}
+
+export class TetrahedronGeometry extends PolyhedronGeometry {
+  constructor(radius = 1, detail = 0) {
+    super([[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]], [0, 1, 2, 0, 3, 1, 0, 2, 3, 1, 3, 2], radius, detail);
+    this.isTetrahedronGeometry = true;
+  }
+}
+export class OctahedronGeometry extends PolyhedronGeometry {
+  constructor(radius = 1, detail = 0) {
+    super([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]],
+      [0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5], radius, detail);
+    this.isOctahedronGeometry = true;
+  }
+}
+const PHI = (1 + Math.sqrt(5)) / 2;
+const ICO_VERTS = [[0, 1, PHI], [0, 1, -PHI], [0, -1, PHI], [0, -1, -PHI], [1, PHI, 0], [1, -PHI, 0], [-1, PHI, 0], [-1, -PHI, 0], [PHI, 0, 1], [-PHI, 0, 1], [PHI, 0, -1], [-PHI, 0, -1]];
+const ICO_FACES = [
+  0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11,
+  1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8,
+  3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9,
+  4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1,
+];
+export class IcosahedronGeometry extends PolyhedronGeometry {
+  constructor(radius = 1, detail = 0) {
+    super(ICO_VERTS, ICO_FACES, radius, detail);
+    this.isIcosahedronGeometry = true;
+  }
+}
+// The dodecahedron is the dual of the icosahedron: its vertices are the
+// icosahedron's face centroids and each icosahedron vertex becomes a pentagon.
+function dodecahedronData() {
+  const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+  const icoFaces = [];
+  for (let i = 0; i < ICO_FACES.length; i += 3) icoFaces.push([ICO_FACES[i], ICO_FACES[i + 1], ICO_FACES[i + 2]]);
+  const verts = icoFaces.map(f => norm([
+    (ICO_VERTS[f[0]][0] + ICO_VERTS[f[1]][0] + ICO_VERTS[f[2]][0]) / 3,
+    (ICO_VERTS[f[0]][1] + ICO_VERTS[f[1]][1] + ICO_VERTS[f[2]][1]) / 3,
+    (ICO_VERTS[f[0]][2] + ICO_VERTS[f[1]][2] + ICO_VERTS[f[2]][2]) / 3,
+  ]));
+  const incident = ICO_VERTS.map(() => []);
+  icoFaces.forEach((f, fi) => { for (const vi of f) incident[vi].push(fi); });
+  const tris = [];
+  incident.forEach((faces, vi) => {
+    // Order the incident faces cyclically around the vertex axis.
+    const axis = norm(ICO_VERTS[vi]);
+    const ref = Math.abs(axis[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+    const u = norm([axis[1] * ref[2] - axis[2] * ref[1], axis[2] * ref[0] - axis[0] * ref[2], axis[0] * ref[1] - axis[1] * ref[0]]);
+    const w = [axis[1] * u[2] - axis[2] * u[1], axis[2] * u[0] - axis[0] * u[2], axis[0] * u[1] - axis[1] * u[0]];
+    const ordered = faces.slice().sort((p, q) => {
+      const cp = [
+        (verts[p][1] * axis[2] - verts[p][2] * axis[1]),
+        (verts[p][2] * axis[0] - verts[p][0] * axis[2]),
+        (verts[p][0] * axis[1] - verts[p][1] * axis[0]),
+      ];
+      const angle = v3 => Math.atan2(v3[0] * w[0] + v3[1] * w[1] + v3[2] * w[2], v3[0] * u[0] + v3[1] * u[1] + v3[2] * u[2]);
+      return angle(cp) - angle([
+        (verts[q][1] * axis[2] - verts[q][2] * axis[1]),
+        (verts[q][2] * axis[0] - verts[q][0] * axis[2]),
+        (verts[q][0] * axis[1] - verts[q][1] * axis[0]),
+      ]);
+    });
+    for (let i = 1; i < ordered.length - 1; i++) tris.push(ordered[0], ordered[i], ordered[i + 1]);
+  });
+  return { verts, tris };
+}
+export class DodecahedronGeometry extends PolyhedronGeometry {
+  constructor(radius = 1, detail = 0) {
+    const { verts, tris } = dodecahedronData();
+    super(verts, tris, radius, detail);
+    this.isDodecahedronGeometry = true;
+  }
+}
+
 /* --- textures ------------------------------------------------------------------ */
 
 export const RepeatWrapping = 1000;
@@ -715,6 +907,7 @@ export class Material {
     this.side = FrontSide;
     this.visible = true;
     this.map = null;
+    this.vertexColors = false;
     this.normalMap = null;
     this.normalScale = new Vector2(1, 1);
     this.roughnessMap = null;
@@ -1040,7 +1233,7 @@ export class OrbitControls {
 // One wasm engine per page. Entries are WeakMaps so scenes collect normally.
 let sharedEngine = null;
 const nodeStates = new WeakMap();   // Object3D -> engine node record
-const geometryStates = new WeakMap(); // BufferGeometry -> {id,generation,version}
+const geometryStates = new WeakMap(); // BufferGeometry -> {flag: {id,generation,version}}
 const materialStates = new WeakMap(); // Material -> {id,generation,signature}
 const cameraStates = new WeakMap();  // Camera -> engine camera id
 const textureStates = new WeakMap(); // Texture -> {id,generation,signature}
@@ -1065,9 +1258,18 @@ function releaseEngineTree(object) {
   for (const record of records) releaseNodeRecord(record);
 }
 
-function releaseGeometry(geometry) {
-  const state = geometryStates.get(geometry);
+function releaseGeometryFlag(geometry, flag) {
+  const byFlag = geometryStates.get(geometry);
+  const state = byFlag && byFlag[flag];
   if (state && sharedEngine) sharedEngine._g3_asset_release_mesh(state.id, state.generation);
+  if (byFlag) delete byFlag[flag];
+}
+function releaseGeometry(geometry) {
+  const byFlag = geometryStates.get(geometry);
+  if (byFlag) for (const flag of Object.keys(byFlag)) {
+    const state = byFlag[flag];
+    if (state && sharedEngine) sharedEngine._g3_asset_release_mesh(state.id, state.generation);
+  }
   geometryStates.delete(geometry);
 }
 function releaseMaterial(material) {
@@ -1137,9 +1339,11 @@ function worldMatrixOf(object) {
   return world;
 }
 
-function ensureGeometry(engine, geometry) {
+function ensureGeometry(engine, geometry, useVertexColors = false) {
   if (!geometry || !geometry.attributes || !geometry.attributes.position) return -1;
-  const state = geometryStates.get(geometry);
+  const flag = useVertexColors ? 1 : 0;
+  const byFlag = geometryStates.get(geometry) || {};
+  const state = byFlag[flag];
   if (state && state.version === geometry.version) return state.id;
   if (state) engine._g3_asset_release_mesh(state.id, state.generation);
 
@@ -1151,7 +1355,7 @@ function ensureGeometry(engine, geometry) {
     const attr = geometry.attributes[set === 0 ? 'uv' : `uv${set}`];
     uvSets.push(attr ? attr.array : null);
   }
-  const color = geometry.attributes.color;
+  const color = useVertexColors ? geometry.attributes.color : null;
   const p = position.array, n = normal ? normal.array : null;
   const c = color ? color.array : null;
   const ns = normal ? normal.itemSize : 3, cs = color ? color.itemSize : 4;
@@ -1187,7 +1391,8 @@ function ensureGeometry(engine, geometry) {
   }
   const id = engine._g3_asset_mesh_end();
   const record = { id, generation: engine._g3_asset_mesh_generation(id), version: geometry.version };
-  geometryStates.set(geometry, record);
+  byFlag[flag] = record;
+  geometryStates.set(geometry, byFlag);
   return id;
 }
 
@@ -1276,7 +1481,8 @@ function ensureMaterial(engine, material) {
 
 function syncNode(engine, object, parentEngineIndex, local) {
   const isMesh = object.isMesh === true;
-  const meshId = isMesh ? ensureGeometry(engine, object.geometry) : -1;
+  const material = isMesh ? (Array.isArray(object.material) ? object.material[0] : object.material) : null;
+  const meshId = isMesh ? ensureGeometry(engine, object.geometry, !!(material && material.vertexColors)) : -1;
   let record = nodeStates.get(object);
   if (record && (record.parent !== parentEngineIndex || record.mesh !== meshId)) {
     releaseNodeRecord(record);
@@ -1291,7 +1497,7 @@ function syncNode(engine, object, parentEngineIndex, local) {
     nodeStates.set(object, record);
   }
   if (isMesh) {
-    const materialId = ensureMaterial(engine, Array.isArray(object.material) ? object.material[0] : object.material);
+    const materialId = ensureMaterial(engine, material);
     if (record.material !== materialId) {
       engine._g3_asset_node_material(record.index, materialId);
       record.material = materialId;
