@@ -333,6 +333,45 @@ between the renderer before partial instance uploads and the current renderer.
 This checks the rendered static workload; the instance upload tests separately
 cover changing and growing the packed instance buffer.
 
+### PixiJS sprite comparison
+
+The compare page also offers PixiJS 8.22.0 (pinned, jsDelivr) as
+`backend=pixi` (WebGL2) and `backend=pixi-webgpu` (WebGPU, falling back to
+WebGL2). PixiJS draws the same 32×32 grid and instance count as flat 2D
+sprites — no perspective, lighting, or depth — so its rows measure sprite
+batching and command submission, not 3D vertex or fragment cost. PixiJS does
+not expose a draw-call count, so its scene calls are reported as n/a.
+
+Two interleaved runs per backend and workload in headless Chrome
+157.0.8103.52 with SwiftShader at a 1280×720 viewport, 1,024 visible
+instances, 120 warmup frames and 300 sampled frames. Ranges span the two
+runs; the frame-call timer's 0.1 ms granularity limits what these medians
+resolve:
+
+| Workload | Renderer | Scene calls | Browser FPS | Frame-call median / p95 | GPU median / p95 |
+|---|---|---|---|---|---|
+| Static | Goose 3D WebGPU | 1 | 56–59 | 0.20 / 0.30 ms | unavailable |
+| Static | Three.js r187 WebGPU | 2 | 19–20 | 0.20 / 0.30–0.40 ms | unavailable |
+| Static | Three.js r187 WebGL2 | 1 | 46–48 | 0.10 / 0.20 ms | 14.9–15.2 / 17.4–18.6 ms |
+| Static | PixiJS 8.22.0 WebGL2 | n/a | 59–60 | 0.10 / 0.20 ms | 4.7–4.9 / 6.3–6.6 ms |
+| Static | PixiJS 8.22.0 WebGPU | n/a | 60 | 0.10–0.20 / 0.20–0.30 ms | unavailable |
+| All 1,024 moving | Goose 3D WebGPU | 1 | 59–60 | 0.30 / 0.40 ms | unavailable |
+| All 1,024 moving | Three.js r187 WebGPU | 2 | 20–21 | 0.30 / 0.40 ms | unavailable |
+| All 1,024 moving | Three.js r187 WebGL2 | 1 | 47 | 0.10 / 0.20 ms | 15.0–15.4 / 17.8–18.1 ms |
+| All 1,024 moving | PixiJS 8.22.0 WebGL2 | n/a | 60 | 0.30 / 0.40 ms | 4.7 / 6.1–6.7 ms |
+| All 1,024 moving | PixiJS 8.22.0 WebGPU | n/a | 60 | 0.30 / 0.50 ms | unavailable |
+
+Read the GPU column carefully: PixiJS's ~4.7 ms is the cost of drawing 1,024
+unlit billboards, while Three.js WebGL2's ~15 ms shades lit cube geometry —
+the fragment workloads are not equivalent, so the GPU rows compare renderer
+overhead per visible object, not engine speed. The CPU frame-call column is
+the closer comparison, and at this scale every backend sits within 0.2 ms of
+the others, mostly below the timer's resolution. Browser FPS is dominated by
+SwiftShader's software rasterization: the Three.js WebGPU path's ~20 FPS
+versus ~60 elsewhere reflects its shader cost on the CPU-side adapter, not a
+real-hardware ordering. These are single-machine diagnostics; repeat on a
+physical GPU before drawing conclusions.
+
 ## WebGL morph animation benchmark
 
 Build and serve the 64-target morph benchmark with:
