@@ -134,6 +134,20 @@ export class Vector3 {
   }
   negate() { return this.set(-this.x, -this.y, -this.z); }
   fromArray(a, offset = 0) { this.x = a[offset]; this.y = a[offset + 1]; this.z = a[offset + 2]; return this; }
+  toArray(a = [], offset = 0) { a[offset] = this.x; a[offset + 1] = this.y; a[offset + 2] = this.z; return a; }
+  applyQuaternion(q) {
+    const qx = q.x, qy = q.y, qz = q.z, qw = q.w;
+    const tx = 2 * (qy * this.z - qz * this.y);
+    const ty = 2 * (qz * this.x - qx * this.z);
+    const tz = 2 * (qx * this.y - qy * this.x);
+    this.x += qw * tx + qy * tz - qz * ty;
+    this.y += qw * ty + qz * tx - qx * tz;
+    this.z += qw * tz + qx * ty - qy * tx;
+    return this;
+  }
+  applyEuler(e) { return this.applyQuaternion(new Quaternion().setFromEuler(e)); }
+  applyAxisAngle(axis, angle) { return this.applyQuaternion(new Quaternion().setFromAxisAngle(axis, angle)); }
+  setFromMatrixPosition(m) { return this.set(m[12], m[13], m[14]); }
 }
 
 export class Euler {
@@ -428,6 +442,14 @@ export class Object3D {
   traverse(callback) {
     callback(this);
     for (const child of this.children) child.traverse(callback);
+  }
+  getObjectByName(name) {
+    if (this.name === name) return this;
+    for (const child of this.children) {
+      const found = child.getObjectByName(name);
+      if (found) return found;
+    }
+    return null;
   }
   updateMatrix() {
     if (this.matrixAutoUpdate) {

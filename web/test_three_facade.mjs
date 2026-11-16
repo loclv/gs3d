@@ -931,4 +931,20 @@ function buildTestGLB() {
   renderer.dispose();
 }
 
+{
+  // Vector3.applyQuaternion / applyEuler and Object3D.getObjectByName.
+  const v = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+  assert.ok(Math.abs(v.z - 1) < 1e-6 || Math.abs(v.z + 1) < 1e-6, 'applyAxisAngle rotates vector');
+  const v2 = new THREE.Vector3(0, 1, 0).applyEuler(new THREE.Euler(0, 0, Math.PI / 2));
+  assert.ok(Math.abs(v2.x + 1) < 1e-6 && Math.abs(v2.y) < 1e-6, 'applyEuler rotates vector');
+  const root = new THREE.Group();
+  const named_node = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  named_node.name = 'hero';
+  const wrap = new THREE.Group();
+  wrap.add(named_node);
+  root.add(wrap);
+  assert.equal(root.getObjectByName('hero'), named_node, 'getObjectByName finds nested node');
+  assert.equal(root.getObjectByName('missing'), null, 'getObjectByName returns null');
+}
+
 console.log('three.js facade checks passed');

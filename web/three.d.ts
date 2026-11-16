@@ -43,6 +43,11 @@ export class Vector3 {
   lerp(v: Vector3, alpha: number): this;
   negate(): this;
   fromArray(a: ArrayLike<number>, offset?: number): this;
+  toArray(a?: number[], offset?: number): number[];
+  applyQuaternion(q: Quaternion): this;
+  applyEuler(e: Euler): this;
+  applyAxisAngle(axis: Vector3, angle: number): this;
+  setFromMatrixPosition(m: ArrayLike<number>): this;
 }
 
 export class Euler {
@@ -348,6 +353,7 @@ export class Object3D {
   remove(...objects: Object3D[]): this;
   clear(): this;
   traverse(callback: (object: Object3D) => void): void;
+  getObjectByName(name: string): Object3D | null;
   updateMatrixWorld(force?: boolean): this;
   updateMatrix(): this;
   lookAt(target?: Object3D | Vector3): this;
