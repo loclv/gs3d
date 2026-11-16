@@ -324,6 +324,63 @@ function invertMat4(m) {
   return inv;
 }
 
+// Column-major 4x4, same layout as the internal matrices above.
+export class Matrix4 {
+  constructor() { this.isMatrix4 = true; this.elements = new Float64Array(16); this.identity(); }
+  set(n11, n12, n13, n14, n21, n22, n23, n24, n31, n32, n33, n34, n41, n42, n43, n44) {
+    const e = this.elements;
+    e[0] = n11; e[4] = n12; e[8] = n13; e[12] = n14;
+    e[1] = n21; e[5] = n22; e[9] = n23; e[13] = n24;
+    e[2] = n31; e[6] = n32; e[10] = n33; e[14] = n34;
+    e[3] = n41; e[7] = n42; e[11] = n43; e[15] = n44;
+    return this;
+  }
+  identity() {
+    const e = this.elements;
+    e.fill(0); e[0] = e[5] = e[10] = e[15] = 1;
+    return this;
+  }
+  copy(m) { this.elements.set(m.elements || m); return this; }
+  clone() { return new Matrix4().copy(this); }
+  compose(position, quaternion, scale) {
+    const e = this.elements, q = quaternion;
+    const x2 = q.x + q.x, y2 = q.y + q.y, z2 = q.z + q.z;
+    const xx = q.x * x2, xy = q.x * y2, xz = q.x * z2;
+    const yy = q.y * y2, yz = q.y * z2, zz = q.z * z2;
+    const wx = q.w * x2, wy = q.w * y2, wz = q.w * z2;
+    e[0] = (1 - (yy + zz)) * scale.x; e[1] = (xy + wz) * scale.x; e[2] = (xz - wy) * scale.x; e[3] = 0;
+    e[4] = (xy - wz) * scale.y; e[5] = (1 - (xx + zz)) * scale.y; e[6] = (yz + wx) * scale.y; e[7] = 0;
+    e[8] = (xz + wy) * scale.z; e[9] = (yz - wx) * scale.z; e[10] = (1 - (xx + yy)) * scale.z; e[11] = 0;
+    e[12] = position.x; e[13] = position.y; e[14] = position.z; e[15] = 1;
+    return this;
+  }
+  multiply(m) { this.elements.set(multiplyMat4(this.elements, m.elements || m)); return this; }
+  multiplyMatrices(a, b) { this.elements.set(multiplyMat4(a.elements || a, b.elements || b)); return this; }
+  invert() {
+    const inv = invertMat4(this.elements);
+    if (inv) this.elements.set(inv);
+    return this;
+  }
+  makeRotationFromQuaternion(q) { return this.compose(new Vector3(), q, new Vector3(1, 1, 1)); }
+  makeTranslation(x, y, z) {
+    const e = this.elements;
+    e.fill(0); e[0] = e[5] = e[10] = e[15] = 1;
+    e[12] = x; e[13] = y; e[14] = z;
+    return this;
+  }
+  setPosition(v) { const e = this.elements; e[12] = v.x ?? v[0]; e[13] = v.y ?? v[1]; e[14] = v.z ?? v[2]; return this; }
+  extractRotation() {
+    // Drop scale: normalize each basis column.
+    const e = this.elements;
+    for (let c = 0; c < 3; c++) {
+      const i = c * 4, l = Math.hypot(e[i], e[i + 1], e[i + 2]) || 1;
+      e[i] /= l; e[i + 1] /= l; e[i + 2] /= l;
+    }
+    e[3] = e[7] = e[11] = 0; e[15] = 1;
+    return this;
+  }
+}
+
 /* --- scene graph ---------------------------------------------------------- */
 
 export class Object3D {
@@ -341,6 +398,8 @@ export class Object3D {
     this.parent = null;
     this.visible = true;
     this.matrixAutoUpdate = true;
+    this.matrix = new Matrix4();
+    this.matrixWorld = new Matrix4();
     this.userData = {};
   }
   add(...objects) {
@@ -370,8 +429,22 @@ export class Object3D {
     callback(this);
     for (const child of this.children) child.traverse(callback);
   }
-  updateMatrixWorld(force) { return this; }
-  updateMatrix() { return this; }
+  updateMatrix() {
+    if (this.matrixAutoUpdate) {
+      this.matrix.compose(this.position, resolvedQuaternion(this), this.scale);
+    }
+    return this;
+  }
+  updateMatrixWorld(force) {
+    if (this.matrixAutoUpdate) this.updateMatrix();
+    if (this.parent && this.parent.matrixWorld) {
+      this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
+    } else {
+      this.matrixWorld.copy(this.matrix);
+    }
+    for (const child of this.children) child.updateMatrixWorld(force);
+    return this;
+  }
   // Yaw/pitch look-at: cameras and lights face -Z toward the target like
   // three.js; other objects face +Z. Roll and non-uniform parent scale are
   // not modelled.
@@ -1364,7 +1437,6 @@ export class PerspectiveCamera extends Object3D {
     this.fov = fov; this.aspect = aspect; this.near = near; this.far = far;
   }
   updateProjectionMatrix() { return this; }
-  updateMatrixWorld(force) { return this; }
 }
 
 export class OrthographicCamera extends Object3D {
@@ -1375,7 +1447,6 @@ export class OrthographicCamera extends Object3D {
     this.near = near; this.far = far;
   }
   updateProjectionMatrix() { return this; }
-  updateMatrixWorld(force) { return this; }
 }
 
 export class Camera extends Object3D {
@@ -1872,6 +1943,7 @@ function resolvedQuaternion(object) {
 }
 
 function localMatrixOf(object) {
+  if (object.matrixAutoUpdate === false && object.matrix) return object.matrix.elements;
   return composeLocal(object.position, resolvedQuaternion(object), object.scale);
 }
 
@@ -2264,6 +2336,7 @@ function syncCamera(engine, renderer, camera) {
 }
 
 function syncSceneTree(scene, seen) {
+  scene.updateMatrixWorld();
   const walk = (object, parentEngineIndex) => {
     // An invisible object hides its whole subtree, like three.js.
     if (object.visible === false) { releaseEngineTree(object); return; }
@@ -2439,6 +2512,7 @@ export class WebGPURenderer {
       syncFog(engine, scene);
       syncEnvironment(engine, scene);
       syncLights(engine, collected);
+      camera.updateMatrixWorld();
       syncCamera(engine, this, camera);
     }
     engine._g3_app_frame(dt);

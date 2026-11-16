@@ -422,6 +422,30 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   const qr = new THREE.Quaternion().setFromRotationMatrix(m);
   assert.ok(Math.abs(qr.w - 1) < 1e-6, 'identity matrix -> identity quaternion');
 
+  // Matrix4 + matrixAutoUpdate=false: manual matrix drives the render sync.
+  {
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 5);
+  const manual = new THREE.Object3D();
+  manual.matrixAutoUpdate = false;
+  manual.matrix.makeTranslation(7, 8, 9);
+  const marker = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+  manual.add(marker);
+  scene.add(manual);
+  renderer.render(scene, camera);
+  const matrixCalls = named(engine, '_g3_asset_matrix');
+  const at = (node, elem) => matrixCalls.find(c => c[1] === node && c[2] === elem);
+  assert.ok(at(2, 12) && Math.abs(at(2, 12)[3] - 7) < 1e-6
+    && Math.abs(at(2, 13)[3] - 8) < 1e-6 && Math.abs(at(2, 14)[3] - 9) < 1e-6,
+    'manual translation reaches engine');
+  assert.ok(marker.matrixWorld.elements[12] === 7, 'matrixWorld reflects manual matrix');
+  renderer.dispose();
+  }
+
   // Geometries flow through the facade's upload path unchanged.
   const engine = createMockEngine();
   const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });

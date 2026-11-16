@@ -308,6 +308,27 @@ export { MeshBasicMaterial as SpriteMaterial };
 export { MeshBasicMaterial as PointsMaterial };
 export { MeshBasicMaterial as LineBasicMaterial };
 
+export class Matrix4 {
+  constructor();
+  readonly isMatrix4: true;
+  elements: Float64Array;
+  set(n11: number, n12: number, n13: number, n14: number,
+    n21: number, n22: number, n23: number, n24: number,
+    n31: number, n32: number, n33: number, n34: number,
+    n41: number, n42: number, n43: number, n44: number): this;
+  identity(): this;
+  copy(m: Matrix4 | ArrayLike<number>): this;
+  clone(): Matrix4;
+  compose(position: Vector3, quaternion: Quaternion, scale: Vector3): this;
+  multiply(m: Matrix4 | ArrayLike<number>): this;
+  multiplyMatrices(a: Matrix4 | ArrayLike<number>, b: Matrix4 | ArrayLike<number>): this;
+  invert(): this;
+  makeRotationFromQuaternion(q: Quaternion): this;
+  makeTranslation(x: number, y: number, z: number): this;
+  setPosition(v: Vector3 | number[]): this;
+  extractRotation(): this;
+}
+
 export class Object3D {
   constructor();
   readonly isObject3D: true;
@@ -320,6 +341,8 @@ export class Object3D {
   parent: Object3D | null;
   visible: boolean;
   matrixAutoUpdate: boolean;
+  matrix: Matrix4;
+  matrixWorld: Matrix4;
   userData: Record<string, unknown>;
   add(...objects: Object3D[]): this;
   remove(...objects: Object3D[]): this;
@@ -327,7 +350,7 @@ export class Object3D {
   traverse(callback: (object: Object3D) => void): void;
   updateMatrixWorld(force?: boolean): this;
   updateMatrix(): this;
-  lookAt(): this;
+  lookAt(target?: Object3D | Vector3): this;
   getWorldPosition(target?: Vector3): Vector3;
   getWorldDirection(target?: Vector3): Vector3;
   getWorldQuaternion(target?: Quaternion): Quaternion;
