@@ -162,6 +162,31 @@ export class LatheGeometry extends BufferGeometry {
   constructor(points?: { x: number; y: number }[] | Vector2[], segments?: number,
     phiStart?: number, phiLength?: number);
 }
+export class Path {
+  constructor();
+  readonly isPath: true;
+  moveTo(x: number, y: number): this;
+  lineTo(x: number, y: number): this;
+  quadraticCurveTo(cx: number, cy: number, x: number, y: number): this;
+  bezierCurveTo(c1x: number, c1y: number, c2x: number, c2y: number, x: number, y: number): this;
+  closePath(): this;
+  getPoints(divisions?: number): number[][];
+}
+export class Shape extends Path {
+  constructor();
+  readonly isShape: true;
+  holes: Path[];
+}
+export class ShapeGeometry extends BufferGeometry {
+  constructor(shape: Shape | Path, curveSegments?: number);
+}
+export class ExtrudeGeometry extends BufferGeometry {
+  constructor(shape: Shape | Path, options?: {
+    depth?: number; steps?: number; curveSegments?: number;
+    bevelEnabled?: boolean; bevelThickness?: number; bevelSize?: number;
+    bevelSegments?: number;
+  });
+}
 export class TubeGeometry extends BufferGeometry {
   constructor(path: { getPoint(t: number): { x: number; y: number; z: number } | number[] },
     tubularSegments?: number, radius?: number, radialSegments?: number, closed?: boolean);

@@ -82,8 +82,13 @@ Pure-JS helpers cover `Ray`/`Raycaster` (Möller–Trumbore against geometry,
 `setFromCamera` for perspective cameras) and `Box3` (`setFromObject` walks
 the scene graph). `scene.environment` accepts an equirectangular texture
 with `environmentIntensity`/`environmentRotation`, and materials support
-`envMapIntensity`. Skinning, morph targets, shadows, curve/extrude geometries
-and post-processing are not implemented;
+`envMapIntensity`. `Path`/`Shape` with quadratic and cubic curves feed
+`ShapeGeometry` (ear-clipping triangulation; holes are bridged when the
+merged loop triangulates cleanly, otherwise filled) and `ExtrudeGeometry`
+(bevel parameters accepted but ignored). `TubeGeometry` sweeps a radius
+along any `getPoint(t)` path, and `CatmullRomCurve3` provides splines.
+Skinning, morph targets, shadows, line/points primitives and
+post-processing are not implemented;
 `WebGPURenderer` renders through the engine's WebGL2 backend and reports
 `backend.isWebGPUBackend === false`.
 

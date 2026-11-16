@@ -947,4 +947,26 @@ function buildTestGLB() {
   assert.equal(root.getObjectByName('missing'), null, 'getObjectByName returns null');
 }
 
+{
+  // Shape/ShapeGeometry/ExtrudeGeometry.
+  const sqPath = new THREE.Shape();
+  sqPath.moveTo(0, 0).lineTo(1, 0).lineTo(1, 1).lineTo(0, 1).closePath();
+  const sqGeo = new THREE.ShapeGeometry(sqPath);
+  assert.equal(sqGeo.index.count / 3, 2, 'square shape -> 2 triangles');
+  const heart = new THREE.Shape();
+  heart.moveTo(0.5, 0); heart.bezierCurveTo(0.5, 0.4, 0, 0.4, 0, 0.7);
+  heart.bezierCurveTo(0, 1.0, 0.5, 1.3, 0.5, 1.6);
+  heart.bezierCurveTo(0.5, 1.3, 1.0, 1.0, 1.0, 0.7);
+  heart.bezierCurveTo(1.0, 0.4, 0.5, 0.4, 0.5, 0).closePath();
+  const hg = new THREE.ShapeGeometry(heart, 8);
+  assert.equal(hg.index.count, (hg.attributes.position.count - 2) * 3, 'shape ear-clips n-2 triangles');
+  const exg = new THREE.ExtrudeGeometry(heart, { depth: 1 });
+  assert.ok(exg.index.count > 0 && !exg.attributes.position.array.some(Number.isNaN), 'extrude generates');
+  const hole = new THREE.Path();
+  hole.moveTo(0.25, 0.25).lineTo(0.75, 0.25).lineTo(0.75, 0.75).lineTo(0.25, 0.75).closePath();
+  sqPath.holes.push(hole);
+  const holed = new THREE.ShapeGeometry(sqPath);
+  assert.ok(holed.index.count > 0, 'shape with hole still produces geometry');
+}
+
 console.log('three.js facade checks passed');
