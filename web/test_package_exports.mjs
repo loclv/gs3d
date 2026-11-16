@@ -14,8 +14,14 @@ for (const [subpath, entry] of Object.entries(manifest.exports)) {
   assert.ok(Object.keys(module).length > 0, `${specifier} resolves through package exports`);
 }
 exportedFiles.add('LICENSE');
+// ./three needs the compiled engine at runtime; it is shipped data, not an
+// export entry point, so the allowlist check names it explicitly.
+for (const runtimeFile of ['gs3d/app.js', 'gs3d/app.wasm']) {
+  exportedFiles.add(runtimeFile);
+  await access(new URL(runtimeFile, import.meta.url));
+}
 assert.deepEqual([...manifest.files].sort(), [...exportedFiles].sort(),
-  'the published allowlist contains the exported modules and the optional license file');
+  'the published allowlist contains the exported modules, runtime assets, and the optional license file');
 
 const assets = await import(manifest.name);
 const orbit = await import(`${manifest.name}/orbit-controls`);

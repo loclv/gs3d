@@ -249,3 +249,5 @@ export function loadGLTF(
   url: string | URL,
   options?: LoadGLTFOptions,
 ): Promise<LoadedModel>;
+
+export * from "./three.js";

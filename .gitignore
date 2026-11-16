@@ -27,3 +27,11 @@ web/viewer/reference/app.js.map
 web/benchmark/app.js
 web/benchmark/app.wasm
 web/benchmark/app.js.map
+
+# gs3d package engine build (./build_web.sh --gs3d)
+web/gs3d/app.js
+web/gs3d/app.wasm
+web/gs3d/app.js.map
+
+# playwright mcp artifacts
+.playwright-mcp/

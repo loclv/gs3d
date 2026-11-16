@@ -37,6 +37,36 @@ ownership, errors, texture colour spaces and animation.
 The declarations in `assets.d.ts` cover loaders, checked handles, model
 lifecycle, animation controls and rendering options.
 
+## Three.js-compatible facade
+
+`gs3d/three` (also re-exported from the package root) provides a deliberate
+subset of the three.js API backed by the bundled WebAssembly engine: `Scene`,
+`Group`, `Mesh`, `BufferGeometry` with `BufferAttribute`s, `MeshStandardMaterial`
+and `MeshBasicMaterial`, the common lights, `PerspectiveCamera` and
+`OrthographicCamera`, `Color`/`Vector2`/`Vector3`/`Euler`, `Fog`/`FogExp2`, and
+a `WebGPURenderer` with `init()`, `setSize()`, `setAnimationLoop()` and
+`render()`. An application written against three.js can switch its import to
+`gs3d/three` and its dependency to `gs3d` with no other changes for scenes
+built from primitives.
+
+```js
+import * as THREE from 'gs3d/three';
+
+const renderer = new THREE.WebGPURenderer({ canvas });
+await renderer.init();
+renderer.setAnimationLoop(() => renderer.render(scene, camera));
+```
+
+The facade currently covers untextured meshes, the lighting and camera model
+above, and basic output settings. Textures, skinning, morph targets, shadows,
+quaternion editing and post-processing are not implemented; `WebGPURenderer`
+renders through the engine's WebGL2 backend and reports
+`backend.isWebGPUBackend === false`.
+
+In this repository the facade's engine is built with `./build_web.sh --gs3d`,
+which writes `web/gs3d/app.js` and `web/gs3d/app.wasm` (gitignored build
+output, packed into the published tarball).
+
 ## Reference viewer
 
 From the repository root, run `./build_web.sh --viewer --serve` and open

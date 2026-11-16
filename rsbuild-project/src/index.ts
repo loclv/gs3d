@@ -1,6 +1,6 @@
 import './index.css';
 import { authorModel, type AuthoredModel } from './model';
-import * as THREE from 'three/webgpu';
+import * as THREE from 'gs3d/three';
 
 const root = document.querySelector<HTMLDivElement>('#root');
 if (!root) throw new Error('Missing #root app mount');
@@ -167,7 +167,7 @@ function setGeometry(): void {
   $('#color-value').textContent = colorInput.value.toUpperCase();
   $('#preview-name').textContent = (nameInput.value.trim() || 'UNTITLED PROP').toUpperCase();
   $('#mesh-stats').textContent = `${model.parts.length} PARTS · ${model.triangleCount} TRIANGLES · GLB ${(model.glb.byteLength / 1024).toFixed(1)} KB`;
-  status.textContent = `Ready · ${model.parts.length} parts · ${model.vertexCount} vertices · ${model.glb.byteLength.toLocaleString()} byte GLB · WebGPU first, WebGL2 fallback`;
+  status.textContent = `Ready · ${model.parts.length} parts · ${model.vertexCount} vertices · ${model.glb.byteLength.toLocaleString()} byte GLB · Goose 3D · WebGL2`;
 }
 
 function render(): void {
@@ -237,12 +237,12 @@ async function startRenderer(): Promise<void> {
     await renderer.init();
     resizeCanvas();
     new ResizeObserver(resizeCanvas).observe(canvas);
-    const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2 fallback';
+    const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2';
     status.textContent = `Ready · ${model.parts.length} parts · ${model.vertexCount} vertices · ${model.glb.byteLength.toLocaleString()} byte GLB · ${backend}`;
     renderer.setAnimationLoop(render);
   } catch (error) {
-    console.error('Could not start the Three.js renderer:', error);
-    status.textContent = 'Could not initialize WebGPU or its WebGL2 fallback. Check browser graphics support.';
+    console.error('Could not start the Goose 3D renderer:', error);
+    status.textContent = 'Could not initialize the renderer. Check browser WebGL2 support.';
   }
 }
 

@@ -1,0 +1,286 @@
+// TypeScript declarations for the Three.js-compatible facade in three.js.
+// This is a deliberate subset of the three.js API — see three.js for scope.
+
+export class Color {
+  constructor(r?: number | string | Color, g?: number, b?: number);
+  readonly isColor: true;
+  r: number; g: number; b: number;
+  set(value: number | string | Color, g?: number, b?: number): this;
+  setHex(hex: number): this;
+  setRGB(r: number, g: number, b: number): this;
+  setStyle(style: string): this;
+  copy(color: Color): this;
+  clone(): Color;
+  getHex(): number;
+  getHexString(): string;
+  getStyle(): string;
+}
+
+export class Vector2 {
+  constructor(x?: number, y?: number);
+  x: number; y: number;
+  set(x: number, y: number): this;
+}
+
+export class Vector3 {
+  constructor(x?: number, y?: number, z?: number);
+  readonly isVector3: true;
+  x: number; y: number; z: number;
+  set(x: number, y: number, z: number): this;
+  setScalar(s: number): this;
+  copy(v: Vector3): this;
+  clone(): Vector3;
+  add(v: Vector3): this;
+  sub(v: Vector3): this;
+  multiplyScalar(s: number): this;
+  length(): number;
+  normalize(): this;
+  fromArray(a: ArrayLike<number>, offset?: number): this;
+}
+
+export class Euler {
+  constructor(x?: number, y?: number, z?: number, order?: string);
+  readonly isEuler: true;
+  x: number; y: number; z: number; order: string;
+  set(x: number, y: number, z: number, order?: string): this;
+  copy(e: Euler): this;
+  clone(): Euler;
+}
+
+export class BufferAttribute {
+  constructor(array: ArrayLike<number>, itemSize: number, normalized?: boolean);
+  readonly isBufferAttribute: true;
+  array: ArrayLike<number>;
+  itemSize: number;
+  normalized: boolean;
+  count: number;
+}
+export class Float32BufferAttribute extends BufferAttribute {}
+export class Uint16BufferAttribute extends BufferAttribute {}
+export class Uint32BufferAttribute extends BufferAttribute {}
+
+export class BufferGeometry {
+  readonly isBufferGeometry: true;
+  attributes: Record<string, BufferAttribute>;
+  index: BufferAttribute | null;
+  groups: unknown[];
+  boundingSphere: unknown;
+  version: number;
+  setAttribute(name: string, attribute: BufferAttribute): this;
+  getAttribute(name: string): BufferAttribute | undefined;
+  setIndex(index: ArrayLike<number> | BufferAttribute | null): this;
+  computeVertexNormals(): this;
+  dispose(): void;
+}
+
+export const FrontSide: 0;
+export const BackSide: 1;
+export const DoubleSide: 2;
+
+export class Material {
+  constructor(parameters?: Record<string, unknown>);
+  readonly isMaterial: true;
+  name: string;
+  color: Color;
+  opacity: number;
+  transparent: boolean;
+  alphaTest: number;
+  side: number;
+  visible: boolean;
+  dispose(): void;
+}
+export class MeshBasicMaterial extends Material {
+  constructor(parameters?: Record<string, unknown>);
+}
+export class MeshStandardMaterial extends Material {
+  constructor(parameters?: {
+    color?: number | string | Color;
+    metalness?: number;
+    roughness?: number;
+    emissive?: number | string | Color;
+    emissiveIntensity?: number;
+    opacity?: number;
+    transparent?: boolean;
+    alphaTest?: number;
+    side?: number;
+    ior?: number;
+    [key: string]: unknown;
+  });
+  metalness: number;
+  roughness: number;
+  emissive: Color;
+  emissiveIntensity: number;
+  ior: number;
+}
+export { MeshStandardMaterial as MeshPhysicalMaterial };
+export { MeshStandardMaterial as MeshPhongMaterial };
+export { MeshStandardMaterial as MeshLambertMaterial };
+export { MeshBasicMaterial as MeshNormalMaterial };
+export { MeshBasicMaterial as SpriteMaterial };
+export { MeshBasicMaterial as PointsMaterial };
+export { MeshBasicMaterial as LineBasicMaterial };
+
+export class Object3D {
+  constructor();
+  readonly isObject3D: true;
+  name: string;
+  position: Vector3;
+  rotation: Euler;
+  scale: Vector3;
+  children: Object3D[];
+  parent: Object3D | null;
+  visible: boolean;
+  matrixAutoUpdate: boolean;
+  userData: Record<string, unknown>;
+  add(...objects: Object3D[]): this;
+  remove(...objects: Object3D[]): this;
+  clear(): this;
+  traverse(callback: (object: Object3D) => void): void;
+  updateMatrixWorld(force?: boolean): this;
+  updateMatrix(): this;
+  lookAt(): this;
+}
+export class Group extends Object3D { constructor(); readonly isGroup: true; }
+export class Scene extends Object3D {
+  constructor();
+  readonly isScene: true;
+  background: Color | null;
+  fog: Fog | FogExp2 | null;
+  environment: unknown;
+}
+
+export class Light extends Object3D {
+  constructor(color?: number | string | Color, intensity?: number);
+  readonly isLight: true;
+  color: Color;
+  intensity: number;
+}
+export class AmbientLight extends Light {
+  constructor(color?: number | string | Color, intensity?: number);
+  readonly isAmbientLight: true;
+}
+export class HemisphereLight extends Light {
+  constructor(skyColor?: number | string | Color, groundColor?: number | string | Color, intensity?: number);
+  readonly isHemisphereLight: true;
+  groundColor: Color;
+}
+export class DirectionalLight extends Light {
+  constructor(color?: number | string | Color, intensity?: number);
+  readonly isDirectionalLight: true;
+  target: Object3D;
+}
+export class PointLight extends Light {
+  constructor(color?: number | string | Color, intensity?: number, distance?: number, decay?: number);
+  readonly isPointLight: true;
+  distance: number;
+  decay: number;
+}
+export class SpotLight extends Light {
+  constructor(color?: number | string | Color, intensity?: number, distance?: number, angle?: number, penumbra?: number, decay?: number);
+  readonly isSpotLight: true;
+  distance: number;
+  angle: number;
+  penumbra: number;
+  decay: number;
+  target: Object3D;
+}
+export class RectAreaLight extends Light {
+  constructor(color?: number | string | Color, intensity?: number);
+  readonly isRectAreaLight: true;
+}
+
+export class Camera extends Object3D { constructor(); readonly isCamera: true; }
+export class PerspectiveCamera extends Camera {
+  constructor(fov?: number, aspect?: number, near?: number, far?: number);
+  readonly isPerspectiveCamera: true;
+  fov: number; aspect: number; near: number; far: number;
+  updateProjectionMatrix(): this;
+}
+export class OrthographicCamera extends Camera {
+  constructor(left?: number, right?: number, top?: number, bottom?: number, near?: number, far?: number);
+  readonly isOrthographicCamera: true;
+  left: number; right: number; top: number; bottom: number; near: number; far: number;
+  updateProjectionMatrix(): this;
+}
+
+export class Mesh extends Object3D {
+  constructor(geometry?: BufferGeometry, material?: Material | Material[]);
+  readonly isMesh: true;
+  geometry: BufferGeometry;
+  material: Material | Material[];
+}
+export class Line extends Object3D {
+  constructor(geometry?: BufferGeometry, material?: Material | Material[]);
+  readonly isLine: true; geometry: BufferGeometry; material: Material | Material[];
+}
+export class Points extends Object3D {
+  constructor(geometry?: BufferGeometry, material?: Material | Material[]);
+  readonly isPoints: true; geometry: BufferGeometry; material: Material | Material[];
+}
+export class Sprite extends Object3D {
+  constructor(material?: Material | Material[]);
+  readonly isSprite: true; material: Material | Material[];
+}
+
+export class Fog {
+  constructor(color?: number | string | Color, near?: number, far?: number);
+  readonly isFog: true;
+  color: Color;
+  near: number; far: number;
+}
+export class FogExp2 {
+  constructor(color?: number | string | Color, density?: number);
+  readonly isFogExp2: true;
+  color: Color;
+  density: number;
+}
+
+/* --- renderer ----------------------------------------------------------------- */
+
+export const NoColorSpace: 'none';
+export const SRGBColorSpace: 'srgb';
+export const LinearSRGBColorSpace: 'linear';
+export const DisplayP3ColorSpace: 'display-p3';
+
+export const NoToneMapping: 0;
+export const LinearToneMapping: 1;
+export const ReinhardToneMapping: 2;
+export const CineonToneMapping: 3;
+export const ACESFilmicToneMapping: 4;
+export const CustomToneMapping: 5;
+export const AgXToneMapping: 6;
+export const NeutralToneMapping: 7;
+
+export interface WebGPURendererParameters {
+  canvas: HTMLCanvasElement;
+  alpha?: boolean;
+  antialias?: boolean;
+  pixelRatio?: number;
+  outputColorSpace?: string;
+  toneMapping?: number;
+  toneMappingExposure?: number;
+  /** Testing/headless hook: a prebuilt engine module instead of the bundled wasm. */
+  engine?: unknown;
+}
+
+export class WebGPURenderer {
+  constructor(parameters: WebGPURendererParameters);
+  readonly domElement: HTMLCanvasElement;
+  readonly isWebGPURenderer: true;
+  readonly backend: { isWebGPUBackend: boolean; isWebGLBackend: boolean };
+  outputColorSpace: string;
+  toneMapping: number;
+  toneMappingExposure: number;
+  shadowMap: { enabled: boolean };
+  init(): Promise<unknown>;
+  render(scene: Scene, camera: Camera): void;
+  setAnimationLoop(callback: ((time: number) => void) | null): this;
+  setPixelRatio(value: number): this;
+  getPixelRatio(): number;
+  setSize(width: number, height: number, updateStyle?: boolean): this;
+  getSize(target?: Vector2): Vector2;
+  setOutputColorSpace(space: string): this;
+  setToneMapping(mode: number | string): this;
+  setClearColor(color: number | string | Color, alpha?: number): this;
+  dispose(): void;
+}

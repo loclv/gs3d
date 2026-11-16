@@ -8,6 +8,7 @@
 #   ./build_web.sh --viewer --serve build and serve the model viewer
 #   ./build_web.sh --reference-checks --serve build and serve WebGL API checks
 #   ./build_web.sh --animation-benchmark --serve build and serve the morph benchmark
+#   ./build_web.sh --gs3d        build web/gs3d/app.js for the gs3d package facade
 #
 # Emscripten is expected in .toolchain/emsdk (see README) or on PATH.
 
@@ -45,6 +46,7 @@ root=src/app_web.goose
 output=web/app.js
 backend_cflags=()
 renderer_sources=(platform/g3_web.c platform/g3_input.c)
+environment='web,node'
 exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_app_drawn","_g3_app_culled","_g3_app_triangles","_g3_app_meshes","_g3_app_nodes","_g3_input_key","_g3_input_mouse","_g3_input_resize","_malloc","_free"]'
 if [ "${1:-}" = "--game" ]; then
   root=src/game_web.goose
@@ -58,6 +60,13 @@ elif [ "${1:-}" = "--viewer" ]; then
   root=src/viewer_web.goose
   output=web/viewer/app.js
   exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_viewer_orbit","_g3_viewer_zoom","_g3_viewer_pan","_g3_input_resize","_malloc","_free"]'
+elif [ "${1:-}" = "--gs3d" ]; then
+  root=src/gs3d_web.goose
+  output=web/gs3d/app.js
+  # Web-only glue: the facade ships to bundlers, where a "node:" import in
+  # the Node code path breaks client builds.
+  environment='web'
+  exports='["_g3_host_start","_g3_app_init","_g3_app_frame","_g3_app_shutdown","_g3_host_set_canvas","_g3_input_resize","_malloc","_free"]'
 elif [ "${1:-}" = "--benchmark" ]; then
   root=src/benchmark_web.goose
   output=web/benchmark/app.js
@@ -81,7 +90,7 @@ if [ "${1:-}" = "" ] || [ "${1:-}" = "--benchmark" ]; then
 fi
 
 # The asset bridge is available to either browser entry point.
-asset_exports='"_g3_asset_mesh_begin","_g3_asset_vertex","_g3_asset_triangle","_g3_asset_mesh_end","_g3_asset_mesh_update","_g3_asset_mesh_generation","_g3_asset_mesh_valid","_g3_asset_release_mesh","_g3_asset_node","_g3_asset_matrix","_g3_asset_material","_g3_asset_material_specular","_g3_asset_material_clearcoat","_g3_asset_material_sheen","_g3_asset_material_anisotropy","_g3_asset_material_environment","_g3_asset_material_uv_transform","_g3_asset_node_material","_g3_asset_material_generation","_g3_asset_material_valid","_g3_asset_release_material","_g3_asset_node_generation","_g3_asset_node_valid","_g3_asset_node_release","_g3_asset_scene_epoch","_g3_asset_texture","_g3_asset_texture_generation","_g3_asset_texture_valid","_g3_asset_release_texture","_g3_asset_camera_add","_g3_asset_camera_add_current","_g3_asset_camera_active","_g3_asset_camera_update","_g3_asset_camera_select","_g3_asset_camera_remove","_g3_asset_lights_begin","_g3_asset_lights_active","_g3_asset_lights_clear","_g3_asset_lights_release","_g3_asset_light_directional","_g3_asset_light_point","_g3_asset_light_spot","_g3_asset_light_point_shadow","_g3_asset_light_spot_shadow","_g3_asset_pick","_g3_asset_output_srgb","_g3_asset_tone_mapping","_g3_asset_fxaa","_g3_asset_exposure","_g3_asset_environment_map","_g3_asset_environment_lighting","_g3_asset_environment_rotation","_g3_host_mesh_update","_g3_host_mesh_update_cpu","_g3_host_mesh_morph","_g3_host_morph_weights","_g3_host_mesh_morph_release","_g3_host_mesh_skin","_g3_host_joint_palette","_g3_host_texture","_g3_host_texture_srgb","_g3_host_texture_hdr","_g3_host_texture_wrap","_g3_host_texture_filter"'
+asset_exports='"_g3_asset_mesh_begin","_g3_asset_vertex","_g3_asset_triangle","_g3_asset_mesh_end","_g3_asset_mesh_update","_g3_asset_mesh_generation","_g3_asset_mesh_valid","_g3_asset_release_mesh","_g3_asset_node","_g3_asset_matrix","_g3_asset_material","_g3_asset_material_specular","_g3_asset_material_clearcoat","_g3_asset_material_sheen","_g3_asset_material_anisotropy","_g3_asset_material_environment","_g3_asset_material_uv_transform","_g3_asset_node_material","_g3_asset_material_generation","_g3_asset_material_valid","_g3_asset_release_material","_g3_asset_node_generation","_g3_asset_node_valid","_g3_asset_node_release","_g3_asset_scene_epoch","_g3_asset_texture","_g3_asset_texture_generation","_g3_asset_texture_valid","_g3_asset_release_texture","_g3_asset_camera_add","_g3_asset_camera_add_current","_g3_asset_camera_active","_g3_asset_camera_update","_g3_asset_camera_select","_g3_asset_camera_remove","_g3_asset_lights_begin","_g3_asset_lights_active","_g3_asset_lights_clear","_g3_asset_lights_release","_g3_asset_light_directional","_g3_asset_light_point","_g3_asset_light_spot","_g3_asset_light_point_shadow","_g3_asset_light_spot_shadow","_g3_asset_pick","_g3_asset_output_srgb","_g3_asset_tone_mapping","_g3_asset_fxaa","_g3_asset_exposure","_g3_asset_environment_map","_g3_asset_environment_lighting","_g3_asset_environment_rotation","_g3_asset_background","_g3_asset_ambient","_g3_asset_fog","_g3_host_mesh_update","_g3_host_mesh_update_cpu","_g3_host_mesh_morph","_g3_host_morph_weights","_g3_host_mesh_morph_release","_g3_host_mesh_skin","_g3_host_joint_palette","_g3_host_texture","_g3_host_texture_srgb","_g3_host_texture_hdr","_g3_host_texture_wrap","_g3_host_texture_filter"'
 exports="${exports%]},${asset_exports}]"
 
 # 1. Goose to C. --standalone means no C main is generated: the host below is
@@ -108,7 +117,7 @@ emcc build/web/g3.c "${renderer_sources[@]}" -o "$output" \
   -sSTACK_SIZE=1048576 \
   -sEXIT_RUNTIME=0 \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createGoose3D \
-  -sENVIRONMENT=web,node \
+  -sENVIRONMENT=$environment \
   -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAPF32 \
   -sEXPORTED_FUNCTIONS="$exports"
 

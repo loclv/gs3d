@@ -864,10 +864,21 @@ static int ensure_brdf_lut(void) {
 
 /* --- the surface --- */
 
+/* The page picks the canvas once, before `g3_host_start`: the default demo
+   uses #canvas, embedders (the gs3d package) pass their own selector. */
+static char canvas_selector[256] = "#canvas";
+
+EMSCRIPTEN_KEEPALIVE void g3_host_set_canvas(uint32_t ptr, int32_t len) {
+    if (!ptr || len <= 0 || len >= (int32_t)sizeof(canvas_selector)) return;
+    if ((uint64_t)ptr + (uint64_t)len > emscripten_get_heap_size()) return;
+    memcpy(canvas_selector, (const void *)(uintptr_t)ptr, (size_t)len);
+    canvas_selector[len] = '\0';
+}
+
 static void set_surface_size(int32_t width, int32_t height) {
     surf_w = width > 0 ? width : 1;
     surf_h = height > 0 ? height : 1;
-    emscripten_set_canvas_element_size("#canvas", surf_w, surf_h);
+    emscripten_set_canvas_element_size(canvas_selector, surf_w, surf_h);
     glViewport(0, 0, surf_w, surf_h);
 }
 
@@ -884,7 +895,7 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     attrs.preserveDrawingBuffer = 0;
     attrs.failIfMajorPerformanceCaveat = 0;
 
-    ctx = emscripten_webgl_create_context("#canvas", &attrs);
+    ctx = emscripten_webgl_create_context(canvas_selector, &attrs);
     if (ctx <= 0) {
         fprintf(stderr, "g3_web: could not create a WebGL2 context\n");
         report("Could not create a WebGL2 context.");
@@ -2541,7 +2552,7 @@ uint8_t g3p_save_frame(g3_u8_slice path) {
 EMSCRIPTEN_KEEPALIVE int g3_host_start(int width, int height) {
     if (width <= 0 || height <= 0) {
         double css_w = 0, css_h = 0;
-        emscripten_get_element_css_size("#canvas", &css_w, &css_h);
+        emscripten_get_element_css_size(canvas_selector, &css_w, &css_h);
         width = (int)(css_w > 0 ? css_w : 1280);
         height = (int)(css_h > 0 ? css_h : 720);
     }

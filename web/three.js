@@ -1,0 +1,1004 @@
+// A Three.js-compatible facade over the Goose 3D WebAssembly engine.
+//
+// `import * as THREE from 'gs3d'` (or 'gs3d/three') covers the common scene
+// graph: Object3D transforms, meshes with BufferGeometry, standard and basic
+// materials, the four light types plus hemisphere fill, perspective and
+// orthographic cameras, and a WebGPURenderer whose init/render/setSize calls
+// drive the engine's WebGL2 backend one frame at a time.
+//
+// The facade keeps a parallel scene graph in JavaScript and mirrors it into
+// the engine through the g3_asset_* bridge on every render() call: engine
+// nodes are created lazily, local matrices are rewritten only when they
+// change, and geometry/material uploads are cached per object and rebuilt
+// when their version or signature changes.
+//
+// Deliberate subset: no textures, skinning, morph targets, shadows, fog
+// objects beyond Fog/FogExp2 approximation, quaternion editing, or
+// post-processing. The renderer class is named WebGPURenderer for API
+// compatibility; the engine currently renders through its WebGL2 backend.
+
+import createGoose3D from './gs3d/app.js';
+
+const wasmUrl = new URL('./gs3d/app.wasm', import.meta.url);
+const DEG2RAD = Math.PI / 180;
+const MAX_EXTRA_LIGHTS = 8;
+
+function requestFrame(callback) {
+  if (typeof requestAnimationFrame === 'function') return requestAnimationFrame(callback);
+  return setTimeout(() => callback(performance.now()), 16);
+}
+function cancelFrame(handle) {
+  if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(handle);
+  else clearTimeout(handle);
+}
+
+/* --- colour management -------------------------------------------------- */
+
+function srgbToLinear(c) {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function linearToSrgb(c) {
+  return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+function hexToRgb(hex) {
+  const value = hex & 0xffffff;
+  return [(value >> 16 & 0xff) / 255, (value >> 8 & 0xff) / 255, (value & 0xff) / 255];
+}
+function parseCssColor(style) {
+  const text = String(style).trim().toLowerCase();
+  const hex = text.match(/^#([0-9a-f]{3,8})$/);
+  if (hex) {
+    let digits = hex[1];
+    if (digits.length === 3 || digits.length === 4) digits = [...digits].map(d => d + d).join('');
+    if (digits.length === 6 || digits.length === 8) {
+      const value = parseInt(digits.slice(0, 6), 16);
+      return [...hexToRgb(value).map(srgbToLinear), digits.length === 8 ? parseInt(digits.slice(6), 16) / 255 : 1];
+    }
+  }
+  const rgb = text.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/);
+  if (rgb) return [srgbToLinear(+rgb[1] / 255), srgbToLinear(+rgb[2] / 255), srgbToLinear(+rgb[3] / 255), 1];
+  const named = { white: [1, 1, 1], black: [0, 0, 0], red: [1, 0, 0], green: [0, 128 / 255, 0],
+    blue: [0, 0, 1], gray: [0.502, 0.502, 0.502], grey: [0.502, 0.502, 0.502],
+    yellow: [1, 1, 0], cyan: [0, 1, 1], magenta: [1, 0, 1], orange: [1, 0.647, 0] };
+  if (named[text]) return [...named[text], 1];
+  throw new Error(`gs3d: unsupported colour '${style}'`);
+}
+
+// Colours store linear working-space components, like three r152+ with the
+// default color management. Hex and CSS strings arrive in sRGB and convert.
+export class Color {
+  constructor(r = 0xffffff, g, b) {
+    this.isColor = true;
+    this.r = 1; this.g = 1; this.b = 1;
+    this.set(r, g, b);
+  }
+  set(value, g, b) {
+    if (value === undefined) return this;
+    if (typeof value === 'number' && g === undefined) return this.setHex(value);
+    if (typeof value === 'string') {
+      const [r, gg, bb] = parseCssColor(value);
+      this.r = r; this.g = gg; this.b = bb;
+      return this;
+    }
+    if (value && value.isColor) return this.copy(value);
+    return this.setRGB(value, g, b);
+  }
+  setHex(hex) {
+    const [r, g, b] = hexToRgb(hex);
+    // Hex colours arrive in sRGB and convert to the linear working space.
+    return this.setRGB(srgbToLinear(r), srgbToLinear(g), srgbToLinear(b));
+  }
+  setRGB(r, g, b) {
+    // Numeric triples are already working-space (linear) values.
+    this.r = r; this.g = g; this.b = b;
+    return this;
+  }
+  setStyle(style) { return this.set(style); }
+  copy(color) { this.r = color.r; this.g = color.g; this.b = color.b; return this; }
+  clone() { return new Color().copy(this); }
+  getHex() {
+    const toByte = c => Math.round(Math.min(Math.max(linearToSrgb(c), 0), 1) * 255);
+    return (toByte(this.r) << 16) | (toByte(this.g) << 8) | toByte(this.b);
+  }
+  getHexString() { return this.getHex().toString(16).padStart(6, '0'); }
+  getStyle() {
+    const toByte = c => Math.round(Math.min(Math.max(linearToSrgb(c), 0), 1) * 255);
+    return `rgb(${toByte(this.r)}, ${toByte(this.g)}, ${toByte(this.b)})`;
+  }
+}
+
+/* --- vectors and transforms ---------------------------------------------- */
+
+export class Vector3 {
+  constructor(x = 0, y = 0, z = 0) { this.isVector3 = true; this.x = x; this.y = y; this.z = z; }
+  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+  setScalar(s) { return this.set(s, s, s); }
+  copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; return this; }
+  clone() { return new Vector3(this.x, this.y, this.z); }
+  add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
+  sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
+  multiplyScalar(s) { this.x *= s; this.y *= s; this.z *= s; return this; }
+  length() { return Math.hypot(this.x, this.y, this.z); }
+  normalize() { const l = this.length() || 1; return this.multiplyScalar(1 / l); }
+  fromArray(a, offset = 0) { this.x = a[offset]; this.y = a[offset + 1]; this.z = a[offset + 2]; return this; }
+}
+
+export class Euler {
+  constructor(x = 0, y = 0, z = 0, order = 'XYZ') {
+    this.x = x; this.y = y; this.z = z; this.order = order; this.isEuler = true;
+  }
+  set(x, y, z, order) { this.x = x; this.y = y; this.z = z; if (order) this.order = order; return this; }
+  copy(e) { this.x = e.x; this.y = e.y; this.z = e.z; this.order = e.order; return this; }
+  clone() { return new Euler(this.x, this.y, this.z, this.order); }
+}
+
+// Column-major 4x4, the layout both three.js and the engine's Mat4 use.
+function composeLocal(position, rotation, scale) {
+  const hx = rotation.x * 0.5, hy = rotation.y * 0.5, hz = rotation.z * 0.5;
+  const sx = Math.sin(hx), sy = Math.sin(hy), sz = Math.sin(hz);
+  const cx = Math.cos(hx), cy = Math.cos(hy), cz = Math.cos(hz);
+  // Quaternion from Euler XYZ, three.js convention.
+  const qx = sx * cy * cz + cx * sy * sz;
+  const qy = cx * sy * cz - sx * cy * sz;
+  const qz = cx * cy * sz + sx * sy * cz;
+  const qw = cx * cy * cz - sx * sy * sz;
+  const x2 = qx + qx, y2 = qy + qy, z2 = qz + qz;
+  const xx = qx * x2, xy = qx * y2, xz = qx * z2;
+  const yy = qy * y2, yz = qy * z2, zz = qz * z2;
+  const wx = qw * x2, wy = qw * y2, wz = qw * z2;
+  const m = new Float64Array(16);
+  m[0] = (1 - (yy + zz)) * scale.x; m[1] = (xy + wz) * scale.x; m[2] = (xz - wy) * scale.x;
+  m[4] = (xy - wz) * scale.y; m[5] = (1 - (xx + zz)) * scale.y; m[6] = (yz + wx) * scale.y;
+  m[8] = (xz + wy) * scale.z; m[9] = (yz - wx) * scale.z; m[10] = (1 - (xx + yy)) * scale.z;
+  m[12] = position.x; m[13] = position.y; m[14] = position.z; m[15] = 1;
+  return m;
+}
+
+function multiplyMat4(a, b) {
+  const out = new Float64Array(16);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    let sum = 0;
+    for (let k = 0; k < 4; k++) sum += a[k * 4 + r] * b[c * 4 + k];
+    out[c * 4 + r] = sum;
+  }
+  return out;
+}
+
+function transformPoint(m, x, y, z) {
+  return [m[0] * x + m[4] * y + m[8] * z + m[12],
+    m[1] * x + m[5] * y + m[9] * z + m[13],
+    m[2] * x + m[6] * y + m[10] * z + m[14]];
+}
+function transformDir(m, x, y, z) {
+  return [m[0] * x + m[4] * y + m[8] * z,
+    m[1] * x + m[5] * y + m[9] * z,
+    m[2] * x + m[6] * y + m[10] * z];
+}
+function normalize3(v) {
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
+}
+
+/* --- scene graph ---------------------------------------------------------- */
+
+export class Object3D {
+  constructor() {
+    this.isObject3D = true;
+    this.name = '';
+    this.position = new Vector3();
+    this.rotation = new Euler();
+    this.scale = new Vector3(1, 1, 1);
+    this.children = [];
+    this.parent = null;
+    this.visible = true;
+    this.matrixAutoUpdate = true;
+    this.userData = {};
+  }
+  add(...objects) {
+    for (const object of objects) {
+      if (object.parent) object.parent.remove(object);
+      object.parent = this;
+      this.children.push(object);
+    }
+    return this;
+  }
+  remove(...objects) {
+    for (const object of objects) {
+      const index = this.children.indexOf(object);
+      if (index >= 0) {
+        this.children.splice(index, 1);
+        object.parent = null;
+        releaseEngineTree(object);
+      }
+    }
+    return this;
+  }
+  clear() {
+    for (const child of [...this.children]) this.remove(child);
+    return this;
+  }
+  traverse(callback) {
+    callback(this);
+    for (const child of this.children) child.traverse(callback);
+  }
+  updateMatrixWorld(force) { return this; }
+  updateMatrix() { return this; }
+  lookAt() { return this; }
+}
+
+export class Group extends Object3D {
+  constructor() { super(); this.isGroup = true; }
+}
+
+export class Scene extends Object3D {
+  constructor() {
+    super();
+    this.isScene = true;
+    this.background = null;
+    this.fog = null;
+    this.environment = null;
+  }
+}
+
+/* --- geometry -------------------------------------------------------------- */
+
+export class BufferAttribute {
+  constructor(array, itemSize, normalized = false) {
+    this.isBufferAttribute = true;
+    this.array = array;
+    this.itemSize = itemSize;
+    this.normalized = normalized;
+    this.count = array.length / itemSize;
+  }
+}
+export class Float32BufferAttribute extends BufferAttribute {
+  constructor(array, itemSize) { super(Float32Array.from(array), itemSize); }
+}
+export class Uint16BufferAttribute extends BufferAttribute {
+  constructor(array, itemSize) { super(Uint16Array.from(array), itemSize); }
+}
+export class Uint32BufferAttribute extends BufferAttribute {
+  constructor(array, itemSize) { super(Uint32Array.from(array), itemSize); }
+}
+
+export class BufferGeometry {
+  constructor() {
+    this.isBufferGeometry = true;
+    this.attributes = {};
+    this.index = null;
+    this.groups = [];
+    this.boundingSphere = null;
+    this.version = 0;
+  }
+  setAttribute(name, attribute) {
+    this.attributes[name] = attribute;
+    this.version++;
+    return this;
+  }
+  getAttribute(name) { return this.attributes[name]; }
+  setIndex(index) {
+    if (index === null || index === undefined) this.index = null;
+    else if (index.isBufferAttribute) this.index = index;
+    else this.index = new Uint32BufferAttribute(index, 1);
+    this.version++;
+    return this;
+  }
+  computeVertexNormals() {
+    const position = this.attributes.position;
+    if (!position) return this;
+    const p = position.array, ps = position.itemSize;
+    const index = this.index;
+    const normals = new Float32Array(position.count * 3);
+    const tri = (a, b, c) => {
+      const ax = p[a * ps], ay = p[a * ps + 1], az = p[a * ps + 2];
+      const abx = p[b * ps] - ax, aby = p[b * ps + 1] - ay, abz = p[b * ps + 2] - az;
+      const acx = p[c * ps] - ax, acy = p[c * ps + 1] - ay, acz = p[c * ps + 2] - az;
+      const nx = aby * acz - abz * acy, ny = abz * acx - abx * acz, nz = abx * acy - aby * acx;
+      for (const v of [a, b, c]) {
+        normals[v * 3] += nx; normals[v * 3 + 1] += ny; normals[v * 3 + 2] += nz;
+      }
+    };
+    if (index) {
+      const ids = index.array;
+      for (let i = 0; i + 2 < ids.length; i += 3) tri(ids[i], ids[i + 1], ids[i + 2]);
+    } else {
+      for (let i = 0; i + 2 < position.count; i += 3) tri(i, i + 1, i + 2);
+    }
+    for (let i = 0; i < normals.length; i += 3) {
+      const l = Math.hypot(normals[i], normals[i + 1], normals[i + 2]);
+      if (l > 0) { normals[i] /= l; normals[i + 1] /= l; normals[i + 2] /= l; }
+      else { normals[i] = 0; normals[i + 1] = 0; normals[i + 2] = 1; }
+    }
+    this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    return this;
+  }
+  dispose() {
+    this.version++;
+    releaseGeometry(this);
+  }
+}
+
+/* --- materials --------------------------------------------------------------- */
+
+export const FrontSide = 0;
+export const BackSide = 1;
+export const DoubleSide = 2;
+
+export class Material {
+  constructor(parameters = {}) {
+    this.isMaterial = true;
+    this.name = '';
+    this.color = new Color(0xffffff);
+    this.opacity = 1;
+    this.transparent = false;
+    this.alphaTest = 0;
+    this.side = FrontSide;
+    this.visible = true;
+    Object.assign(this, parameters);
+    if (parameters.color !== undefined && !(parameters.color instanceof Color)) this.color = new Color(parameters.color);
+  }
+  dispose() {
+    this.version = (this.version || 0) + 1;
+    releaseMaterial(this);
+  }
+}
+
+export class MeshBasicMaterial extends Material {
+  constructor(parameters = {}) {
+    super(parameters);
+    this.isMeshBasicMaterial = true;
+    if (parameters.color !== undefined) this.color = parameters.color instanceof Color ? parameters.color : new Color(parameters.color);
+  }
+}
+
+export class MeshStandardMaterial extends Material {
+  constructor(parameters = {}) {
+    super(parameters);
+    this.isMeshStandardMaterial = true;
+    this.metalness = parameters.metalness ?? 0;
+    this.roughness = parameters.roughness ?? 1;
+    this.emissive = parameters.emissive !== undefined ? (parameters.emissive instanceof Color ? parameters.emissive : new Color(parameters.emissive)) : new Color(0x000000);
+    this.emissiveIntensity = parameters.emissiveIntensity ?? 1;
+    this.ior = parameters.ior ?? 1.5;
+    if (parameters.color !== undefined) this.color = parameters.color instanceof Color ? parameters.color : new Color(parameters.color);
+  }
+}
+export { MeshStandardMaterial as MeshPhysicalMaterial };
+export { MeshStandardMaterial as MeshPhongMaterial };
+export { MeshStandardMaterial as MeshLambertMaterial };
+export { MeshBasicMaterial as MeshNormalMaterial };
+export { MeshBasicMaterial as SpriteMaterial };
+export { MeshBasicMaterial as PointsMaterial };
+export { MeshBasicMaterial as LineBasicMaterial };
+
+/* --- lights ------------------------------------------------------------------- */
+
+export class Light extends Object3D {
+  constructor(color = 0xffffff, intensity = 1) {
+    super();
+    this.isLight = true;
+    this.color = color instanceof Color ? color : new Color(color);
+    this.intensity = intensity;
+  }
+}
+
+export class AmbientLight extends Light {
+  constructor(color = 0xffffff, intensity = 1) { super(color, intensity); this.isAmbientLight = true; }
+}
+
+export class HemisphereLight extends Light {
+  constructor(skyColor = 0xffffff, groundColor = 0x444444, intensity = 1) {
+    super(skyColor, intensity);
+    this.isHemisphereLight = true;
+    this.groundColor = groundColor instanceof Color ? groundColor : new Color(groundColor);
+  }
+}
+
+export class DirectionalLight extends Light {
+  constructor(color = 0xffffff, intensity = 1) {
+    super(color, intensity);
+    this.isDirectionalLight = true;
+    this.target = new Object3D();
+  }
+}
+
+export class PointLight extends Light {
+  constructor(color = 0xffffff, intensity = 1, distance = 0, decay = 2) {
+    super(color, intensity);
+    this.isPointLight = true;
+    this.distance = distance;
+    this.decay = decay;
+  }
+}
+
+export class SpotLight extends Light {
+  constructor(color = 0xffffff, intensity = 1, distance = 0, angle = Math.PI / 3, penumbra = 0, decay = 2) {
+    super(color, intensity);
+    this.isSpotLight = true;
+    this.distance = distance;
+    this.angle = angle;
+    this.penumbra = penumbra;
+    this.decay = decay;
+    this.target = new Object3D();
+  }
+}
+
+export class RectAreaLight extends Light {
+  constructor(color = 0xffffff, intensity = 1) { super(color, intensity); this.isRectAreaLight = true; }
+}
+
+/* --- cameras -------------------------------------------------------------------- */
+
+export class PerspectiveCamera extends Object3D {
+  constructor(fov = 50, aspect = 1, near = 0.1, far = 2000) {
+    super();
+    this.isCamera = true; this.isPerspectiveCamera = true;
+    this.fov = fov; this.aspect = aspect; this.near = near; this.far = far;
+  }
+  updateProjectionMatrix() { return this; }
+  updateMatrixWorld(force) { return this; }
+}
+
+export class OrthographicCamera extends Object3D {
+  constructor(left = -1, right = 1, top = 1, bottom = -1, near = 0.1, far = 2000) {
+    super();
+    this.isCamera = true; this.isOrthographicCamera = true;
+    this.left = left; this.right = right; this.top = top; this.bottom = bottom;
+    this.near = near; this.far = far;
+  }
+  updateProjectionMatrix() { return this; }
+  updateMatrixWorld(force) { return this; }
+}
+
+export class Camera extends Object3D {
+  constructor() { super(); this.isCamera = true; }
+}
+
+export class Mesh extends Object3D {
+  constructor(geometry = new BufferGeometry(), material = new MeshBasicMaterial()) {
+    super();
+    this.isMesh = true;
+    this.geometry = geometry;
+    this.material = material;
+  }
+}
+
+export class Line extends Object3D {
+  constructor(geometry, material) { super(); this.isLine = true; this.geometry = geometry; this.material = material; }
+}
+export class Points extends Object3D {
+  constructor(geometry, material) { super(); this.isPoints = true; this.geometry = geometry; this.material = material; }
+}
+export class Sprite extends Object3D {
+  constructor(material) { super(); this.isSprite = true; this.material = material; }
+}
+
+/* --- fog ------------------------------------------------------------------------- */
+
+export class Fog {
+  constructor(color = 0xffffff, near = 1, far = 1000) {
+    this.isFog = true;
+    this.color = color instanceof Color ? color : new Color(color);
+    this.near = near; this.far = far;
+  }
+}
+export class FogExp2 {
+  constructor(color = 0xffffff, density = 0.00025) {
+    this.isFogExp2 = true;
+    this.color = color instanceof Color ? color : new Color(color);
+    this.density = density;
+  }
+}
+
+/* --- engine bridge state ----------------------------------------------------------- */
+
+// One wasm engine per page. Entries are WeakMaps so scenes collect normally.
+let sharedEngine = null;
+const nodeStates = new WeakMap();   // Object3D -> engine node record
+const geometryStates = new WeakMap(); // BufferGeometry -> {id,generation,version}
+const materialStates = new WeakMap(); // Material -> {id,generation,signature}
+const cameraStates = new WeakMap();  // Camera -> engine camera id
+let engineCanvasSeq = 0;
+// Objects that currently own an engine node. render() releases records for
+// objects absent from the scene being drawn, so switching scenes cannot leak
+// the previous scene's nodes into the frame.
+const syncedObjects = new Set();
+
+function releaseNodeRecord(record) {
+  if (!record || !sharedEngine) return;
+  sharedEngine._g3_asset_node_release(record.index, record.generation, record.epoch);
+}
+function releaseEngineTree(object) {
+  // Release every engine node in the detached subtree. Engine-side children
+  // reparent automatically; the sync pass recreates whatever is reattached.
+  const records = [];
+  object.traverse(node => {
+    const record = nodeStates.get(node);
+    if (record) { records.push(record); nodeStates.delete(node); syncedObjects.delete(node); }
+  });
+  for (const record of records) releaseNodeRecord(record);
+}
+
+function releaseGeometry(geometry) {
+  const state = geometryStates.get(geometry);
+  if (state && sharedEngine) sharedEngine._g3_asset_release_mesh(state.id, state.generation);
+  geometryStates.delete(geometry);
+}
+function releaseMaterial(material) {
+  const state = materialStates.get(material);
+  if (state && sharedEngine) sharedEngine._g3_asset_release_material(state.id, state.generation);
+  materialStates.delete(material);
+}
+
+function localMatrixOf(object) {
+  return composeLocal(object.position, object.rotation, object.scale);
+}
+
+function worldMatrixOf(object) {
+  let world = localMatrixOf(object);
+  let parent = object.parent;
+  while (parent) {
+    world = multiplyMat4(localMatrixOf(parent), world);
+    parent = parent.parent;
+  }
+  return world;
+}
+
+function ensureGeometry(engine, geometry) {
+  if (!geometry || !geometry.attributes || !geometry.attributes.position) return -1;
+  const state = geometryStates.get(geometry);
+  if (state && state.version === geometry.version) return state.id;
+  if (state) engine._g3_asset_release_mesh(state.id, state.generation);
+
+  if (!geometry.attributes.normal) geometry.computeVertexNormals();
+  const position = geometry.attributes.position;
+  const normal = geometry.attributes.normal;
+  const uv = geometry.attributes.uv;
+  const color = geometry.attributes.color;
+  const p = position.array, n = normal ? normal.array : null;
+  const u = uv ? uv.array : null, c = color ? color.array : null;
+  const ns = normal ? normal.itemSize : 3, us = uv ? uv.itemSize : 2, cs = color ? color.itemSize : 4;
+  const count = position.count;
+
+  engine._g3_asset_mesh_begin();
+  for (let i = 0; i < count; i++) {
+    const pi = i * position.itemSize, ni = i * ns;
+    const ui = i * us, ci = i * cs;
+    engine._g3_asset_vertex(
+      p[pi], p[pi + 1], p[pi + 2],
+      n && ns > 0 ? n[ni] : 0, n && ns > 1 ? n[ni + 1] : 0, n && ns > 2 ? n[ni + 2] : 1,
+      u && us > 0 ? u[ui] : 0, u && us > 1 ? u[ui + 1] : 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // uv1..uv7
+      0, 0, 0, 0, // tangent
+      c && cs > 0 ? c[ci] : 1, c && cs > 1 ? c[ci + 1] : 1, c && cs > 2 ? c[ci + 2] : 1,
+      c && cs > 3 ? c[ci + 3] : 1,
+    );
+  }
+  const index = geometry.index;
+  if (index) {
+    const ids = index.array;
+    for (let i = 0; i + 2 < ids.length; i += 3) engine._g3_asset_triangle(ids[i], ids[i + 1], ids[i + 2]);
+  } else {
+    for (let i = 0; i + 2 < count; i += 3) engine._g3_asset_triangle(i, i + 1, i + 2);
+  }
+  const id = engine._g3_asset_mesh_end();
+  const record = { id, generation: engine._g3_asset_mesh_generation(id), version: geometry.version };
+  geometryStates.set(geometry, record);
+  return id;
+}
+
+const ALPHA_OPAQUE = 0, ALPHA_MASK = 1, ALPHA_BLEND = 2;
+
+function materialSignature(material) {
+  const parts = [material.color.r, material.color.g, material.color.b, material.opacity,
+    material.transparent, material.alphaTest, material.side, material.visible];
+  if (material.isMeshStandardMaterial || material.isMeshPhysicalMaterial) {
+    parts.push(material.metalness, material.roughness, material.emissive.r, material.emissive.g,
+      material.emissive.b, material.emissiveIntensity, material.ior);
+  }
+  return parts.join(',');
+}
+
+function ensureMaterial(engine, material) {
+  if (!material) material = new MeshBasicMaterial();
+  const signature = materialSignature(material);
+  const state = materialStates.get(material);
+  if (state && state.signature === signature) return state.id;
+  if (state) engine._g3_asset_release_material(state.id, state.generation);
+
+  const color = material.color || new Color(0xffffff);
+  const opacity = material.opacity ?? 1;
+  const alphaMode = material.transparent || opacity < 1 ? ALPHA_BLEND : material.alphaTest > 0 ? ALPHA_MASK : ALPHA_OPAQUE;
+  const alphaCutoff = material.alphaTest > 0 ? material.alphaTest : 0.5;
+  const unlit = material.isMeshBasicMaterial || material.isMeshNormalMaterial ? 1 : 0;
+  const metallic = material.metalness ?? (unlit ? 0 : 0);
+  const roughness = material.roughness ?? 1;
+  const emissive = material.emissive || new Color(0);
+  const emissiveStrength = material.emissiveIntensity ?? 1;
+  const id = engine._g3_asset_material(
+    color.r, color.g, color.b, opacity, -1, alphaMode, alphaCutoff,
+    metallic, roughness, -1, -1, 1, -1, 1,
+    emissive.r * emissiveStrength, emissive.g * emissiveStrength, emissive.b * emissiveStrength, -1,
+    material.side === DoubleSide ? 1 : 0, unlit, material.ior ?? 1.5,
+  );
+  if (!unlit) {
+    // Dielectric F0 of about 0.04 matches three.js's standard-material sheen.
+    engine._g3_asset_material_specular(id, 0.04, 1, 1, 1, -1, -1);
+  }
+  const record = { id, generation: engine._g3_asset_material_generation(id), signature };
+  materialStates.set(material, record);
+  return id;
+}
+
+/* --- sync ---------------------------------------------------------------------- */
+
+function syncNode(engine, object, parentEngineIndex, local) {
+  const isMesh = object.isMesh === true;
+  const meshId = isMesh ? ensureGeometry(engine, object.geometry) : -1;
+  let record = nodeStates.get(object);
+  if (record && (record.parent !== parentEngineIndex || record.mesh !== meshId)) {
+    releaseNodeRecord(record);
+    nodeStates.delete(object);
+    record = undefined;
+  }
+  if (!record) {
+    const index = engine._g3_asset_node(meshId, parentEngineIndex);
+    record = { index, generation: engine._g3_asset_node_generation(index),
+      epoch: engine._g3_asset_scene_epoch(), parent: parentEngineIndex, mesh: meshId,
+      material: -1, matrix: null };
+    nodeStates.set(object, record);
+  }
+  if (isMesh) {
+    const materialId = ensureMaterial(engine, Array.isArray(object.material) ? object.material[0] : object.material);
+    if (record.material !== materialId) {
+      engine._g3_asset_node_material(record.index, materialId);
+      record.material = materialId;
+    }
+  }
+  if (!record.matrix || !matricesEqual(record.matrix, local)) {
+    for (let i = 0; i < 16; i++) engine._g3_asset_matrix(record.index, i, local[i]);
+    record.matrix = Float64Array.from(local);
+  }
+  return record.index;
+}
+
+function matricesEqual(a, b) {
+  for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function lightWorldPose(object) {
+  const world = worldMatrixOf(object);
+  const position = transformPoint(world, 0, 0, 0);
+  return { world, position };
+}
+
+function targetWorldPosition(light) {
+  const target = light.target;
+  if (!target) return [0, 0, 0];
+  return transformPoint(worldMatrixOf(target), 0, 0, 0);
+}
+
+function collectLights(scene) {
+  const result = { ambient: [0, 0, 0], hemisphere: null, lights: [] };
+  const walk = (object, visible) => {
+    const effective = visible && object.visible !== false;
+    if (!effective) return;
+    if (object.isLight) {
+      const intensity = object.intensity ?? 1;
+      const color = object.color || new Color(0xffffff);
+      const scaled = [color.r * intensity, color.g * intensity, color.b * intensity];
+      if (object.isAmbientLight) {
+        result.ambient[0] += scaled[0]; result.ambient[1] += scaled[1]; result.ambient[2] += scaled[2];
+      } else if (object.isHemisphereLight) {
+        result.hemisphere = { sky: [color.r, color.g, color.b],
+          ground: [object.groundColor.r, object.groundColor.g, object.groundColor.b], intensity };
+      } else if (result.lights.length < MAX_EXTRA_LIGHTS) {
+        const { position } = lightWorldPose(object);
+        if (object.isDirectionalLight) {
+          const target = targetWorldPosition(object);
+          const delta = [target[0] - position[0], target[1] - position[1], target[2] - position[2]];
+          result.lights.push({ kind: 'directional', direction: normalize3(delta), color: scaled });
+        } else if (object.isPointLight) {
+          result.lights.push({ kind: 'point', position, color: scaled, range: object.distance || 0 });
+        } else if (object.isSpotLight) {
+          const target = targetWorldPosition(object);
+          const delta = [target[0] - position[0], target[1] - position[1], target[2] - position[2]];
+          result.lights.push({ kind: 'spot', position, direction: normalize3(delta), color: scaled,
+            range: object.distance || 0,
+            inner: Math.max(0.0001, object.angle * (1 - (object.penumbra ?? 0))), outer: object.angle });
+        }
+      }
+    }
+    for (const child of object.children) walk(child, effective);
+  };
+  walk(scene, true);
+  return result;
+}
+
+function syncLights(engine, collected) {
+  engine._g3_asset_lights_clear();
+  for (const light of collected.lights) {
+    if (light.kind === 'directional') engine._g3_asset_light_directional(...light.direction, ...light.color);
+    else if (light.kind === 'point') engine._g3_asset_light_point(...light.position, ...light.color, light.range);
+    else engine._g3_asset_light_spot(...light.position, ...light.direction, ...light.color,
+      light.range, light.inner, light.outer);
+  }
+  engine._g3_asset_ambient(collected.ambient[0], collected.ambient[1], collected.ambient[2], 1);
+  if (collected.hemisphere) {
+    const h = collected.hemisphere;
+    engine._g3_asset_environment_lighting(h.sky[0], h.sky[1], h.sky[2],
+      h.ground[0], h.ground[1], h.ground[2], h.intensity);
+  } else {
+    engine._g3_asset_environment_lighting(0, 0, 0, 0, 0, 0, 0);
+  }
+}
+
+function syncBackground(engine, scene) {
+  const background = scene.background;
+  if (background && background.isColor) {
+    engine._g3_asset_background(background.r, background.g, background.b, 1);
+  } else {
+    engine._g3_asset_background(0, 0, 0, 1);
+  }
+}
+
+function syncFog(engine, scene) {
+  const fog = scene.fog;
+  if (fog && fog.isFogExp2) {
+    engine._g3_asset_fog(fog.color.r, fog.color.g, fog.color.b, fog.density);
+  } else if (fog && fog.isFog) {
+    // The engine fog is exponential; a linear Fog maps approximately with a
+    // density derived from its range.
+    const density = fog.far > fog.near ? 2.5 / (fog.far - fog.near) : 0;
+    engine._g3_asset_fog(fog.color.r, fog.color.g, fog.color.b, density);
+  } else {
+    engine._g3_asset_fog(0, 0, 0, 0);
+  }
+}
+
+function syncCamera(engine, renderer, camera) {
+  if (!camera || !camera.isCamera) return;
+  const world = worldMatrixOf(camera);
+  const position = transformPoint(world, 0, 0, 0);
+  const forward = normalize3(transformDir(world, 0, 0, -1));
+  const up = normalize3(transformDir(world, 0, 1, 0));
+  const target = [position[0] + forward[0], position[1] + forward[1], position[2] + forward[2]];
+  const aspect = camera.aspect > 0 ? camera.aspect : renderer._cssWidth / Math.max(1, renderer._cssHeight);
+  let state = cameraStates.get(camera);
+  if (!state) {
+    const orthographic = camera.isOrthographicCamera ? 1 : 0;
+    const fov = camera.isPerspectiveCamera ? camera.fov * DEG2RAD : 0.9;
+    const orthoHeight = camera.isOrthographicCamera ? camera.top - camera.bottom : 0;
+    const id = engine._g3_asset_camera_add(position[0], position[1], position[2],
+      target[0], target[1], target[2], up[0], up[1], up[2],
+      fov, aspect, orthographic, orthoHeight, camera.near, camera.far);
+    if (id < 0) return;
+    state = { id, selected: false };
+    cameraStates.set(camera, state);
+  }
+  const orthographic = camera.isOrthographicCamera ? 1 : 0;
+  const fov = camera.isPerspectiveCamera ? camera.fov * DEG2RAD : 0.9;
+  const orthoHeight = camera.isOrthographicCamera ? camera.top - camera.bottom : 0;
+  engine._g3_asset_camera_update(state.id,
+    position[0], position[1], position[2], target[0], target[1], target[2],
+    up[0], up[1], up[2], fov, aspect, orthographic, orthoHeight, camera.near, camera.far);
+  if (!state.selected) {
+    engine._g3_asset_camera_select(state.id);
+    state.selected = true;
+  }
+}
+
+function syncSceneTree(scene, seen) {
+  const walk = (object, parentEngineIndex) => {
+    // An invisible object hides its whole subtree, like three.js.
+    if (object.visible === false) { releaseEngineTree(object); return; }
+    const local = localMatrixOf(object);
+    let engineParent = parentEngineIndex;
+    if (!object.isLight && !object.isCamera) {
+      engineParent = syncNode(sharedEngine, object, parentEngineIndex, local);
+      seen.add(object);
+    }
+    for (const child of object.children) walk(child, engineParent);
+  };
+  walk(scene, -1);
+}
+
+/* --- output settings ------------------------------------------------------------- */
+
+export const NoColorSpace = 'none';
+export const SRGBColorSpace = 'srgb';
+export const LinearSRGBColorSpace = 'linear';
+export const DisplayP3ColorSpace = 'display-p3';
+
+export const NoToneMapping = 0;
+export const LinearToneMapping = 1;
+export const ReinhardToneMapping = 2;
+export const CineonToneMapping = 3;
+export const ACESFilmicToneMapping = 4;
+export const CustomToneMapping = 5;
+export const AgXToneMapping = 6;
+export const NeutralToneMapping = 7;
+
+// Three.js tone-mapping constants mapped onto the engine's three modes.
+const TONE_MODES = {
+  0: 'none',   // NoToneMapping
+  1: 'none',   // LinearToneMapping
+  2: 'reinhard', // ReinhardToneMapping
+  3: 'reinhard', // CineonToneMapping
+  4: 'aces',   // ACESFilmicToneMapping
+};
+
+/* --- the renderer ------------------------------------------------------------------ */
+
+export class WebGPURenderer {
+  constructor(parameters = {}) {
+    const canvas = parameters.canvas;
+    if (!canvas || typeof canvas.getContext !== 'function') {
+      throw new Error('gs3d: WebGPURenderer requires a canvas element');
+    }
+    this.domElement = canvas;
+    this.isWebGPURenderer = true;
+    this._enginePromise = null;
+    this._engine = null;
+    this._lightLease = -1;
+    this._pixelRatio = 1;
+    this._cssWidth = 0;
+    this._cssHeight = 0;
+    this._lastFrame = 0;
+    this._animationLoop = null;
+    this._raf = 0;
+    this._disposed = false;
+    this.backend = { isWebGPUBackend: false, isWebGLBackend: true };
+    this.outputColorSpace = parameters.outputColorSpace ?? SRGBColorSpace;
+    this.toneMapping = parameters.toneMapping ?? NoToneMapping;
+    this.toneMappingExposure = parameters.toneMappingExposure ?? 1;
+    // Advanced/testing hook: a prebuilt engine module (or promise of one)
+    // replaces the bundled wasm loader. The browser path never sets this.
+    this._engineOverride = parameters.engine ?? null;
+    this.shadowMap = { enabled: false };
+    this.setPixelRatio(parameters.pixelRatio ?? (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1));
+    this._measure();
+  }
+
+  _measure() {
+    const canvas = this.domElement;
+    const rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+    this._cssWidth = rect && rect.width > 0 ? rect.width : (canvas.clientWidth || canvas.width || 300);
+    this._cssHeight = rect && rect.height > 0 ? rect.height : (canvas.clientHeight || canvas.height || 150);
+  }
+
+  setPixelRatio(value) {
+    this._pixelRatio = Number.isFinite(value) && value > 0 ? value : 1;
+    return this;
+  }
+  getPixelRatio() { return this._pixelRatio; }
+
+  setSize(width, height, updateStyle = true) {
+    this._cssWidth = width;
+    this._cssHeight = height;
+    const pw = Math.max(1, Math.round(width * this._pixelRatio));
+    const ph = Math.max(1, Math.round(height * this._pixelRatio));
+    this.domElement.width = pw;
+    this.domElement.height = ph;
+    if (updateStyle) {
+      this.domElement.style.width = `${width}px`;
+      this.domElement.style.height = `${height}px`;
+    }
+    if (this._engine) this._engine._g3_input_resize(pw, ph);
+    return this;
+  }
+  getSize(target = new Vector2()) { target.set(this._cssWidth, this._cssHeight); return target; }
+
+  setOutputColorSpace(space) { this.outputColorSpace = space; this._applyOutputSettings(); return this; }
+  setToneMapping(mode) { this.toneMapping = mode; this._applyOutputSettings(); return this; }
+  setClearColor(color, alpha = 1) {
+    this._clearColor = color instanceof Color ? color : new Color(color);
+    this._clearAlpha = alpha;
+    return this;
+  }
+
+  _applyOutputSettings() {
+    const engine = this._engine;
+    if (!engine) return;
+    const srgb = this.outputColorSpace === SRGBColorSpace ? 'srgb' : 'linear';
+    try { engine._g3_asset_output_srgb(srgb === 'srgb' ? 1 : 0); } catch {}
+    const mode = typeof this.toneMapping === 'number' ? (TONE_MODES[this.toneMapping] ?? 'none') : this.toneMapping;
+    try { engine._g3_asset_tone_mapping(mode); engine._g3_asset_exposure(this.toneMappingExposure ?? 1); } catch {}
+  }
+
+  async init() {
+    if (this._engine) return this._engine;
+    this._enginePromise = this._enginePromise || (async () => {
+      const engine = this._engineOverride
+        ? await this._engineOverride
+        : await createGoose3D({ locateFile: () => wasmUrl.href });
+      sharedEngine = engine;
+      const canvas = this.domElement;
+      if (!canvas.id) canvas.id = `gs3d-${++engineCanvasSeq}`;
+      if (typeof engine._g3_host_set_canvas === 'function') {
+        const selector = `[id="${String(canvas.id).replace(/["\\]/g, '\\$&')}"]`;
+        const bytes = new TextEncoder().encode(selector);
+        const ptr = engine._malloc(bytes.length);
+        engine.HEAPU8.set(bytes, ptr);
+        engine._g3_host_set_canvas(ptr, bytes.length);
+        engine._free(ptr);
+      }
+      if (!this._cssWidth || !this._cssHeight) this._measure();
+      const pw = Math.max(1, Math.round(this._cssWidth * this._pixelRatio));
+      const ph = Math.max(1, Math.round(this._cssHeight * this._pixelRatio));
+      canvas.width = pw;
+      canvas.height = ph;
+      if (typeof engine._g3_host_start === 'function' && !engine._g3_host_start(pw, ph)) {
+        throw new Error('gs3d: the engine could not start a WebGL2 context on this canvas');
+      }
+      this._lightLease = typeof engine._g3_asset_lights_begin === 'function' ? engine._g3_asset_lights_begin() : -1;
+      this._applyOutputSettings();
+      return engine;
+    })();
+    this._engine = await this._enginePromise;
+    return this._engine;
+  }
+
+  render(scene, camera) {
+    const engine = this._engine;
+    if (!engine) throw new Error('gs3d: call init() before render()');
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const dt = this._lastFrame ? Math.min((now - this._lastFrame) / 1000, 0.1) : 1 / 60;
+    this._lastFrame = now;
+    if (scene) {
+      const collected = collectLights(scene);
+      const seen = new Set();
+      syncSceneTree(scene, seen);
+      // Release engine nodes owned by objects outside this scene.
+      for (const object of syncedObjects) {
+        if (!seen.has(object)) {
+          const record = nodeStates.get(object);
+          if (record) releaseNodeRecord(record);
+          nodeStates.delete(object);
+          syncedObjects.delete(object);
+        }
+      }
+      for (const object of seen) syncedObjects.add(object);
+      this._applyOutputSettings();
+      syncBackground(engine, scene);
+      syncFog(engine, scene);
+      syncLights(engine, collected);
+      syncCamera(engine, this, camera);
+    }
+    engine._g3_app_frame(dt);
+  }
+
+  setAnimationLoop(callback) {
+    this._animationLoop = callback;
+    if (this._raf) { cancelFrame(this._raf); this._raf = 0; }
+    if (callback) {
+      const tick = time => {
+        if (this._animationLoop !== callback) return;
+        callback(time);
+        this._raf = requestFrame(tick);
+      };
+      this._raf = requestFrame(tick);
+    }
+    return this;
+  }
+
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    this.setAnimationLoop(null);
+    const engine = this._engine;
+    if (engine) {
+      if (this._lightLease >= 0) { try { engine._g3_asset_lights_release(this._lightLease); } catch {} }
+      try { engine._g3_app_shutdown(); } catch {}
+    }
+    this._engine = null;
+    this._enginePromise = null;
+  }
+}
+
+// Vector2 is used only by getSize; keep it dependency-free.
+export class Vector2 {
+  constructor(x = 0, y = 0) { this.isVector2 = true; this.x = x; this.y = y; }
+  set(x, y) { this.x = x; this.y = y; return this; }
+}

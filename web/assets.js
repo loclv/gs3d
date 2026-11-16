@@ -1940,3 +1940,6 @@ export async function loadGLTF(engine, url, options = {}) {
     throw new AssetError('UPLOAD', 'Could not upload glTF asset', error);
   }
 }
+
+// The Three.js-compatible scene facade ships through the root and ./three.
+export * from "./three.js";

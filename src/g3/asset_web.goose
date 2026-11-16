@@ -159,6 +159,9 @@ export fn g3_asset_environment_lighting(sky_r: f32, sky_g: f32, sky_b: f32, grou
     return g3::set_environment(float3 { sky_r, sky_g, sky_b }, float3 { ground_r, ground_g, ground_b }, intensity);
 }
 export fn g3_asset_environment_rotation(rotation: f32) -> bool { return g3::set_environment_rotation(rotation); }
+export fn g3_asset_background(r: f32, g: f32, b: f32, a: f32) { g3::set_background(float4 { r, g, b, a }); }
+export fn g3_asset_ambient(r: f32, g: f32, b: f32, intensity: f32) { g3::set_ambient(float3 { r, g, b }, intensity); }
+export fn g3_asset_fog(r: f32, g: f32, b: f32, density: f32) { g3::set_fog(float3 { r, g, b }, density); }
 export fn g3_asset_camera_add(px: f32, py: f32, pz: f32, tx: f32, ty: f32, tz: f32, ux: f32, uy: f32, uz: f32,
                               fov: f32, aspect: f32, orthographic: bool, ortho_height: f32, near: f32, far: f32) -> i32 {
     let cam = g3::Camera { pos: float3 { px, py, pz }, target: float3 { tx, ty, tz }, up: float3 { ux, uy, uz },
