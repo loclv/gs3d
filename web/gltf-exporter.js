@@ -1,5 +1,3 @@
-import { Matrix4 } from './three.js';
-
 const FLOAT = 5126, UINT = 5125, USHORT = 5123, UBYTE = 5121;
 const VEC2 = 'VEC2', VEC3 = 'VEC3', VEC4 = 'VEC4', SCALAR = 'SCALAR';
 
@@ -217,7 +215,7 @@ export class GLTFExporter {
     view.setUint32(16, 0x4e4f534a, true); // 'JSON'
     new Uint8Array(glb, 20, jsonChunk.length).set(jsonChunk);
 
-    let offset = 20 + jsonChunk.length;
+    const offset = 20 + jsonChunk.length;
     view.setUint32(offset, binLength + binPad, true);
     view.setUint32(offset + 4, 0x004e4942, true); // 'BIN'
     const binStart = offset + 8;
