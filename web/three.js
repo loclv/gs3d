@@ -4205,7 +4205,10 @@ function readTargetPixels(engine, rt, size) {
   const bytes = size * size * 4;
   const ptr = engine._malloc(bytes);
   const buf = new Uint8Array(engine.HEAPU8.buffer, ptr, bytes);
-  engine._g3_asset_render_target_read(rt, 0, 0, size, size, ptr, bytes);
+  if (!engine._g3_host_render_target_read(rt, 0, 0, size, size, ptr, bytes)) {
+    engine._free(ptr);
+    throw new Error('gs3d: environment render target readback failed');
+  }
   // Readback arrives bottom-up; flip to top-down for sampling.
   const out = new Uint8Array(bytes);
   for (let y = 0; y < size; y++) {

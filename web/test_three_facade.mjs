@@ -93,7 +93,7 @@ function createMockEngine() {
     _g3_asset_exposure: record('_g3_asset_exposure'),
     _g3_asset_render_target_create: () => 77,
     _g3_asset_render_target_select: record('_g3_asset_render_target_select'),
-    _g3_asset_render_target_read: record('_g3_asset_render_target_read'),
+    _g3_host_render_target_read: record('_g3_host_render_target_read'),
   };
   return engine;
 }
@@ -1261,7 +1261,7 @@ function buildTestGLB() {
   // stitches an equirectangular DataTexture; RoomEnvironment builds a scene.
   const engine = createMockEngine();
   let readCalls = 0;
-  engine._g3_asset_render_target_read = (rt, x, y, w, h, ptr, len) => {
+  engine._g3_host_render_target_read = (rt, x, y, w, h, ptr, len) => {
     readCalls++;
     const view = new Uint8Array(engine.HEAPU8.buffer, ptr, len);
     for (let i = 0; i < len; i++) view[i] = (i * 3 + readCalls * 17) & 0xff;
