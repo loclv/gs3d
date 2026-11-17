@@ -1273,6 +1273,10 @@ export const MathUtils = {
     outMin + (outMax - outMin) * ((v - inMin) / (inMax - inMin || 1)),
   degToRad: d => d * Math.PI / 180,
   radToDeg: r => r * 180 / Math.PI,
+  smoothstep: (x, min, max) => {
+    const t = Math.max(0, Math.min(1, (x - min) / (max - min || 1e-12)));
+    return t * t * (3 - 2 * t);
+  },
 };
 
 export class LatheGeometry extends BufferGeometry {
@@ -2185,6 +2189,7 @@ export class OrbitControls {
     this._onPointerUp = e => this._pointerUp(e);
     this._onWheel = e => this._wheel(e);
     this._onContextMenu = e => e.preventDefault();
+    this._listeners = new Map();
     const el = domElement;
     el.addEventListener('pointerdown', this._onPointerDown);
     el.addEventListener('pointermove', this._onPointerMove);
@@ -2197,6 +2202,35 @@ export class OrbitControls {
 
     this._readSpherical();
   }
+
+  // Minimal EventDispatcher surface (three.js parity for the events this
+  // control emits): 'start', 'change', 'end'.
+  addEventListener(type, listener) {
+    if (typeof listener !== 'function') return;
+    let set = this._listeners.get(type);
+    if (!set) this._listeners.set(type, set = new Set());
+    set.add(listener);
+  }
+  removeEventListener(type, listener) {
+    this._listeners.get(type)?.delete(listener);
+  }
+  hasEventListener(type, listener) {
+    return !!this._listeners.get(type)?.has(listener);
+  }
+  dispatchEvent(event) {
+    const type = typeof event === 'string' ? event : event?.type;
+    const set = this._listeners.get(type);
+    if (!set) return false;
+    const payload = typeof event === 'string' || !event ? { type, target: this } : event;
+    if (payload.target === undefined) payload.target = this;
+    for (const listener of [...set]) listener.call(this, payload);
+    return true;
+  }
+
+  rotateLeft(angle) { this._thetaDelta -= angle; this.update(); }
+  rotateUp(angle) { this._phiDelta -= angle; this.update(); }
+  dollyIn(scale) { this._radiusDelta *= Math.max(1e-6, scale); this.update(); }
+  dollyOut(scale) { this._radiusDelta /= Math.max(1e-6, scale); this.update(); }
 
   _readSpherical() {
     const p = this.object.position, t = this.target;
@@ -2276,6 +2310,8 @@ export class OrbitControls {
 
   update() {
     if (this._disposed) return false;
+    const moved = this._thetaDelta !== 0 || this._phiDelta !== 0 || this._radiusDelta !== 1
+      || this._panOffset.x !== 0 || this._panOffset.y !== 0 || this._panOffset.z !== 0;
     this._phi = Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._phi + this._phiDelta));
     this._theta += this._thetaDelta;
     this._radius = Math.max(this.minDistance, Math.min(this.maxDistance, this._radius * this._radiusDelta));
@@ -2286,6 +2322,7 @@ export class OrbitControls {
       this.target.z + offset.z + this._panOffset.z);
     this._panOffset.set(0, 0, 0);
     this.object.lookAt(this.target);
+    if (moved) this.dispatchEvent('change');
     return true;
   }
 
@@ -4150,5 +4187,11 @@ export class RoomEnvironment extends Scene {
     box(3, 3, 0xd0e8ff, 2, [-3, 2, 3], [0, 0, -1]);
     box(3, 3, 0xffe8d0, 1.5, [3, 2, 3], [0, 0, -1]);
     this.updateMatrixWorld();
+  }
+  dispose() {
+    this.traverse(node => {
+      node.geometry?.dispose?.();
+      for (const material of Array.isArray(node.material) ? node.material : [node.material]) material?.dispose?.();
+    });
   }
 }

@@ -228,6 +228,7 @@ export const MathUtils: {
   mapLinear(v: number, inMin: number, inMax: number, outMin: number, outMax: number): number;
   degToRad(d: number): number;
   radToDeg(r: number): number;
+  smoothstep(x: number, min: number, max: number): number;
 };
 
 export const FrontSide: 0;
@@ -573,6 +574,14 @@ export class OrbitControls {
   minPolarAngle: number;
   maxPolarAngle: number;
   screenSpacePanning: boolean;
+  addEventListener(type: string, listener: (event: { type: string; target: OrbitControls }) => void): void;
+  removeEventListener(type: string, listener: (event: { type: string; target: OrbitControls }) => void): void;
+  hasEventListener(type: string, listener: (event: { type: string; target: OrbitControls }) => void): boolean;
+  dispatchEvent(event: string | { type: string }): boolean;
+  rotateLeft(angle: number): void;
+  rotateUp(angle: number): void;
+  dollyIn(scale: number): void;
+  dollyOut(scale: number): void;
   update(): boolean;
   dispose(): void;
 }
