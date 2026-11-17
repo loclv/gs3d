@@ -89,15 +89,21 @@ merged loop triangulates cleanly, otherwise filled) and `ExtrudeGeometry`
 along any `getPoint(t)` path, and `CatmullRomCurve3` provides splines.
 Skinning, morph targets, line/points primitives and post-processing are
 not implemented. Materials accept a `customShader` extension —
-`material.customShader = { header, body }` splices GLSL into a copy of the
-lit fragment shader (WebGL only): `header` lands at global scope before
-`main()` where it can declare helpers and extra uniforms, and `body`
-statements run inside `main()` after the material inputs (`base`, `n`,
-`ao`, `mr`, `metal`, `f0`, `specular_*`, `coat_*`, `sheen_*`, `aniso_*`,
-`v`, `l`, all `u_*` uniforms and `v_uv`–`v_uv7` varyings) are resolved but
-before lighting accumulates, so they can be reassigned; adding to
+`material.customShader = { header, body, tail }` splices GLSL into a
+copy of the lit fragment shader (WebGL only): `header` lands at global
+scope before `main()` where it can declare helpers and extra uniforms,
+`body` statements run inside `main()` after the material inputs
+(`base`, `n`, `ao`, `mr`, `metal`, `f0`, `specular_*`, `coat_*`,
+`sheen_*`, `aniso_*`, `v`, `l`, all `u_*` uniforms and `v_uv`–`v_uv7`
+varyings) are resolved but before lighting accumulates, so they can be
+reassigned, and `tail` statements run after tone mapping and sRGB
+encoding, just before output, where they may modify `col` and `alpha`
+(display-referred grading such as a LUT belongs here). Adding to
 `g3_emissive_extra` (declared just before `body`) contributes emission.
-`material.customUniforms` is a 16-float array exposed as
+Every custom program also declares `uniform sampler3D u_lut` and
+`uniform float u_lut_enabled`; `material.lutTexture` accepts a
+`Data3DTexture` (RGBA8 `Uint8Array`, linear/clamp fixed) bound per
+material, and `material.customUniforms` is a 16-float array exposed as
 `uniform vec4 u_user[4]`. The CPU backend ignores custom shaders and
 renders the standard program. Custom shaders always run the lit path and
 participate in the same texture-mask program cache (64 variants). Shadows are limited to one directional light: the first

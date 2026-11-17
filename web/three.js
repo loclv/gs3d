@@ -1583,6 +1583,18 @@ export class DataTexture extends Texture {
   }
 }
 
+// RGBA8 3D texture for custom material shaders (material.lutTexture, sampled
+// as u_lut). Only Uint8Array/Uint8ClampedArray data uploads; the engine
+// fixes linear filtering and clamp-to-edge wrapping.
+export class Data3DTexture extends Texture {
+  constructor(data = null, width = 1, height = 1, depth = 1) {
+    super(data ? { data, width, height, depth } : null);
+    this.isData3DTexture = true;
+    this.flipY = false;
+    this.unpackAlignment = 4;
+  }
+}
+
 export class CanvasTexture extends Texture {
   constructor(canvas = document.createElement('canvas')) {
     super(canvas);
@@ -2187,6 +2199,7 @@ const customShaderIds = new WeakMap(); // customShader object -> engine shader i
 let customShaderSeq = 0;
 const cameraStates = new WeakMap();  // Camera -> engine camera id
 const textureStates = new WeakMap(); // Texture -> {id,generation,signature}
+const texture3dStates = new WeakMap(); // Data3DTexture -> {id,generation,signature}
 let engineCanvasSeq = 0;
 // Objects that currently own an engine node. render() releases records for
 // objects absent from the scene being drawn, so switching scenes cannot leak
@@ -2231,6 +2244,9 @@ function releaseTexture(texture) {
   const state = textureStates.get(texture);
   if (state && sharedEngine) sharedEngine._g3_asset_release_texture(state.id, state.generation);
   textureStates.delete(texture);
+  const state3d = texture3dStates.get(texture);
+  if (state3d && sharedEngine) sharedEngine._g3_asset_release_texture(state3d.id, state3d.generation);
+  texture3dStates.delete(texture);
 }
 
 function textureSignature(texture) {
@@ -2273,6 +2289,31 @@ function ensureTexture(engine, texture) {
   const record = { id, generation: engine._g3_asset_texture_generation(id), signature };
   textureStates.set(texture, record);
   return id;
+}
+
+function ensureTexture3D(engine, texture) {
+  if (!texture || !texture.isData3DTexture) return -1;
+  if (typeof engine._g3_asset_texture_3d !== 'function') return -1;
+  const image = texture.image;
+  const data = image && image.data;
+  if (!data || !(data instanceof Uint8Array || data instanceof Uint8ClampedArray)) return -1;
+  const signature = [image ? `${image.width}x${image.height}x${image.depth}` : 'pending',
+    texture.version].join(',');
+  const state = texture3dStates.get(texture);
+  if (state && state.signature === signature) return state.id;
+  if (state) engine._g3_asset_release_texture(state.id, state.generation);
+  const ptr = engine._malloc(data.length);
+  if (!ptr) return -1;
+  try {
+    engine.HEAPU8.set(data instanceof Uint8Array ? data : new Uint8Array(data.buffer, data.byteOffset, data.byteLength), ptr);
+    const id = engine._g3_asset_texture_3d(image.width, image.height, image.depth, ptr, data.length);
+    if (id < 0) return -1;
+    const record = { id, generation: engine._g3_asset_texture_generation(id), signature };
+    texture3dStates.set(texture, record);
+    return id;
+  } finally {
+    engine._free(ptr);
+  }
 }
 
 // rotation (Euler) and quaternion are two views of the same orientation.
@@ -2472,7 +2513,9 @@ function ensureMaterial(engine, material) {
   if (!material) material = new MeshBasicMaterial();
   const maps = materialMaps(material);
   const textureIds = maps.map(t => t ? ensureTexture(engine, t) : -1);
+  const lutTextureId = material.lutTexture ? ensureTexture3D(engine, material.lutTexture) : -1;
   const signature = materialSignature(material) + '|tex:' + textureIds.join(',') +
+    '|lut:' + lutTextureId +
     '|' + maps.map(t => t ? textureUvSignature(t) : '-').join(';');
   const state = materialStates.get(material);
   if (state && state.signature === signature) return state.id;
@@ -2523,15 +2566,20 @@ function ensureMaterial(engine, material) {
       };
       const header = upload(customShader.header);
       const body = upload(customShader.body);
+      const tail = upload(customShader.tail);
       try {
-        shaderId = engine._g3_asset_material_shader_create(header[0], header[1], body[0], body[1]);
+        shaderId = engine._g3_asset_material_shader_create(header[0], header[1], body[0], body[1], tail[0], tail[1]);
       } finally {
         engine._free(header[0]);
         engine._free(body[0]);
+        engine._free(tail[0]);
       }
       customShaderIds.set(customShader, shaderId);
     }
     if (shaderId >= 0) engine._g3_asset_material_set_shader(id, shaderId);
+  }
+  if (lutTextureId >= 0 && typeof engine._g3_asset_material_lut === 'function') {
+    engine._g3_asset_material_lut(id, lutTextureId);
   }
   const customUniforms = material.customUniforms;
   if (customUniforms && typeof engine._g3_asset_material_user === 'function') {

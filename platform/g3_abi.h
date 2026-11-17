@@ -80,6 +80,7 @@ typedef struct {
     float environment_intensity; /* per-material multiplier for environment fill and reflections */
     int32_t shader;      /* custom fragment program id, -1 selects the standard program; WebGL-only */
     g3_vec4 user0, user1, user2, user3; /* exposed to custom shaders as u_user[4] */
+    int32_t lut_texture; /* 3D texture id sampled as u_lut by custom shaders, -1 disables */
 } g3_draw_item;
 
 typedef struct { g3_vec4 position, direction, color; float inner, attenuation; } g3_light;
@@ -136,7 +137,7 @@ _Static_assert(offsetof(g3_vertex, uv7) == 80, "Vertex.uv7 offset");
 _Static_assert(offsetof(g3_vertex, tangent) == 88, "Vertex.tangent offset");
 _Static_assert(offsetof(g3_vertex, color) == 104, "Vertex.color offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
-_Static_assert(sizeof(g3_draw_item) == 721, "g3_draw_item must be 721 bytes");
+_Static_assert(sizeof(g3_draw_item) == 725, "g3_draw_item must be 725 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
 _Static_assert(offsetof(g3_draw_item, alpha_mode) == 172, "DrawItem.alpha_mode offset");
 _Static_assert(offsetof(g3_draw_item, alpha_cutoff) == 176, "DrawItem.alpha_cutoff offset");
@@ -178,6 +179,7 @@ _Static_assert(offsetof(g3_draw_item, anisotropy_uv) == 625, "DrawItem.anisotrop
 _Static_assert(offsetof(g3_draw_item, environment_intensity) == 649, "DrawItem.environment_intensity offset");
 _Static_assert(offsetof(g3_draw_item, shader) == 653, "DrawItem.shader offset");
 _Static_assert(offsetof(g3_draw_item, user0) == 657, "DrawItem.user0 offset");
+_Static_assert(offsetof(g3_draw_item, lut_texture) == 721, "DrawItem.lut_texture offset");
 _Static_assert(sizeof(g3_light) == 56, "g3_light must be 56 bytes");
 _Static_assert(offsetof(g3_light, attenuation) == 52, "Light.attenuation offset");
 _Static_assert(sizeof(g3_view_state) == 1268, "g3_view_state must be 1268 bytes");
@@ -277,13 +279,14 @@ void g3p_release_mesh(int32_t id);
 void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
 void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
 void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height);
+void g3p_upload_texture_3d(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth);
 uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height);
 uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height);
 uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect);
 uint8_t g3p_post_process_shader_create(int32_t id, g3_u8_slice body);
 void g3p_post_process_shader_release(int32_t id);
 uint8_t g3p_post_process_shader_run(int32_t shader, int32_t source, int32_t destination);
-uint8_t g3p_material_shader_create(int32_t id, g3_u8_slice header, g3_u8_slice body);
+uint8_t g3p_material_shader_create(int32_t id, g3_u8_slice header, g3_u8_slice body, g3_u8_slice tail);
 void g3p_material_shader_release(int32_t id);
 int32_t g3p_texture_width(int32_t id);
 int32_t g3p_texture_height(int32_t id);

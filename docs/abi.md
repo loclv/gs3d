@@ -51,7 +51,7 @@ The procedural checklist lives in
 selected `texcoord` set (0 through 7). The renderer scales the selected UV, rotates
 it, then adds the offset.
 
-### `g3_draw_item` — 721 bytes
+### `g3_draw_item` — 725 bytes
 
 | offset | type | field | meaning |
 |---|---|---|---|
@@ -102,6 +102,7 @@ it, then adds the offset.
 | 649 | `float` | `environment_intensity` | per-material multiplier for hemispherical and texture-based environment lighting |
 | 653 | `int32_t` | `shader` | custom fragment program id, -1 selects the standard program; WebGL-only, ignored by the CPU backend |
 | 657 | `g3_vec4` | `user0`–`user3` | sixteen floats exposed to custom shaders as `uniform vec4 u_user[4]` |
+| 721 | `int32_t` | `lut_texture` | 3D texture id sampled by custom shaders as `uniform sampler3D u_lut`, -1 disables; WebGL-only |
 
 Placement in the list is the instruction; `key` only documents why that is the
 order (mesh id for opaque, `1000000 + (100000 - distance)` for blended).
@@ -194,12 +195,15 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 | `void g3p_upload_texture(int32_t id, g3_u8_slice, int32_t w, int32_t h)` | copy row-major RGBA8 pixels; reset to bilinear filtering and clamp-to-edge |
 | `void g3p_upload_texture_srgb(int32_t id, g3_u8_slice, int32_t w, int32_t h)` | same upload, decoding sRGB RGB channels to linear for filtering; alpha remains linear |
 | `void g3p_upload_texture_hdr(int32_t id, g3_f32_slice, int32_t w, int32_t h)` | copy row-major linear RGBA32F radiance; intended for environment maps |
+| `void g3p_upload_texture_3d(int32_t id, g3_u8_slice, int32_t w, int32_t h, int32_t d)` | copy row-major RGBA8 voxels for `u_lut`; linear/clamp fixed; CPU backend ignores |
 | `uint8_t g3p_create_render_target(int32_t id, int32_t w, int32_t h)` | create a sampleable linear RGBA8 target with depth storage |
 | `uint8_t g3p_resize_render_target(int32_t id, int32_t w, int32_t h)` | resize a target; its contents are cleared |
 | `uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect)` | run copy (0), grayscale (1), invert (2), or FXAA (3) from a texture into a distinct target |
 | `uint8_t g3p_post_process_shader_create(int32_t id, g3_u8_slice body)` | compile a bounded WebGL2 fragment-body program; the CPU backend rejects it |
 | `uint8_t g3p_post_process_shader_run(int32_t shader, int32_t source, int32_t destination)` | run a custom fragment program into a distinct render target |
 | `void g3p_post_process_shader_release(int32_t id)` | release a compiled custom fragment program |
+| `uint8_t g3p_material_shader_create(int32_t id, g3_u8_slice header, g3_u8_slice body, g3_u8_slice tail)` | register GLSL spliced into the lit fragment shader; the CPU backend rejects it |
+| `void g3p_material_shader_release(int32_t id)` | release a registered custom material shader source |
 | `int32_t g3p_texture_width(int32_t id)` / `g3p_texture_height(int32_t id)` | dimensions of a backend texture |
 | `void g3p_release_texture(int32_t id)` | release backend texture and derived mip storage; the numeric slot remains reserved |
 | `void g3p_texture_wrap(int32_t id, int32_t u, int32_t v)` | set U and V wrapping: 0 clamp, 1 repeat, 2 mirrored repeat |
@@ -272,7 +276,7 @@ everything starts. Every symbol the page calls must appear in
 | `platform/g3_input.{h,c}` extracted | the key table, mouse deltas and resize wrapper now exist once instead of in both backends; each backend implements only `g3_backend_resize`. |
 
 WebGL matrix uploads must first copy packed matrices into aligned float
-storage. A DrawItem has a 721-byte stride; matrix members in successive
+storage. A DrawItem has a 725-byte stride; matrix members in successive
 records are often unaligned. Emscripten passes uniform arrays through HEAPF32,
 whose pointer-to-index conversion discards low address bits. Passing packed
 members directly corrupts transforms. The WebGL backend's `upload_matrix4`

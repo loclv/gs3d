@@ -124,6 +124,8 @@ struct Material {
     user1: float4 = float4_0,
     user2: float4 = float4_0,
     user3: float4 = float4_0,
+    // 3D texture sampled by the custom shader as `u_lut` (WebGL-only).
+    lut_texture: i32 = -1,
     removed: bool,
     asset_owned: bool,
     generation: i32 = 1,

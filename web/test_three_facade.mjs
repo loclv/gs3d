@@ -54,6 +54,8 @@ function createMockEngine() {
     _g3_asset_material_shader_release: record('_g3_asset_material_shader_release'),
     _g3_asset_material_set_shader: record('_g3_asset_material_set_shader'),
     _g3_asset_material_user: record('_g3_asset_material_user'),
+    _g3_asset_material_lut: record('_g3_asset_material_lut'),
+    _g3_asset_texture_3d: (...args) => { calls.push(['_g3_asset_texture_3d', ...args]); return nextTexture++; },
     _g3_asset_material_uv_transform: record('_g3_asset_material_uv_transform'),
     _g3_asset_material_generation: () => 1,
     _g3_asset_material_valid: () => 1,
@@ -354,7 +356,7 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
 
   const creates = named(engine, '_g3_asset_material_shader_create');
   assert.equal(creates.length, 1, 'shader source uploaded once');
-  assert.equal(creates[0].length, 5, 'create receives header and body slices');
+  assert.equal(creates[0].length, 7, 'create receives header, body and tail slices');
   const setCalls = named(engine, '_g3_asset_material_set_shader');
   assert.equal(setCalls.length, 1);
   assert.equal(setCalls[0][2], 42, 'engine shader id bound to material');
@@ -369,6 +371,31 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   renderer.render(scene, new THREE.PerspectiveCamera());
   assert.equal(named(engine, '_g3_asset_material_shader_create').length, 1, 'shared shader object compiles once');
   assert.equal(named(engine, '_g3_asset_material_set_shader').length, 2);
+}
+
+// --- 3D LUT textures ---------------------------------------------------------------
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  const data = new Uint8Array(2 * 2 * 2 * 4).fill(128);
+  const lut = new THREE.Data3DTexture(data, 2, 2, 2);
+  const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+  material.customShader = { header: '', body: 'col += vec3(0.0);', tail: 'col = clamp(col, 0.0, 1.0);' };
+  material.lutTexture = lut;
+  scene.add(new THREE.Mesh(geometry, material));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+
+  const uploads = named(engine, '_g3_asset_texture_3d');
+  assert.equal(uploads.length, 1, '3D texture uploaded once');
+  assert.deepEqual(uploads[0].slice(1, 4), [2, 2, 2], '3D dimensions passed through');
+  const lutCalls = named(engine, '_g3_asset_material_lut');
+  assert.equal(lutCalls.length, 1, 'lut bound to material');
+  assert.equal(lutCalls[0][2], 1, 'lut id is the uploaded 3D texture');
 }
 
 // --- fog -------------------------------------------------------------------------

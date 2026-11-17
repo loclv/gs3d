@@ -1162,7 +1162,7 @@ fn case_render_target() {
     let custom_shader = g3::post_process_shader_create("color.rgb = vec3(1.0) - color.rgb;");
     testing::check(custom_shader == -1 && !g3::post_process_shader_run(custom_shader, target, processed),
                    "CPU backend reports custom fragment shaders as unsupported");
-    let custom_material_shader = g3::material_shader_create(" ", "base *= 2.0;");
+    let custom_material_shader = g3::material_shader_create(" ", "base *= 2.0;", "");
     testing::check(custom_material_shader == -1 && !g3::material_shader_valid(custom_material_shader),
                    "CPU backend reports custom material shaders as unsupported");
     let red_pixels: u8[4] = [255, 0, 0, 255];

@@ -81,7 +81,7 @@ typedef struct {
     GLsizei morph_target_count;
 } web_mesh;
 
-/* Goose records are packed: DrawItem's 721-byte stride leaves three of
+/* Goose records are packed: DrawItem's 725-byte stride leaves three of
    every four matrix addresses unaligned. Emscripten's WebGL bridge indexes
    HEAPF32 with pointer >> 2, so passing those addresses directly truncates
    them. Copy through aligned float storage before every matrix upload. */
@@ -125,6 +125,8 @@ typedef struct {
     GLint morph_enabled, morph_positions, morph_normals, morph_tangents, morph_weights, morph_target_count;
     GLint instanced;
     GLint user;         /* u_user[0]: sixteen per-item floats for custom shaders */
+    GLint lut, lut_enabled; /* sampler3D u_lut and its enable flag, custom shaders */
+    int lut_unit;       /* texture unit reserved for u_lut, -1 when unused */
     int custom_id;      /* DrawItem.shader this variant serves, -1 standard */
 } web_shader;
 
@@ -134,7 +136,7 @@ static web_shader shader_cache[64];
 static unsigned shader_cache_next;
 /* Custom material fragment shader sources, defined with their g3p_ entry
    points below; select_material_shader reads them for lazy compiles. */
-typedef struct { char *header, *body; } web_material_shader_source;
+typedef struct { char *header, *body, *tail; } web_material_shader_source;
 static web_material_shader_source material_shader_sources[64];
 static GLint fragment_texture_units;
 static const char *material_samplers[13] = {
@@ -164,7 +166,7 @@ static int cached_material_valid;
 static double last_scene_draw_ms;
 #endif
 static GLuint *textures;
-static int32_t *texture_widths, *texture_heights, *texture_is_hdr;
+static int32_t *texture_widths, *texture_heights, *texture_is_hdr, *texture_is_3d;
 static int32_t texture_count;
 typedef struct { int32_t id; GLuint fbo, depth; int mipmapped; } web_render_target;
 static web_render_target *render_targets;
@@ -781,6 +783,8 @@ static void find_uniforms(void) {
     shader.morph_target_count = glGetUniformLocation(shader.program, "u_morph_target_count");
     shader.instanced = glGetUniformLocation(shader.program, "u_instanced");
     shader.user = glGetUniformLocation(shader.program, "u_user[0]");
+    shader.lut = glGetUniformLocation(shader.program, "u_lut");
+    shader.lut_enabled = glGetUniformLocation(shader.program, "u_lut_enabled");
     for (int i = 0; i < 8; i++) {
         char name[64];
         snprintf(name, sizeof(name), "u_lights[%d].position", i); shader.light_position[i] = glGetUniformLocation(shader.program, name);
@@ -797,34 +801,48 @@ static void find_uniforms(void) {
    the material inputs (base, n, ao, mr, f0, specular_*, coat_*, sheen_*,
    aniso_*, v, l) are resolved but before lighting accumulates; it may
    reassign them, and `g3_emissive_extra` is added into the emissive term. */
-static char *assemble_custom_fragment(const char *header, const char *body) {
+static char *assemble_custom_fragment(const char *header, const char *body, const char *tail) {
     const char *main_at = strstr(FRAGMENT_SRC, "void main() {");
     const char *inject_at = strstr(FRAGMENT_SRC, "    float coat_fresnel");
     const char *emissive_at = strstr(FRAGMENT_SRC, "col += u_emissive.rgb * emissive_texel;");
-    if (!main_at || !inject_at || !emissive_at || inject_at <= main_at || emissive_at <= inject_at) return NULL;
+    const char *out_at = strstr(FRAGMENT_SRC, "out_color = vec4(col,");
+    if (!main_at || !inject_at || !emissive_at || !out_at || inject_at <= main_at ||
+        emissive_at <= inject_at || out_at <= emissive_at) return NULL;
     const char *inject_line = inject_at;
     while (inject_line > FRAGMENT_SRC && inject_line[-1] != '\n') inject_line--;
+    const char *out_line = out_at;
+    while (out_line > FRAGMENT_SRC && out_line[-1] != '\n') out_line--;
+    int has_tail = tail && tail[0];
     static const char user_decl[] = "uniform vec4 u_user[4];\n";
+    static const char lut_decl[] = "uniform sampler3D u_lut;\nuniform float u_lut_enabled;\n";
     static const char extra_decl[] = "    vec3 g3_emissive_extra = vec3(0.0);\n";
     static const char emissive_orig[] = "col += u_emissive.rgb * emissive_texel;";
     static const char emissive_patched[] = "col += u_emissive.rgb * emissive_texel + g3_emissive_extra;";
-    size_t total = (size_t)(main_at - FRAGMENT_SRC) + sizeof(user_decl) - 1 + strlen(header) + 1 +
-        (size_t)(inject_line - main_at) + sizeof(extra_decl) - 1 + strlen(body) + 1 +
-        (size_t)(emissive_at - inject_line) + sizeof(emissive_patched) - 1 +
-        strlen(FRAGMENT_SRC) - (size_t)(emissive_at + sizeof(emissive_orig) - 1 - FRAGMENT_SRC);
+    size_t tail_len = has_tail ? strlen(tail) + 1 : 0;
+    size_t total = (size_t)(main_at - FRAGMENT_SRC) + sizeof(user_decl) - 1 + sizeof(lut_decl) - 1 +
+        strlen(header) + 1 + (size_t)(inject_line - main_at) + sizeof(extra_decl) - 1 +
+        strlen(body) + 1 + (size_t)(emissive_at - inject_line) + sizeof(emissive_patched) - 1 +
+        (size_t)(out_line - emissive_at) - (sizeof(emissive_orig) - 1) + tail_len +
+        strlen(FRAGMENT_SRC) - (size_t)(out_at - FRAGMENT_SRC);
     char *out = malloc(total + 1);
     if (!out) return NULL;
     char *p = out;
     memcpy(p, FRAGMENT_SRC, (size_t)(main_at - FRAGMENT_SRC)); p += main_at - FRAGMENT_SRC;
     memcpy(p, user_decl, sizeof(user_decl) - 1); p += sizeof(user_decl) - 1;
+    memcpy(p, lut_decl, sizeof(lut_decl) - 1); p += sizeof(lut_decl) - 1;
     size_t hl = strlen(header); memcpy(p, header, hl); p += hl; *p++ = '\n';
     memcpy(p, main_at, (size_t)(inject_line - main_at)); p += inject_line - main_at;
     memcpy(p, extra_decl, sizeof(extra_decl) - 1); p += sizeof(extra_decl) - 1;
     size_t bl = strlen(body); memcpy(p, body, bl); p += bl; *p++ = '\n';
     memcpy(p, inject_line, (size_t)(emissive_at - inject_line)); p += emissive_at - inject_line;
     memcpy(p, emissive_patched, sizeof(emissive_patched) - 1); p += sizeof(emissive_patched) - 1;
-    const char *tail = emissive_at + sizeof(emissive_orig) - 1;
-    size_t tl = strlen(tail); memcpy(p, tail, tl); p += tl;
+    /* Skip the original emissive statement; the patched copy above replaced
+       it, and everything up to the output line follows unchanged apart from
+       the optional tail insert. */
+    const char *after_emissive = emissive_at + sizeof(emissive_orig) - 1;
+    memcpy(p, after_emissive, (size_t)(out_line - after_emissive)); p += out_line - after_emissive;
+    if (has_tail) { size_t tl = strlen(tail); memcpy(p, tail, tl); p += tl; *p++ = '\n'; }
+    memcpy(p, out_line, strlen(FRAGMENT_SRC) - (size_t)(out_line - FRAGMENT_SRC)); p += strlen(FRAGMENT_SRC) - (out_line - FRAGMENT_SRC);
     *p = 0;
     return out;
 }
@@ -834,14 +852,15 @@ static char *assemble_custom_fragment(const char *header, const char *body) {
    the lit fragment shader (see assemble_custom_fragment); both NULL builds a
    standard variant. */
 static int build_program(unsigned mask, int fast_unlit, int no_fog,
-                         const char *custom_header, const char *custom_body) {
+                         const char *custom_header, const char *custom_body, const char *custom_tail) {
     /* Compile only the material samplers this draw actually uses. Disabled
        maps alias the environment sampler but their existing boolean guards
        stay false. No material/shading terms are approximated or dropped. */
     const char *fragment_source = fast_unlit ? UNLIT_FRAGMENT_SRC : FRAGMENT_SRC;
     char *assembled = NULL;
     if (custom_body) {
-        assembled = assemble_custom_fragment(custom_header ? custom_header : "", custom_body);
+        assembled = assemble_custom_fragment(custom_header ? custom_header : "", custom_body,
+                                             custom_tail ? custom_tail : "");
         if (!assembled) return 0;
         fragment_source = assembled;
     }
@@ -897,6 +916,10 @@ static int build_program(unsigned mask, int fast_unlit, int no_fog,
     int unit = 5; /* environment, directional shadow, point, spot, BRDF: 0..4 */
     for (int i = 0; i < 13; i++)
         shader.texture_units[i] = mask & (1u << i) ? unit++ : -1;
+    /* Custom programs always reserve a unit for u_lut; standard programs get
+       -1 and never touch the 3D path. The unit index depends only on the
+       texture mask, so it stays consistent inside a cache entry. */
+    shader.lut_unit = custom_body ? unit : -1;
     return 1;
 }
 
@@ -978,7 +1001,7 @@ uint8_t g3p_init(int32_t width, int32_t height, g3_u8_slice title) {
     hdr_color_buffer_supported=float_color_buffer_supported;
     set_surface_size(width, height);
 
-    if (!build_program(0, 0, 0, NULL, NULL) || !ensure_brdf_lut()) return 0;
+    if (!build_program(0, 0, 0, NULL, NULL, NULL) || !ensure_brdf_lut()) return 0;
     shader_cache[0] = shader; shader_cache_next = 1;
 
     /* The state the CPU backend also sets: depth LESS, back faces culled,
@@ -1033,6 +1056,7 @@ void g3p_shutdown(void) {
     for (int32_t i = 0; i < texture_count; i++) glDeleteTextures(1, &textures[i]);
     free(textures); textures = NULL; texture_count = 0;
     free(texture_widths); texture_widths=NULL;
+    free(texture_is_3d); texture_is_3d=NULL;
     free(texture_heights); texture_heights=NULL;
     free(texture_is_hdr); texture_is_hdr=NULL;
     if (env_sampler) glDeleteSamplers(1, &env_sampler);
@@ -1422,7 +1446,7 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            same_uv_transform(a->sheen_color_uv,b->sheen_color_uv) &&
            same_uv_transform(a->sheen_roughness_uv,b->sheen_roughness_uv) &&
            same_uv_transform(a->anisotropy_uv,b->anisotropy_uv) &&
-           a->shader == b->shader &&
+           a->shader == b->shader && a->lut_texture == b->lut_texture &&
            same_vec4(a->user0,b->user0) && same_vec4(a->user1,b->user1) &&
            same_vec4(a->user2,b->user2) && same_vec4(a->user3,b->user3);
 }
@@ -1449,12 +1473,20 @@ static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_
         int32_t *grown_hdr=realloc(texture_is_hdr,count*sizeof(*texture_is_hdr));
         if (!grown_hdr) return;
         texture_is_hdr=grown_hdr;
+        int32_t *grown_3d=realloc(texture_is_3d,count*sizeof(*texture_is_3d));
+        if (!grown_3d) return;
+        texture_is_3d=grown_3d;
         memset(textures + texture_count, 0, (count - (size_t)texture_count) * sizeof(*textures));
         memset(texture_widths + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_widths));
         memset(texture_heights + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_heights));
         memset(texture_is_hdr + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_hdr));
+        memset(texture_is_3d + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_3d));
         texture_count = id + 1;
     }
+    /* A texture object has one target for life: switching 2D<->3D needs a
+       fresh name, which also drops any FBO attachment (3D ids are never
+       render targets). */
+    if (texture_is_3d[id]) { glDeleteTextures(1, &textures[id]); textures[id] = 0; texture_is_3d[id] = 0; }
     if (!textures[id]) glGenTextures(1, &textures[id]);
     if (env_prefilter_source_id == id) {
         if (env_prefilter_texture) glDeleteTextures(1,&env_prefilter_texture);
@@ -1479,12 +1511,15 @@ static void upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, i
         int32_t *gw=realloc(texture_widths,count*sizeof(*texture_widths)); if(!gw)return; texture_widths=gw;
         int32_t *gh=realloc(texture_heights,count*sizeof(*texture_heights)); if(!gh)return; texture_heights=gh;
         int32_t *gi=realloc(texture_is_hdr,count*sizeof(*texture_is_hdr)); if(!gi)return; texture_is_hdr=gi;
+        int32_t *g3=realloc(texture_is_3d,count*sizeof(*texture_is_3d)); if(!g3)return; texture_is_3d=g3;
         memset(textures+texture_count,0,(count-(size_t)texture_count)*sizeof(*textures));
         memset(texture_widths+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_widths));
         memset(texture_heights+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_heights));
         memset(texture_is_hdr+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_hdr));
+        memset(texture_is_3d+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_3d));
         texture_count=id+1;
     }
+    if (texture_is_3d[id]) { glDeleteTextures(1,&textures[id]); textures[id]=0; texture_is_3d[id]=0; }
     if (!textures[id]) glGenTextures(1,&textures[id]);
     if (env_prefilter_source_id==id) {
         if(env_prefilter_texture)glDeleteTextures(1,&env_prefilter_texture);
@@ -1509,6 +1544,40 @@ void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int3
 
 void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height) {
     upload_texture_hdr(id,pixels,width,height);
+}
+
+/* RGBA8 3D texture for custom material shaders (u_lut). Linear filtering and
+   clamp-to-edge on all axes, matching the 2D defaults. */
+void g3p_upload_texture_3d(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth) {
+    if (id < 0 || width <= 0 || height <= 0 || depth <= 0 ||
+        pixels.len != (int64_t)width * height * depth * 4) return;
+    cached_material_valid = 0;
+    if (id >= texture_count) {
+        size_t count=(size_t)id+1;
+        GLuint *grown=realloc(textures,count*sizeof(*textures)); if(!grown)return; textures=grown;
+        int32_t *gw=realloc(texture_widths,count*sizeof(*texture_widths)); if(!gw)return; texture_widths=gw;
+        int32_t *gh=realloc(texture_heights,count*sizeof(*texture_heights)); if(!gh)return; texture_heights=gh;
+        int32_t *gi=realloc(texture_is_hdr,count*sizeof(*texture_is_hdr)); if(!gi)return; texture_is_hdr=gi;
+        int32_t *g3=realloc(texture_is_3d,count*sizeof(*texture_is_3d)); if(!g3)return; texture_is_3d=g3;
+        memset(textures+texture_count,0,(count-(size_t)texture_count)*sizeof(*textures));
+        memset(texture_widths+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_widths));
+        memset(texture_heights+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_heights));
+        memset(texture_is_hdr+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_hdr));
+        memset(texture_is_3d+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_3d));
+        texture_count=id+1;
+    }
+    /* Opposite direction of the 2D paths: a live 2D name cannot back a 3D
+       target, so recycle it before binding GL_TEXTURE_3D. */
+    if (textures[id] && !texture_is_3d[id]) { glDeleteTextures(1,&textures[id]); textures[id]=0; }
+    if (!textures[id]) glGenTextures(1,&textures[id]);
+    glBindTexture(GL_TEXTURE_3D,textures[id]);
+    glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_WRAP_R,GL_CLAMP_TO_EDGE);
+    glTexImage3D(GL_TEXTURE_3D,0,GL_RGBA8,width,height,depth,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels.data);
+    texture_widths[id]=width;texture_heights[id]=height;texture_is_hdr[id]=0;texture_is_3d[id]=1;
 }
 
 uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height) {
@@ -2071,7 +2140,8 @@ static int select_material_shader(const g3_draw_item *it) {
             if (ids[i] >= 0 && ids[i] < texture_count && textures[ids[i]]) {
                 mask |= 1u << i; units++;
             }
-        }
+        if (custom) units++; /* u_lut reservation on custom programs */
+    }
     if (units > fragment_texture_units) {
         report("This material exceeds the device's fragment texture budget (including lighting maps).");
         return 0;
@@ -2085,7 +2155,8 @@ static int select_material_shader(const g3_draw_item *it) {
     web_shader previous = shader;
     if (!build_program(mask, fast_unlit, no_fog,
                        custom ? material_shader_sources[it->shader].header : NULL,
-                       custom ? material_shader_sources[it->shader].body : NULL)) { shader = previous; return 0; }
+                       custom ? material_shader_sources[it->shader].body : NULL,
+                       custom ? material_shader_sources[it->shader].tail : NULL)) { shader = previous; return 0; }
     shader.custom_id = shader_id;
     unsigned slot = shader_cache_next++ % 64;
     if (shader_cache[slot].program) {
@@ -2158,6 +2229,15 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
         float user[16];
         memcpy(user, &it->user0, sizeof(user));
         glUniform4fv(shader.user, 4, user);
+        /* Custom programs reserve a unit for u_lut; bind the item's 3D
+           texture when it is one, otherwise leave the unit empty and let
+           u_lut_enabled tell the shader. */
+        int32_t lut_id = it->lut_texture;
+        int has_lut = lut_id >= 0 && lut_id < texture_count && textures[lut_id] && texture_is_3d[lut_id];
+        glActiveTexture(GL_TEXTURE0 + shader.lut_unit);
+        glBindTexture(GL_TEXTURE_3D, has_lut ? textures[lut_id] : 0);
+        glUniform1i(shader.lut, shader.lut_unit);
+        glUniform1f(shader.lut_enabled, has_lut ? 1.0f : 0.0f);
     }
     const g3_uv_transform *uv_transforms[13] = { &it->base_color_uv, &it->metallic_roughness_uv,
         &it->normal_uv, &it->occlusion_uv, &it->emissive_uv, &it->specular_uv, &it->specular_color_uv,
@@ -2483,17 +2563,21 @@ static char *dup_glsl(g3_u8_slice s) {
     return out;
 }
 
-uint8_t g3p_material_shader_create(int32_t id, g3_u8_slice header, g3_u8_slice body) {
+uint8_t g3p_material_shader_create(int32_t id, g3_u8_slice header, g3_u8_slice body, g3_u8_slice tail) {
     if (id < 0 || id >= 64 || material_shader_sources[id].body || !body.data || body.len <= 0 ||
-        header.len < 0 || header.len + body.len > 131072) return 0;
+        header.len < 0 || tail.len < 0 || header.len + body.len + tail.len > 131072) return 0;
     for (int64_t i = 0; i < body.len; i++) if (body.data[i] == 0) return 0;
     for (int64_t i = 0; i < header.len; i++) if (header.data[i] == 0) return 0;
+    for (int64_t i = 0; i < tail.len; i++) if (tail.data[i] == 0) return 0;
     char *h = header.len > 0 ? dup_glsl(header) : malloc(1);
     char *b = dup_glsl(body);
-    if (!h || !b) { free(h); free(b); return 0; }
+    char *t = tail.len > 0 ? dup_glsl(tail) : malloc(1);
+    if (!h || !b || !t) { free(h); free(b); free(t); return 0; }
     if (header.len == 0) h[0] = 0;
+    if (tail.len == 0) t[0] = 0;
     material_shader_sources[id].header = h;
     material_shader_sources[id].body = b;
+    material_shader_sources[id].tail = t;
     return 1;
 }
 
@@ -2501,6 +2585,7 @@ void g3p_material_shader_release(int32_t id) {
     if (id < 0 || id >= 64) return;
     free(material_shader_sources[id].header);
     free(material_shader_sources[id].body);
+    free(material_shader_sources[id].tail);
     material_shader_sources[id] = (web_material_shader_source){0};
 }
 

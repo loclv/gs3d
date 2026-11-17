@@ -418,14 +418,15 @@ fn post_process_shader_remove(shader: i32) -> bool {
 // Register a custom material fragment shader (WebGL-only). `header` is GLSL
 // inserted before main() (helper functions, globals, extra uniforms such as
 // samplers); `body` is statements inside main() where the material's lighting
-// inputs are still writable. The backend owns the source copies; the CPU
-// backend reports unsupported by returning -1.
-fn material_shader_create(header: const u8[:], body: const u8[:]) -> i32 {
-    guard header.len + body.len > 0 && header.len + body.len <= 131072 && g_material_shader_count < 64 else { return -1; }
+// inputs are still writable; `tail` is statements after tone mapping and sRGB
+// encoding, just before output, operating on `col` and `alpha`. The backend
+// owns the source copies; the CPU backend reports unsupported by returning -1.
+fn material_shader_create(header: const u8[:], body: const u8[:], tail: const u8[:]) -> i32 {
+    guard header.len + body.len + tail.len > 0 && header.len + body.len + tail.len <= 131072 && g_material_shader_count < 64 else { return -1; }
     let id = g_material_shader_count;
     g_material_shader_count += 1;
     g_material_shader_live.push(false);
-    if !g3p_material_shader_create(id, header, body) { return -1; }
+    if !g3p_material_shader_create(id, header, body, tail) { return -1; }
     g_material_shader_live[id] = true;
     return id;
 }
@@ -596,6 +597,7 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         user1: surface.user1,
         user2: surface.user2,
         user3: surface.user3,
+        lut_texture: surface.lut_texture,
     };
 }
 

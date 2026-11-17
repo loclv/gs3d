@@ -211,16 +211,31 @@ export fn g3_asset_shadow_resolution(resolution: i32) -> bool { return g3::set_s
 export fn g3_asset_shadow_filter_radius(radius: i32) -> bool { return g3::set_shadow_filter_radius(radius); }
 // Custom material fragment shaders: `header` GLSL is inserted before main()
 // (helpers, extra uniforms/samplers); `body` statements run inside main()
-// where the material's lighting inputs are still writable. Assign to
-// `g3_emissive_extra` to add emission. WebGL-only; returns -1 elsewhere.
-export fn g3_asset_material_shader_create(header: const u8[:], body: const u8[:]) -> i32 {
-    return g3::material_shader_create(header, body);
+// where the material's lighting inputs are still writable; `tail` statements
+// run after tone mapping and sRGB encoding, just before output, and may
+// modify `col` and `alpha`. `uniform sampler3D u_lut` and
+// `uniform float u_lut_enabled` are available when the material has a 3D
+// texture bound through g3_asset_material_lut. Assign to
+// `g3_emissive_extra` in `body` to add emission. WebGL-only; returns -1
+// elsewhere.
+export fn g3_asset_material_shader_create(header: const u8[:], body: const u8[:], tail: const u8[:]) -> i32 {
+    return g3::material_shader_create(header, body, tail);
 }
 export fn g3_asset_material_shader_release(id: i32) -> bool { return g3::material_shader_remove(id); }
 export fn g3_asset_material_set_shader(id: i32, shader: i32) -> bool {
     guard g3::material_valid(id) && (shader < 0 || g3::material_shader_valid(shader)) else { return false; }
     g3::material(id).shader = shader;
     return true;
+}
+export fn g3_asset_material_lut(id: i32, texture: i32) -> bool {
+    guard g3::material_valid(id) && (texture < 0 || g3::texture_slot_live(texture)) else { return false; }
+    g3::material(id).lut_texture = texture;
+    return true;
+}
+// RGBA8 3D texture (width*height*depth*4 bytes), sampled as u_lut by custom
+// material shaders. WebGL-only; the CPU backend accepts and ignores it.
+export fn g3_asset_texture_3d(width: i32, height: i32, depth: i32, pixels: const u8[:]) -> i32 {
+    return g3::texture_asset_create_3d(width, height, depth, pixels);
 }
 export fn g3_asset_material_user(id: i32, index: i32, x: f32, y: f32, z: f32, w: f32) -> bool {
     guard g3::material_valid(id) && index >= 0 && index < 4 else { return false; }

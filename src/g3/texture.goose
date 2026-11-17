@@ -188,6 +188,17 @@ fn texture_set_filter(id: i32, min_filter: i32, mag_filter: i32) -> bool {
     return true;
 }
 
+// RGBA8 3D texture for custom material shaders (u_lut). The slot comes from
+// the asset pool like any other texture; the WebGL backend uploads
+// GL_TEXTURE_3D and the CPU backend accepts and ignores it.
+fn texture_asset_create_3d(width: i32, height: i32, depth: i32, pixels: const u8[:]) -> i32 {
+    guard width > 0 && height > 0 && depth > 0 && pixels.len == width as i64 * height * depth * 4 else { return -1; }
+    let id = texture_asset_create();
+    guard id >= 0 else { return -1; }
+    g3p_upload_texture_3d(id, pixels, width, height, depth);
+    return id;
+}
+
 // Only asset-owned textures are recycled. The browser host releases the
 // backend texture before returning its id here.
 fn texture_asset_create() -> i32 {

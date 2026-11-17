@@ -81,6 +81,9 @@ struct DrawItem {
     shader: i32,
     // Sixteen floats exposed to custom shaders as `uniform vec4 u_user[4]`.
     user0: float4, user1: float4, user2: float4, user3: float4,
+    // 3D texture id sampled by custom shaders as `uniform sampler3D u_lut`;
+    // -1 disables. WebGL-only.
+    lut_texture: i32,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;
@@ -140,13 +143,14 @@ extern fn g3p_release_mesh(id: i32);
 extern fn g3p_upload_texture(id: i32, pixels: const u8[:], width: i32, height: i32);
 extern fn g3p_upload_texture_srgb(id: i32, pixels: const u8[:], width: i32, height: i32);
 extern fn g3p_upload_texture_hdr(id: i32, pixels: const f32[:], width: i32, height: i32);
+extern fn g3p_upload_texture_3d(id: i32, pixels: const u8[:], width: i32, height: i32, depth: i32);
 extern fn g3p_create_render_target(id: i32, width: i32, height: i32) -> bool;
 extern fn g3p_resize_render_target(id: i32, width: i32, height: i32) -> bool;
 extern fn g3p_post_process(source: i32, destination: i32, effect: i32) -> bool;
 extern fn g3p_post_process_shader_create(id: i32, body: const u8[:]) -> bool;
 extern fn g3p_post_process_shader_release(id: i32);
 extern fn g3p_post_process_shader_run(shader: i32, source: i32, destination: i32) -> bool;
-extern fn g3p_material_shader_create(id: i32, header: const u8[:], body: const u8[:]) -> bool;
+extern fn g3p_material_shader_create(id: i32, header: const u8[:], body: const u8[:], tail: const u8[:]) -> bool;
 extern fn g3p_material_shader_release(id: i32);
 extern fn g3p_texture_width(id: i32) -> i32;
 extern fn g3p_texture_height(id: i32) -> i32;
