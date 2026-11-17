@@ -151,6 +151,11 @@ struct Camera {
     ortho_height: f32 = 10.0,  // full vertical extent, world units
     near: f32 = 0.1,
     far: f32 = 400.0,
+    // Tiled rendering (three.js camera.setViewOffset): the camera renders
+    // only the sub-rectangle (x, y, w, h) of a virtual full_w x full_h image,
+    // through an off-axis frustum. All values are in pixels; zero disables.
+    view_offset: float4 = float4 { 0.0, 0.0, 0.0, 0.0 },   // full_w, full_h, x, y
+    view_size: float2 = float2 { 0.0, 0.0 },               // w, h
 }
 
 struct CameraState {
@@ -428,8 +433,29 @@ fn camera_add_detached(cam: Camera) -> i64 {
 fn camera_active() -> i64 { return g_active_camera }
 fn camera_update(id: i64, cam: Camera) -> bool {
     guard id >= 0 && id < g_cameras.len && !g_cameras[id].removed else { return false; }
-    g_cameras[id].camera = cam;
-    if g_active_camera == id { g_camera = cam; }
+    // View offset is a separate concern from the view parameters callers
+    // update every frame; keep it across camera_update.
+    var c = cam;
+    c.view_offset = g_cameras[id].camera.view_offset;
+    c.view_size = g_cameras[id].camera.view_size;
+    g_cameras[id].camera = c;
+    if g_active_camera == id { g_camera = c; }
+    return true;
+}
+
+// Set or clear a camera's tiled view offset (see Camera.view_offset). A
+// non-positive width or height disables tiling. camera_update preserves the
+// fields, so this only needs calling when the offset itself changes.
+fn camera_set_view_offset(id: i64, full_w: f32, full_h: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
+    guard id >= 0 && id < g_cameras.len && !g_cameras[id].removed else { return false; }
+    if w <= 0.0 || h <= 0.0 || full_w <= 0.0 || full_h <= 0.0 {
+        g_cameras[id].camera.view_offset = float4 { 0.0, 0.0, 0.0, 0.0 };
+        g_cameras[id].camera.view_size = float2 { 0.0, 0.0 };
+    } else {
+        g_cameras[id].camera.view_offset = float4 { full_w, full_h, x, y };
+        g_cameras[id].camera.view_size = float2 { w, h };
+    }
+    if g_active_camera == id { g_camera = g_cameras[id].camera; }
     return true;
 }
 fn camera_count() -> i64 {
@@ -470,9 +496,38 @@ fn camera_select(id: i64) -> bool {
 // Both renderers consume this projection through the common view-projection matrix.
 fn camera_projection(cam: Camera, aspect: f32) -> Mat4 {
     let projection_aspect = if cam.aspect > 0.0 { cam.aspect } else { aspect };
+    let vo = cam.view_offset;
+    let vs = cam.view_size;
+    let tiled = vs.x > 0.0 && vs.y > 0.0 && vo.x > 0.0 && vo.y > 0.0;
     if cam.orthographic {
         let half = cam.ortho_height * 0.5;
-        return mat4_ortho(-half * projection_aspect, half * projection_aspect, -half, half, cam.near, cam.far);
+        var left = -half * projection_aspect;
+        var right = half * projection_aspect;
+        var bottom = -half;
+        var top = half;
+        if tiled {
+            // Same fractions of the full image three.js applies to ortho bounds.
+            let fw = right - left;
+            let fh = top - bottom;
+            let x0 = left + vo.z * fw / vo.x;
+            left = x0;
+            right = x0 + vs.x * fw / vo.x;
+            let y0 = top - vo.w * fh / vo.y;
+            top = y0;
+            bottom = y0 - vs.y * fh / vo.y;
+        }
+        return mat4_ortho(left, right, bottom, top, cam.near, cam.far);
+    }
+    let half_h = cam.near * tan(cam.fov * 0.5);
+    let height = 2.0 * half_h;
+    let width = projection_aspect * height;
+    if tiled {
+        // three.js PerspectiveCamera.updateProjectionMatrix with view offset.
+        var left = -0.5 * width + vo.z * width / vo.x;
+        var right = left + vs.x * width / vo.x;
+        var top = half_h - vo.w * height / vo.y;
+        var bottom = top - vs.y * height / vo.y;
+        return mat4_perspective_frustum(left, right, bottom, top, cam.near, cam.far);
     }
     return mat4_perspective(cam.fov, projection_aspect, cam.near, cam.far);
 }

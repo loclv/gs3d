@@ -1857,6 +1857,18 @@ export class PerspectiveCamera extends Object3D {
   updateProjectionMatrix() { return this; }
 }
 
+// camera.setViewOffset / clearViewOffset (three.js): render only a
+// sub-rectangle of a larger virtual image through an off-axis frustum.
+// Shared by perspective and orthographic cameras.
+const cameraViewOffset = {
+  setViewOffset(fullWidth, fullHeight, x, y, width, height) {
+    this.view = { enabled: true, fullWidth, fullHeight, offsetX: x, offsetY: y, width, height };
+    return this;
+  },
+  clearViewOffset() { this.view = null; return this; },
+};
+Object.assign(PerspectiveCamera.prototype, cameraViewOffset);
+
 export class OrthographicCamera extends Object3D {
   constructor(left = -1, right = 1, top = 1, bottom = -1, near = 0.1, far = 2000) {
     super();
@@ -1866,6 +1878,7 @@ export class OrthographicCamera extends Object3D {
   }
   updateProjectionMatrix() { return this; }
 }
+Object.assign(OrthographicCamera.prototype, cameraViewOffset);
 
 export class Camera extends Object3D {
   constructor() { super(); this.isCamera = true; }
@@ -3280,7 +3293,7 @@ function syncCamera(engine, renderer, camera) {
       target[0], target[1], target[2], up[0], up[1], up[2],
       fov, aspect, orthographic, orthoHeight, camera.near, camera.far);
     if (id < 0) return;
-    state = { id, selected: false };
+    state = { id, selected: false, viewKey: '' };
     cameraStates.set(camera, state);
   }
   const orthographic = camera.isOrthographicCamera ? 1 : 0;
@@ -3292,6 +3305,19 @@ function syncCamera(engine, renderer, camera) {
   if (!state.selected) {
     engine._g3_asset_camera_select(state.id);
     state.selected = true;
+  }
+  const vo = camera.view;
+  const voKey = vo && vo.enabled
+    ? [vo.fullWidth, vo.fullHeight, vo.offsetX, vo.offsetY, vo.width, vo.height].join(',')
+    : '';
+  if (state.viewKey !== voKey && typeof engine._g3_asset_camera_view_offset === 'function') {
+    if (voKey) {
+      engine._g3_asset_camera_view_offset(state.id,
+        vo.fullWidth, vo.fullHeight, vo.offsetX, vo.offsetY, vo.width, vo.height);
+    } else {
+      engine._g3_asset_camera_view_offset(state.id, 0, 0, 0, 0, 0, 0);
+    }
+    state.viewKey = voKey;
   }
 }
 
@@ -3590,24 +3616,6 @@ function envFaceBasis(face) {
   return { f, x: [xx, xy, xz], y: [yx, yy, yz] };
 }
 
-// Equirect texel direction matching the engine's environment_uv mapping:
-// u = atan2(d.z, d.x) / 2pi + 0.5, v = acos(d.y) / pi.
-function envTexelDir(i, j, w, h) {
-  const u = (i + 0.5) / w, v = (j + 0.5) / h;
-  const phi = v * Math.PI, lambda = (u - 0.5) * 2 * Math.PI;
-  const sp = Math.sin(phi);
-  return [sp * Math.cos(lambda), Math.cos(phi), sp * Math.sin(lambda)];
-}
-
-function faceForDir(d, bases) {
-  let best = 0, bestDot = -Infinity;
-  for (let k = 0; k < 6; k++) {
-    const dot = d[0] * bases[k].f[0] + d[1] * bases[k].f[1] + d[2] * bases[k].f[2];
-    if (dot > bestDot) { bestDot = dot; best = k; }
-  }
-  return best;
-}
-
 export class PMREMGenerator {
   constructor(renderer) { this.renderer = renderer; this._rt = -1; }
 
@@ -3647,21 +3655,34 @@ export class PMREMGenerator {
     }
 
     const out = new Uint8Array(eqW * eqH * 4);
-    const px = new Uint8Array(face * face * 4);
+    // Trig tables keep the inner loop allocation-free: lambda per column,
+    // phi per row, matching envTexelDir's equirect parameterization.
+    const cosL = new Float64Array(eqW), sinL = new Float64Array(eqW);
+    for (let i = 0; i < eqW; i++) {
+      const l = ((i + 0.5) / eqW - 0.5) * 2 * Math.PI;
+      cosL[i] = Math.cos(l); sinL[i] = Math.sin(l);
+    }
+    const sinP = new Float64Array(eqH), cosP = new Float64Array(eqH);
     for (let j = 0; j < eqH; j++) {
+      const phi = (j + 0.5) / eqH * Math.PI;
+      sinP[j] = Math.sin(phi); cosP[j] = Math.cos(phi);
+    }
+    for (let j = 0; j < eqH; j++) {
+      const sp = sinP[j], cp = cosP[j];
       for (let i = 0; i < eqW; i++) {
-        const d = envTexelDir(i, j, eqW, eqH);
-        const k = faceForDir(d, bases);
+        const dx = sp * cosL[i], dy = cp, dz = sp * sinL[i];
+        // Nearest face; its forward dot is also the projection denominator.
+        let k = 0, denom = -Infinity;
+        for (let f = 0; f < 6; f++) {
+          const dot = dx * bases[f].f[0] + dy * bases[f].f[1] + dz * bases[f].f[2];
+          if (dot > denom) { denom = dot; k = f; }
+        }
         const b = bases[k];
-        // Project direction into the face's camera space.
-        const denom = d[0] * b.f[0] + d[1] * b.f[1] + d[2] * b.f[2];
-        const cx = (d[0] * b.x[0] + d[1] * b.x[1] + d[2] * b.x[2]) / denom;
-        const cy = (d[0] * b.y[0] + d[1] * b.y[1] + d[2] * b.y[2]) / denom;
+        const cx = (dx * b.x[0] + dy * b.x[1] + dz * b.x[2]) / denom;
+        const cy = (dx * b.y[0] + dy * b.y[1] + dz * b.y[2]) / denom;
         const fx = Math.min(face - 1, Math.max(0, Math.floor((cx * 0.5 + 0.5) * face)));
         const fy = Math.min(face - 1, Math.max(0, Math.floor((0.5 - cy * 0.5) * face)));
-        sampleFaceBilinear(faces[k], face, fx, fy, px, 0);
-        const o = (j * eqW + i) * 4;
-        out[o] = px[0]; out[o + 1] = px[1]; out[o + 2] = px[2]; out[o + 3] = px[3];
+        sampleFaceBilinear(faces[k], face, fx, fy, out, (j * eqW + i) * 4);
       }
     }
     const texture = new DataTexture(out, eqW, eqH);

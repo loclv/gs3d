@@ -81,6 +81,7 @@ function createMockEngine() {
     _g3_asset_camera_add: (...args) => { calls.push(['_g3_asset_camera_add', ...args]); return nextCamera++; },
     _g3_asset_camera_update: record('_g3_asset_camera_update'),
     _g3_asset_camera_select: record('_g3_asset_camera_select'),
+    _g3_asset_camera_view_offset: record('_g3_asset_camera_view_offset'),
     _g3_asset_camera_remove: record('_g3_asset_camera_remove'),
     _g3_asset_camera_active: () => 1,
     _g3_asset_ambient: record('_g3_asset_ambient'),
@@ -1285,6 +1286,29 @@ function buildTestGLB() {
   assert.equal(pmrem.fromEquirectangular(tex).texture, tex, 'equirect passthrough');
   // WebGLRenderer alias for three.js-style imports.
   assert.equal(THREE.WebGLRenderer, THREE.WebGPURenderer, 'WebGLRenderer alias');
+}
+
+{
+  // camera.setViewOffset drives the engine's off-axis frustum export, and
+  // clearViewOffset disables it; the call fires only when the offset changes.
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(40, 2, 0.1, 50);
+  renderer.render(scene, camera);
+  renderer.render(scene, camera);
+  assert.equal(named(engine, '_g3_asset_camera_view_offset').length, 0, 'no offset -> no calls');
+  camera.setViewOffset(2048, 1536, 512, 256, 1024, 768);
+  renderer.render(scene, camera);
+  renderer.render(scene, camera);
+  const calls = named(engine, '_g3_asset_camera_view_offset');
+  assert.equal(calls.length, 1, 'offset applied once across frames');
+  assert.deepEqual(calls[0].slice(2), [2048, 1536, 512, 256, 1024, 768], 'view offset args');
+  camera.clearViewOffset();
+  renderer.render(scene, camera);
+  const last = named(engine, '_g3_asset_camera_view_offset').at(-1);
+  assert.deepEqual(last.slice(2), [0, 0, 0, 0, 0, 0], 'clear disables tiling');
 }
 
 console.log('three.js facade checks passed');

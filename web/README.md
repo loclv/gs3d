@@ -87,7 +87,9 @@ cubemap and stitches an equirectangular `DataTexture` (the engine generates
 its own filtered mips, approximating PMREM roughness filtering);
 `RoomEnvironment` provides a softbox env scene, and
 `PMREMGenerator.fromEquirectangular` passes equirect textures through.
-`WebGLRenderer` aliases `WebGPURenderer`. `Path`/`Shape` with quadratic and cubic curves feed
+`WebGLRenderer` aliases `WebGPURenderer`. `camera.setViewOffset`/`clearViewOffset` render
+a sub-rectangle of a larger virtual image through an off-axis frustum,
+enabling tiled high-resolution stills. `Path`/`Shape` with quadratic and cubic curves feed
 `ShapeGeometry` (ear-clipping triangulation; holes are bridged when the
 merged loop triangulates cleanly, otherwise filled) and `ExtrudeGeometry`
 (bevel parameters accepted but ignored). `TubeGeometry` sweeps a radius

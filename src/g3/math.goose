@@ -142,6 +142,21 @@ fn mat4_perspective(fov_y: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
     return out;
 }
 
+// The general off-axis form of mat4_perspective: an asymmetric frustum for
+// tiled rendering (three.js camera.setViewOffset). `left/right/bottom/top`
+// are the near-plane extents in the same units as a symmetric frustum.
+fn mat4_perspective_frustum(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> Mat4 {
+    var out = mat4_zero();
+    out.m[0] = (2.0 * near) / (right - left);
+    out.m[8] = (right + left) / (right - left);
+    out.m[5] = (2.0 * near) / (top - bottom);
+    out.m[9] = (top + bottom) / (top - bottom);
+    out.m[10] = -(far + near) / (far - near);
+    out.m[11] = -1.0;
+    out.m[14] = (-2.0 * far * near) / (far - near);
+    return out;
+}
+
 fn mat4_ortho(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> Mat4 {
     var out = mat4_identity();
     out.m[0] = 2.0 / (right - left);

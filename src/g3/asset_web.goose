@@ -181,6 +181,9 @@ export fn g3_asset_camera_update(id: i32, px: f32, py: f32, pz: f32, tx: f32, ty
         fov: fov, aspect: aspect, orthographic: orthographic, ortho_height: ortho_height, near: near, far: far };
     return g3::camera_update(id, cam);
 }
+export fn g3_asset_camera_view_offset(id: i32, full_w: f32, full_h: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
+    return g3::camera_set_view_offset(id, full_w, full_h, x, y, w, h);
+}
 export fn g3_asset_camera_select(id: i32) -> bool { return g3::camera_select(id); }
 export fn g3_asset_camera_remove(id: i32) -> bool { return g3::camera_remove(id); }
 export fn g3_asset_lights_begin() -> i32 { return g3::asset_light_set_begin(); }
