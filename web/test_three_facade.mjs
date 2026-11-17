@@ -1344,6 +1344,10 @@ function buildTestGLB() {
       shader.fragmentShader
         .replace('#include <color_fragment>',
           '#include <color_fragment>\n diffuseColor.rgb *= helper(vRockPoint).x + vSurface.x; totalEmissiveRadiance += vSurface.rgb;')
+        .replace('#include <roughnessmap_fragment>',
+          '#include <roughnessmap_fragment>\n roughnessFactor = vSurface.x;')
+        .replace('#include <lights_physical_fragment>',
+          '#include <lights_physical_fragment>\n material.roughness *= 0.5;')
         .replace('#include <colorspace_fragment>',
           '#include <colorspace_fragment>\n gl_FragColor.rgb *= rockGrain;');
   };
@@ -1365,6 +1369,9 @@ function buildTestGLB() {
   assert.ok(body.includes('totalEmissiveRadiance +='), 'emissive body spliced');
   assert.ok(body.includes('g3_emissive_extra = totalEmissiveRadiance'), 'emissive write-back');
   assert.ok(body.includes('n = transpose(mat3(u_view)) * normal'), 'normal write-back');
+  assert.ok(body.indexOf('roughnessFactor = vSurface.x') < body.indexOf('material.roughness = roughnessFactor'), 'map roughness initializes physical material');
+  assert.ok(body.indexOf('material.roughness = roughnessFactor') < body.indexOf('material.roughness *= 0.5'), 'physical material edits follow initialization');
+  assert.ok(body.includes('mr.y = material.roughness'), 'resolved physical roughness reaches engine');
   assert.ok(!tail.includes('gl_FragColor'), 'gl_FragColor translated in tail');
   assert.ok(tail.includes('col *='), 'tail writes col');
   const userCalls = named(engine, '_g3_asset_material_user');

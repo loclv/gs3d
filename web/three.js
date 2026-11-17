@@ -3393,6 +3393,11 @@ function g3BuildObcPlan(material, fake, uniformKey) {
   // Route chunk bodies: output-stage chunks go to the tail.
   const bodyParts = [], tailParts = [];
   for (const ch of fsrc.chunks) {
+    // Three initializes PhysicalMaterial from the map factors at this chunk.
+    // Preserve that pipeline step before user edits to the material struct.
+    if (ch.name === 'lights_physical_fragment') {
+      bodyParts.push('material.roughness = roughnessFactor; material.metalness = metalnessFactor;');
+    }
     if (!ch.body.trim()) continue;
     (G3_TAIL_CHUNKS.has(ch.name) ? tailParts : bodyParts).push(g3TranslateBody(ch.body));
   }
@@ -3420,7 +3425,6 @@ function g3BuildObcPlan(material, fake, uniformKey) {
   const epilogue = `
     n = transpose(mat3(u_view)) * normal;
     base = diffuseColor.rgb;
-    mr.x = metalnessFactor; mr.y = roughnessFactor;
     coat_factor = material.clearcoat; coat_roughness = material.clearcoatRoughness;
     specular_color = material.specularColor; f0 = material.specularF90;
     sheen_color = material.sheenColor; sheen_roughness = material.sheenRoughness;
