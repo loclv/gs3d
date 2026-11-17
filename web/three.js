@@ -411,7 +411,15 @@ export class Matrix4 {
     return this;
   }
   multiply(m) { this.elements.set(multiplyMat4(this.elements, m.elements || m)); return this; }
-  multiplyMatrices(a, b) { this.elements.set(multiplyMat4(a.elements || a, b.elements || b)); return this; }
+  multiplyMatrices(a, b) {
+    const ae = a.elements || a, be = b.elements || b, e = this.elements;
+    if (ae === e || be === e) { e.set(multiplyMat4(ae, be)); return this; }
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+      e[c * 4 + r] = ae[r] * be[c * 4] + ae[4 + r] * be[c * 4 + 1]
+        + ae[8 + r] * be[c * 4 + 2] + ae[12 + r] * be[c * 4 + 3];
+    }
+    return this;
+  }
   invert() {
     const inv = invertMat4(this.elements);
     if (inv) this.elements.set(inv);
@@ -519,7 +527,9 @@ export class Object3D {
   }
   updateMatrix() {
     if (this.matrixAutoUpdate) {
-      this.matrix.compose(this.position, resolvedQuaternion(this), this.scale);
+      // localMatrixOf caches the composed elements, so this is a copy
+      // unless the transform actually changed.
+      this.matrix.elements.set(localMatrixOf(this));
     }
     return this;
   }
@@ -2510,7 +2520,18 @@ function resolvedQuaternion(object) {
 
 function localMatrixOf(object) {
   if (object.matrixAutoUpdate === false && object.matrix) return object.matrix.elements;
-  return composeLocal(object.position, resolvedQuaternion(object), object.scale);
+  const p = object.position, s = object.scale, q = resolvedQuaternion(object);
+  // Compose is the expensive part (six trig calls); skip it while the
+  // transform inputs are unchanged. The cache lives on the object so it
+  // survives across frames and worlds.
+  const c = object._lmCache;
+  if (c && c.px === p.x && c.py === p.y && c.pz === p.z &&
+      c.qx === q.x && c.qy === q.y && c.qz === q.z && c.qw === q.w &&
+      c.sx === s.x && c.sy === s.y && c.sz === s.z) return c.elements;
+  const elements = composeLocal(p, q, s);
+  object._lmCache = { elements, px: p.x, py: p.y, pz: p.z,
+    qx: q.x, qy: q.y, qz: q.z, qw: q.w, sx: s.x, sy: s.y, sz: s.z };
+  return elements;
 }
 
 function worldMatrixOf(object) {
@@ -2631,11 +2652,19 @@ function allocateCustomSlots(need, blocked) {
   return null;
 }
 
-function ensureGeometry(engine, geometry, useVertexColors = false, flatShading = false, material = null) {
-  if (!geometry || !geometry.attributes || !geometry.attributes.position) return -1;
+// The attribute layout resolution (uv slots, custom attributes, fills) only
+// depends on the geometry's attributes, the vertex-color/flat-shading flags
+// and the material's defaultAttributeValues/ShaderMaterial declarations —
+// none of which change between frames in practice. Cache the resolved layout
+// per (geometry, material, flags) and revalidate cheaply each call instead of
+// rebuilding attribute tables and signature strings every render().
+const preparedGeometryCache = new WeakMap(); // geometry -> WeakMap<material, Map<flags, entry>>
+const NO_MATERIAL = {};
+
+function preparedGeometry(geometry, useVertexColors, flatShading, material) {
   const src = flatShading ? flatShadedGeometry(geometry) : geometry;
   const position = attrData(src.attributes.position);
-  if (!position) return -1;
+  if (!position) return null;
   if (!src.attributes.normal) src.computeVertexNormals();
   const normal = attrData(src.attributes.normal);
   const count = position.count;
@@ -2648,8 +2677,6 @@ function ensureGeometry(engine, geometry, useVertexColors = false, flatShading =
     if (attr) { slotData[set] = attr; claimed[set] = true; }
   }
   const color = useVertexColors ? attrData(src.attributes.color) : null;
-  const p = position.array, n = normal ? normal.array : null;
-  const c = color ? color.array : null;
   const ns = normal ? normal.itemSize : 3, cs = color ? color.itemSize : 4;
 
   // Collect custom attribute names: everything on the geometry outside the
@@ -2699,7 +2726,47 @@ function ensureGeometry(engine, geometry, useVertexColors = false, flatShading =
 
   const customSig = customs.map(c => `${c.name}:${c.slots}`).join(',') +
     '|' + fills.map(f => `${f.name}=${f.values}`).join(',');
-  const flag = `${useVertexColors ? 1 : 0}${flatShading ? 1 : 0}|${customSig}`;
+  return {
+    src, position, normal, color, count, ns, cs, slotData, customs, fills,
+    flag: `${useVertexColors ? 1 : 0}${flatShading ? 1 : 0}|${customSig}`,
+    indexIds: src.index ? src.index.array : null,
+    // Revalidation inputs: anything the layout depends on that can change
+    // without bumping geometry.version.
+    gVersion: geometry.version,
+    regVersion: customAttrRegistryVersion,
+    vs: material ? material.vertexShader : undefined,
+    defaults,
+    isShader: !!(material && material.isShaderMaterial),
+  };
+}
+
+function cachedPreparedGeometry(geometry, useVertexColors, flatShading, material) {
+  const flags = `${useVertexColors ? 1 : 0}${flatShading ? 1 : 0}`;
+  let byMaterial = preparedGeometryCache.get(geometry);
+  if (!byMaterial) preparedGeometryCache.set(geometry, byMaterial = new WeakMap());
+  const key = material || NO_MATERIAL;
+  let byFlags = byMaterial.get(key);
+  if (!byFlags) byMaterial.set(key, byFlags = new Map());
+  let entry = byFlags.get(flags);
+  const defaults = material && material.defaultAttributeValues;
+  const isShader = !!(material && material.isShaderMaterial);
+  if (entry && entry.gVersion === geometry.version &&
+      entry.regVersion === customAttrRegistryVersion &&
+      entry.vs === (material ? material.vertexShader : undefined) &&
+      entry.defaults === defaults && entry.isShader === isShader) {
+    return entry;
+  }
+  entry = preparedGeometry(geometry, useVertexColors, flatShading, material);
+  if (entry) byFlags.set(flags, entry);
+  return entry;
+}
+
+function ensureGeometry(engine, geometry, useVertexColors = false, flatShading = false, material = null) {
+  if (!geometry || !geometry.attributes || !geometry.attributes.position) return -1;
+  const prepared = cachedPreparedGeometry(geometry, useVertexColors, flatShading, material);
+  if (!prepared) return -1;
+  const { position, normal, color, count, ns, cs, slotData, customs, fills, flag, indexIds } = prepared;
+  const p = position.array, n = normal ? normal.array : null, c = color ? color.array : null;
   const byFlag = geometryStates.get(geometry) || {};
   const state = byFlag[flag];
   if (state && state.version === geometry.version) return state.id;
@@ -2738,9 +2805,8 @@ function ensureGeometry(engine, geometry, useVertexColors = false, flatShading =
       c && cs > 3 ? c[ci + 3] : 1,
     );
   }
-  const index = src.index;
-  if (index) {
-    const ids = index.array;
+  if (indexIds) {
+    const ids = indexIds;
     for (let i = 0; i + 2 < ids.length; i += 3) engine._g3_asset_triangle(ids[i], ids[i + 1], ids[i + 2]);
   } else {
     for (let i = 0; i + 2 < count; i += 3) engine._g3_asset_triangle(i, i + 1, i + 2);
@@ -3766,10 +3832,9 @@ function syncSceneTree(scene, seen) {
   const walk = (object, parentEngineIndex) => {
     // An invisible object hides its whole subtree, like three.js.
     if (object.visible === false) { releaseEngineTree(object); return; }
-    const local = localMatrixOf(object);
     let engineParent = parentEngineIndex;
     if (!object.isLight && !object.isCamera) {
-      engineParent = syncNode(sharedEngine, object, parentEngineIndex, local);
+      engineParent = syncNode(sharedEngine, object, parentEngineIndex, localMatrixOf(object));
       seen.add(object);
     }
     for (const child of object.children) walk(child, engineParent);
