@@ -199,6 +199,24 @@ fn texture_asset_create_3d(width: i32, height: i32, depth: i32, pixels: const u8
     return id;
 }
 
+// Half-float (RGBA16F) data textures: `pixels` is the raw uint16 stream,
+// 8 bytes per texel. Used for LUT-style DataTexture/Data3DTexture uploads.
+fn texture_asset_create_f16(width: i32, height: i32, pixels: const u8[:]) -> i32 {
+    guard width > 0 && height > 0 && pixels.len == width as i64 * height * 8 else { return -1; }
+    let id = texture_asset_create();
+    guard id >= 0 else { return -1; }
+    g3p_upload_texture_f16(id, pixels, width, height);
+    return id;
+}
+
+fn texture_asset_create_3d_f16(width: i32, height: i32, depth: i32, pixels: const u8[:]) -> i32 {
+    guard width > 0 && height > 0 && depth > 0 && pixels.len == width as i64 * height * depth * 8 else { return -1; }
+    let id = texture_asset_create();
+    guard id >= 0 else { return -1; }
+    g3p_upload_texture_3d_f16(id, pixels, width, height, depth);
+    return id;
+}
+
 // Only asset-owned textures are recycled. The browser host releases the
 // backend texture before returning its id here.
 fn texture_asset_create() -> i32 {

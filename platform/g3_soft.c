@@ -1091,6 +1091,12 @@ void g3p_post_process_shader_release(int32_t id) { (void)id; }
 uint8_t g3p_material_shader_create(int32_t id, g3_u8_slice header, g3_u8_slice body, g3_u8_slice tail) { (void)id; (void)header; (void)body; (void)tail; return 0; }
 void g3p_material_shader_release(int32_t id) { (void)id; }
 void g3p_upload_texture_3d(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth) { (void)id; (void)pixels; (void)width; (void)height; (void)depth; }
+void g3p_upload_texture_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) { (void)id; (void)pixels; (void)width; (void)height; }
+void g3p_upload_texture_3d_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth) { (void)id; (void)pixels; (void)width; (void)height; (void)depth; }
+uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragment) { (void)id; (void)vertex; (void)fragment; return 0; }
+void g3p_raw_shader_release(int32_t id) { (void)id; }
+uint8_t g3p_raw_shader_uniform(int32_t id, g3_u8_slice name, int32_t type, int32_t count, g3_f32_slice values) { (void)id; (void)name; (void)type; (void)count; (void)values; return 0; }
+uint8_t g3p_raw_shader_uniform_texture(int32_t id, g3_u8_slice name, int32_t texture) { (void)id; (void)name; (void)texture; return 0; }
 uint8_t g3p_post_process_shader_run(int32_t shader, int32_t source, int32_t destination) {
     (void)shader; (void)source; (void)destination; return 0;
 }

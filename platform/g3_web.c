@@ -26,6 +26,7 @@
 #include <emscripten/heap.h>
 #include <emscripten/html5.h>
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -138,6 +139,48 @@ static unsigned shader_cache_next;
    points below; select_material_shader reads them for lazy compiles. */
 typedef struct { char *header, *body, *tail; } web_material_shader_source;
 static web_material_shader_source material_shader_sources[64];
+
+/* Raw shader programs (ShaderMaterial-style): DrawItem.shader values in
+   [RAW_SHADER_BASE, RAW_SHADER_BASE+RAW_SHADER_MAX) index raw_programs.
+   The user supplies complete GLSL ES 1.00 vertex/fragment sources plus a
+   fixed set of named uniforms; the engine supplies the standard matrix and
+   camera builtins and per-item transforms. */
+#define RAW_SHADER_BASE 64
+#define RAW_SHADER_MAX 64
+#define RAW_MAX_UNIFORMS 32
+#define RAW_MAX_NAME 64
+#define RAW_MAX_COUNT 64
+
+enum { RAW_T_FLOAT = 0, RAW_T_VEC2, RAW_T_VEC3, RAW_T_VEC4, RAW_T_MAT4, RAW_T_INT, RAW_T_SAMPLER };
+
+typedef struct {
+    char name[RAW_MAX_NAME];
+    GLint location;      /* -1 until the program is built */
+    int type, count;     /* count = array length, 1 for scalars */
+    float *values;       /* count * components floats */
+    int32_t texture;     /* samplers only */
+    int unit;            /* samplers only, assigned at build */
+} raw_uniform;
+
+typedef struct {
+    int active;
+    char *vertex, *fragment;
+    GLuint program;
+    raw_uniform uniforms[RAW_MAX_UNIFORMS];
+    int uniform_count;
+    uint64_t generation, uploaded_generation;
+    /* builtin uniform locations, -1 when the shader does not declare them */
+    GLint u_model, u_model_view, u_projection, u_view, u_camera, u_normal_matrix;
+    GLint u_tone_mode, u_exposure, u_output_srgb;
+} raw_program;
+
+static raw_program raw_programs[RAW_SHADER_MAX];
+static raw_program *active_raw;
+static const g3_view_state *raw_frame_view;
+static int build_raw_program(raw_program *rp);
+static void raw_upload_frame(raw_program *rp, const g3_draw_item *it);
+static void raw_upload_uniforms(raw_program *rp);
+static void draw_raw_item(const g3_draw_item *it, web_mesh *m);
 static GLint fragment_texture_units;
 static const char *material_samplers[13] = {
     "u_tex", "u_mr_tex", "u_normal_tex", "u_occlusion_tex", "u_emissive_tex",
@@ -1470,33 +1513,38 @@ EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_
 EMSCRIPTEN_KEEPALIVE double g3_host_scene_draw_ms(void) { return last_scene_draw_ms; }
 #endif
 
+/* Grow the parallel texture arrays so slot `id` exists, zero-filled. */
+static int texture_reserve(int32_t id) {
+    if (id < texture_count) return 1;
+    size_t count = (size_t)id + 1;
+    GLuint *grown = realloc(textures, count * sizeof(*textures));
+    if (!grown) return 0;
+    textures = grown;
+    int32_t *gw = realloc(texture_widths, count * sizeof(*texture_widths));
+    if (!gw) return 0;
+    texture_widths = gw;
+    int32_t *gh = realloc(texture_heights, count * sizeof(*texture_heights));
+    if (!gh) return 0;
+    texture_heights = gh;
+    int32_t *gi = realloc(texture_is_hdr, count * sizeof(*texture_is_hdr));
+    if (!gi) return 0;
+    texture_is_hdr = gi;
+    int32_t *g3 = realloc(texture_is_3d, count * sizeof(*texture_is_3d));
+    if (!g3) return 0;
+    texture_is_3d = g3;
+    memset(textures + texture_count, 0, (count - (size_t)texture_count) * sizeof(*textures));
+    memset(texture_widths + texture_count, 0, (count - (size_t)texture_count) * sizeof(*texture_widths));
+    memset(texture_heights + texture_count, 0, (count - (size_t)texture_count) * sizeof(*texture_heights));
+    memset(texture_is_hdr + texture_count, 0, (count - (size_t)texture_count) * sizeof(*texture_is_hdr));
+    memset(texture_is_3d + texture_count, 0, (count - (size_t)texture_count) * sizeof(*texture_is_3d));
+    texture_count = id + 1;
+    return 1;
+}
+
 static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int srgb) {
     if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
     cached_material_valid = 0;
-    if (id >= texture_count) {
-        size_t count=(size_t)id+1;
-        GLuint *grown = realloc(textures, count * sizeof(*textures));
-        if (!grown) return;
-        textures = grown;
-        int32_t *grown_widths=realloc(texture_widths,count*sizeof(*texture_widths));
-        if (!grown_widths) return;
-        texture_widths=grown_widths;
-        int32_t *grown_heights=realloc(texture_heights,count*sizeof(*texture_heights));
-        if (!grown_heights) return;
-        texture_heights=grown_heights;
-        int32_t *grown_hdr=realloc(texture_is_hdr,count*sizeof(*texture_is_hdr));
-        if (!grown_hdr) return;
-        texture_is_hdr=grown_hdr;
-        int32_t *grown_3d=realloc(texture_is_3d,count*sizeof(*texture_is_3d));
-        if (!grown_3d) return;
-        texture_is_3d=grown_3d;
-        memset(textures + texture_count, 0, (count - (size_t)texture_count) * sizeof(*textures));
-        memset(texture_widths + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_widths));
-        memset(texture_heights + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_heights));
-        memset(texture_is_hdr + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_hdr));
-        memset(texture_is_3d + texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_3d));
-        texture_count = id + 1;
-    }
+    if (!texture_reserve(id)) return;
     /* A texture object has one target for life: switching 2D<->3D needs a
        fresh name, which also drops any FBO attachment (3D ids are never
        render targets). */
@@ -1519,20 +1567,7 @@ static void upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_
 static void upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height) {
     if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 4) return;
     cached_material_valid = 0;
-    if (id >= texture_count) {
-        size_t count=(size_t)id+1;
-        GLuint *grown=realloc(textures,count*sizeof(*textures)); if(!grown)return; textures=grown;
-        int32_t *gw=realloc(texture_widths,count*sizeof(*texture_widths)); if(!gw)return; texture_widths=gw;
-        int32_t *gh=realloc(texture_heights,count*sizeof(*texture_heights)); if(!gh)return; texture_heights=gh;
-        int32_t *gi=realloc(texture_is_hdr,count*sizeof(*texture_is_hdr)); if(!gi)return; texture_is_hdr=gi;
-        int32_t *g3=realloc(texture_is_3d,count*sizeof(*texture_is_3d)); if(!g3)return; texture_is_3d=g3;
-        memset(textures+texture_count,0,(count-(size_t)texture_count)*sizeof(*textures));
-        memset(texture_widths+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_widths));
-        memset(texture_heights+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_heights));
-        memset(texture_is_hdr+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_hdr));
-        memset(texture_is_3d+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_3d));
-        texture_count=id+1;
-    }
+    if (!texture_reserve(id)) return;
     if (texture_is_3d[id]) { glDeleteTextures(1,&textures[id]); textures[id]=0; texture_is_3d[id]=0; }
     if (!textures[id]) glGenTextures(1,&textures[id]);
     if (env_prefilter_source_id==id) {
@@ -1566,20 +1601,7 @@ void g3p_upload_texture_3d(int32_t id, g3_u8_slice pixels, int32_t width, int32_
     if (id < 0 || width <= 0 || height <= 0 || depth <= 0 ||
         pixels.len != (int64_t)width * height * depth * 4) return;
     cached_material_valid = 0;
-    if (id >= texture_count) {
-        size_t count=(size_t)id+1;
-        GLuint *grown=realloc(textures,count*sizeof(*textures)); if(!grown)return; textures=grown;
-        int32_t *gw=realloc(texture_widths,count*sizeof(*texture_widths)); if(!gw)return; texture_widths=gw;
-        int32_t *gh=realloc(texture_heights,count*sizeof(*texture_heights)); if(!gh)return; texture_heights=gh;
-        int32_t *gi=realloc(texture_is_hdr,count*sizeof(*texture_is_hdr)); if(!gi)return; texture_is_hdr=gi;
-        int32_t *g3=realloc(texture_is_3d,count*sizeof(*texture_is_3d)); if(!g3)return; texture_is_3d=g3;
-        memset(textures+texture_count,0,(count-(size_t)texture_count)*sizeof(*textures));
-        memset(texture_widths+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_widths));
-        memset(texture_heights+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_heights));
-        memset(texture_is_hdr+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_hdr));
-        memset(texture_is_3d+texture_count,0,(count-(size_t)texture_count)*sizeof(*texture_is_3d));
-        texture_count=id+1;
-    }
+    if (!texture_reserve(id)) return;
     /* Opposite direction of the 2D paths: a live 2D name cannot back a 3D
        target, so recycle it before binding GL_TEXTURE_3D. */
     if (textures[id] && !texture_is_3d[id]) { glDeleteTextures(1,&textures[id]); textures[id]=0; }
@@ -1591,6 +1613,58 @@ void g3p_upload_texture_3d(int32_t id, g3_u8_slice pixels, int32_t width, int32_
     glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_WRAP_R,GL_CLAMP_TO_EDGE);
     glTexImage3D(GL_TEXTURE_3D,0,GL_RGBA8,width,height,depth,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels.data);
+    texture_widths[id]=width;texture_heights[id]=height;texture_is_hdr[id]=0;texture_is_3d[id]=1;
+}
+
+/* Half-float (RGBA16F) uploads for DataTexture/Data3DTexture LUTs. `data` is
+   the raw little-endian uint16 stream: 8 bytes per texel. Linear filtering
+   on 16F is core in WebGL2, so the same sampler state as the other paths
+   applies. */
+static uint16_t *aligned_f16_copy(const uint8_t *data, int64_t len) {
+    uint16_t *out = malloc((size_t)len);
+    if (out) memcpy(out, data, (size_t)len);
+    return out;
+}
+
+void g3p_upload_texture_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) {
+    if (id < 0 || width <= 0 || height <= 0 || pixels.len != (int64_t)width * height * 8) return;
+    cached_material_valid = 0;
+    if (!texture_reserve(id)) return;
+    if (texture_is_3d[id]) { glDeleteTextures(1, &textures[id]); textures[id] = 0; texture_is_3d[id] = 0; }
+    if (!textures[id]) glGenTextures(1, &textures[id]);
+    if (env_prefilter_source_id == id) {
+        if (env_prefilter_texture) glDeleteTextures(1,&env_prefilter_texture);
+        env_prefilter_texture=0; env_prefilter_source_id=-1; env_prefilter_max_lod=0;
+    }
+    uint16_t *copy = aligned_f16_copy(pixels.data, pixels.len);
+    if (!copy) return;
+    glBindTexture(GL_TEXTURE_2D, textures[id]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_HALF_FLOAT, copy);
+    free(copy);
+    texture_widths[id]=width;texture_heights[id]=height;texture_is_hdr[id]=0;
+}
+
+void g3p_upload_texture_3d_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth) {
+    if (id < 0 || width <= 0 || height <= 0 || depth <= 0 ||
+        pixels.len != (int64_t)width * height * depth * 8) return;
+    cached_material_valid = 0;
+    if (!texture_reserve(id)) return;
+    if (textures[id] && !texture_is_3d[id]) { glDeleteTextures(1,&textures[id]); textures[id]=0; }
+    if (!textures[id]) glGenTextures(1,&textures[id]);
+    uint16_t *copy = aligned_f16_copy(pixels.data, pixels.len);
+    if (!copy) return;
+    glBindTexture(GL_TEXTURE_3D,textures[id]);
+    glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D,GL_TEXTURE_WRAP_R,GL_CLAMP_TO_EDGE);
+    glTexImage3D(GL_TEXTURE_3D,0,GL_RGBA16F,width,height,depth,0,GL_RGBA,GL_HALF_FLOAT,copy);
+    free(copy);
     texture_widths[id]=width;texture_heights[id]=height;texture_is_hdr[id]=0;texture_is_3d[id]=1;
 }
 
@@ -2129,6 +2203,16 @@ static void render_point_shadow_maps(g3_draw_item_slice items, const g3_view_sta
 }
 
 static int select_material_shader(const g3_draw_item *it) {
+    active_raw = NULL;
+    /* Raw shader ids select a complete user program; lit custom shaders and
+       the standard program share the remaining id space below. */
+    int raw_index = it->shader - RAW_SHADER_BASE;
+    if (raw_index >= 0 && raw_index < RAW_SHADER_MAX && raw_programs[raw_index].active) {
+        raw_program *rp = &raw_programs[raw_index];
+        if (!rp->program && !build_raw_program(rp)) return 0;
+        active_raw = rp;
+        return 1;
+    }
     /* A registered custom shader id selects the spliced lit program; an
        unknown or released id falls back to the standard program. Custom
        programs always run the lit path so the injected code sees lighting. */
@@ -2187,6 +2271,8 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     if (it->mesh < 0 || it->mesh >= mesh_count) return;
     web_mesh *m = &meshes[it->mesh];
     if (!m->vao || m->count == 0) return;
+
+    if (active_raw) { draw_raw_item(it, m); return; }
 
     if (it->double_sided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
 
@@ -2603,6 +2689,320 @@ void g3p_material_shader_release(int32_t id) {
     material_shader_sources[id] = (web_material_shader_source){0};
 }
 
+/* ---- raw shader programs ----
+
+   User sources are GLSL ES 1.00 (attribute/varying/gl_FragColor), matching
+   the three.js ShaderMaterial convention, so they compile verbatim. The
+   prefix supplies the builtin uniform declarations and the small helpers
+   the facade's #include replacements call. Standard attribute names are
+   bound to the engine's vertex locations before linking; packed UV sets
+   beyond `uv` and custom vertex attributes are not reachable. */
+
+static const char RAW_VS_PREFIX[] =
+    "precision highp float;\n"
+    "uniform mat4 modelMatrix;\n"
+    "uniform mat4 modelViewMatrix;\n"
+    "uniform mat4 projectionMatrix;\n"
+    "uniform mat4 viewMatrix;\n"
+    "uniform mat4 normalMatrix;\n"
+    "uniform vec3 cameraPosition;\n";
+
+static const char RAW_FS_PREFIX[] =
+    "precision highp float;\n"
+    "precision highp int;\n"
+    "uniform vec3 cameraPosition;\n"
+    "uniform float u_g3_tone_mode;\n"
+    "uniform float u_g3_exposure;\n"
+    "uniform float u_g3_output_srgb;\n"
+    "vec3 g3_tone_map(vec3 x){x=max(x,vec3(0.0));int m=int(u_g3_tone_mode+0.5);if(m==0)return x;"
+    "x*=u_g3_exposure;if(m==1)return x/(vec3(1.0)+x);"
+    "if(m==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\n"
+    "vec3 g3_encode_srgb(vec3 c){vec3 lo=c*12.92;vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055;"
+    "return mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}\n";
+
+static int raw_uniform_components(int type) {
+    switch (type) {
+    case RAW_T_FLOAT: case RAW_T_INT: return 1;
+    case RAW_T_VEC2: return 2;
+    case RAW_T_VEC3: return 3;
+    case RAW_T_VEC4: return 4;
+    case RAW_T_MAT4: return 16;
+    default: return 0;
+    }
+}
+
+static int link_raw_program(raw_program *rp, GLuint vs, GLuint fs) {
+    GLuint p = glCreateProgram();
+    static const struct { const char *name; int loc; } attrs[] = {
+        { "position", 0 }, { "normal", 1 }, { "uv", 2 },
+        { "color", 7 }, { "tangent", 15 } };
+    for (int i = 0; i < 5; i++) glBindAttribLocation(p, attrs[i].loc, attrs[i].name);
+    glAttachShader(p, vs);
+    glAttachShader(p, fs);
+    glLinkProgram(p);
+    GLint ok = 0;
+    glGetProgramiv(p, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[2048];
+        glGetProgramInfoLog(p, (GLsizei)sizeof(log) - 1, NULL, log);
+        fprintf(stderr, "g3_web: raw program did not link:\n%s\n", log);
+        report(log);
+        glDeleteProgram(p);
+        return 0;
+    }
+    rp->program = p;
+    return 1;
+}
+
+static int build_raw_program(raw_program *rp) {
+    size_t vs_len = sizeof(RAW_VS_PREFIX) - 1 + strlen(rp->vertex) + 1;
+    size_t fs_len = sizeof(RAW_FS_PREFIX) - 1 + strlen(rp->fragment) + 1;
+    char *vs = malloc(vs_len), *fs = malloc(fs_len);
+    if (!vs || !fs) { free(vs); free(fs); return 0; }
+    char *p = vs;
+    memcpy(p, RAW_VS_PREFIX, sizeof(RAW_VS_PREFIX) - 1); p += sizeof(RAW_VS_PREFIX) - 1;
+    strcpy(p, rp->vertex);
+    p = fs;
+    memcpy(p, RAW_FS_PREFIX, sizeof(RAW_FS_PREFIX) - 1); p += sizeof(RAW_FS_PREFIX) - 1;
+    strcpy(p, rp->fragment);
+    GLuint v = compile_shader(GL_VERTEX_SHADER, vs, "raw vertex");
+    GLuint f = compile_shader(GL_FRAGMENT_SHADER, fs, "raw fragment");
+    free(vs); free(fs);
+    if (!v || !f) { if (v) glDeleteShader(v); if (f) glDeleteShader(f); return 0; }
+    int linked = link_raw_program(rp, v, f);
+    glDeleteShader(v); glDeleteShader(f);
+    if (!linked) return 0;
+    rp->u_model = glGetUniformLocation(rp->program, "modelMatrix");
+    rp->u_model_view = glGetUniformLocation(rp->program, "modelViewMatrix");
+    rp->u_projection = glGetUniformLocation(rp->program, "projectionMatrix");
+    rp->u_view = glGetUniformLocation(rp->program, "viewMatrix");
+    rp->u_camera = glGetUniformLocation(rp->program, "cameraPosition");
+    rp->u_normal_matrix = glGetUniformLocation(rp->program, "normalMatrix");
+    rp->u_tone_mode = glGetUniformLocation(rp->program, "u_g3_tone_mode");
+    rp->u_exposure = glGetUniformLocation(rp->program, "u_g3_exposure");
+    rp->u_output_srgb = glGetUniformLocation(rp->program, "u_g3_output_srgb");
+    int unit = 5; /* 0..4 stay reserved like the lit programs */
+    for (int i = 0; i < rp->uniform_count; i++) {
+        raw_uniform *u = &rp->uniforms[i];
+        if (u->type == RAW_T_SAMPLER) {
+            u->unit = unit++;
+            if (u->unit >= fragment_texture_units) {
+                report("Raw shader material exceeds the device's fragment texture budget.");
+                return 0;
+            }
+        } else {
+            u->unit = -1;
+            /* Array uniforms must be queried by their first element's name. */
+            if (u->count > 1) {
+                char indexed[RAW_MAX_NAME + 4];
+                snprintf(indexed, sizeof(indexed), "%s[0]", u->name);
+                u->location = glGetUniformLocation(rp->program, indexed);
+            }
+            if (u->location < 0 || u->count <= 1)
+                u->location = glGetUniformLocation(rp->program, u->name);
+        }
+    }
+    rp->uploaded_generation = 0; /* forces the first uniform upload */
+    return 1;
+}
+
+static void raw_mat4_mul(const g3_mat4 *a, const g3_mat4 *b, float out[16]) {
+    for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) {
+        float sum = 0.0f;
+        for (int k = 0; k < 4; k++) sum += a->m[k * 4 + r] * b->m[c * 4 + k];
+        out[c * 4 + r] = sum;
+    }
+}
+
+static void raw_upload_uniforms(raw_program *rp) {
+    int ibuf[RAW_MAX_COUNT];
+    for (int i = 0; i < rp->uniform_count; i++) {
+        raw_uniform *u = &rp->uniforms[i];
+        if (u->location < 0) continue;
+        switch (u->type) {
+        case RAW_T_FLOAT: glUniform1fv(u->location, u->count, u->values); break;
+        case RAW_T_INT:
+            for (int k = 0; k < u->count; k++) ibuf[k] = (int)lrintf(u->values[k]);
+            glUniform1iv(u->location, u->count, ibuf);
+            break;
+        case RAW_T_VEC2: glUniform2fv(u->location, u->count, u->values); break;
+        case RAW_T_VEC3: glUniform3fv(u->location, u->count, u->values); break;
+        case RAW_T_VEC4: glUniform4fv(u->location, u->count, u->values); break;
+        case RAW_T_MAT4: glUniformMatrix4fv(u->location, u->count, GL_FALSE, u->values); break;
+        case RAW_T_SAMPLER: {
+            int32_t t = u->texture;
+            int ok = t >= 0 && t < texture_count && textures[t];
+            glActiveTexture(GL_TEXTURE0 + u->unit);
+            glBindTexture(ok && texture_is_3d[t] ? GL_TEXTURE_3D : GL_TEXTURE_2D, ok ? textures[t] : 0);
+            glUniform1i(u->location, u->unit);
+            break;
+        }
+        }
+    }
+}
+
+static void raw_upload_frame(raw_program *rp, const g3_draw_item *it) {
+    float model_view[16];
+    raw_mat4_mul(&raw_frame_view->view, &it->model, model_view);
+    upload_matrix4(rp->u_model_view, 1, GL_FALSE, model_view);
+    upload_matrix4(rp->u_model, 1, GL_FALSE, it->model.m);
+    upload_matrix4(rp->u_projection, 1, GL_FALSE, raw_frame_view->projection.m);
+    upload_matrix4(rp->u_view, 1, GL_FALSE, raw_frame_view->view.m);
+    if (rp->u_normal_matrix >= 0) {
+        float nm[9];
+        g3_normal_matrix(&it->model, nm);
+        glUniformMatrix3fv(rp->u_normal_matrix, 1, GL_FALSE, nm);
+    }
+    if (rp->u_camera >= 0)
+        glUniform3f(rp->u_camera, raw_frame_view->eye.x, raw_frame_view->eye.y, raw_frame_view->eye.z);
+    if (rp->u_tone_mode >= 0) glUniform1f(rp->u_tone_mode, (float)tone_map_inline_frame);
+    if (rp->u_exposure >= 0) glUniform1f(rp->u_exposure, raw_frame_view->params.w);
+    if (rp->u_output_srgb >= 0) glUniform1f(rp->u_output_srgb, (float)output_srgb_inline_frame);
+    if (rp->uploaded_generation != rp->generation) {
+        raw_upload_uniforms(rp);
+        rp->uploaded_generation = rp->generation;
+    }
+}
+
+static void draw_raw_item(const g3_draw_item *it, web_mesh *m) {
+    raw_program *rp = active_raw;
+    if (it->double_sided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
+    if (it->params.w > 0.5f) {
+        glEnable(GL_BLEND);
+        glDepthMask(GL_FALSE);
+    } else {
+        glDisable(GL_BLEND);
+        glDepthMask(GL_TRUE);
+    }
+    raw_upload_frame(rp, it);
+    glBindVertexArray(m->vao);
+    clear_instance_attributes(m);
+    glDrawElements(GL_TRIANGLES, m->count, GL_UNSIGNED_INT, (const void *)0);
+    scene_draw_calls++;
+}
+
+uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragment) {
+    if (id < 0 || id >= RAW_SHADER_MAX || raw_programs[id].active ||
+        !vertex.data || !fragment.data || vertex.len <= 0 || fragment.len <= 0 ||
+        vertex.len + fragment.len > 262144) return 0;
+    for (int64_t i = 0; i < vertex.len; i++) if (vertex.data[i] == 0) return 0;
+    for (int64_t i = 0; i < fragment.len; i++) if (fragment.data[i] == 0) return 0;
+    char *v = dup_glsl(vertex), *f = dup_glsl(fragment);
+    if (!v || !f) { free(v); free(f); return 0; }
+    raw_program *rp = &raw_programs[id];
+    memset(rp, 0, sizeof(*rp));
+    rp->active = 1;
+    rp->vertex = v;
+    rp->fragment = f;
+    rp->generation = 1;
+    return 1;
+}
+
+void g3p_raw_shader_release(int32_t id) {
+    if (id < 0 || id >= RAW_SHADER_MAX) return;
+    raw_program *rp = &raw_programs[id];
+    if (rp->program) glDeleteProgram(rp->program);
+    for (int i = 0; i < rp->uniform_count; i++) free(rp->uniforms[i].values);
+    free(rp->vertex);
+    free(rp->fragment);
+    memset(rp, 0, sizeof(*rp));
+}
+
+static raw_program *raw_program_at(int32_t id) {
+    return id >= 0 && id < RAW_SHADER_MAX && raw_programs[id].active ? &raw_programs[id] : NULL;
+}
+
+uint8_t g3p_raw_shader_uniform(int32_t id, g3_u8_slice name, int32_t type, int32_t count, g3_f32_slice values) {
+    raw_program *rp = raw_program_at(id);
+    int components = raw_uniform_components(type);
+    if (!rp || !name.data || name.len <= 0 || name.len >= RAW_MAX_NAME || components <= 0 ||
+        type == RAW_T_SAMPLER || count < 1 || count > RAW_MAX_COUNT ||
+        values.len != (int64_t)count * components) return 0;
+    for (int64_t i = 0; i < name.len; i++) if (name.data[i] == 0 || name.data[i] < 32 || name.data[i] > 126) return 0;
+    /* Re-setting an existing uniform replaces its values in place. */
+    raw_uniform *existing = NULL;
+    for (int i = 0; i < rp->uniform_count; i++)
+        if (rp->uniforms[i].type == type && strlen(rp->uniforms[i].name) == (size_t)name.len &&
+            !memcmp(rp->uniforms[i].name, name.data, (size_t)name.len)) { existing = &rp->uniforms[i]; break; }
+    if (existing) {
+        if (existing->count != count) {
+            float *grown = realloc(existing->values, (size_t)count * components * sizeof(float));
+            if (!grown) return 0;
+            existing->values = grown;
+            existing->count = count;
+        }
+        memcpy(existing->values, values.data, (size_t)values.len * sizeof(float));
+        rp->generation++;
+        return 1;
+    }
+    if (rp->uniform_count >= RAW_MAX_UNIFORMS) return 0;
+    raw_uniform *u = &rp->uniforms[rp->uniform_count];
+    memset(u, 0, sizeof(*u));
+    memcpy(u->name, name.data, (size_t)name.len);
+    u->name[name.len] = 0;
+    u->type = type;
+    u->count = count;
+    u->location = -1;
+    u->unit = -1;
+    u->texture = -1;
+    u->values = malloc((size_t)count * components * sizeof(float));
+    if (!u->values) return 0;
+    memcpy(u->values, values.data, (size_t)values.len * sizeof(float));
+    if (rp->program) {
+        /* Program already built: resolve now and force a re-upload. */
+        if (type != RAW_T_SAMPLER && count > 1) {
+            char indexed[RAW_MAX_NAME + 4];
+            snprintf(indexed, sizeof(indexed), "%s[0]", u->name);
+            u->location = glGetUniformLocation(rp->program, indexed);
+        }
+        if (u->location < 0) u->location = glGetUniformLocation(rp->program, u->name);
+    }
+    rp->uniform_count++;
+    rp->generation++;
+    return 1;
+}
+
+uint8_t g3p_raw_shader_uniform_texture(int32_t id, g3_u8_slice name, int32_t texture) {
+    raw_program *rp = raw_program_at(id);
+    if (!rp || !name.data || name.len <= 0 || name.len >= RAW_MAX_NAME) return 0;
+    for (int64_t i = 0; i < name.len; i++) if (name.data[i] == 0 || name.data[i] < 32 || name.data[i] > 126) return 0;
+    /* Re-setting an existing sampler updates it in place. */
+    raw_uniform *u = NULL;
+    for (int i = 0; i < rp->uniform_count; i++)
+        if (rp->uniforms[i].type == RAW_T_SAMPLER && strlen(rp->uniforms[i].name) == (size_t)name.len &&
+            !memcmp(rp->uniforms[i].name, name.data, (size_t)name.len)) { u = &rp->uniforms[i]; break; }
+    if (!u) {
+        if (rp->uniform_count >= RAW_MAX_UNIFORMS) return 0;
+        u = &rp->uniforms[rp->uniform_count++];
+        memset(u, 0, sizeof(*u));
+        memcpy(u->name, name.data, (size_t)name.len);
+        u->name[name.len] = 0;
+        u->type = RAW_T_SAMPLER;
+        u->count = 1;
+        u->location = -1;
+        u->texture = -1;
+        u->unit = -1;
+    }
+    u->texture = texture;
+    if (rp->program) {
+        if (u->unit < 0) {
+            /* Late registration after the build: take the next free unit. */
+            int unit = 5;
+            for (int i = 0; i < rp->uniform_count; i++)
+                if (rp->uniforms[i].type == RAW_T_SAMPLER && rp->uniforms[i].unit >= unit)
+                    unit = rp->uniforms[i].unit + 1;
+            if (unit >= fragment_texture_units) {
+                report("Raw shader material exceeds the device's fragment texture budget.");
+                return 0;
+            }
+            u->unit = unit;
+        }
+        u->location = glGetUniformLocation(rp->program, u->name);
+    }
+    rp->generation++;
+    return 1;
+}
+
 uint8_t g3p_post_process_shader_run(int32_t shader_id, int32_t source, int32_t destination) {
     web_render_target *target = NULL;
     for (int32_t i = 0; i < render_target_count; i++) if (render_targets[i].id == destination) { target = &render_targets[i]; break; }
@@ -2657,6 +3057,7 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     /* Shadow passes bind their own maps on texture units also used by materials. */
     if (view->shadow_params.x > 0.5f || view->point_shadow_params.x > 0.5f || view->spot_shadow_params.x > 0.5f)
         cached_material_valid = 0;
+    raw_frame_view = view;
     int tone_mode=target ? 0 : (int)(view->params.z+0.5f);
     int tone=tone_mode!=0;
     int encode=0;
@@ -2693,14 +3094,18 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     for (int64_t i = 0; i < items.len;) {
         if (target && item_samples_texture(&items.data[i], view->render_target)) { i++; continue; }
         int32_t count = 1;
-        if (items.data[i].params.w <= 0.5f && items.data[i].mesh >= 0 && items.data[i].mesh < mesh_count) {
+        int raw_item = items.data[i].shader >= RAW_SHADER_BASE && items.data[i].shader < RAW_SHADER_BASE + RAW_SHADER_MAX;
+        /* Raw programs take modelMatrix as a uniform, so they cannot use the
+           instanced path; each item draws on its own. */
+        if (!raw_item && items.data[i].params.w <= 0.5f && items.data[i].mesh >= 0 && items.data[i].mesh < mesh_count) {
             while (i + count < items.len && scene_compatible(&items.data[i], &items.data[i + count])) count++;
         }
         if (select_material_shader(&items.data[i])) {
-            if (bound_program != shader.program) {
-                glUseProgram(shader.program);
-                bind_view(view);
-                bound_program = shader.program;
+            GLuint program = active_raw ? active_raw->program : shader.program;
+            if (bound_program != program) {
+                glUseProgram(program);
+                if (!active_raw) bind_view(view);
+                bound_program = program;
             }
             draw_item(items, i, count);
         }

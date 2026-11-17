@@ -144,8 +144,10 @@ ignored for opaque items.
 | 1192 | `int32_t` | `target_height` | selected render-target height, in pixels |
 | 1196 | `g3_mat4` | `view_proj` | camera view-projection matrix, also used to form instanced MVP matrices |
 | 1260 | `g3_vec2` | `env_rotation` | cosine and sine of the equirectangular environment yaw |
+| 1268 | `g3_mat4` | `view` | camera view matrix, for raw shader builtins |
+| 1332 | `g3_mat4` | `projection` | camera projection matrix, for raw shader builtins |
 
-`ViewState` is 1268 bytes.
+`ViewState` is 1396 bytes.
 
 A selected target is a linear RGBA8 texture with RGB clamped to 0..1 and alpha
 fixed to 1. Its texture-coordinate origin is the lower-left, matching WebGL.
@@ -196,6 +198,8 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 | `void g3p_upload_texture_srgb(int32_t id, g3_u8_slice, int32_t w, int32_t h)` | same upload, decoding sRGB RGB channels to linear for filtering; alpha remains linear |
 | `void g3p_upload_texture_hdr(int32_t id, g3_f32_slice, int32_t w, int32_t h)` | copy row-major linear RGBA32F radiance; intended for environment maps |
 | `void g3p_upload_texture_3d(int32_t id, g3_u8_slice, int32_t w, int32_t h, int32_t d)` | copy row-major RGBA8 voxels for `u_lut`; linear/clamp fixed; CPU backend ignores |
+| `void g3p_upload_texture_f16(int32_t id, g3_u8_slice, int32_t w, int32_t h)` | copy row-major RGBA16F texels (raw uint16 stream, 8 bytes/texel); CPU backend ignores |
+| `void g3p_upload_texture_3d_f16(int32_t id, g3_u8_slice, int32_t w, int32_t h, int32_t d)` | same as 3D but RGBA16F; CPU backend ignores |
 | `uint8_t g3p_create_render_target(int32_t id, int32_t w, int32_t h)` | create a sampleable linear RGBA8 target with depth storage |
 | `uint8_t g3p_resize_render_target(int32_t id, int32_t w, int32_t h)` | resize a target; its contents are cleared |
 | `uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect)` | run copy (0), grayscale (1), invert (2), or FXAA (3) from a texture into a distinct target |
@@ -203,6 +207,10 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 | `uint8_t g3p_post_process_shader_run(int32_t shader, int32_t source, int32_t destination)` | run a custom fragment program into a distinct render target |
 | `void g3p_post_process_shader_release(int32_t id)` | release a compiled custom fragment program |
 | `uint8_t g3p_material_shader_create(int32_t id, g3_u8_slice header, g3_u8_slice body, g3_u8_slice tail)` | register GLSL spliced into the lit fragment shader; the CPU backend rejects it |
+| `uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragment)` | register a complete GLSL ES 1.00 program (ShaderMaterial-style); CPU backend rejects it |
+| `void g3p_raw_shader_release(int32_t id)` | drop a raw program and its uniforms |
+| `uint8_t g3p_raw_shader_uniform(int32_t id, g3_u8_slice name, int32_t kind, int32_t count, g3_f32_slice values)` | set a numeric uniform (kind 0 float, 1 vec2, 2 vec3, 3 vec4, 4 mat4, 5 int; count = array length) |
+| `uint8_t g3p_raw_shader_uniform_texture(int32_t id, g3_u8_slice name, int32_t texture)` | bind a 2D or 3D texture to a sampler uniform |
 | `void g3p_material_shader_release(int32_t id)` | release a registered custom material shader source |
 | `int32_t g3p_texture_width(int32_t id)` / `g3p_texture_height(int32_t id)` | dimensions of a backend texture |
 | `void g3p_release_texture(int32_t id)` | release backend texture and derived mip storage; the numeric slot remains reserved |

@@ -1509,6 +1509,17 @@ export class ExtrudeGeometry extends BufferGeometry {
 
 /* --- textures ------------------------------------------------------------------ */
 
+export const UnsignedByteType = 1009;
+export const FloatType = 1015;
+export const HalfFloatType = 1016;
+
+export const NoBlending = 0;
+export const NormalBlending = 1;
+export const AdditiveBlending = 2;
+export const SubtractiveBlending = 3;
+export const MultiplyBlending = 4;
+export const CustomBlending = 5;
+
 export const RepeatWrapping = 1000;
 export const ClampToEdgeWrapping = 1001;
 export const MirroredRepeatWrapping = 1002;
@@ -1562,6 +1573,7 @@ export class Texture {
     this.rotation = 0;
     this.center = new Vector2(0.5, 0.5);
     this.channel = 0;
+    this.type = UnsignedByteType;
     this.matrixAutoUpdate = true;
     this.generateMipmaps = true;
     this.version = 0;
@@ -1707,6 +1719,27 @@ export { MeshBasicMaterial as MeshNormalMaterial };
 export { MeshBasicMaterial as SpriteMaterial };
 export { MeshBasicMaterial as PointsMaterial };
 export { MeshBasicMaterial as LineBasicMaterial };
+
+// Complete user vertex+fragment programs (GLSL ES 1.00, three.js style).
+// The engine supplies the standard matrix/camera uniforms and the vertex
+// attributes position, normal, uv, color and tangent; packed UV sets beyond
+// `uv`, custom vertex attributes, projective texturing and custom blending
+// modes are not reachable. `#include <tonemapping_fragment>` and
+// `#include <colorspace_fragment>` resolve to the engine's output chain.
+export class ShaderMaterial extends Material {
+  constructor(parameters = {}) {
+    super(parameters);
+    this.isShaderMaterial = true;
+    this.uniforms = parameters.uniforms || {};
+    this.vertexShader = parameters.vertexShader || '';
+    this.fragmentShader = parameters.fragmentShader || '';
+    this.depthWrite = parameters.depthWrite !== false;
+    this.depthTest = parameters.depthTest !== false;
+    this.blending = parameters.blending ?? NormalBlending;
+    this.side = parameters.side ?? FrontSide;
+    this.transparent = parameters.transparent === true;
+  }
+}
 
 /* --- lights ------------------------------------------------------------------- */
 
@@ -2267,16 +2300,29 @@ function ensureTexture(engine, texture) {
   const image = textureImageData(texture.image);
   if (!image || !image.pixels || !image.pixels.length) return -1;
 
-  const id = engine._g3_asset_texture();
-  if (id < 0) return -1;
-  const ptr = engine._malloc(image.pixels.length);
-  if (!ptr) { engine._g3_asset_release_texture(id, engine._g3_asset_texture_generation(id)); return -1; }
+  const f16 = (texture.type === HalfFloatType || image.pixels instanceof Uint16Array) &&
+    image.pixels.byteLength === image.width * image.height * 8 &&
+    typeof engine._g3_asset_texture_f16 === 'function';
+  const ptr = engine._malloc(image.pixels.byteLength || image.pixels.length);
+  if (!ptr) return -1;
+  let id = -1;
   try {
     engine.HEAPU8.set(image.pixels instanceof Uint8Array || image.pixels instanceof Uint8ClampedArray
-      ? image.pixels : new Uint8ClampedArray(image.pixels), ptr);
-    const srgb = texture.colorSpace === SRGBColorSpace;
-    if (srgb) engine._g3_host_texture_srgb(id, ptr, image.width, image.height);
-    else engine._g3_host_texture(id, ptr, image.width, image.height);
+      ? image.pixels
+      : image.pixels instanceof Uint16Array
+        ? new Uint8Array(image.pixels.buffer, image.pixels.byteOffset, image.pixels.byteLength)
+        : new Uint8ClampedArray(image.pixels), ptr);
+    if (f16) {
+      id = engine._g3_asset_texture_f16(image.width, image.height, ptr, image.pixels.byteLength);
+    } else {
+      id = engine._g3_asset_texture();
+      if (id >= 0) {
+        const srgb = texture.colorSpace === SRGBColorSpace;
+        if (srgb) engine._g3_host_texture_srgb(id, ptr, image.width, image.height);
+        else engine._g3_host_texture(id, ptr, image.width, image.height);
+      }
+    }
+    if (id < 0) return -1;
     const wrapU = WRAP_TO_ENGINE[texture.wrapS] ?? 1;
     const wrapV = WRAP_TO_ENGINE[texture.wrapT] ?? 1;
     engine._g3_host_texture_wrap(id, wrapU, wrapV);
@@ -2296,17 +2342,22 @@ function ensureTexture3D(engine, texture) {
   if (typeof engine._g3_asset_texture_3d !== 'function') return -1;
   const image = texture.image;
   const data = image && image.data;
-  if (!data || !(data instanceof Uint8Array || data instanceof Uint8ClampedArray)) return -1;
+  const f16 = data instanceof Uint16Array &&
+    typeof engine._g3_asset_texture_3d_f16 === 'function';
+  if (!data || !(data instanceof Uint8Array || data instanceof Uint8ClampedArray || f16)) return -1;
   const signature = [image ? `${image.width}x${image.height}x${image.depth}` : 'pending',
-    texture.version].join(',');
+    texture.version, f16 ? 'f16' : 'rgba8'].join(',');
   const state = texture3dStates.get(texture);
   if (state && state.signature === signature) return state.id;
   if (state) engine._g3_asset_release_texture(state.id, state.generation);
-  const ptr = engine._malloc(data.length);
+  const ptr = engine._malloc(data.byteLength || data.length);
   if (!ptr) return -1;
   try {
-    engine.HEAPU8.set(data instanceof Uint8Array ? data : new Uint8Array(data.buffer, data.byteOffset, data.byteLength), ptr);
-    const id = engine._g3_asset_texture_3d(image.width, image.height, image.depth, ptr, data.length);
+    engine.HEAPU8.set(data instanceof Uint8Array || data instanceof Uint8ClampedArray
+      ? data : new Uint8Array(data.buffer, data.byteOffset, data.byteLength), ptr);
+    const id = f16
+      ? engine._g3_asset_texture_3d_f16(image.width, image.height, image.depth, ptr, data.byteLength)
+      : engine._g3_asset_texture_3d(image.width, image.height, image.depth, ptr, data.length);
     if (id < 0) return -1;
     const record = { id, generation: engine._g3_asset_texture_generation(id), signature };
     texture3dStates.set(texture, record);
@@ -2514,7 +2565,184 @@ function textureUvSignature(texture) {
 let frameMaterialCache = null;
 let fallbackMaterial = null;
 
+/* --- raw shader materials ----------------------------------------------------- */
+
+// ShaderMaterial -> {id, sourceKey, uniformSig}: one engine program per
+// material instance; uniform values update in place through the program's
+// generation counter, so they never force a material re-creation.
+const rawShaderStates = new WeakMap();
+
+const RAW_SHADER_CHUNKS = {
+  tonemapping_fragment: 'gl_FragColor.rgb = g3_tone_map(gl_FragColor.rgb);',
+  colorspace_fragment: 'if (u_g3_output_srgb > 0.5) { gl_FragColor.rgb = g3_encode_srgb(gl_FragColor.rgb); }',
+};
+
+function resolveRawChunks(source) {
+  return String(source || '').replace(/#include\s*<([^>\s]+)>/g, (match, name) => {
+    const chunk = RAW_SHADER_CHUNKS[name];
+    if (chunk === undefined) console.warn(`gs3d: unsupported shader chunk #include <${name}> dropped`);
+    return chunk ?? '';
+  });
+}
+
+function rawUploadText(engine, text) {
+  const bytes = new TextEncoder().encode(text || '');
+  const ptr = engine._malloc(bytes.length);
+  engine.HEAPU8.set(bytes, ptr);
+  return [ptr, bytes.length];
+}
+
+function ensureRawShader(engine, material) {
+  const vertex = resolveRawChunks(material.vertexShader);
+  const fragment = resolveRawChunks(material.fragmentShader);
+  const sourceKey = vertex + '\n' + fragment;
+  let state = rawShaderStates.get(material);
+  if (state && state.sourceKey === sourceKey) return state;
+  if (state && typeof engine._g3_asset_raw_shader_release === 'function') {
+    engine._g3_asset_raw_shader_release(state.id);
+  }
+  if (typeof engine._g3_asset_raw_shader_create !== 'function') return { id: -1, sourceKey };
+  const v = rawUploadText(engine, vertex);
+  const f = rawUploadText(engine, fragment);
+  let id = -1;
+  try {
+    id = engine._g3_asset_raw_shader_create(v[0], v[1], f[0], f[1]);
+  } finally {
+    engine._free(v[0]);
+    engine._free(f[0]);
+  }
+  state = { id, sourceKey, uniformSig: null };
+  rawShaderStates.set(material, state);
+  return state;
+}
+
+const RAW_UNIFORM_KIND = { float: 0, vec2: 1, vec3: 2, vec4: 3, mat4: 4, int: 5 };
+
+// Classify a uniform value into {kind, floats} or {texture}. Returns null
+// for unsupported shapes (the uniform is skipped with a warning).
+function rawUniformPayload(value) {
+  const v = value && value.value !== undefined ? value.value : value;
+  if (v === undefined || v === null) return null;
+  if (typeof v === 'number') return { kind: RAW_UNIFORM_KIND.float, floats: [v] };
+  if (typeof v === 'boolean') return { kind: RAW_UNIFORM_KIND.int, floats: [v ? 1 : 0] };
+  if (v.isTexture || v.isDataTexture || v.isData3DTexture) return { texture: v };
+  if (v.isMatrix4 || (v.elements && v.elements.length === 16)) {
+    return { kind: RAW_UNIFORM_KIND.mat4, floats: Array.from(v.elements || v) };
+  }
+  if (v.isColor) return { kind: RAW_UNIFORM_KIND.vec3, floats: [v.r, v.g, v.b] };
+  if (v.isVector3) return { kind: RAW_UNIFORM_KIND.vec3, floats: [v.x, v.y, v.z] };
+  if (v.isVector2) return { kind: RAW_UNIFORM_KIND.vec2, floats: [v.x, v.y] };
+  if (typeof v.x === 'number' && typeof v.y === 'number' && typeof v.z === 'number' && typeof v.w === 'number') {
+    return { kind: RAW_UNIFORM_KIND.vec4, floats: [v.x, v.y, v.z, v.w] };
+  }
+  if (typeof v.x === 'number' && typeof v.y === 'number' && typeof v.z === 'number') {
+    return { kind: RAW_UNIFORM_KIND.vec3, floats: [v.x, v.y, v.z] };
+  }
+  if (typeof v.x === 'number' && typeof v.y === 'number' && v.z === undefined) {
+    return { kind: RAW_UNIFORM_KIND.vec2, floats: [v.x, v.y] };
+  }
+  if (Array.isArray(v) || ArrayBuffer.isView(v)) {
+    const floats = Array.from(v);
+    if (floats.every(x => typeof x === 'number')) {
+      return { kind: RAW_UNIFORM_KIND.float, floats };
+    }
+    // Homogeneous vector arrays become vecN arrays.
+    const dims = floats.map(e => {
+      const p = rawUniformPayload(e);
+      return p && !p.texture ? p : null;
+    });
+    if (dims.length && dims.every(p => p && p.kind === dims[0].kind && p.floats.length === dims[0].floats.length)) {
+      return { kind: dims[0].kind, floats: dims.flatMap(p => p.floats) };
+    }
+    return null;
+  }
+  return null;
+}
+
+function rawUniformEntries(engine, material) {
+  const entries = [];
+  for (const name of Object.keys(material.uniforms || {})) {
+    const entry = material.uniforms[name];
+    const payload = rawUniformPayload(entry);
+    if (!payload) continue;
+    if (payload.texture) {
+      const tex = payload.texture;
+      const texId = tex.isData3DTexture
+        ? ensureTexture3D(engine, tex)
+        : ensureTexture(engine, tex);
+      entries.push({ name, texture: texId });
+    } else {
+      entries.push({ name, kind: payload.kind, floats: payload.floats });
+    }
+  }
+  return entries;
+}
+
+function rawUniformSignature(entries) {
+  return entries.map(e => e.texture !== undefined
+    ? `${e.name}=t${e.texture}`
+    : `${e.name}=${e.kind}:${e.floats.join(',')}`).join('|');
+}
+
+function uploadRawUniforms(engine, shaderId, entries) {
+  for (const e of entries) {
+    const nameBytes = new TextEncoder().encode(e.name);
+    const namePtr = engine._malloc(nameBytes.length);
+    engine.HEAPU8.set(nameBytes, namePtr);
+    try {
+      if (e.texture !== undefined) {
+        engine._g3_asset_raw_shader_uniform_texture(shaderId, namePtr, nameBytes.length, e.texture);
+        continue;
+      }
+      const f32 = new Float32Array(e.floats);
+      const dataPtr = engine._malloc(f32.byteLength);
+      engine.HEAPU8.set(new Uint8Array(f32.buffer, f32.byteOffset, f32.byteLength), dataPtr);
+      try {
+        engine._g3_asset_raw_shader_uniform(shaderId, namePtr, nameBytes.length,
+          e.kind, dataPtr, f32.length);
+      } finally {
+        engine._free(dataPtr);
+      }
+    } finally {
+      engine._free(namePtr);
+    }
+  }
+}
+
+function ensureRawMaterial(engine, material) {
+  const src = ensureRawShader(engine, material);
+  if (src.id < 0) return -1;
+  const entries = rawUniformEntries(engine, material);
+  const uniformSig = rawUniformSignature(entries);
+  if (src.uniformSig !== uniformSig) {
+    uploadRawUniforms(engine, src.id, entries);
+    src.uniformSig = uniformSig;
+  }
+  // The engine material only carries render state for raw programs:
+  // double-sidedness, blending and the shader id itself.
+  const signature = `raw|${material.side}|${material.transparent}|${material.opacity}|${src.id}`;
+  const state = materialStates.get(material);
+  if (state && state.signature === signature) return state.id;
+  if (state) engine._g3_asset_release_material(state.id, state.generation);
+  const alpha = material.transparent ? material.opacity : 1;
+  const id = engine._g3_asset_material(1, 1, 1, alpha,
+    -1, material.transparent ? 2 : 0, 0, 0, 0,
+    -1, -1, 0, -1, 0,
+    0, 0, 0, -1,
+    material.side !== FrontSide, true, 1.5);
+  if (id < 0) return -1;
+  engine._g3_asset_material_set_shader(id, src.id);
+  const record = { id, generation: engine._g3_asset_material_generation(id), signature };
+  materialStates.set(material, record);
+  return id;
+}
+
 function ensureMaterial(engine, material) {
+  if (material && material.isShaderMaterial) {
+    const id = ensureRawMaterial(engine, material);
+    if (frameMaterialCache) frameMaterialCache.set(material, id);
+    return id;
+  }
   if (!material) {
     // A shared fallback keeps material-less meshes from allocating a new
     // engine material (and leaking the old one) on every frame.

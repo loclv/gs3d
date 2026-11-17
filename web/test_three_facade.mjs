@@ -13,7 +13,8 @@ function createMockEngine() {
   const engine = {
     calls,
     HEAPU8: new Uint8Array(1 << 20),
-    _malloc: size => { engine._mallocSize = size; return 16; },
+    _malloc: size => { engine._mallocSize = size; const p = engine._heapTop; engine._heapTop = p + ((size + 15) & ~15); return p; },
+    _heapTop: 4096,
     _free: record('_free'),
     _g3_host_set_canvas: record('_g3_host_set_canvas'),
     _g3_host_start: (w, h) => { calls.push(['_g3_host_start', w, h]); return 1; },
@@ -56,6 +57,12 @@ function createMockEngine() {
     _g3_asset_material_user: record('_g3_asset_material_user'),
     _g3_asset_material_lut: record('_g3_asset_material_lut'),
     _g3_asset_texture_3d: (...args) => { calls.push(['_g3_asset_texture_3d', ...args]); return nextTexture++; },
+    _g3_asset_texture_f16: (...args) => { calls.push(['_g3_asset_texture_f16', ...args]); return nextTexture++; },
+    _g3_asset_texture_3d_f16: (...args) => { calls.push(['_g3_asset_texture_3d_f16', ...args]); return nextTexture++; },
+    _g3_asset_raw_shader_create: (...args) => { calls.push(['_g3_asset_raw_shader_create', args[1], args[3]]); return 100; },
+    _g3_asset_raw_shader_release: record('_g3_asset_raw_shader_release'),
+    _g3_asset_raw_shader_uniform: record('_g3_asset_raw_shader_uniform'),
+    _g3_asset_raw_shader_uniform_texture: record('_g3_asset_raw_shader_uniform_texture'),
     _g3_asset_material_uv_transform: record('_g3_asset_material_uv_transform'),
     _g3_asset_material_generation: () => 1,
     _g3_asset_material_valid: () => 1,
@@ -396,6 +403,77 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   const lutCalls = named(engine, '_g3_asset_material_lut');
   assert.equal(lutCalls.length, 1, 'lut bound to material');
   assert.equal(lutCalls[0][2], 1, 'lut id is the uploaded 3D texture');
+}
+
+// --- ShaderMaterial ---------------------------------------------------------------
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      sunDirection: { value: new THREE.Vector3(0, 1, 0) },
+      tint: { value: new THREE.Color(0xff0000) },
+      amount: { value: 0.5 },
+      flags: { value: 3 },
+      map: { value: null },
+    },
+    vertexShader: 'void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform vec3 sunDirection; void main() { gl_FragColor = vec4(sunDirection, 1.0); }\n#include <tonemapping_fragment>\n#include <colorspace_fragment>',
+    transparent: true,
+    side: THREE.BackSide,
+  });
+  scene.add(new THREE.Mesh(geometry, material));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+
+  const creates = named(engine, '_g3_asset_raw_shader_create');
+  assert.equal(creates.length, 1, 'raw shader created once');
+  assert.ok(creates[0][1] > 0 && creates[0][2] > 0, 'vertex and fragment slices uploaded');
+  const setCalls = named(engine, '_g3_asset_material_set_shader');
+  assert.equal(setCalls.at(-1)[2], 100, 'raw shader id bound to material');
+  const uniforms = named(engine, '_g3_asset_raw_shader_uniform');
+  const uniformNames = uniforms.map(c => engine.HEAPU8.slice(c[2], c[2] + c[3]).reduce((s, b) => s + String.fromCharCode(b), ''));
+  assert.ok(uniformNames.includes('sunDirection'), 'vec3 uniform uploaded');
+  assert.ok(uniformNames.includes('tint'), 'color uniform uploaded as vec3');
+  assert.ok(uniformNames.includes('amount'), 'float uniform uploaded');
+  assert.ok(uniformNames.includes('flags'), 'number uniform uploaded');
+  // Two meshes sharing the material reuse the program and skip re-upload.
+  scene.add(new THREE.Mesh(geometry, material));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  assert.equal(named(engine, '_g3_asset_raw_shader_create').length, 1, 'program not rebuilt');
+  assert.equal(named(engine, '_g3_asset_raw_shader_uniform').length, uniforms.length, 'uniforms not re-uploaded');
+}
+
+// --- half-float data textures -------------------------------------------------------
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  const data = new Uint16Array(4 * 4 * 4);
+  const lut = new THREE.Data3DTexture(data, 4, 4, 4);
+  lut.type = THREE.HalfFloatType;
+  const material = new THREE.ShaderMaterial({
+    uniforms: { table: { value: lut } },
+    vertexShader: 'void main() { gl_Position = vec4(position, 1.0); }',
+    fragmentShader: 'uniform sampler3D table; void main() { gl_FragColor = texture(table, vec3(0.5)); }',
+  });
+  scene.add(new THREE.Mesh(geometry, material));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+
+  const uploads = named(engine, '_g3_asset_texture_3d_f16');
+  assert.equal(uploads.length, 1, 'half-float 3D texture uploaded');
+  assert.deepEqual(uploads[0].slice(1, 4), [4, 4, 4], 'f16 3D dimensions passed through');
+  const texUniforms = named(engine, '_g3_asset_raw_shader_uniform_texture');
+  assert.equal(texUniforms.length, 1, 'sampler uniform bound');
+  assert.equal(texUniforms[0][4], 1, 'sampler gets the uploaded texture id');
 }
 
 // --- fog -------------------------------------------------------------------------

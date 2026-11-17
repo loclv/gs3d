@@ -106,7 +106,19 @@ Every custom program also declares `uniform sampler3D u_lut` and
 material, and `material.customUniforms` is a 32-float array exposed as
 `uniform vec4 u_user[8]`. The CPU backend ignores custom shaders and
 renders the standard program. Custom shaders always run the lit path and
-participate in the same texture-mask program cache (64 variants). Shadows are limited to one directional light: the first
+participate in the same texture-mask program cache (64 variants).
+`THREE.ShaderMaterial` runs complete user vertex+fragment programs
+(GLSL ES 1.00, three.js style, WebGL only): the engine supplies the
+`modelMatrix`/`modelViewMatrix`/`projectionMatrix`/`viewMatrix`/
+`normalMatrix`/`cameraPosition` builtins, the `position`/`normal`/`uv`/
+`color`/`tangent` attributes, and per-material `uniforms` (numbers,
+vectors, matrices, arrays and 2D/3D textures). `#include
+<tonemapping_fragment>` and `#include <colorspace_fragment>` resolve to
+the engine's output chain; `side`, `transparent` and `opacity` map to
+culling/blending, while `depthWrite`, packed UV sets beyond `uv`,
+custom vertex attributes, instancing and non-normal blending are
+ignored. `DataTexture`/`Data3DTexture` with `type = HalfFloatType` and
+`Uint16Array` data upload as RGBA16F. Shadows are limited to one directional light: the first
 `castShadow` directional light owns the engine's single shadow map
 (256/512/1024 px, PCF radius derived from `shadowMap.type`), its
 `shadow.camera` ortho bounds and `shadow.bias`/`normalBias` fold into one

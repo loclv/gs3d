@@ -223,9 +223,32 @@ export fn g3_asset_material_shader_create(header: const u8[:], body: const u8[:]
 }
 export fn g3_asset_material_shader_release(id: i32) -> bool { return g3::material_shader_remove(id); }
 export fn g3_asset_material_set_shader(id: i32, shader: i32) -> bool {
-    guard g3::material_valid(id) && (shader < 0 || g3::material_shader_valid(shader)) else { return false; }
+    guard g3::material_valid(id) && (shader < 0 || g3::material_shader_valid(shader) || g3::material_raw_shader_valid(shader)) else { return false; }
     g3::material(id).shader = shader;
     return true;
+}
+// Raw shader programs (ShaderMaterial-style): complete GLSL ES 1.00 vertex
+// and fragment sources. Returns an encoded id (>= 64) for
+// g3_asset_material_set_shader; -1 where unsupported. Uniform kinds:
+// 0 float, 1 vec2, 2 vec3, 3 vec4, 4 mat4, 5 int; samplers bind through
+// g3_asset_raw_shader_uniform_texture with a 2D or 3D texture id.
+export fn g3_asset_raw_shader_create(vertex: const u8[:], fragment: const u8[:]) -> i32 {
+    return g3::material_raw_shader_create(vertex, fragment);
+}
+export fn g3_asset_raw_shader_release(id: i32) -> bool { return g3::material_raw_shader_remove(id); }
+export fn g3_asset_raw_shader_uniform(id: i32, name: const u8[:], kind: i32, values: const f32[:]) -> bool {
+    return g3::material_raw_shader_uniform(id, name, kind, values);
+}
+export fn g3_asset_raw_shader_uniform_texture(id: i32, name: const u8[:], texture: i32) -> bool {
+    return g3::material_raw_shader_uniform_texture(id, name, texture);
+}
+// Half-float (RGBA16F) data textures: `pixels` is the raw uint16 stream,
+// 8 bytes per texel (four half floats). For LUT-style DataTexture uploads.
+export fn g3_asset_texture_f16(width: i32, height: i32, pixels: const u8[:]) -> i32 {
+    return g3::texture_asset_create_f16(width, height, pixels);
+}
+export fn g3_asset_texture_3d_f16(width: i32, height: i32, depth: i32, pixels: const u8[:]) -> i32 {
+    return g3::texture_asset_create_3d_f16(width, height, depth, pixels);
 }
 export fn g3_asset_material_lut(id: i32, texture: i32) -> bool {
     guard g3::material_valid(id) && (texture < 0 || g3::texture_slot_live(texture)) else { return false; }

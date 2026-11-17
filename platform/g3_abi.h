@@ -114,6 +114,8 @@ typedef struct {
     int32_t target_width, target_height;
     g3_mat4 view_proj;
     g3_vec2 env_rotation; /* cosine and sine of equirectangular yaw */
+    g3_mat4 view;         /* camera view matrix, for raw shader builtins */
+    g3_mat4 projection;   /* camera projection matrix, for raw shader builtins */
 } g3_view_state;
 
 typedef struct { const g3_vertex *data; int64_t len; } g3_vertex_slice;
@@ -182,7 +184,7 @@ _Static_assert(offsetof(g3_draw_item, user0) == 657, "DrawItem.user0 offset");
 _Static_assert(offsetof(g3_draw_item, lut_texture) == 785, "DrawItem.lut_texture offset");
 _Static_assert(sizeof(g3_light) == 56, "g3_light must be 56 bytes");
 _Static_assert(offsetof(g3_light, attenuation) == 52, "Light.attenuation offset");
-_Static_assert(sizeof(g3_view_state) == 1268, "g3_view_state must be 1268 bytes");
+_Static_assert(sizeof(g3_view_state) == 1396, "g3_view_state must be 1396 bytes");
 _Static_assert(offsetof(g3_view_state, lights) == 100, "ViewState.lights offset");
 _Static_assert(offsetof(g3_view_state, light_count) == 548, "ViewState.light_count offset");
 _Static_assert(offsetof(g3_view_state, env_sky) == 552, "ViewState.env_sky offset");
@@ -280,6 +282,8 @@ void g3p_upload_texture(int32_t id, g3_u8_slice pixels, int32_t width, int32_t h
 void g3p_upload_texture_srgb(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
 void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int32_t height);
 void g3p_upload_texture_3d(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth);
+void g3p_upload_texture_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
+void g3p_upload_texture_3d_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth);
 uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height);
 uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height);
 uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect);
@@ -288,6 +292,10 @@ void g3p_post_process_shader_release(int32_t id);
 uint8_t g3p_post_process_shader_run(int32_t shader, int32_t source, int32_t destination);
 uint8_t g3p_material_shader_create(int32_t id, g3_u8_slice header, g3_u8_slice body, g3_u8_slice tail);
 void g3p_material_shader_release(int32_t id);
+uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragment);
+void g3p_raw_shader_release(int32_t id);
+uint8_t g3p_raw_shader_uniform(int32_t id, g3_u8_slice name, int32_t type, int32_t count, g3_f32_slice values);
+uint8_t g3p_raw_shader_uniform_texture(int32_t id, g3_u8_slice name, int32_t texture);
 int32_t g3p_texture_width(int32_t id);
 int32_t g3p_texture_height(int32_t id);
 uint8_t g3p_load_radiance_hdr(int32_t id, g3_u8_slice path);

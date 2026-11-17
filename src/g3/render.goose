@@ -442,6 +442,67 @@ fn material_shader_remove(shader: i32) -> bool {
     return true;
 }
 
+// Raw shader programs (ShaderMaterial-style, WebGL-only): complete GLSL ES
+// 1.00 vertex and fragment sources plus named uniforms. Ids handed to
+// materials are offset by g_raw_shader_base so they cannot collide with
+// lit custom shader ids in DrawItem.shader.
+const g_raw_shader_base: i32 = 64;
+var g_raw_shader_count: i32;
+var g_raw_shader_live: bool[>..];
+
+fn material_raw_shader_create(vertex: const u8[:], fragment: const u8[:]) -> i32 {
+    guard vertex.len + fragment.len > 0 && vertex.len + fragment.len <= 262144 && g_raw_shader_count < 64 else { return -1; }
+    let id = g_raw_shader_count;
+    g_raw_shader_count += 1;
+    g_raw_shader_live.push(false);
+    if !g3p_raw_shader_create(id, vertex, fragment) { return -1; }
+    g_raw_shader_live[id] = true;
+    return g_raw_shader_base + id;
+}
+
+fn material_raw_shader_valid(shader: i32) -> bool {
+    let id = shader - g_raw_shader_base;
+    return id >= 0 && id < g_raw_shader_live.len && g_raw_shader_live[id];
+}
+
+fn material_raw_shader_remove(shader: i32) -> bool {
+    guard material_raw_shader_valid(shader) else { return false; }
+    let id = shader - g_raw_shader_base;
+    g3p_raw_shader_release(id);
+    g_raw_shader_live[id] = false;
+    return true;
+}
+
+// Uniform kinds match the backend's raw_uniform types.
+const raw_uniform_float: i32 = 0;
+const raw_uniform_vec2: i32 = 1;
+const raw_uniform_vec3: i32 = 2;
+const raw_uniform_vec4: i32 = 3;
+const raw_uniform_mat4: i32 = 4;
+const raw_uniform_int: i32 = 5;
+
+fn raw_uniform_components(kind: i32) -> i32 {
+    if kind == raw_uniform_float || kind == raw_uniform_int { return 1; }
+    if kind == raw_uniform_vec2 { return 2; }
+    if kind == raw_uniform_vec3 { return 3; }
+    if kind == raw_uniform_vec4 { return 4; }
+    if kind == raw_uniform_mat4 { return 16; }
+    return 0;
+}
+
+fn material_raw_shader_uniform(shader: i32, name: const u8[:], kind: i32, values: const f32[:]) -> bool {
+    guard material_raw_shader_valid(shader) && name.len > 0 && name.len < 64 else { return false; }
+    let components = raw_uniform_components(kind);
+    guard components > 0 && values.len > 0 && values.len <= 1024 && values.len % components == 0 else { return false; }
+    return g3p_raw_shader_uniform(shader - g_raw_shader_base, name, kind, (values.len / components) as i32, values);
+}
+
+fn material_raw_shader_uniform_texture(shader: i32, name: const u8[:], texture: i32) -> bool {
+    guard material_raw_shader_valid(shader) && name.len > 0 && name.len < 64 &&
+          (texture < 0 || texture_slot_live(texture)) else { return false; }
+    return g3p_raw_shader_uniform_texture(shader - g_raw_shader_base, name, texture);
+}
+
 fn post_process_queue_clear() { g_post_process_queue.clear(); }
 
 fn post_process_queue_add(source: i32, destination: i32, effect: i32) -> bool {
@@ -503,7 +564,10 @@ fn begin_frame(time: f64, width: i32, height: i32) {
     let w = if rw < 1 { 1 } else { rw };
     let h = if rh < 1 { 1 } else { rh };
     g_view = mat4_look_at(g_camera.pos, g_camera.target, g_camera.up);
-    g_view_proj = mat4_mul(camera_projection(g_camera, w as f32 / h), g_view);
+    let projection = camera_projection(g_camera, w as f32 / h);
+    g_view_proj = mat4_mul(projection, g_view);
+    g_view_state.view = g_view;
+    g_view_state.projection = projection;
     if !g_view_proj_cache_valid || !view_proj_matches(g_view_proj, g_cached_view_proj) {
         g_cached_view_proj = g_view_proj;
         g_view_proj_version += 1;
