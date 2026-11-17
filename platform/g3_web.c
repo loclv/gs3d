@@ -2700,11 +2700,20 @@ void g3p_material_shader_release(int32_t id) {
 
 static const char RAW_VS_PREFIX[] =
     "precision highp float;\n"
+    "attribute vec3 position;\n"
+    "attribute vec3 normal;\n"
+    "attribute vec2 uv;\n"
+    "attribute vec3 color;\n"
+    "attribute vec4 tangent;\n"
+    "attribute vec4 _g3_uv01;\n"
+    "attribute vec4 _g3_uv23;\n"
+    "attribute vec4 _g3_uv45;\n"
+    "attribute vec4 _g3_uv67;\n"
     "uniform mat4 modelMatrix;\n"
     "uniform mat4 modelViewMatrix;\n"
     "uniform mat4 projectionMatrix;\n"
     "uniform mat4 viewMatrix;\n"
-    "uniform mat4 normalMatrix;\n"
+    "uniform mat3 normalMatrix;\n"
     "uniform vec3 cameraPosition;\n";
 
 static const char RAW_FS_PREFIX[] =
@@ -2734,9 +2743,10 @@ static int raw_uniform_components(int type) {
 static int link_raw_program(raw_program *rp, GLuint vs, GLuint fs) {
     GLuint p = glCreateProgram();
     static const struct { const char *name; int loc; } attrs[] = {
-        { "position", 0 }, { "normal", 1 }, { "uv", 2 },
+        { "position", 0 }, { "normal", 1 }, { "uv", 2 }, { "_g3_uv01", 2 },
+        { "_g3_uv45", 8 }, { "_g3_uv67", 9 }, { "_g3_uv23", 14 },
         { "color", 7 }, { "tangent", 15 } };
-    for (int i = 0; i < 5; i++) glBindAttribLocation(p, attrs[i].loc, attrs[i].name);
+    for (int i = 0; i < 9; i++) glBindAttribLocation(p, attrs[i].loc, attrs[i].name);
     glAttachShader(p, vs);
     glAttachShader(p, fs);
     glLinkProgram(p);

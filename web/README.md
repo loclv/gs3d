@@ -110,15 +110,23 @@ participate in the same texture-mask program cache (64 variants).
 `THREE.ShaderMaterial` runs complete user vertex+fragment programs
 (GLSL ES 1.00, three.js style, WebGL only): the engine supplies the
 `modelMatrix`/`modelViewMatrix`/`projectionMatrix`/`viewMatrix`/
-`normalMatrix`/`cameraPosition` builtins, the `position`/`normal`/`uv`/
-`color`/`tangent` attributes, and per-material `uniforms` (numbers,
-vectors, matrices, arrays and 2D/3D textures). `#include
-<tonemapping_fragment>` and `#include <colorspace_fragment>` resolve to
-the engine's output chain; `side`, `transparent` and `opacity` map to
-culling/blending, while `depthWrite`, packed UV sets beyond `uv`,
-custom vertex attributes, instancing and non-normal blending are
-ignored. `DataTexture`/`Data3DTexture` with `type = HalfFloatType` and
-`Uint16Array` data upload as RGBA16F. Shadows are limited to one directional light: the first
+`normalMatrix` (mat3, like three)/`cameraPosition` builtins and the
+`position`/`normal`/`uv`/`color`/`tangent` attributes automatically, and
+per-material `uniforms` (numbers, vectors, matrices, arrays and 2D/3D
+textures). `#include <tonemapping_fragment>` and `#include
+<colorspace_fragment>` resolve to the engine's output chain; `side`,
+`transparent` and `opacity` map to culling/blending, while
+`depthWrite`, instancing, projective texturing and non-normal blending
+are ignored. Custom vertex attributes — including
+`InterleavedBufferAttribute` data, which is deinterleaved on upload — are
+packed into the eight vec2 UV channels not claimed by explicit
+`uv`/`uv1`–`uv7` attributes, one attribute per contiguous slot pair in
+registration order; `uv1`–`uv7` and custom names decode automatically in
+ShaderMaterial vertex shaders, and lit `customShader` code can read the
+same data through the `v_uv`–`v_uv7` fragment varyings. Attributes a
+material references but the geometry lacks are filled from
+`defaultAttributeValues` (or zero). `DataTexture`/`Data3DTexture` with
+`type = HalfFloatType` and `Uint16Array` data upload as RGBA16F. Shadows are limited to one directional light: the first
 `castShadow` directional light owns the engine's single shadow map
 (256/512/1024 px, PCF radius derived from `shadowMap.type`), its
 `shadow.camera` ortho bounds and `shadow.bias`/`normalBias` fold into one

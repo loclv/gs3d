@@ -593,6 +593,29 @@ export class Uint32BufferAttribute extends BufferAttribute {
   constructor(array, itemSize) { super(Uint32Array.from(array), itemSize); }
 }
 
+export class InterleavedBuffer {
+  constructor(array, stride) {
+    this.isInterleavedBuffer = true;
+    this.array = array;
+    this.stride = stride;
+    this.usage = 35044;
+  }
+}
+
+// Strided view into an InterleavedBuffer; ensureGeometry deinterleaves it
+// into a plain per-attribute array before packing engine vertices.
+export class InterleavedBufferAttribute {
+  constructor(data, itemSize, offset = 0, normalized = false) {
+    this.isBufferAttribute = true;
+    this.isInterleavedBufferAttribute = true;
+    this.data = data;
+    this.itemSize = itemSize;
+    this.offset = offset;
+    this.normalized = normalized;
+    this.count = Math.max(0, Math.floor(data.array.length / data.stride));
+  }
+}
+
 export class BufferGeometry {
   constructor() {
     this.isBufferGeometry = true;
@@ -618,9 +641,10 @@ export class BufferGeometry {
   computeVertexNormals() {
     const position = this.attributes.position;
     if (!position) return this;
-    const p = position.array, ps = position.itemSize;
+    const pd = attrData(position);
+    const p = pd.array, ps = pd.itemSize;
     const index = this.index;
-    const normals = new Float32Array(position.count * 3);
+    const normals = new Float32Array(pd.count * 3);
     const tri = (a, b, c) => {
       const ax = p[a * ps], ay = p[a * ps + 1], az = p[a * ps + 2];
       const abx = p[b * ps] - ax, aby = p[b * ps + 1] - ay, abz = p[b * ps + 2] - az;
@@ -634,7 +658,7 @@ export class BufferGeometry {
       const ids = index.array;
       for (let i = 0; i + 2 < ids.length; i += 3) tri(ids[i], ids[i + 1], ids[i + 2]);
     } else {
-      for (let i = 0; i + 2 < position.count; i += 3) tri(i, i + 1, i + 2);
+      for (let i = 0; i + 2 < pd.count; i += 3) tri(i, i + 1, i + 2);
     }
     for (let i = 0; i < normals.length; i += 3) {
       const l = Math.hypot(normals[i], normals[i + 1], normals[i + 2]);
@@ -2409,7 +2433,7 @@ const flatGeometryCache = new WeakMap();
 function flatShadedGeometry(geometry) {
   const cached = flatGeometryCache.get(geometry);
   if (cached && cached.version === geometry.version) return cached.geo;
-  const src = geometry.attributes.position;
+  const src = attrData(geometry.attributes.position);
   const p = src.array, is = src.itemSize;
   const index = geometry.index && geometry.index.array;
   const triCount = index ? index.length / 3 : src.count / 3;
@@ -2417,8 +2441,9 @@ function flatShadedGeometry(geometry) {
   const positions = new Float32Array(vertCount * 3);
   const normals = new Float32Array(vertCount * 3);
   const uvs = [], colors = [];
-  const uvAttr = geometry.attributes.uv || null;
-  const colorAttr = geometry.attributes.color || null;
+  const uvData = attrData(geometry.attributes.uv);
+  const colorData = attrData(geometry.attributes.color);
+  const uvAttr = uvData, colorAttr = colorData;
   const readVert = vi => {
     const i = vi * is;
     return [p[i], p[i + 1] || 0, p[i + 2] || 0];
@@ -2459,45 +2484,158 @@ function flatShadedGeometry(geometry) {
   return geo;
 }
 
-function ensureGeometry(engine, geometry, useVertexColors = false, flatShading = false) {
+/* Custom vertex attributes — anything that is not position, normal, color,
+   tangent or an explicit uv/uvN slot — are packed into the eight vec2 UV
+   channels the engine vertex format carries, after the explicit uv
+   attributes claim theirs. Each attribute owns ceil(itemSize/2) whole
+   slots, filled in component order. Slot ownership is global and
+   append-only (customAttrRegistry) so a ShaderMaterial's vertex decode is
+   consistent across geometries; an attribute whose slots collide with a
+   geometry's explicit uvN attributes is dropped there (its channels read
+   as zeros or the material's defaultAttributeValues). Attributes a
+   material needs but the geometry lacks are filled from
+   material.defaultAttributeValues, or declared ShaderMaterial attributes. */
+
+const UV_SLOT_ATTRS = ['uv', 'uv1', 'uv2', 'uv3', 'uv4', 'uv5', 'uv6', 'uv7'];
+const STANDARD_ATTRS = new Set(['position', 'normal', 'color', 'tangent', ...UV_SLOT_ATTRS]);
+const customAttrRegistry = new Map(); // name -> {slots:[...], itemSize}
+let customAttrRegistryVersion = 0;
+const attrDataCache = new WeakMap();
+
+function attrData(attribute) {
+  if (!attribute) return null;
+  if (attribute.isInterleavedBufferAttribute) {
+    let cached = attrDataCache.get(attribute);
+    if (!cached) {
+      const { data, itemSize, offset } = attribute;
+      const stride = data.stride, count = attribute.count, src = data.array;
+      const out = new Float32Array(count * itemSize);
+      for (let i = 0; i < count; i++) {
+        const base = i * stride + offset;
+        for (let c = 0; c < itemSize; c++) out[i * itemSize + c] = src[base + c] ?? 0;
+      }
+      cached = { array: out, itemSize, count };
+      attrDataCache.set(attribute, cached);
+    }
+    return cached;
+  }
+  return { array: attribute.array, itemSize: attribute.itemSize, count: attribute.count };
+}
+
+function allocateCustomSlots(need, blocked) {
+  const used = new Set();
+  for (const reg of customAttrRegistry.values()) for (const s of reg.slots) used.add(s);
+  for (let s = 0; s < 8; s++) if (blocked[s]) used.add(s);
+  for (let start = 0; start + need <= 8; start++) {
+    let ok = true;
+    for (let k = 0; k < need; k++) if (used.has(start + k)) { ok = false; break; }
+    if (ok) return Array.from({ length: need }, (_, k) => start + k);
+  }
+  return null;
+}
+
+function ensureGeometry(engine, geometry, useVertexColors = false, flatShading = false, material = null) {
   if (!geometry || !geometry.attributes || !geometry.attributes.position) return -1;
-  const flag = `${useVertexColors ? 1 : 0}${flatShading ? 1 : 0}`;
+  const src = flatShading ? flatShadedGeometry(geometry) : geometry;
+  const position = attrData(src.attributes.position);
+  if (!position) return -1;
+  if (!src.attributes.normal) src.computeVertexNormals();
+  const normal = attrData(src.attributes.normal);
+  const count = position.count;
+
+  // Explicit uv/uvN attributes claim their named slots first.
+  const slotData = new Array(8).fill(null);
+  const claimed = new Array(8).fill(false);
+  for (let set = 0; set < 8; set++) {
+    const attr = attrData(src.attributes[set === 0 ? 'uv' : `uv${set}`]);
+    if (attr) { slotData[set] = attr; claimed[set] = true; }
+  }
+  const color = useVertexColors ? attrData(src.attributes.color) : null;
+  const p = position.array, n = normal ? normal.array : null;
+  const c = color ? color.array : null;
+  const ns = normal ? normal.itemSize : 3, cs = color ? color.itemSize : 4;
+
+  // Collect custom attribute names: everything on the geometry outside the
+  // standard set, plus names the material references through
+  // defaultAttributeValues or ShaderMaterial vertex declarations.
+  const customNames = [];
+  const pushName = name => {
+    if (!STANDARD_ATTRS.has(name) && !customNames.includes(name)) customNames.push(name);
+  };
+  for (const name of Object.keys(src.attributes)) pushName(name);
+  const defaults = material && material.defaultAttributeValues;
+  if (defaults) for (const name of Object.keys(defaults)) {
+    if (Array.isArray(defaults[name])) pushName(name);
+  }
+  if (material && material.isShaderMaterial) {
+    for (const a of vertexAttrInfo(material)) pushName(a.name);
+  }
+
+  const customs = [], fills = [];
+  for (const name of customNames) {
+    const data = attrData(src.attributes[name]);
+    const itemSize = Math.min(4, Math.max(1,
+      data ? data.itemSize : (defaults && Array.isArray(defaults[name]) ? defaults[name].length : 2)));
+    let reg = customAttrRegistry.get(name);
+    if (!reg) {
+      const slots = allocateCustomSlots(Math.ceil(itemSize / 2), claimed);
+      if (!slots) continue; // channel budget exhausted; attribute reads as zero
+      reg = { slots, itemSize };
+      customAttrRegistry.set(name, reg);
+      customAttrRegistryVersion++;
+    }
+    const capacity = reg.slots.length * 2;
+    if (reg.slots.some(s => claimed[s])) {
+      // Explicit uvN attributes win this geometry's slots; the custom
+      // attribute is dropped here and its channels stay at defaults.
+      if (defaults && Array.isArray(defaults[name])) {
+        fills.push({ slots: reg.slots, values: defaults[name], count: Math.min(defaults[name].length, capacity) });
+      }
+      continue;
+    }
+    if (data) {
+      customs.push({ name, data, slots: reg.slots, count: Math.min(data.itemSize, capacity) });
+    } else if (defaults && Array.isArray(defaults[name])) {
+      fills.push({ slots: reg.slots, values: defaults[name], count: Math.min(defaults[name].length, capacity) });
+    }
+  }
+
+  const customSig = customs.map(c => `${c.name}:${c.slots}`).join(',') +
+    '|' + fills.map(f => `${f.name}=${f.values}`).join(',');
+  const flag = `${useVertexColors ? 1 : 0}${flatShading ? 1 : 0}|${customSig}`;
   const byFlag = geometryStates.get(geometry) || {};
   const state = byFlag[flag];
   if (state && state.version === geometry.version) return state.id;
   if (state) engine._g3_asset_release_mesh(state.id, state.generation);
 
-  const src = flatShading ? flatShadedGeometry(geometry) : geometry;
-  if (!src.attributes.normal) src.computeVertexNormals();
-  const position = src.attributes.position;
-  const normal = src.attributes.normal;
-  const uvSets = [];
-  for (let set = 0; set < 8; set++) {
-    const attr = src.attributes[set === 0 ? 'uv' : `uv${set}`];
-    uvSets.push(attr ? attr.array : null);
-  }
-  const color = useVertexColors ? src.attributes.color : null;
-  const p = position.array, n = normal ? normal.array : null;
-  const c = color ? color.array : null;
-  const ns = normal ? normal.itemSize : 3, cs = color ? color.itemSize : 4;
-  const uvAttrs = uvSets.map((arr, i) => arr ? src.attributes[i === 0 ? 'uv' : `uv${i}`] : null);
-  const count = position.count;
-
+  const slotVals = new Float64Array(16);
   engine._g3_asset_mesh_begin();
   for (let i = 0; i < count; i++) {
     const pi = i * position.itemSize, ni = i * ns, ci = i * cs;
-    const uvArgs = [];
+    slotVals.fill(0);
     for (let set = 0; set < 8; set++) {
-      const attr = uvAttrs[set];
+      const attr = slotData[set];
       if (attr) {
         const ui = i * attr.itemSize;
-        uvArgs.push(attr.array[ui] || 0, attr.array[ui + 1] || 0);
-      } else uvArgs.push(0, 0);
+        slotVals[set * 2] = attr.array[ui] || 0;
+        slotVals[set * 2 + 1] = attr.array[ui + 1] || 0;
+      }
+    }
+    for (const cu of customs) {
+      const base = i * cu.data.itemSize;
+      for (let f = 0; f < cu.count; f++) {
+        slotVals[cu.slots[f >> 1] * 2 + (f & 1)] = cu.data.array[base + f] || 0;
+      }
+    }
+    for (const f of fills) {
+      for (let k = 0; k < f.count; k++) {
+        slotVals[f.slots[k >> 1] * 2 + (k & 1)] = f.values[k] || 0;
+      }
     }
     engine._g3_asset_vertex(
       p[pi], p[pi + 1], p[pi + 2],
       n && ns > 0 ? n[ni] : 0, n && ns > 1 ? n[ni + 1] : 0, n && ns > 2 ? n[ni + 2] : 1,
-      ...uvArgs,
+      ...slotVals,
       0, 0, 0, 0, // tangent
       c && cs > 0 ? c[ci] : 1, c && cs > 1 ? c[ci + 1] : 1, c && cs > 2 ? c[ci + 2] : 1,
       c && cs > 3 ? c[ci + 3] : 1,
@@ -2593,7 +2731,7 @@ function rawUploadText(engine, text) {
 }
 
 function ensureRawShader(engine, material) {
-  const vertex = resolveRawChunks(material.vertexShader);
+  const vertex = rewriteRawVertex(material);
   const fragment = resolveRawChunks(material.fragmentShader);
   const sourceKey = vertex + '\n' + fragment;
   let state = rawShaderStates.get(material);
@@ -2617,6 +2755,86 @@ function ensureRawShader(engine, material) {
 }
 
 const RAW_UNIFORM_KIND = { float: 0, vec2: 1, vec3: 2, vec4: 3, mat4: 4, int: 5 };
+
+/* Raw vertex attributes: the engine's vertex format exposes position,
+   normal, uv (slot 0), color and tangent directly, plus the packed UV
+   channels as four vec4 attributes named _g3_uv01/_g3_uv23/_g3_uv45/_g3_uv67
+   (uv/uv1, uv2/uv3, uv4/uv5, uv6/uv7). ShaderMaterial vertex shaders keep
+   three.js syntax: every `attribute` declaration is stripped (the prefix
+   supplies the standard ones) and uv1+ plus custom attributes become local
+   variables decoded from the packed channels at the top of main(). Slot
+   assignments come from customAttrRegistry, so the rewrite is recomputed
+   whenever the registry grows (tracked by customAttrRegistryVersion). */
+
+const RAW_VEC4_ATTRS = ['_g3_uv01', '_g3_uv01', '_g3_uv23', '_g3_uv23',
+  '_g3_uv45', '_g3_uv45', '_g3_uv67', '_g3_uv67'];
+const RAW_GLSL_SIZE = { float: 1, int: 1, vec2: 2, vec3: 3, vec4: 4 };
+const rawRewriteCache = new WeakMap();
+const vertexAttrCache = new WeakMap();
+
+function vertexAttrInfo(material) {
+  const source = material.vertexShader;
+  const hit = vertexAttrCache.get(material);
+  if (hit && hit.source === source) return hit.info;
+  const info = [];
+  const re = /attribute\s+(float|int|vec2|vec3|vec4)\s+(\w+)\s*;/g;
+  let m;
+  while ((m = re.exec(resolveRawChunks(source)))) info.push({ type: m[1], name: m[2] });
+  vertexAttrCache.set(material, { source, info });
+  return info;
+}
+
+function rawAttrDecode(name, type, material) {
+  const n = RAW_GLSL_SIZE[type] || 2;
+  const uvIndex = UV_SLOT_ATTRS.indexOf(name);
+  const reg = uvIndex >= 0 ? null : customAttrRegistry.get(name);
+  const slots = uvIndex >= 0 ? [uvIndex] : (reg && reg.slots.length ? reg.slots : null);
+  const defaults = material.defaultAttributeValues;
+  const def = defaults && Array.isArray(defaults[name]) ? defaults[name] : null;
+  const capacity = slots ? slots.length * 2 : 0;
+  const comps = [];
+  for (let f = 0; f < n; f++) {
+    let expr = '0.0';
+    if (slots && f < capacity) {
+      const slot = slots[f >> 1];
+      expr = `${RAW_VEC4_ATTRS[slot >> 1]}.${'xyzw'[(slot & 1) * 2 + (f & 1)]}`;
+    } else if (!slots && def && f < def.length) {
+      expr = String(def[f]);
+    }
+    comps.push(expr);
+  }
+  if (type === 'float' || type === 'int') return `${type}(${comps[0]})`;
+  return `${type}(${comps.join(',')})`;
+}
+
+function rewriteRawVertex(material) {
+  const resolved = resolveRawChunks(material.vertexShader);
+  const hit = rawRewriteCache.get(material);
+  if (hit && hit.source === material.vertexShader && hit.version === customAttrRegistryVersion) return hit.result;
+  const info = vertexAttrInfo(material);
+  const byName = new Map(info.map(a => [a.name, a]));
+  const decodes = [];
+  const stripped = resolved.replace(/attribute\s+(float|int|vec2|vec3|vec4)\s+(\w+)\s*;/g,
+    (match, type, name) => {
+      if (name === 'position' || name === 'normal' || name === 'uv' || name === 'color' || name === 'tangent') return '';
+      const decl = byName.get(name) || { type };
+      decodes.push(`${decl.type} ${name} = ${rawAttrDecode(name, decl.type, material)};`);
+      return '';
+    });
+  // Attributes the shader uses without declaring (three auto-declares the
+  // standard set) still resolve through the prefix; uv1+ and custom names
+  // only exist when declared, matching three.js.
+  let result = stripped;
+  if (decodes.length) {
+    const mainAt = result.search(/void\s+main\s*\(/);
+    if (mainAt >= 0) {
+      const brace = result.indexOf('{', mainAt);
+      if (brace >= 0) result = result.slice(0, brace + 1) + '\n' + decodes.join('\n') + result.slice(brace + 1);
+    }
+  }
+  rawRewriteCache.set(material, { source: material.vertexShader, version: customAttrRegistryVersion, result });
+  return result;
+}
 
 // Classify a uniform value into {kind, floats} or {texture}. Returns null
 // for unsupported shapes (the uniform is skipped with a warning).
@@ -2846,7 +3064,7 @@ function syncNode(engine, object, parentEngineIndex, local) {
   const isMesh = object.isMesh === true;
   const material = isMesh ? (Array.isArray(object.material) ? object.material[0] : object.material) : null;
   const meshId = isMesh ? ensureGeometry(engine, object.geometry,
-    !!(material && material.vertexColors), !!(material && material.flatShading)) : -1;
+    !!(material && material.vertexColors), !!(material && material.flatShading), material) : -1;
   let record = nodeStates.get(object);
   if (record && (record.parent !== parentEngineIndex || record.mesh !== meshId)) {
     releaseNodeRecord(record);

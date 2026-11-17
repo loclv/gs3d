@@ -59,7 +59,7 @@ function createMockEngine() {
     _g3_asset_texture_3d: (...args) => { calls.push(['_g3_asset_texture_3d', ...args]); return nextTexture++; },
     _g3_asset_texture_f16: (...args) => { calls.push(['_g3_asset_texture_f16', ...args]); return nextTexture++; },
     _g3_asset_texture_3d_f16: (...args) => { calls.push(['_g3_asset_texture_3d_f16', ...args]); return nextTexture++; },
-    _g3_asset_raw_shader_create: (...args) => { calls.push(['_g3_asset_raw_shader_create', args[1], args[3]]); return 100; },
+    _g3_asset_raw_shader_create: (...args) => { calls.push(['_g3_asset_raw_shader_create', ...args]); return 100; },
     _g3_asset_raw_shader_release: record('_g3_asset_raw_shader_release'),
     _g3_asset_raw_shader_uniform: record('_g3_asset_raw_shader_uniform'),
     _g3_asset_raw_shader_uniform_texture: record('_g3_asset_raw_shader_uniform_texture'),
@@ -432,7 +432,7 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
 
   const creates = named(engine, '_g3_asset_raw_shader_create');
   assert.equal(creates.length, 1, 'raw shader created once');
-  assert.ok(creates[0][1] > 0 && creates[0][2] > 0, 'vertex and fragment slices uploaded');
+  assert.ok(creates[0][2] > 0 && creates[0][4] > 0, 'vertex and fragment slices uploaded');
   const setCalls = named(engine, '_g3_asset_material_set_shader');
   assert.equal(setCalls.at(-1)[2], 100, 'raw shader id bound to material');
   const uniforms = named(engine, '_g3_asset_raw_shader_uniform');
@@ -474,6 +474,62 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   const texUniforms = named(engine, '_g3_asset_raw_shader_uniform_texture');
   assert.equal(texUniforms.length, 1, 'sampler uniform bound');
   assert.equal(texUniforms[0][4], 1, 'sampler gets the uploaded texture id');
+}
+
+// --- custom vertex attributes -----------------------------------------------------
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+
+  // Interleaved position(3) + data(2) in one stride-5 buffer.
+  const interleaved = new THREE.InterleavedBuffer(new Float32Array([
+    0, 0, 0, 1, 0,
+    1, 0, 0, 0, 1,
+    0, 1, 0, 1, 1,
+  ]), 5);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.InterleavedBufferAttribute(interleaved, 3, 0));
+  geometry.setAttribute('dataVec', new THREE.InterleavedBufferAttribute(interleaved, 2, 3));
+  geometry.setIndex([0, 1, 2]);
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {},
+    defaultAttributeValues: { freshFlag: [0.7] },
+    vertexShader: `attribute vec2 dataVec; attribute float freshFlag; attribute vec3 position;
+      varying vec2 vData; varying float vFresh;
+      void main() {
+        vData = dataVec; vFresh = freshFlag;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: 'varying vec2 vData; void main() { gl_FragColor = vec4(vData, vFresh, 1.0); }',
+  });
+  scene.add(new THREE.Mesh(geometry, material));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+
+  // 'dataVec' owns slot 0 (no uv attribute), 'freshFlag' fills slot 1 via
+  // defaultAttributeValues since the geometry lacks it.
+  const vertexCalls = named(engine, '_g3_asset_vertex');
+  assert.equal(vertexCalls.length, 3, 'three vertices uploaded');
+  const first = vertexCalls[0];
+  assert.equal(first[7], 1, 'dataVec.x lands in slot0.x');
+  assert.equal(first[8], 0, 'dataVec.y lands in slot0.y');
+  assert.equal(first[9], 0.7, 'freshFlag default lands in slot1.x');
+  assert.equal(first[10], 0, 'slot1.y stays zero');
+  assert.equal(vertexCalls[1][7], 0, 'second vertex dataVec.x');
+  assert.equal(vertexCalls[2][8], 1, 'third vertex dataVec.y');
+
+  // The uploaded vertex source decodes attributes from packed channels and
+  // drops the original attribute declarations.
+  const create = named(engine, '_g3_asset_raw_shader_create')[0];
+  const vs = engine.HEAPU8.slice(create[1], create[1] + create[2])
+    .reduce((s, b) => s + String.fromCharCode(b), '');
+  assert.ok(!/attribute\s+vec2\s+dataVec/.test(vs), 'custom attribute declaration stripped');
+  assert.ok(!/attribute\s+vec3\s+position/.test(vs), 'standard attribute declaration stripped');
+  assert.ok(/vec2 dataVec = vec2\(_g3_uv01\.x,_g3_uv01\.y\)/.test(vs), 'dataVec decodes slot0');
+  assert.ok(/float freshFlag = float\(_g3_uv01\.z\)/.test(vs), 'freshFlag decodes slot1');
 }
 
 // --- fog -------------------------------------------------------------------------
