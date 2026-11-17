@@ -597,6 +597,10 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
         user1: surface.user1,
         user2: surface.user2,
         user3: surface.user3,
+        user4: surface.user4,
+        user5: surface.user5,
+        user6: surface.user6,
+        user7: surface.user7,
         lut_texture: surface.lut_texture,
     };
 }

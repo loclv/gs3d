@@ -238,11 +238,15 @@ export fn g3_asset_texture_3d(width: i32, height: i32, depth: i32, pixels: const
     return g3::texture_asset_create_3d(width, height, depth, pixels);
 }
 export fn g3_asset_material_user(id: i32, index: i32, x: f32, y: f32, z: f32, w: f32) -> bool {
-    guard g3::material_valid(id) && index >= 0 && index < 4 else { return false; }
+    guard g3::material_valid(id) && index >= 0 && index < 8 else { return false; }
     let m .= g3::material(id);
     if index == 0 { m.user0 = float4 { x, y, z, w }; }
     else if index == 1 { m.user1 = float4 { x, y, z, w }; }
     else if index == 2 { m.user2 = float4 { x, y, z, w }; }
-    else { m.user3 = float4 { x, y, z, w }; }
+    else if index == 3 { m.user3 = float4 { x, y, z, w }; }
+    else if index == 4 { m.user4 = float4 { x, y, z, w }; }
+    else if index == 5 { m.user5 = float4 { x, y, z, w }; }
+    else if index == 6 { m.user6 = float4 { x, y, z, w }; }
+    else { m.user7 = float4 { x, y, z, w }; }
     return true;
 }

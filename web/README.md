@@ -103,8 +103,8 @@ encoding, just before output, where they may modify `col` and `alpha`
 Every custom program also declares `uniform sampler3D u_lut` and
 `uniform float u_lut_enabled`; `material.lutTexture` accepts a
 `Data3DTexture` (RGBA8 `Uint8Array`, linear/clamp fixed) bound per
-material, and `material.customUniforms` is a 16-float array exposed as
-`uniform vec4 u_user[4]`. The CPU backend ignores custom shaders and
+material, and `material.customUniforms` is a 32-float array exposed as
+`uniform vec4 u_user[8]`. The CPU backend ignores custom shaders and
 renders the standard program. Custom shaders always run the lit path and
 participate in the same texture-mask program cache (64 variants). Shadows are limited to one directional light: the first
 `castShadow` directional light owns the engine's single shadow map

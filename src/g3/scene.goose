@@ -119,11 +119,15 @@ struct Material {
     // Custom fragment program (WebGL-only): -1 standard, else a shader id
     // registered through g3::material_shader_create.
     shader: i32 = -1,
-    // Sixteen floats exposed to the custom shader as `uniform vec4 u_user[4]`.
+    // Thirty-two floats exposed to the custom shader as `uniform vec4 u_user[8]`.
     user0: float4 = float4_0,
     user1: float4 = float4_0,
     user2: float4 = float4_0,
     user3: float4 = float4_0,
+    user4: float4 = float4_0,
+    user5: float4 = float4_0,
+    user6: float4 = float4_0,
+    user7: float4 = float4_0,
     // 3D texture sampled by the custom shader as `u_lut` (WebGL-only).
     lut_texture: i32 = -1,
     removed: bool,

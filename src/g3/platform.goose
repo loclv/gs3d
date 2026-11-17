@@ -79,8 +79,9 @@ struct DrawItem {
     // id of a shader registered through material_shader_create. WebGL-only;
     // the CPU backend ignores it.
     shader: i32,
-    // Sixteen floats exposed to custom shaders as `uniform vec4 u_user[4]`.
+    // Thirty-two floats exposed to custom shaders as `uniform vec4 u_user[8]`.
     user0: float4, user1: float4, user2: float4, user3: float4,
+    user4: float4, user5: float4, user6: float4, user7: float4,
     // 3D texture id sampled by custom shaders as `uniform sampler3D u_lut`;
     // -1 disables. WebGL-only.
     lut_texture: i32,

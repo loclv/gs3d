@@ -79,7 +79,7 @@ typedef struct {
     g3_uv_transform anisotropy_uv;
     float environment_intensity; /* per-material multiplier for environment fill and reflections */
     int32_t shader;      /* custom fragment program id, -1 selects the standard program; WebGL-only */
-    g3_vec4 user0, user1, user2, user3; /* exposed to custom shaders as u_user[4] */
+    g3_vec4 user0, user1, user2, user3, user4, user5, user6, user7; /* exposed to custom shaders as u_user[8] */
     int32_t lut_texture; /* 3D texture id sampled as u_lut by custom shaders, -1 disables */
 } g3_draw_item;
 
@@ -137,7 +137,7 @@ _Static_assert(offsetof(g3_vertex, uv7) == 80, "Vertex.uv7 offset");
 _Static_assert(offsetof(g3_vertex, tangent) == 88, "Vertex.tangent offset");
 _Static_assert(offsetof(g3_vertex, color) == 104, "Vertex.color offset");
 _Static_assert(sizeof(g3_mat4) == 64, "g3_mat4 must be 64 bytes");
-_Static_assert(sizeof(g3_draw_item) == 725, "g3_draw_item must be 725 bytes");
+_Static_assert(sizeof(g3_draw_item) == 789, "g3_draw_item must be 789 bytes");
 _Static_assert(offsetof(g3_draw_item, texture) == 168, "DrawItem.texture offset");
 _Static_assert(offsetof(g3_draw_item, alpha_mode) == 172, "DrawItem.alpha_mode offset");
 _Static_assert(offsetof(g3_draw_item, alpha_cutoff) == 176, "DrawItem.alpha_cutoff offset");
@@ -179,7 +179,7 @@ _Static_assert(offsetof(g3_draw_item, anisotropy_uv) == 625, "DrawItem.anisotrop
 _Static_assert(offsetof(g3_draw_item, environment_intensity) == 649, "DrawItem.environment_intensity offset");
 _Static_assert(offsetof(g3_draw_item, shader) == 653, "DrawItem.shader offset");
 _Static_assert(offsetof(g3_draw_item, user0) == 657, "DrawItem.user0 offset");
-_Static_assert(offsetof(g3_draw_item, lut_texture) == 721, "DrawItem.lut_texture offset");
+_Static_assert(offsetof(g3_draw_item, lut_texture) == 785, "DrawItem.lut_texture offset");
 _Static_assert(sizeof(g3_light) == 56, "g3_light must be 56 bytes");
 _Static_assert(offsetof(g3_light, attenuation) == 52, "Light.attenuation offset");
 _Static_assert(sizeof(g3_view_state) == 1268, "g3_view_state must be 1268 bytes");

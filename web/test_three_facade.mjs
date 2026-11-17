@@ -361,8 +361,8 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   assert.equal(setCalls.length, 1);
   assert.equal(setCalls[0][2], 42, 'engine shader id bound to material');
   const userCalls = named(engine, '_g3_asset_material_user');
-  assert.equal(userCalls.length, 4, 'four vec4 user slots uploaded');
-  assert.deepEqual(userCalls.map(c => c.slice(3)), [[1, 2, 3, 4], [5, 6, 7, 8], [0, 0, 0, 0], [0, 0, 0, 0]]);
+  assert.equal(userCalls.length, 8, 'eight vec4 user slots uploaded');
+  assert.deepEqual(userCalls.map(c => c.slice(3)), [[1, 2, 3, 4], [5, 6, 7, 8], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]);
 
   // A second material sharing the shader object reuses the compiled program.
   const other = new THREE.MeshStandardMaterial({ color: 0xffffff });

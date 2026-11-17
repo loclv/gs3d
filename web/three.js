@@ -2480,7 +2480,7 @@ function materialSignature(material) {
     if (!cs._gs3dKey) cs._gs3dKey = ++customShaderSeq;
     parts.push('cs' + cs._gs3dKey);
     const u = material.customUniforms;
-    if (u) for (let i = 0; i < 16; i++) parts.push(u[i] ?? 0);
+    if (u) for (let i = 0; i < 32; i++) parts.push(u[i] ?? 0);
   }
   return parts.join(',');
 }
@@ -2509,8 +2509,22 @@ function textureUvSignature(texture) {
   return `${texture.offset.x},${texture.offset.y},${texture.repeat.x},${texture.repeat.y},${texture.rotation},${texture.channel || 0}`;
 }
 
+// Material -> engine material id, deduplicated for the duration of one
+// render() pass so shared materials pay the signature cost once per frame.
+let frameMaterialCache = null;
+let fallbackMaterial = null;
+
 function ensureMaterial(engine, material) {
-  if (!material) material = new MeshBasicMaterial();
+  if (!material) {
+    // A shared fallback keeps material-less meshes from allocating a new
+    // engine material (and leaking the old one) on every frame.
+    fallbackMaterial ??= new MeshBasicMaterial();
+    material = fallbackMaterial;
+  }
+  if (frameMaterialCache) {
+    const hit = frameMaterialCache.get(material);
+    if (hit !== undefined) return hit;
+  }
   const maps = materialMaps(material);
   const textureIds = maps.map(t => t ? ensureTexture(engine, t) : -1);
   const lutTextureId = material.lutTexture ? ensureTexture3D(engine, material.lutTexture) : -1;
@@ -2518,7 +2532,10 @@ function ensureMaterial(engine, material) {
     '|lut:' + lutTextureId +
     '|' + maps.map(t => t ? textureUvSignature(t) : '-').join(';');
   const state = materialStates.get(material);
-  if (state && state.signature === signature) return state.id;
+  if (state && state.signature === signature) {
+    if (frameMaterialCache) frameMaterialCache.set(material, state.id);
+    return state.id;
+  }
   if (state) engine._g3_asset_release_material(state.id, state.generation);
 
   const color = material.color || new Color(0xffffff);
@@ -2583,7 +2600,7 @@ function ensureMaterial(engine, material) {
   }
   const customUniforms = material.customUniforms;
   if (customUniforms && typeof engine._g3_asset_material_user === 'function') {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       engine._g3_asset_material_user(id, i,
         customUniforms[i * 4] ?? 0, customUniforms[i * 4 + 1] ?? 0,
         customUniforms[i * 4 + 2] ?? 0, customUniforms[i * 4 + 3] ?? 0);
@@ -2591,6 +2608,7 @@ function ensureMaterial(engine, material) {
   }
   const record = { id, generation: engine._g3_asset_material_generation(id), signature };
   materialStates.set(material, record);
+  if (frameMaterialCache) frameMaterialCache.set(material, id);
   return id;
 }
 
@@ -3003,7 +3021,12 @@ export class WebGPURenderer {
     if (scene) {
       const collected = collectLights(scene);
       const seen = new Set();
-      syncSceneTree(scene, seen);
+      frameMaterialCache = new Map();
+      try {
+        syncSceneTree(scene, seen);
+      } finally {
+        frameMaterialCache = null;
+      }
       // Release engine nodes owned by objects outside this scene.
       for (const object of syncedObjects) {
         if (!seen.has(object)) {

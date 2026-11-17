@@ -81,7 +81,7 @@ typedef struct {
     GLsizei morph_target_count;
 } web_mesh;
 
-/* Goose records are packed: DrawItem's 725-byte stride leaves three of
+/* Goose records are packed: DrawItem's 789-byte stride leaves three of
    every four matrix addresses unaligned. Emscripten's WebGL bridge indexes
    HEAPF32 with pointer >> 2, so passing those addresses directly truncates
    them. Copy through aligned float storage before every matrix upload. */
@@ -124,7 +124,7 @@ typedef struct {
     GLint skin_enabled, joint_palette, joint_count;
     GLint morph_enabled, morph_positions, morph_normals, morph_tangents, morph_weights, morph_target_count;
     GLint instanced;
-    GLint user;         /* u_user[0]: sixteen per-item floats for custom shaders */
+    GLint user;         /* u_user[0]: thirty-two per-item floats for custom shaders */
     GLint lut, lut_enabled; /* sampler3D u_lut and its enable flag, custom shaders */
     int lut_unit;       /* texture unit reserved for u_lut, -1 when unused */
     int custom_id;      /* DrawItem.shader this variant serves, -1 standard */
@@ -797,7 +797,7 @@ static void find_uniforms(void) {
 
 /* Splice user GLSL into a copy of the lit fragment shader: `header` lands at
    global scope just before main() — after every helper, so it can call them —
-   and `u_user[4]` is declared alongside it. `body` runs inside main() where
+   and `u_user[8]` is declared alongside it. `body` runs inside main() where
    the material inputs (base, n, ao, mr, f0, specular_*, coat_*, sheen_*,
    aniso_*, v, l) are resolved but before lighting accumulates; it may
    reassign them, and `g3_emissive_extra` is added into the emissive term. */
@@ -813,7 +813,7 @@ static char *assemble_custom_fragment(const char *header, const char *body, cons
     const char *out_line = out_at;
     while (out_line > FRAGMENT_SRC && out_line[-1] != '\n') out_line--;
     int has_tail = tail && tail[0];
-    static const char user_decl[] = "uniform vec4 u_user[4];\n";
+    static const char user_decl[] = "uniform vec4 u_user[8];\n";
     static const char lut_decl[] = "uniform sampler3D u_lut;\nuniform float u_lut_enabled;\n";
     static const char extra_decl[] = "    vec3 g3_emissive_extra = vec3(0.0);\n";
     static const char emissive_orig[] = "col += u_emissive.rgb * emissive_texel;";
@@ -877,17 +877,29 @@ static int build_program(unsigned mask, int fast_unlit, int no_fog,
         strcpy(out, version_end);
     } else {
         char *out = fragment;
+        /* The thirteen sampler declarations are fixed strings; materialize
+           them once instead of snprintf-ing a candidate per source line. */
+        static char sampler_decls[13][64];
+        static size_t sampler_decl_lens[13];
+        static int sampler_decls_ready;
+        if (!sampler_decls_ready) {
+            for (int i = 0; i < 13; i++)
+                sampler_decl_lens[i] = (size_t)snprintf(sampler_decls[i], sizeof(sampler_decls[i]),
+                                                        "uniform sampler2D %s;\n", material_samplers[i]);
+            sampler_decls_ready = 1;
+        }
         const char *line = fragment_source;
         while (*line) {
             const char *end = strchr(line, '\n');
             size_t len = end ? (size_t)(end - line + 1) : strlen(line);
             int replaced = 0;
-            for (int i = 0; i < 13; i++) {
-                char declaration[96];
-                snprintf(declaration, sizeof(declaration), "uniform sampler2D %s;\n", material_samplers[i]);
-                if (!(mask & (1u << i)) && len == strlen(declaration) && !strncmp(line, declaration, len)) {
-                    out += sprintf(out, "#define %s u_env_map\n", material_samplers[i]);
-                    replaced = 1; break;
+            if (line[0] == 'u') {
+                for (int i = 0; i < 13; i++) {
+                    if (!(mask & (1u << i)) && len == sampler_decl_lens[i] &&
+                        !strncmp(line, sampler_decls[i], len)) {
+                        out += sprintf(out, "#define %s u_env_map\n", material_samplers[i]);
+                        replaced = 1; break;
+                    }
                 }
             }
             if (!replaced) { memcpy(out, line, len); out += len; }
@@ -1448,7 +1460,9 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            same_uv_transform(a->anisotropy_uv,b->anisotropy_uv) &&
            a->shader == b->shader && a->lut_texture == b->lut_texture &&
            same_vec4(a->user0,b->user0) && same_vec4(a->user1,b->user1) &&
-           same_vec4(a->user2,b->user2) && same_vec4(a->user3,b->user3);
+           same_vec4(a->user2,b->user2) && same_vec4(a->user3,b->user3) &&
+           same_vec4(a->user4,b->user4) && same_vec4(a->user5,b->user5) &&
+           same_vec4(a->user6,b->user6) && same_vec4(a->user7,b->user7);
 }
 
 EMSCRIPTEN_KEEPALIVE int32_t g3_host_scene_draw_calls(void) { return scene_draw_calls; }
@@ -2226,9 +2240,9 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     glUniform4f(shader.pbr, it->pbr.x, it->pbr.y, it->pbr.z, it->pbr.w);
     if (shader.custom_id >= 0) {
         /* user0 sits at an unaligned offset; copy like upload_matrix4 does. */
-        float user[16];
+        float user[32];
         memcpy(user, &it->user0, sizeof(user));
-        glUniform4fv(shader.user, 4, user);
+        glUniform4fv(shader.user, 8, user);
         /* Custom programs reserve a unit for u_lut; bind the item's 3D
            texture when it is one, otherwise leave the unit empty and let
            u_lut_enabled tell the shader. */
