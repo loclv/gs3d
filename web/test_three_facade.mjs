@@ -1311,4 +1311,73 @@ function buildTestGLB() {
   assert.deepEqual(last.slice(2), [0, 0, 0, 0, 0, 0], 'clear disables tiling');
 }
 
+{
+  // onBeforeCompile: a three-style chunk-splicing callback is translated into
+  // the engine's customShader contract — uniforms become u_user slots, the
+  // sampler2D uniform rides emissiveMap, varyings decode from packed attrs,
+  // and three built-ins become locals with a write-back epilogue.
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const surfaceTex = new THREE.DataTexture(new Uint8Array(4 * 4 * 4), 4, 4);
+  surfaceTex.needsUpdate = true;
+  const uniforms = {
+    rockGrain: { value: 0.5 },
+    rockSeed: { value: new THREE.Vector3(1, 2, 3) },
+    rockSurfaceMap: { value: surfaceTex },
+  };
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  geometry.setAttribute('surfaceData', new THREE.Float32BufferAttribute([1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1], 4));
+  const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+  material.onBeforeCompile = shader => {
+    shader.uniforms.rockGrain = uniforms.rockGrain;
+    shader.uniforms.rockSeed = uniforms.rockSeed;
+    shader.uniforms.rockSurfaceMap = uniforms.rockSurfaceMap;
+    shader.vertexShader = 'attribute vec4 surfaceData; varying vec4 vSurface; varying vec3 vRockPoint; ' +
+      shader.vertexShader.replace('#include <begin_vertex>',
+        '#include <begin_vertex>\n vSurface=surfaceData; vRockPoint=position;');
+    shader.fragmentShader = 'varying vec4 vSurface; varying vec3 vRockPoint; ' +
+      'uniform float rockGrain; uniform vec3 rockSeed; uniform sampler2D rockSurfaceMap; ' +
+      'vec3 helper(vec3 p) { return p * rockGrain + rockSeed; }\n' +
+      shader.fragmentShader
+        .replace('#include <color_fragment>',
+          '#include <color_fragment>\n diffuseColor.rgb *= helper(vRockPoint).x + vSurface.x; totalEmissiveRadiance += vSurface.rgb;')
+        .replace('#include <colorspace_fragment>',
+          '#include <colorspace_fragment>\n gl_FragColor.rgb *= rockGrain;');
+  };
+  scene.add(new THREE.Mesh(geometry, material));
+  renderer.render(scene, new THREE.PerspectiveCamera());
+
+  const creates = named(engine, '_g3_asset_material_shader_create');
+  assert.equal(creates.length, 1, 'onBeforeCompile shader uploaded once');
+  const c = creates[0];
+  const decode = (ptr, len) => new TextDecoder().decode(engine.HEAPU8.slice(ptr, ptr + len));
+  const header = decode(c[1], c[2]), body = decode(c[3], c[4]), tail = decode(c[5], c[6]);
+  assert.ok(header.includes('#define rockGrain'), 'uniform float -> u_user define');
+  assert.ok(header.includes('#define rockSeed'), 'uniform vec3 -> u_user define');
+  assert.ok(header.includes('#define rockSurfaceMap u_emissive_tex'), 'sampler2D -> emissive slot');
+  assert.ok(header.includes('#define vSurface'), 'varying -> packed decode define');
+  assert.ok(header.includes('vec3 helper(vec3 p)'), 'header functions preserved');
+  assert.ok(body.includes('vec4 diffuseColor = vec4(base, 1.0)'), 'diffuseColor local');
+  assert.ok(body.includes('diffuseColor.rgb *='), 'chunk body spliced');
+  assert.ok(body.includes('totalEmissiveRadiance +='), 'emissive body spliced');
+  assert.ok(body.includes('g3_emissive_extra = totalEmissiveRadiance'), 'emissive write-back');
+  assert.ok(body.includes('n = transpose(mat3(u_view)) * normal'), 'normal write-back');
+  assert.ok(!tail.includes('gl_FragColor'), 'gl_FragColor translated in tail');
+  assert.ok(tail.includes('col *='), 'tail writes col');
+  const userCalls = named(engine, '_g3_asset_material_user');
+  assert.ok(userCalls.length >= 8, 'u_user slots uploaded');
+  const flat = [];
+  for (const call of userCalls) flat.push(...call.slice(3));
+  assert.equal(flat[0], 0.5, 'rockGrain value uploaded');
+  assert.deepEqual(flat.slice(1, 4), [1, 2, 3], 'rockSeed components packed after rockGrain');
+  uniforms.rockGrain.value = 0.25;
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  const lastUser = named(engine, '_g3_asset_material_user').at(-1);
+  assert.equal(lastUser[3], 0.25, 'live uniform update reaches engine');
+}
+
+
 console.log('three.js facade checks passed');

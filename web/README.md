@@ -167,6 +167,23 @@ new GLTFLoader().load('./model.glb', gltf => {
 Textures, images, skins, morph targets, animations and compressed buffers
 (Draco/meshopt) are not supported; files requiring those extensions throw.
 
+## Exporting glTF assets
+
+`gs3d/gltf-exporter` provides a `GLTFExporter` matching the three.js examples
+API. It writes GLB (binary) or glTF JSON for the facade's scene-graph subset —
+node hierarchies with TRS/matrix transforms, `POSITION`/`NORMAL`/`COLOR_0`/
+`TEXCOORD_0`/`TEXCOORD_1` attributes (interleaved attributes are deinterleaved),
+indices, and PBR materials with vertex colors:
+
+```js
+import { GLTFExporter } from 'gs3d/gltf-exporter';
+
+const buffer = await new GLTFExporter().parseAsync(group, { binary: true });
+```
+
+Material texture maps, custom shader attributes, skins, morph targets and
+animations are not exported; those attributes are skipped.
+
 ## Reference viewer
 
 From the repository root, run `./build_web.sh --viewer --serve` and open

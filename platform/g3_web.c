@@ -101,7 +101,7 @@ typedef struct {
     int fast_unlit;
     int no_fog;
     GLint texture_units[13];
-    GLint mvp, view_proj, model, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
+    GLint mvp, view_proj, model, view, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
     GLint light_count, light_position[8], light_direction[8], light_color_extra[8], light_inner[8], light_attenuation[8];
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
@@ -262,6 +262,7 @@ static const char *VERTEX_SRC =
     "uniform mat4 u_mvp;\n"
     "uniform mat4 u_view_proj;\n"
     "uniform mat4 u_model;\n"
+    "uniform mat4 u_view;\n"
     "uniform mat3 u_normal_matrix;\n"
     "uniform bool u_instanced;\n"
     "uniform bool u_skin_enabled;\n"
@@ -275,6 +276,9 @@ static const char *VERTEX_SRC =
     "uniform int u_morph_target_count;\n"
     "out vec3 v_normal;\n"
     "out vec3 v_world;\n"
+    "out vec3 v_obj_pos;\n"
+    "out vec3 v_obj_normal;\n"
+    "out mat3 v_view_normal_matrix;\n"
     "out vec2 v_uv;\n"
     "out vec2 v_uv1;\n"
     "out vec2 v_uv2;\n"
@@ -326,7 +330,9 @@ static const char *VERTEX_SRC =
     "    v_uv6 = a_uv67.xy;\n"
     "    v_uv7 = a_uv67.zw;\n"
     "    v_color = a_color;\n"
-    "    v_normal = u_instanced ? transpose(inverse(mat3(model))) * normal : u_normal_matrix * normal;\n"
+    "    v_normal = u_instanced ? transpose(inverse(mat3(model))) * normal : u_normal_matrix * normal;\n""    v_obj_pos = a_pos;\n"
+    "    v_obj_normal = a_normal;\n"
+    "    v_view_normal_matrix = transpose(inverse(mat3(u_view * model)));\n"
     "    float model_sign = determinant(mat3(model)) < 0.0 ? -1.0 : 1.0;\n"
     "    if (u_skin_enabled && skin_total > 0.0) {\n"
     "        vec3 skinned_tangent = mat3(skin_matrix) * tangent; float tangent_length = length(skinned_tangent);\n"
@@ -390,6 +396,9 @@ static const char *FRAGMENT_SRC =
     "precision highp float;\n"
     "in vec3 v_normal;\n"
     "in vec3 v_world;\n"
+    "in vec3 v_obj_pos;\n"
+    "in vec3 v_obj_normal;\n"
+    "in mat3 v_view_normal_matrix;\n"
     "in vec2 v_uv;\n"
     "in vec2 v_uv1;\n"
     "in vec2 v_uv2;\n"
@@ -471,6 +480,7 @@ static const char *FRAGMENT_SRC =
     "uniform mat4 u_spot_shadow_matrix;\n"
     "uniform int u_spot_shadow_index;\n"
     "uniform vec4 u_spot_shadow_params;\n"
+    "uniform mat4 u_view;\n"
     "uniform vec4 u_ambient;\n"
     "uniform vec4 u_fog;\n"
     "uniform int u_tone_map_inline;\n"
@@ -736,6 +746,7 @@ static int link_program(GLuint vs, GLuint fs) {
 static void find_uniforms(void) {
     shader.mvp = glGetUniformLocation(shader.program, "u_mvp");
     shader.view_proj = glGetUniformLocation(shader.program, "u_view_proj");
+    shader.view = glGetUniformLocation(shader.program, "u_view");
     shader.model = glGetUniformLocation(shader.program, "u_model");
     shader.normal_matrix = glGetUniformLocation(shader.program, "u_normal_matrix");
     shader.color = glGetUniformLocation(shader.program, "u_color");
@@ -1948,6 +1959,7 @@ static float encode_srgb_channel(float value) {
 /* What every item of this frame shares. */
 static void bind_view(const g3_view_state *view) {
     upload_matrix4(shader.view_proj, 1, GL_FALSE, view->view_proj.m);
+    upload_matrix4(shader.view, 1, GL_FALSE, view->view.m);
     if (shader.fast_unlit) {
         if (!shader.no_fog) {
             glUniform3f(shader.eye, view->eye.x, view->eye.y, view->eye.z);

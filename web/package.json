@@ -32,6 +32,10 @@
     "./gltf-loader": {
       "types": "./gltf-loader.d.ts",
       "import": "./gltf-loader.js"
+    },
+    "./gltf-exporter": {
+      "types": "./gltf-exporter.d.ts",
+      "import": "./gltf-exporter.js"
     }
   },
   "files": [
@@ -43,6 +47,8 @@
     "three.d.ts",
     "gltf-loader.js",
     "gltf-loader.d.ts",
+    "gltf-exporter.js",
+    "gltf-exporter.d.ts",
     "gs3d/app.js",
     "gs3d/app.wasm",
     "LICENSE"
