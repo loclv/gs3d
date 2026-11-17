@@ -90,6 +90,9 @@ function createMockEngine() {
     _g3_asset_output_srgb: record('_g3_asset_output_srgb'),
     _g3_asset_tone_mapping: record('_g3_asset_tone_mapping'),
     _g3_asset_exposure: record('_g3_asset_exposure'),
+    _g3_asset_render_target_create: () => 77,
+    _g3_asset_render_target_select: record('_g3_asset_render_target_select'),
+    _g3_asset_render_target_read: record('_g3_asset_render_target_read'),
   };
   return engine;
 }
@@ -1250,6 +1253,38 @@ function buildTestGLB() {
   mid.add(leaf); root.add(mid);
   assert.equal(leaf.getObjectByProperty('isObject3D', true) !== null, true, 'getObjectByProperty');
   assert.deepEqual(leaf.ancestors.map(o => o.isGroup), [true, true], 'ancestors chain');
+}
+
+{
+  // PMREMGenerator: renders six cubemap faces into a render target and
+  // stitches an equirectangular DataTexture; RoomEnvironment builds a scene.
+  const engine = createMockEngine();
+  let readCalls = 0;
+  engine._g3_asset_render_target_read = (rt, x, y, w, h, ptr, len) => {
+    readCalls++;
+    const view = new Uint8Array(engine.HEAPU8.buffer, ptr, len);
+    for (let i = 0; i < len; i++) view[i] = (i * 3 + readCalls * 17) & 0xff;
+    return true;
+  };
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const env = new THREE.RoomEnvironment();
+  assert.ok(env.isRoomEnvironment && env.children.length >= 5, 'RoomEnvironment builds softbox scene');
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const result = pmrem.fromScene(env, 0, 0.1, 100, { size: 64 });
+  assert.equal(result.texture.image.width, 64, 'equirect width');
+  assert.equal(result.texture.image.height, 32, 'equirect height = size/2');
+  assert.equal(result.texture.image.data.length, 64 * 32 * 4, 'RGBA8 pixels');
+  assert.equal(readCalls, 6, 'six face readbacks');
+  const selects = named(engine, '_g3_asset_render_target_select').map(c => c[1]);
+  assert.deepEqual(selects, [77, -1, 77, -1, 77, -1, 77, -1, 77, -1, 77, -1],
+    'each face render selects the target and restores the screen');
+  assert.ok(result.texture.image.data.some(v => v !== 0), 'stitched pixels non-zero');
+  // fromEquirectangular passes the texture through unchanged.
+  const tex = new THREE.DataTexture(new Uint8Array(4 * 4 * 4), 4, 4);
+  assert.equal(pmrem.fromEquirectangular(tex).texture, tex, 'equirect passthrough');
+  // WebGLRenderer alias for three.js-style imports.
+  assert.equal(THREE.WebGLRenderer, THREE.WebGPURenderer, 'WebGLRenderer alias');
 }
 
 console.log('three.js facade checks passed');

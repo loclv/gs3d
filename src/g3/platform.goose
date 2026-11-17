@@ -154,6 +154,7 @@ extern fn g3p_upload_texture_f16(id: i32, pixels: const u8[:], width: i32, heigh
 extern fn g3p_upload_texture_3d_f16(id: i32, pixels: const u8[:], width: i32, height: i32, depth: i32);
 extern fn g3p_create_render_target(id: i32, width: i32, height: i32) -> bool;
 extern fn g3p_resize_render_target(id: i32, width: i32, height: i32) -> bool;
+extern fn g3p_render_target_read(id: i32, x: i32, y: i32, width: i32, height: i32, pixels: const u8[:]) -> bool;
 extern fn g3p_post_process(source: i32, destination: i32, effect: i32) -> bool;
 extern fn g3p_post_process_shader_create(id: i32, body: const u8[:]) -> bool;
 extern fn g3p_post_process_shader_release(id: i32);

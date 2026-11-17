@@ -2076,6 +2076,26 @@ static void apply_fxaa(void) {
 
 /* --- output --- */
 
+uint8_t g3p_render_target_read(int32_t id, int32_t x, int32_t y, int32_t w, int32_t h, g3_u8_slice pixels) {
+    if (id < 0 || id >= texture_count || !textures[id].target_fb || !pixels.data ||
+        w <= 0 || h <= 0 || x < 0 || y < 0 ||
+        x + w > textures[id].w || y + h > textures[id].h ||
+        pixels.len < (int64_t)w * (int64_t)h * 4) return 0;
+    /* target_fb is top-down RGB; emit bottom-up RGBA like the GL backend. */
+    const soft_texture *t = &textures[id];
+    for (int32_t row = 0; row < h; row++) {
+        const uint8_t *src = t->target_fb + ((size_t)(y + h - 1 - row) * (size_t)t->w + (size_t)x) * 3;
+        uint8_t *dst = pixels.data + (size_t)row * (size_t)w * 4;
+        for (int32_t cx = 0; cx < w; cx++) {
+            dst[cx * 4 + 0] = src[cx * 3 + 0];
+            dst[cx * 4 + 1] = src[cx * 3 + 1];
+            dst[cx * 4 + 2] = src[cx * 3 + 2];
+            dst[cx * 4 + 3] = 255;
+        }
+    }
+    return 1;
+}
+
 uint32_t g3p_read_pixel(int32_t x, int32_t y) {
     if (!fb || x < 0 || y < 0 || x >= fb_w || y >= fb_h) return 0;
     const uint8_t *p = fb + ((size_t)y * (size_t)fb_w + (size_t)x) * 3;

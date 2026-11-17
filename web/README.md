@@ -82,7 +82,12 @@ Pure-JS helpers cover `Ray`/`Raycaster` (Möller–Trumbore against geometry,
 `setFromCamera` for perspective cameras) and `Box3` (`setFromObject` walks
 the scene graph). `scene.environment` accepts an equirectangular texture
 with `environmentIntensity`/`environmentRotation`, and materials support
-`envMapIntensity`. `Path`/`Shape` with quadratic and cubic curves feed
+`envMapIntensity`. `PMREMGenerator.fromScene` renders the scene into a
+cubemap and stitches an equirectangular `DataTexture` (the engine generates
+its own filtered mips, approximating PMREM roughness filtering);
+`RoomEnvironment` provides a softbox env scene, and
+`PMREMGenerator.fromEquirectangular` passes equirect textures through.
+`WebGLRenderer` aliases `WebGPURenderer`. `Path`/`Shape` with quadratic and cubic curves feed
 `ShapeGeometry` (ear-clipping triangulation; holes are bridged when the
 merged loop triangulates cleanly, otherwise filled) and `ExtrudeGeometry`
 (bevel parameters accepted but ignored). `TubeGeometry` sweeps a radius

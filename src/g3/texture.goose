@@ -146,6 +146,12 @@ fn render_target_set(id: i32) -> bool {
     return true;
 }
 
+// Copy a rect of the target's pixels out, bottom-up RGBA like the GL backend.
+fn render_target_read(id: i32, x: i32, y: i32, width: i32, height: i32, pixels: const u8[:]) -> bool {
+    guard id >= 0 && id < g_texture_count && g_texture_slots[id].render_target && texture_slot_live(id) else { return false; }
+    return g3p_render_target_read(id, x, y, width, height, pixels);
+}
+
 fn render_target_resize(id: i32, width: i32, height: i32) -> bool {
     guard id >= 0 && id < g_texture_count && g_texture_slots[id].render_target && texture_slot_live(id) &&
           width > 0 && height > 0 && width <= 4096 && height <= 4096 &&

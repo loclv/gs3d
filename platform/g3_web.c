@@ -1737,6 +1737,22 @@ uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height) {
     return 1;
 }
 
+/* Read a rect out of a render target. (x, y) is a top-left origin in target
+   pixels; rows come back bottom-up like glReadPixels, so callers flip. */
+uint8_t g3p_render_target_read(int32_t id, int32_t x, int32_t y, int32_t w, int32_t h, g3_u8_slice pixels) {
+    web_render_target *target = NULL;
+    for (int32_t i = 0; i < render_target_count; i++) if (render_targets[i].id == id) { target = &render_targets[i]; break; }
+    if (!target || !pixels.data || w <= 0 || h <= 0 || x < 0 || y < 0 ||
+        x + w > texture_widths[id] || y + h > texture_heights[id] ||
+        pixels.len < (int64_t)w * (int64_t)h * 4) return 0;
+    GLint prev_fbo = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, target->fbo);
+    glReadPixels(x, texture_heights[id] - y - h, w, h, GL_RGBA, GL_UNSIGNED_BYTE, (void *)(uintptr_t)pixels.data);
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
+    return 1;
+}
+
 /* Browser assets are fetched and decoded by web/assets.js. */
 uint8_t g3p_load_radiance_hdr(int32_t id, g3_u8_slice path) {
     (void)id; (void)path;

@@ -286,6 +286,7 @@ void g3p_upload_texture_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32
 void g3p_upload_texture_3d_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth);
 uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height);
 uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height);
+uint8_t g3p_render_target_read(int32_t id, int32_t x, int32_t y, int32_t width, int32_t height, g3_u8_slice pixels);
 uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect);
 uint8_t g3p_post_process_shader_create(int32_t id, g3_u8_slice body);
 void g3p_post_process_shader_release(int32_t id);

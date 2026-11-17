@@ -202,6 +202,7 @@ needs a C string copies it and appends `'\0'` (see `path_of()` in
 | `void g3p_upload_texture_3d_f16(int32_t id, g3_u8_slice, int32_t w, int32_t h, int32_t d)` | same as 3D but RGBA16F; CPU backend ignores |
 | `uint8_t g3p_create_render_target(int32_t id, int32_t w, int32_t h)` | create a sampleable linear RGBA8 target with depth storage |
 | `uint8_t g3p_resize_render_target(int32_t id, int32_t w, int32_t h)` | resize a target; its contents are cleared |
+| `uint8_t g3p_render_target_read(int32_t id, int32_t x, int32_t y, int32_t w, int32_t h, g3_u8_slice pixels)` | copy a rect out as bottom-up RGBA8 (GL row order); `pixels` must hold w*h*4 bytes; CPU backend converts its top-down RGB target to the same layout |
 | `uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect)` | run copy (0), grayscale (1), invert (2), or FXAA (3) from a texture into a distinct target |
 | `uint8_t g3p_post_process_shader_create(int32_t id, g3_u8_slice body)` | compile a bounded WebGL2 fragment-body program; the CPU backend rejects it |
 | `uint8_t g3p_post_process_shader_run(int32_t shader, int32_t source, int32_t destination)` | run a custom fragment program into a distinct render target |

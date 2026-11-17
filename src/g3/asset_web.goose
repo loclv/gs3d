@@ -159,6 +159,11 @@ export fn g3_asset_environment_lighting(sky_r: f32, sky_g: f32, sky_b: f32, grou
     return g3::set_environment(float3 { sky_r, sky_g, sky_b }, float3 { ground_r, ground_g, ground_b }, intensity);
 }
 export fn g3_asset_environment_rotation(rotation: f32) -> bool { return g3::set_environment_rotation(rotation); }
+export fn g3_asset_render_target_create(width: i32, height: i32) -> i32 { return g3::render_target_create(width, height); }
+export fn g3_asset_render_target_select(id: i32) -> bool { return g3::render_target_set(id); }
+export fn g3_asset_render_target_read(id: i32, x: i32, y: i32, width: i32, height: i32, pixels: const u8[:]) -> bool {
+    return g3::render_target_read(id, x, y, width, height, pixels);
+}
 export fn g3_asset_background(r: f32, g: f32, b: f32, a: f32) { g3::set_background(float4 { r, g, b, a }); }
 export fn g3_asset_ambient(r: f32, g: f32, b: f32, intensity: f32) { g3::set_ambient(float3 { r, g, b }, intensity); }
 export fn g3_asset_fog(r: f32, g: f32, b: f32, density: f32) { g3::set_fog(float3 { r, g, b }, density); }
