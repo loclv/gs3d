@@ -1212,7 +1212,7 @@ function buildTestGLB() {
     setPointerCapture() {}, releasePointerCapture() {} };
   const camera = new THREE.PerspectiveCamera();
   const target = new THREE.Vector3(1, 2, -3);
-  camera.position.set(1, 4, 1);
+  camera.position.set(0, 2, 4);
   const controls = new THREE.OrbitControls(camera, element);
   controls.target.copy(target);
   controls.update();
@@ -1230,6 +1230,24 @@ function buildTestGLB() {
   for (const x of [150, 300, 450, 600, 750]) {
     listeners.pointermove({ pointerId: 1, clientX: x, clientY: 0 });
     verify(`drag ${x}`);
+    if (x === 150) {
+      // A quarter turn moves the camera from (1,4,1) to (-3,4,-3).
+      const args = named(engine, '_g3_asset_camera_update').at(-1);
+      assert.ok(Math.abs(args[2] + 3) < 1e-6 && Math.abs(args[3] - 4) < 1e-6 &&
+        Math.abs(args[4] + 3) < 1e-6, '90° drag reaches the side of the rock');
+      assert.ok(Math.abs(args[8] - 1 / Math.sqrt(5)) < 1e-6 &&
+        Math.abs(args[9] - 2 / Math.sqrt(5)) < 1e-6 && Math.abs(args[10]) < 1e-6,
+      '90° drag keeps the camera upright');
+    }
+    if (x === 300) {
+      // A 300px drag over a 600px viewport rotates by exactly pi radians.
+      // The camera moves from (1,4,1) to (1,4,-7) around (1,2,-3).
+      const args = named(engine, '_g3_asset_camera_update').at(-1);
+      assert.ok(Math.abs(args[2] - 1) < 1e-6 && Math.abs(args[3] - 4) < 1e-6 &&
+        Math.abs(args[4] + 7) < 1e-6, '180° drag reaches the opposite side of the rock');
+      assert.ok(Math.abs(args[8]) < 1e-6 && Math.abs(args[9] - 2 / Math.sqrt(5)) < 1e-6 &&
+        Math.abs(args[10] - 1 / Math.sqrt(5)) < 1e-6, '180° drag keeps the camera upright');
+    }
     controls.update();
     verify(`repeated update ${x}`);
   }
