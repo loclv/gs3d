@@ -154,7 +154,8 @@ async function run() {
     const page = new DevtoolsPage(socket);
     await page.send('Runtime.enable');
     await page.send('Page.enable');
-    await page.send('Page.navigate', { url: `http://127.0.0.1:${port}/${demoOnly ? "demo-checks.html" : "viewer/reference-checks.html"}` });
+    const query = process.argv.includes('--facade-bridges') ? '?facade-bridges' : '';
+    await page.send('Page.navigate', { url: `http://127.0.0.1:${port}/${demoOnly ? "demo-checks.html" : "viewer/reference-checks.html"}${query}` });
 
     const deadline = Date.now() + timeoutMs;
     let result;

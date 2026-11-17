@@ -5,8 +5,8 @@ import { readFile } from 'node:fs/promises';
 import * as THREE from './three.js';
 
 const selected = {
-  Vector2: ['Instancing', 'isVector2', 'set', 'copy', 'negate', 'dot', 'cross', 'equals'],
-  Vector3: ['Instancing', 'isVector3', 'set', 'copy', 'addScaledVector', 'negate', 'dot', 'applyEuler', 'applyAxisAngle', 'applyQuaternion'],
+  Vector2: ['Instancing', 'isVector2', 'set', 'copy', 'negate', 'dot', 'cross', 'equals', 'normalize'],
+  Vector3: ['Instancing', 'isVector3', 'set', 'copy', 'addScaledVector', 'negate', 'dot', 'normalize', 'applyEuler', 'applyAxisAngle', 'applyQuaternion'],
 };
 let passed = 0, skipped = 0;
 for (const [name, names] of Object.entries(selected)) {

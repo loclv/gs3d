@@ -87,6 +87,58 @@ function runOutputChecks(gl, engine) {
   check(engine._g3_reference_set_output(false, 0, 1), 'default linear output settings are restored');
 }
 
+// Exercise the scalar JS-to-Wasm bridges with the real Goose slice ABI.
+// Mock-engine tests cannot detect a pointer/length passed as a slice struct.
+function runFacadeBridgeChecks(gl, engine) {
+  const allocations = [];
+  const bytes = data => {
+    const array = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+    const ptr = engine._malloc(array.length || 1);
+    allocations.push(ptr);
+    engine.HEAPU8.set(array, ptr);
+    return [ptr, array.length];
+  };
+  try {
+    const header = bytes('');
+    const body = bytes('base = vec3(0.1, 0.8, 0.2);');
+    const tail = bytes('');
+    const shader = engine._g3_host_material_shader_create(...header, ...body, ...tail);
+    check(shader >= 0, 'facade material shader source crosses the Wasm slice bridge');
+    check(engine._g3_asset_material_shader_release(shader), 'facade material shader releases');
+    const vertex = bytes('void main(){gl_Position=vec4(position,1.0);}');
+    const fragment = bytes('void main(){gl_FragColor=vec4(1.0);}');
+    const raw = engine._g3_host_raw_shader_create(...vertex, ...fragment);
+    check(raw >= 64, 'facade raw shader source crosses the Wasm slice bridge');
+    const name = bytes('amount');
+    const value = bytes(new Uint8Array(new Float32Array([0.5]).buffer));
+    check(engine._g3_host_raw_shader_uniform(raw, ...name, 0, value[0], 1), 'raw shader uniform crosses both slice bridges');
+    const rgba = bytes(new Uint8Array([255, 0, 0, 255]));
+    const texture = engine._g3_host_texture_3d(1, 1, 1, ...rgba);
+    check(texture >= 0, '3D texture bytes cross the Wasm slice bridge');
+    check(engine._g3_host_raw_shader_uniform_texture(raw, ...name, texture), 'raw shader texture uniform crosses the Wasm slice bridge');
+    check(engine._g3_asset_raw_shader_release(raw), 'facade raw shader releases');
+    check(engine._g3_asset_release_texture(texture, engine._g3_asset_texture_generation(texture)), '3D texture releases');
+    check(engine._g3_host_texture_3d(1, 1, 1, 0, 4) < 0 &&
+      engine._g3_host_material_shader_create(0, -1, ...body, ...tail) < 0,
+    'facade bridges reject invalid slice ranges');
+    const half = bytes(new Uint8Array(new Uint16Array([0x3c00, 0, 0, 0x3c00]).buffer));
+    const half2d = engine._g3_host_texture_f16(1, 1, ...half);
+    const half3d = engine._g3_host_texture_3d_f16(1, 1, 1, ...half);
+    check(half2d >= 0 && half3d >= 0, 'half-float 2D and 3D bytes cross the Wasm slice bridges');
+    check(engine._g3_asset_release_texture(half2d, engine._g3_asset_texture_generation(half2d)) &&
+      engine._g3_asset_release_texture(half3d, engine._g3_asset_texture_generation(half3d)), 'half-float textures release');
+    const target = engine._g3_asset_render_target_create(2, 2);
+    check(target >= 0 && engine._g3_reference_target_fill(target, 0.25, 0.5, 0.75), 'facade render target contains a known colour');
+    const pixels = bytes(new Uint8Array(16));
+    check(engine._g3_host_render_target_read(target, 0, 0, 2, 2, ...pixels), 'render target readback crosses the Wasm slice bridge');
+    checkPixel([...engine.HEAPU8.slice(pixels[0], pixels[0] + 4)], [64, 128, 191, 255], 'render target readback preserves pixel data');
+    check(engine._g3_reference_target_remove(target), 'facade render target releases');
+    check(gl.getError() === gl.NO_ERROR, 'facade bridges leave WebGL usable');
+  } finally {
+    for (const ptr of allocations) engine._free(ptr);
+  }
+}
+
 function tinyRadianceDataUrl() {
   const header = new TextEncoder().encode('#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n');
   const bytes = new Uint8Array(header.length + 4);
@@ -215,6 +267,10 @@ async function run() {
   const size = fitToDisplay(canvas);
   check(engine._g3_host_start(size.width, size.height), 'engine starts');
   runOutputChecks(gl, engine);
+  if (new URLSearchParams(location.search).has('facade-bridges')) {
+    runFacadeBridgeChecks(gl, engine);
+    return;
+  }
   runRenderTargetChecks(gl, engine);
   await runImageLoaderChecks(gl, engine);
   engine._g3_reference_clear_scene();
@@ -310,6 +366,7 @@ async function run() {
   check(changedPixels(bindPose, liftedPose) > 0, 'GPU skin palette changes rendered pixels during animation');
   skinnedModel.dispose();
   renderEmptyFrame(gl, engine, 'frame after GPU skin disposal');
+  runFacadeBridgeChecks(gl, engine);
 }
 
 run().then(() => {
