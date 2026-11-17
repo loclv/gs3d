@@ -59,6 +59,18 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_render_target_read(int32_t id, int32_t x, i
     if (!g3_host_slice_ok(pixels, length, 1)) return 0;
     return g3_asset_render_target_read(id, x, y, width, height, (sl_u8){(uint8_t *)(uintptr_t)pixels, length});
 }
+EMSCRIPTEN_KEEPALIVE int32_t g3_host_texture_f16(int32_t width, int32_t height, uint32_t pixels, int32_t length) {
+    if (!g3_host_slice_ok(pixels, length, 1)) return -1;
+    return g3_asset_texture_f16(width, height, (sl_u8){(uint8_t *)(uintptr_t)pixels, length});
+}
+EMSCRIPTEN_KEEPALIVE int32_t g3_host_texture_3d(int32_t width, int32_t height, int32_t depth, uint32_t pixels, int32_t length) {
+    if (!g3_host_slice_ok(pixels, length, 1)) return -1;
+    return g3_asset_texture_3d(width, height, depth, (sl_u8){(uint8_t *)(uintptr_t)pixels, length});
+}
+EMSCRIPTEN_KEEPALIVE int32_t g3_host_texture_3d_f16(int32_t width, int32_t height, int32_t depth, uint32_t pixels, int32_t length) {
+    if (!g3_host_slice_ok(pixels, length, 1)) return -1;
+    return g3_asset_texture_3d_f16(width, height, depth, (sl_u8){(uint8_t *)(uintptr_t)pixels, length});
+}
 
 /* JS needs a scalar-argument bridge for the Goose slice ABI. The generated
    g3_asset_mesh_update takes three {data,len} structs, so construct them here

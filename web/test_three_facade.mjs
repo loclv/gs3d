@@ -56,9 +56,9 @@ function createMockEngine() {
     _g3_asset_material_set_shader: record('_g3_asset_material_set_shader'),
     _g3_asset_material_user: record('_g3_asset_material_user'),
     _g3_asset_material_lut: record('_g3_asset_material_lut'),
-    _g3_asset_texture_3d: (...args) => { calls.push(['_g3_asset_texture_3d', ...args]); return nextTexture++; },
-    _g3_asset_texture_f16: (...args) => { calls.push(['_g3_asset_texture_f16', ...args]); return nextTexture++; },
-    _g3_asset_texture_3d_f16: (...args) => { calls.push(['_g3_asset_texture_3d_f16', ...args]); return nextTexture++; },
+    _g3_host_texture_3d: (...args) => { calls.push(['_g3_host_texture_3d', ...args]); return nextTexture++; },
+    _g3_host_texture_f16: (...args) => { calls.push(['_g3_host_texture_f16', ...args]); return nextTexture++; },
+    _g3_host_texture_3d_f16: (...args) => { calls.push(['_g3_host_texture_3d_f16', ...args]); return nextTexture++; },
     _g3_host_raw_shader_create: (...args) => { calls.push(['_g3_host_raw_shader_create', ...args]); return 100; },
     _g3_asset_raw_shader_release: record('_g3_asset_raw_shader_release'),
     _g3_host_raw_shader_uniform: record('_g3_host_raw_shader_uniform'),
@@ -401,7 +401,7 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   scene.add(new THREE.Mesh(geometry, material));
   renderer.render(scene, new THREE.PerspectiveCamera());
 
-  const uploads = named(engine, '_g3_asset_texture_3d');
+  const uploads = named(engine, '_g3_host_texture_3d');
   assert.equal(uploads.length, 1, '3D texture uploaded once');
   assert.deepEqual(uploads[0].slice(1, 4), [2, 2, 2], '3D dimensions passed through');
   const lutCalls = named(engine, '_g3_asset_material_lut');
@@ -472,7 +472,7 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   scene.add(new THREE.Mesh(geometry, material));
   renderer.render(scene, new THREE.PerspectiveCamera());
 
-  const uploads = named(engine, '_g3_asset_texture_3d_f16');
+  const uploads = named(engine, '_g3_host_texture_3d_f16');
   assert.equal(uploads.length, 1, 'half-float 3D texture uploaded');
   assert.deepEqual(uploads[0].slice(1, 4), [4, 4, 4], 'f16 3D dimensions passed through');
   const texUniforms = named(engine, '_g3_host_raw_shader_uniform_texture');

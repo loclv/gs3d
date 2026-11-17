@@ -2433,7 +2433,7 @@ function ensureTexture(engine, texture) {
 
   const f16 = (texture.type === HalfFloatType || image.pixels instanceof Uint16Array) &&
     image.pixels.byteLength === image.width * image.height * 8 &&
-    typeof engine._g3_asset_texture_f16 === 'function';
+    typeof engine._g3_host_texture_f16 === 'function';
   const ptr = engine._malloc(image.pixels.byteLength || image.pixels.length);
   if (!ptr) return -1;
   let id = -1;
@@ -2444,7 +2444,7 @@ function ensureTexture(engine, texture) {
         ? new Uint8Array(image.pixels.buffer, image.pixels.byteOffset, image.pixels.byteLength)
         : new Uint8ClampedArray(image.pixels), ptr);
     if (f16) {
-      id = engine._g3_asset_texture_f16(image.width, image.height, ptr, image.pixels.byteLength);
+      id = engine._g3_host_texture_f16(image.width, image.height, ptr, image.pixels.byteLength);
     } else {
       id = engine._g3_asset_texture();
       if (id >= 0) {
@@ -2470,11 +2470,11 @@ function ensureTexture(engine, texture) {
 
 function ensureTexture3D(engine, texture) {
   if (!texture || !texture.isData3DTexture) return -1;
-  if (typeof engine._g3_asset_texture_3d !== 'function') return -1;
+  if (typeof engine._g3_host_texture_3d !== 'function') return -1;
   const image = texture.image;
   const data = image?.data;
   const f16 = data instanceof Uint16Array &&
-    typeof engine._g3_asset_texture_3d_f16 === 'function';
+    typeof engine._g3_host_texture_3d_f16 === 'function';
   if (!data || !(data instanceof Uint8Array || data instanceof Uint8ClampedArray || f16)) return -1;
   const signature = [image ? `${image.width}x${image.height}x${image.depth}` : 'pending',
     texture.version, f16 ? 'f16' : 'rgba8'].join(',');
@@ -2487,8 +2487,8 @@ function ensureTexture3D(engine, texture) {
     engine.HEAPU8.set(data instanceof Uint8Array || data instanceof Uint8ClampedArray
       ? data : new Uint8Array(data.buffer, data.byteOffset, data.byteLength), ptr);
     const id = f16
-      ? engine._g3_asset_texture_3d_f16(image.width, image.height, image.depth, ptr, data.byteLength)
-      : engine._g3_asset_texture_3d(image.width, image.height, image.depth, ptr, data.length);
+      ? engine._g3_host_texture_3d_f16(image.width, image.height, image.depth, ptr, data.byteLength)
+      : engine._g3_host_texture_3d(image.width, image.height, image.depth, ptr, data.length);
     if (id < 0) return -1;
     const record = { id, generation: engine._g3_asset_texture_generation(id), signature };
     texture3dStates.set(texture, record);
