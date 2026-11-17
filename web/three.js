@@ -2280,7 +2280,7 @@ function releaseEngineTree(object) {
 
 function releaseGeometryFlag(geometry, flag) {
   const byFlag = geometryStates.get(geometry);
-  const state = byFlag && byFlag[flag];
+  const state = byFlag?.[flag];
   if (state && sharedEngine) sharedEngine._g3_asset_release_mesh(state.id, state.generation);
   if (byFlag) delete byFlag[flag];
 }
@@ -2322,7 +2322,7 @@ function ensureTexture(engine, texture) {
   if (state && state.signature === signature) return state.id;
   if (state) engine._g3_asset_release_texture(state.id, state.generation);
   const image = textureImageData(texture.image);
-  if (!image || !image.pixels || !image.pixels.length) return -1;
+  if (!image?.pixels?.length) return -1;
 
   const f16 = (texture.type === HalfFloatType || image.pixels instanceof Uint16Array) &&
     image.pixels.byteLength === image.width * image.height * 8 &&
@@ -2365,7 +2365,7 @@ function ensureTexture3D(engine, texture) {
   if (!texture || !texture.isData3DTexture) return -1;
   if (typeof engine._g3_asset_texture_3d !== 'function') return -1;
   const image = texture.image;
-  const data = image && image.data;
+  const data = image?.data;
   const f16 = data instanceof Uint16Array &&
     typeof engine._g3_asset_texture_3d_f16 === 'function';
   if (!data || !(data instanceof Uint8Array || data instanceof Uint8ClampedArray || f16)) return -1;
@@ -2434,7 +2434,7 @@ function flatShadedGeometry(geometry) {
   const cached = flatGeometryCache.get(geometry);
   if (cached && cached.version === geometry.version) return cached.geo;
   const src = attrData(geometry.attributes.position);
-  const p = src.array, is = src.itemSize;
+  const p = src?.array, is = src?.itemSize;
   const index = geometry.index && geometry.index.array;
   const triCount = index ? index.length / 3 : src.count / 3;
   const vertCount = triCount * 3;
@@ -2716,7 +2716,7 @@ const RAW_SHADER_CHUNKS = {
 };
 
 function resolveRawChunks(source) {
-  return String(source || '').replace(/#include\s*<([^>\s]+)>/g, (match, name) => {
+  return String(source || '').replace(/#include\s*<([^>\s]+)>/g, (_match, name) => {
     const chunk = RAW_SHADER_CHUNKS[name];
     if (chunk === undefined) console.warn(`gs3d: unsupported shader chunk #include <${name}> dropped`);
     return chunk ?? '';
@@ -2778,8 +2778,7 @@ function vertexAttrInfo(material) {
   if (hit && hit.source === source) return hit.info;
   const info = [];
   const re = /attribute\s+(float|int|vec2|vec3|vec4)\s+(\w+)\s*;/g;
-  let m;
-  while ((m = re.exec(resolveRawChunks(source)))) info.push({ type: m[1], name: m[2] });
+  for (const m of resolveRawChunks(source).matchAll(re)) info.push({ type: m[1], name: m[2] });
   vertexAttrCache.set(material, { source, info });
   return info;
 }
@@ -2788,7 +2787,7 @@ function rawAttrDecode(name, type, material) {
   const n = RAW_GLSL_SIZE[type] || 2;
   const uvIndex = UV_SLOT_ATTRS.indexOf(name);
   const reg = uvIndex >= 0 ? null : customAttrRegistry.get(name);
-  const slots = uvIndex >= 0 ? [uvIndex] : (reg && reg.slots.length ? reg.slots : null);
+  const slots = uvIndex >= 0 ? [uvIndex] : (reg?.slots.length ? reg.slots : null);
   const defaults = material.defaultAttributeValues;
   const def = defaults && Array.isArray(defaults[name]) ? defaults[name] : null;
   const capacity = slots ? slots.length * 2 : 0;
