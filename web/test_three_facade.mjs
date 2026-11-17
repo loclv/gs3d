@@ -1180,6 +1180,26 @@ function buildTestGLB() {
   controls.dispose();
 }
 
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const camera = new THREE.PerspectiveCamera();
+  const scene = new THREE.Scene();
+  for (const angle of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2, 2 * Math.PI]) {
+    camera.position.set(4 * Math.sin(angle), 2, 4 * Math.cos(angle));
+    camera.lookAt(new THREE.Vector3());
+    renderer.render(scene, camera);
+    const args = named(engine, '_g3_asset_camera_update').at(-1);
+    const position = args.slice(2, 5), target = args.slice(5, 8), up = args.slice(8, 11);
+    const toOrigin = position.map(v => -v / Math.hypot(...position));
+    const forward = target.map((v, i) => v - position[i]);
+    assert.ok(forward.every((v, i) => Math.abs(v - toOrigin[i]) < 1e-6), `camera faces the rock at ${angle}`);
+    assert.ok(up[1] > 0.8, `camera stays upright at ${angle}`);
+  }
+  renderer.dispose();
+}
+
 // material.flatShading expands indexed geometry into per-face normals.
 {
   const engine = createMockEngine();

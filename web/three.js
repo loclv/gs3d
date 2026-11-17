@@ -543,9 +543,8 @@ export class Object3D {
     for (const child of this.children) child.updateMatrixWorld(force);
     return this;
   }
-  // Yaw/pitch look-at: cameras and lights face -Z toward the target like
-  // three.js; other objects face +Z. Roll and non-uniform parent scale are
-  // not modelled.
+  // Cameras and lights face -Z; other objects face +Z. Construct an upright
+  // basis so crossing the far side of an orbit does not introduce roll.
   lookAt(target) {
     const pos = transformPoint(worldMatrixOf(this), 0, 0, 0);
     const tp = target && target.isVector3 ? [target.x, target.y, target.z]
@@ -554,8 +553,13 @@ export class Object3D {
     const len = Math.hypot(dx, dy, dz) || 1;
     dx /= len; dy /= len; dz /= len;
     if (!this.isCamera && !this.isLight) { dx = -dx; dy = -dy; dz = -dz; }
-    const dyz = Math.hypot(dy, dz);
-    this.rotation.set(Math.atan2(dy, -dz), Math.atan2(-dx, dyz || 1e-9), 0);
+    let zx = -dx, zy = -dy, zz = -dz;
+    let rx = zz, rz = -zx;
+    let rl = Math.hypot(rx, rz);
+    if (rl < 1e-9) { zx += 1e-6; const l = Math.hypot(zx, zy, zz); zx /= l; zy /= l; zz /= l; rx = zz; rz = -zx; rl = Math.hypot(rx, rz); }
+    rx /= rl; rz /= rl;
+    const ux = zy * rz, uy = zz * rx - zx * rz, uz = -zy * rx;
+    this.quaternion.setFromRotationMatrix([rx, 0, rz, 0, ux, uy, uz, 0, zx, zy, zz, 0, 0, 0, 0, 1]);
     return this;
   }
   getWorldPosition(target = new Vector3()) {
