@@ -3869,11 +3869,11 @@ export const VSMShadowMap = 3;
 
 // Three.js tone-mapping constants mapped onto the engine's three modes.
 const TONE_MODES = {
-  0: 'none',   // NoToneMapping
-  1: 'none',   // LinearToneMapping
-  2: 'reinhard', // ReinhardToneMapping
-  3: 'reinhard', // CineonToneMapping
-  4: 'aces',   // ACESFilmicToneMapping
+  0: 0, // NoToneMapping
+  1: 0, // LinearToneMapping
+  2: 1, // ReinhardToneMapping
+  3: 1, // CineonToneMapping
+  4: 2, // ACESFilmicToneMapping
 };
 
 /* --- the renderer ------------------------------------------------------------------ */
@@ -3956,7 +3956,8 @@ export class WebGPURenderer {
     if (!engine) return;
     const srgb = this.outputColorSpace === SRGBColorSpace ? 'srgb' : 'linear';
     try { engine._g3_asset_output_srgb(srgb === 'srgb' ? 1 : 0); } catch {}
-    const mode = typeof this.toneMapping === 'number' ? (TONE_MODES[this.toneMapping] ?? 'none') : this.toneMapping;
+    const mode = typeof this.toneMapping === 'number' ? (TONE_MODES[this.toneMapping] ?? 0) :
+      ({ none: 0, reinhard: 1, aces: 2 }[this.toneMapping] ?? 0);
     try { engine._g3_asset_tone_mapping(mode); engine._g3_asset_exposure(this.toneMappingExposure ?? 1); } catch {}
   }
 

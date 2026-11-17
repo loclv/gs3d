@@ -573,7 +573,9 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
 
   renderer.setToneMapping(THREE.ACESFilmicToneMapping);
   renderer.render(new THREE.Scene(), new THREE.PerspectiveCamera());
-  assert.equal(named(engine, '_g3_asset_tone_mapping').at(-1)[1], 'aces');
+  assert.equal(named(engine, '_g3_asset_tone_mapping').at(-1)[1], 2, 'ACES maps to the engine mode');
+  renderer.setToneMapping(THREE.ReinhardToneMapping);
+  assert.equal(named(engine, '_g3_asset_tone_mapping').at(-1)[1], 1, 'Reinhard maps to the engine mode');
 
   renderer.dispose();
   assert.equal(named(engine, '_g3_asset_lights_release').at(-1)[1], 7);
