@@ -51,7 +51,7 @@ function createMockEngine() {
     _g3_asset_release_mesh: record('_g3_asset_release_mesh'),
     _g3_asset_material: (...args) => { calls.push(['_g3_asset_material', ...args]); return nextMaterial++; },
     _g3_asset_material_specular: record('_g3_asset_material_specular'),
-    _g3_asset_material_shader_create: (...args) => { calls.push(['_g3_asset_material_shader_create', ...args]); return 42; },
+    _g3_host_material_shader_create: (...args) => { calls.push(['_g3_host_material_shader_create', ...args]); return 42; },
     _g3_asset_material_shader_release: record('_g3_asset_material_shader_release'),
     _g3_asset_material_set_shader: record('_g3_asset_material_set_shader'),
     _g3_asset_material_user: record('_g3_asset_material_user'),
@@ -59,10 +59,10 @@ function createMockEngine() {
     _g3_asset_texture_3d: (...args) => { calls.push(['_g3_asset_texture_3d', ...args]); return nextTexture++; },
     _g3_asset_texture_f16: (...args) => { calls.push(['_g3_asset_texture_f16', ...args]); return nextTexture++; },
     _g3_asset_texture_3d_f16: (...args) => { calls.push(['_g3_asset_texture_3d_f16', ...args]); return nextTexture++; },
-    _g3_asset_raw_shader_create: (...args) => { calls.push(['_g3_asset_raw_shader_create', ...args]); return 100; },
+    _g3_host_raw_shader_create: (...args) => { calls.push(['_g3_host_raw_shader_create', ...args]); return 100; },
     _g3_asset_raw_shader_release: record('_g3_asset_raw_shader_release'),
-    _g3_asset_raw_shader_uniform: record('_g3_asset_raw_shader_uniform'),
-    _g3_asset_raw_shader_uniform_texture: record('_g3_asset_raw_shader_uniform_texture'),
+    _g3_host_raw_shader_uniform: record('_g3_host_raw_shader_uniform'),
+    _g3_host_raw_shader_uniform_texture: record('_g3_host_raw_shader_uniform_texture'),
     _g3_asset_material_uv_transform: record('_g3_asset_material_uv_transform'),
     _g3_asset_material_generation: () => 1,
     _g3_asset_material_valid: () => 1,
@@ -365,7 +365,7 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   scene.add(new THREE.Mesh(geometry, material));
   renderer.render(scene, new THREE.PerspectiveCamera());
 
-  const creates = named(engine, '_g3_asset_material_shader_create');
+  const creates = named(engine, '_g3_host_material_shader_create');
   assert.equal(creates.length, 1, 'shader source uploaded once');
   assert.equal(creates[0].length, 7, 'create receives header, body and tail slices');
   const setCalls = named(engine, '_g3_asset_material_set_shader');
@@ -380,7 +380,7 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   other.customShader = customShader;
   scene.add(new THREE.Mesh(geometry, other));
   renderer.render(scene, new THREE.PerspectiveCamera());
-  assert.equal(named(engine, '_g3_asset_material_shader_create').length, 1, 'shared shader object compiles once');
+  assert.equal(named(engine, '_g3_host_material_shader_create').length, 1, 'shared shader object compiles once');
   assert.equal(named(engine, '_g3_asset_material_set_shader').length, 2);
 }
 
@@ -434,12 +434,12 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   scene.add(new THREE.Mesh(geometry, material));
   renderer.render(scene, new THREE.PerspectiveCamera());
 
-  const creates = named(engine, '_g3_asset_raw_shader_create');
+  const creates = named(engine, '_g3_host_raw_shader_create');
   assert.equal(creates.length, 1, 'raw shader created once');
   assert.ok(creates[0][2] > 0 && creates[0][4] > 0, 'vertex and fragment slices uploaded');
   const setCalls = named(engine, '_g3_asset_material_set_shader');
   assert.equal(setCalls.at(-1)[2], 100, 'raw shader id bound to material');
-  const uniforms = named(engine, '_g3_asset_raw_shader_uniform');
+  const uniforms = named(engine, '_g3_host_raw_shader_uniform');
   const uniformNames = uniforms.map(c => engine.HEAPU8.slice(c[2], c[2] + c[3]).reduce((s, b) => s + String.fromCharCode(b), ''));
   assert.ok(uniformNames.includes('sunDirection'), 'vec3 uniform uploaded');
   assert.ok(uniformNames.includes('tint'), 'color uniform uploaded as vec3');
@@ -448,8 +448,8 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   // Two meshes sharing the material reuse the program and skip re-upload.
   scene.add(new THREE.Mesh(geometry, material));
   renderer.render(scene, new THREE.PerspectiveCamera());
-  assert.equal(named(engine, '_g3_asset_raw_shader_create').length, 1, 'program not rebuilt');
-  assert.equal(named(engine, '_g3_asset_raw_shader_uniform').length, uniforms.length, 'uniforms not re-uploaded');
+  assert.equal(named(engine, '_g3_host_raw_shader_create').length, 1, 'program not rebuilt');
+  assert.equal(named(engine, '_g3_host_raw_shader_uniform').length, uniforms.length, 'uniforms not re-uploaded');
 }
 
 // --- half-float data textures -------------------------------------------------------
@@ -475,7 +475,7 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   const uploads = named(engine, '_g3_asset_texture_3d_f16');
   assert.equal(uploads.length, 1, 'half-float 3D texture uploaded');
   assert.deepEqual(uploads[0].slice(1, 4), [4, 4, 4], 'f16 3D dimensions passed through');
-  const texUniforms = named(engine, '_g3_asset_raw_shader_uniform_texture');
+  const texUniforms = named(engine, '_g3_host_raw_shader_uniform_texture');
   assert.equal(texUniforms.length, 1, 'sampler uniform bound');
   assert.equal(texUniforms[0][4], 1, 'sampler gets the uploaded texture id');
 }
@@ -527,7 +527,7 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
 
   // The uploaded vertex source decodes attributes from packed channels and
   // drops the original attribute declarations.
-  const create = named(engine, '_g3_asset_raw_shader_create')[0];
+  const create = named(engine, '_g3_host_raw_shader_create')[0];
   const vs = engine.HEAPU8.slice(create[1], create[1] + create[2])
     .reduce((s, b) => s + String.fromCharCode(b), '');
   assert.ok(!/attribute\s+vec2\s+dataVec/.test(vs), 'custom attribute declaration stripped');
@@ -1354,7 +1354,7 @@ function buildTestGLB() {
   scene.add(new THREE.Mesh(geometry, material));
   renderer.render(scene, new THREE.PerspectiveCamera());
 
-  const creates = named(engine, '_g3_asset_material_shader_create');
+  const creates = named(engine, '_g3_host_material_shader_create');
   assert.equal(creates.length, 1, 'onBeforeCompile shader uploaded once');
   const c = creates[0];
   const decode = (ptr, len) => new TextDecoder().decode(engine.HEAPU8.slice(ptr, ptr + len));

@@ -2902,12 +2902,12 @@ function ensureRawShader(engine, material) {
   if (state && typeof engine._g3_asset_raw_shader_release === 'function') {
     engine._g3_asset_raw_shader_release(state.id);
   }
-  if (typeof engine._g3_asset_raw_shader_create !== 'function') return { id: -1, sourceKey };
+  if (typeof engine._g3_host_raw_shader_create !== 'function') return { id: -1, sourceKey };
   const v = rawUploadText(engine, vertex);
   const f = rawUploadText(engine, fragment);
   let id = -1;
   try {
-    id = engine._g3_asset_raw_shader_create(v[0], v[1], f[0], f[1]);
+    id = engine._g3_host_raw_shader_create(v[0], v[1], f[0], f[1]);
   } finally {
     engine._free(v[0]);
     engine._free(f[0]);
@@ -3071,14 +3071,14 @@ function uploadRawUniforms(engine, shaderId, entries) {
     engine.HEAPU8.set(nameBytes, namePtr);
     try {
       if (e.texture !== undefined) {
-        engine._g3_asset_raw_shader_uniform_texture(shaderId, namePtr, nameBytes.length, e.texture);
+        engine._g3_host_raw_shader_uniform_texture(shaderId, namePtr, nameBytes.length, e.texture);
         continue;
       }
       const f32 = new Float32Array(e.floats);
       const dataPtr = engine._malloc(f32.byteLength);
       engine.HEAPU8.set(new Uint8Array(f32.buffer, f32.byteOffset, f32.byteLength), dataPtr);
       try {
-        engine._g3_asset_raw_shader_uniform(shaderId, namePtr, nameBytes.length,
+        engine._g3_host_raw_shader_uniform(shaderId, namePtr, nameBytes.length,
           e.kind, dataPtr, f32.length);
       } finally {
         engine._free(dataPtr);
@@ -3279,7 +3279,7 @@ struct G3ReflectedLight {
 
 function ensureObcMaterial(engine, material) {
   if (!material || typeof material.onBeforeCompile !== 'function') return;
-  if (typeof engine._g3_asset_material_shader_create !== 'function') return;
+  if (typeof engine._g3_host_material_shader_create !== 'function') return;
   // The callback is cheap enough to run per material per frame; the parsed
   // plan is cached and only rebuilt when the uniform set or the custom
   // attribute registry changes.
@@ -3539,7 +3539,7 @@ function ensureMaterial(engine, material) {
     engine._g3_asset_material_specular(id, 0.04, 1, 1, 1, -1, -1);
   }
   const customShader = material.customShader;
-  if (customShader && typeof engine._g3_asset_material_shader_create === 'function') {
+  if (customShader && typeof engine._g3_host_material_shader_create === 'function') {
     let shaderId = customShaderIds.get(customShader);
     if (shaderId === undefined) {
       const upload = text => {
@@ -3552,7 +3552,7 @@ function ensureMaterial(engine, material) {
       const body = upload(customShader.body);
       const tail = upload(customShader.tail);
       try {
-        shaderId = engine._g3_asset_material_shader_create(header[0], header[1], body[0], body[1], tail[0], tail[1]);
+        shaderId = engine._g3_host_material_shader_create(header[0], header[1], body[0], body[1], tail[0], tail[1]);
       } finally {
         engine._free(header[0]);
         engine._free(body[0]);

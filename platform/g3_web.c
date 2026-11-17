@@ -33,6 +33,29 @@
 
 #include "g3.h"   /* the exported Goose functions: g3_app_init, g3_app_frame, ... */
 
+/* Emscripten passes slice structs indirectly; JavaScript supplies scalar
+   pointers and lengths through these bridges instead. */
+static int g3_host_slice_ok(uint32_t ptr, int32_t len, uint32_t element_size) {
+    return len >= 0 && (len == 0 || ptr != 0) &&
+        (uint64_t)ptr + (uint64_t)len * element_size <= emscripten_get_heap_size();
+}
+EMSCRIPTEN_KEEPALIVE int32_t g3_host_material_shader_create(uint32_t hp, int32_t hn, uint32_t bp, int32_t bn, uint32_t tp, int32_t tn) {
+    if (!g3_host_slice_ok(hp, hn, 1) || !g3_host_slice_ok(bp, bn, 1) || !g3_host_slice_ok(tp, tn, 1)) return -1;
+    return g3_asset_material_shader_create((sl_u8){(uint8_t *)(uintptr_t)hp, hn}, (sl_u8){(uint8_t *)(uintptr_t)bp, bn}, (sl_u8){(uint8_t *)(uintptr_t)tp, tn});
+}
+EMSCRIPTEN_KEEPALIVE int32_t g3_host_raw_shader_create(uint32_t vp, int32_t vn, uint32_t fp, int32_t fn) {
+    if (!g3_host_slice_ok(vp, vn, 1) || !g3_host_slice_ok(fp, fn, 1)) return -1;
+    return g3_asset_raw_shader_create((sl_u8){(uint8_t *)(uintptr_t)vp, vn}, (sl_u8){(uint8_t *)(uintptr_t)fp, fn});
+}
+EMSCRIPTEN_KEEPALIVE uint8_t g3_host_raw_shader_uniform(int32_t id, uint32_t np, int32_t nn, int32_t kind, uint32_t vp, int32_t vn) {
+    if (!g3_host_slice_ok(np, nn, 1) || vp % 4 || !g3_host_slice_ok(vp, vn, sizeof(float))) return 0;
+    return g3_asset_raw_shader_uniform(id, (sl_u8){(uint8_t *)(uintptr_t)np, nn}, kind, (sl_f32){(float *)(uintptr_t)vp, vn});
+}
+EMSCRIPTEN_KEEPALIVE uint8_t g3_host_raw_shader_uniform_texture(int32_t id, uint32_t np, int32_t nn, int32_t texture) {
+    if (!g3_host_slice_ok(np, nn, 1)) return 0;
+    return g3_asset_raw_shader_uniform_texture(id, (sl_u8){(uint8_t *)(uintptr_t)np, nn}, texture);
+}
+
 /* JS needs a scalar-argument bridge for the Goose slice ABI. The generated
    g3_asset_mesh_update takes three {data,len} structs, so construct them here
    from pointers into WebAssembly memory. */
@@ -868,7 +891,7 @@ static char *assemble_custom_fragment(const char *header, const char *body, cons
     while (out_line > FRAGMENT_SRC && out_line[-1] != '\n') out_line--;
     int has_tail = tail && tail[0];
     static const char user_decl[] = "uniform vec4 u_user[8];\n";
-    static const char lut_decl[] = "uniform sampler3D u_lut;\nuniform float u_lut_enabled;\n";
+    static const char lut_decl[] = "uniform highp sampler3D u_lut;\nuniform float u_lut_enabled;\n";
     static const char extra_decl[] = "    vec3 g3_emissive_extra = vec3(0.0);\n";
     static const char emissive_orig[] = "col += u_emissive.rgb * emissive_texel;";
     static const char emissive_patched[] = "col += u_emissive.rgb * emissive_texel + g3_emissive_extra;";
