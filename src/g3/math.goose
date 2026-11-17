@@ -238,6 +238,11 @@ fn mat4_transpose(a: Mat4) -> Mat4 {
     return out;
 }
 
+fn mat4_equals(a: Mat4, b: Mat4) -> bool {
+    for i in 16 { if a.m[i] != b.m[i] { return false; } }
+    return true;
+}
+
 // The point `p` under `m`: a matrix with a projective last row divides by w,
 // so the result is the point in the space `m` maps into.
 fn mat4_transform_point(m: Mat4, p: float3) -> float4 {
@@ -323,24 +328,15 @@ fn frustum_from_view_proj(vp: Mat4) -> Frustum {
     var rows: float4[4] = [float4 { .. }; 4];
     for r in 4 { rows[r] = float4 { vp.m[r], vp.m[4 + r], vp.m[8 + r], vp.m[12 + r] }; }
     var f = Frustum { .. };
-    f.planes[0] = plane_normalize(Plane { n: float3 { rows[3].x + rows[0].x, rows[3].y + rows[0].y,
-                                                     rows[3].z + rows[0].z },
-                                         d: rows[3].w + rows[0].w });
-    f.planes[1] = plane_normalize(Plane { n: float3 { rows[3].x - rows[0].x, rows[3].y - rows[0].y,
-                                                     rows[3].z - rows[0].z },
-                                         d: rows[3].w - rows[0].w });
-    f.planes[2] = plane_normalize(Plane { n: float3 { rows[3].x + rows[1].x, rows[3].y + rows[1].y,
-                                                     rows[3].z + rows[1].z },
-                                         d: rows[3].w + rows[1].w });
-    f.planes[3] = plane_normalize(Plane { n: float3 { rows[3].x - rows[1].x, rows[3].y - rows[1].y,
-                                                     rows[3].z - rows[1].z },
-                                         d: rows[3].w - rows[1].w });
-    f.planes[4] = plane_normalize(Plane { n: float3 { rows[3].x + rows[2].x, rows[3].y + rows[2].y,
-                                                     rows[3].z + rows[2].z },
-                                         d: rows[3].w + rows[2].w });
-    f.planes[5] = plane_normalize(Plane { n: float3 { rows[3].x - rows[2].x, rows[3].y - rows[2].y,
-                                                     rows[3].z - rows[2].z },
-                                         d: rows[3].w - rows[2].w });
+    // The planes come in pairs per axis: row 3 plus row i, then row 3 minus row i.
+    for i in 3 {
+        f.planes[i * 2] = plane_normalize(Plane { n: float3 { rows[3].x + rows[i].x, rows[3].y + rows[i].y,
+                                                            rows[3].z + rows[i].z },
+                                                d: rows[3].w + rows[i].w });
+        f.planes[i * 2 + 1] = plane_normalize(Plane { n: float3 { rows[3].x - rows[i].x, rows[3].y - rows[i].y,
+                                                                rows[3].z - rows[i].z },
+                                                    d: rows[3].w - rows[i].w });
+    }
     return f;
 }
 

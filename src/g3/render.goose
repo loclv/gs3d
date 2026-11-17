@@ -90,26 +90,26 @@ fn set_light(dir: float3, color: float3) {
 // The original directional light is independent of these eight extra lights.
 fn clear_lights() { g_view_state.light_count = 0; clear_point_light_shadows(); clear_spot_light_shadows(); }
 
+fn light_set_snapshot(previous: i32) -> SavedLightSet {
+    return SavedLightSet { previous: previous, removed: false, children: 0,
+        lights: g_view_state.lights, count: g_view_state.light_count,
+        point_view_proj: g_view_state.point_shadow_view_proj,
+        point_index: g_view_state.point_shadow_light_index, point_params: g_view_state.point_shadow_params,
+        spot_view_proj: g_view_state.spot_shadow_view_proj, spot_index: g_view_state.spot_shadow_light_index,
+        spot_params: g_view_state.spot_shadow_params };
+}
+
 fn asset_light_set_begin() -> i32 {
     var id: i32 = -1;
     for i in 0..g_saved_light_sets.len {
         if g_saved_light_sets[i].removed && g_saved_light_sets[i].children == 0 { id = i as i32; break; }
     }
+    let snapshot = light_set_snapshot(g_active_light_set);
     if id < 0 {
-        g_saved_light_sets.push(SavedLightSet { previous: g_active_light_set, removed: false, children: 0,
-        lights: g_view_state.lights, count: g_view_state.light_count,
-        point_view_proj: g_view_state.point_shadow_view_proj,
-        point_index: g_view_state.point_shadow_light_index, point_params: g_view_state.point_shadow_params,
-        spot_view_proj: g_view_state.spot_shadow_view_proj, spot_index: g_view_state.spot_shadow_light_index,
-        spot_params: g_view_state.spot_shadow_params });
+        g_saved_light_sets.push(snapshot);
         id = (g_saved_light_sets.len - 1) as i32;
     } else {
-        g_saved_light_sets[id] = SavedLightSet { previous: g_active_light_set, removed: false, children: 0,
-            lights: g_view_state.lights, count: g_view_state.light_count,
-            point_view_proj: g_view_state.point_shadow_view_proj,
-            point_index: g_view_state.point_shadow_light_index, point_params: g_view_state.point_shadow_params,
-            spot_view_proj: g_view_state.spot_shadow_view_proj, spot_index: g_view_state.spot_shadow_light_index,
-            spot_params: g_view_state.spot_shadow_params };
+        g_saved_light_sets[id] = snapshot;
     }
     if g_active_light_set >= 0 { g_saved_light_sets[g_active_light_set].children += 1; }
     g_active_light_set = id;
@@ -383,8 +383,7 @@ fn set_fxaa(enabled: bool) { g_fxaa = enabled; }
 // Apply one built-in pass from any texture to a render target. Calls can be
 // chained in order; source and destination must be different textures.
 fn post_process_run(source: i32, destination: i32, effect: i32) -> bool {
-    guard source != destination && texture_slot_live(source) && texture_slot_live(destination) &&
-          g_texture_slots[destination].render_target && effect >= POST_PROCESS_COPY && effect <= POST_PROCESS_FXAA else { return false; }
+    guard post_process_pass_ok(source, destination) && effect >= POST_PROCESS_COPY && effect <= POST_PROCESS_FXAA else { return false; }
     return g3p_post_process(source, destination, effect);
 }
 
@@ -403,8 +402,7 @@ fn post_process_shader_create(body: const u8[:]) -> i32 {
 
 fn post_process_shader_run(shader: i32, source: i32, destination: i32) -> bool {
     guard shader >= 0 && shader < g_post_process_shader_live.len && g_post_process_shader_live[shader] &&
-          source != destination && texture_slot_live(source) && texture_slot_live(destination) &&
-          g_texture_slots[destination].render_target else { return false; }
+          post_process_pass_ok(source, destination) else { return false; }
     return g3p_post_process_shader_run(shader, source, destination);
 }
 
@@ -503,11 +501,16 @@ fn material_raw_shader_uniform_texture(shader: i32, name: const u8[:], texture: 
     return g3p_raw_shader_uniform_texture(shader - g_raw_shader_base, name, texture);
 }
 
+// A pass needs two live, different textures and a render-target destination.
+fn post_process_pass_ok(source: i32, destination: i32) -> bool {
+    return source != destination && texture_slot_live(source) && texture_slot_live(destination) &&
+           g_texture_slots[destination].render_target;
+}
+
 fn post_process_queue_clear() { g_post_process_queue.clear(); }
 
 fn post_process_queue_add(source: i32, destination: i32, effect: i32) -> bool {
-    guard g_post_process_queue.len < POST_PROCESS_MAX_PASSES && source != destination &&
-          texture_slot_live(source) && texture_slot_live(destination) && g_texture_slots[destination].render_target &&
+    guard g_post_process_queue.len < POST_PROCESS_MAX_PASSES && post_process_pass_ok(source, destination) &&
           effect >= POST_PROCESS_COPY && effect <= POST_PROCESS_FXAA else { return false; }
     g_post_process_queue.push(QueuedPostProcessPass { source, destination, effect, .. });
     return true;
@@ -515,8 +518,8 @@ fn post_process_queue_add(source: i32, destination: i32, effect: i32) -> bool {
 
 fn post_process_queue_add_shader(shader: i32, source: i32, destination: i32) -> bool {
     guard g_post_process_queue.len < POST_PROCESS_MAX_PASSES && shader >= 0 &&
-          shader < g_post_process_shader_live.len && g_post_process_shader_live[shader] && source != destination &&
-          texture_slot_live(source) && texture_slot_live(destination) && g_texture_slots[destination].render_target else { return false; }
+          shader < g_post_process_shader_live.len && g_post_process_shader_live[shader] &&
+          post_process_pass_ok(source, destination) else { return false; }
     g_post_process_queue.push(QueuedPostProcessPass { source: source, destination: destination, shader: shader, .. });
     return true;
 }
@@ -548,11 +551,6 @@ fn draw_list() -> DrawItem[:] { return g_draws[..] }
 fn view_matrix() -> Mat4 { return g_view }
 fn view_proj_matrix() -> Mat4 { return g_view_proj }
 
-fn view_proj_matches(a: Mat4, b: Mat4) -> bool {
-    for i in 16 { if a.m[i] != b.m[i] { return false; } }
-    return true;
-}
-
 // --- the pass
 
 fn begin_frame(time: f64, width: i32, height: i32) {
@@ -568,7 +566,7 @@ fn begin_frame(time: f64, width: i32, height: i32) {
     g_view_proj = mat4_mul(projection, g_view);
     g_view_state.view = g_view;
     g_view_state.projection = projection;
-    if !g_view_proj_cache_valid || !view_proj_matches(g_view_proj, g_cached_view_proj) {
+    if !g_view_proj_cache_valid || !mat4_equals(g_view_proj, g_cached_view_proj) {
         g_cached_view_proj = g_view_proj;
         g_view_proj_version += 1;
         g_view_proj_cache_valid = true;
@@ -607,7 +605,7 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
     var surface = Material { color: n.color, texture: n.texture, alpha_mode: n.alpha_mode,
         alpha_cutoff: n.alpha_cutoff, unlit: n.unlit, spec: n.spec, shine: n.shine, .. };
     if material_valid(n.material) { surface = g_materials[n.material]; }
-    let blended = surface.alpha_mode == 2 || (surface.alpha_mode == 0 && surface.color.w < 0.999);
+    let blended = surface_is_blended(surface.alpha_mode, surface.color.w);
     return DrawItem {
         mesh: n.mesh,
         mvp: n.cached_mvp,
@@ -669,12 +667,18 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
     };
 }
 
+// alpha_mode 2 is always blended; mode 0 blends when the colour's alpha is
+// below opaque. Shared by pack_item and the distance-sort path.
+fn surface_is_blended(alpha_mode: i32, alpha: f32) -> bool {
+    return alpha_mode == 2 || (alpha_mode == 0 && alpha < 0.999);
+}
+
 fn node_is_blended(n: Node&) -> bool {
     if material_valid(n.material) {
         let surface .= material(n.material);
-        return surface.alpha_mode == 2 || (surface.alpha_mode == 0 && surface.color.w < 0.999);
+        return surface_is_blended(surface.alpha_mode, surface.color.w);
     }
-    return n.alpha_mode == 2 || (n.alpha_mode == 0 && n.color.w < 0.999);
+    return surface_is_blended(n.alpha_mode, n.color.w);
 }
 
 fn item_samples_texture(item: DrawItem, texture: i32) -> bool {

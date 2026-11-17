@@ -364,11 +364,6 @@ fn node_cache_local(n: Node&) {
     n.local_cache_valid = true;
 }
 
-fn node_world_matches(a: Mat4, b: Mat4) -> bool {
-    for i in 16 { if a.m[i] != b.m[i] { return false; } }
-    return true;
-}
-
 // Multiplied out from the root down, into every node's `world`. A chain
 // longer than 64 is treated as a loop and stops there rather than hanging.
 fn node_update_worlds() {
@@ -393,7 +388,7 @@ fn node_update_worlds() {
             p = pn.parent;
             up++;
         }
-        if !node_world_matches(n.world, w) || n.cached_world_parent != n.parent {
+        if !mat4_equals(n.world, w) || n.cached_world_parent != n.parent {
             n.world = w;
             n.world_dirty = true;
             n.world_version += 1;

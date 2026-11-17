@@ -111,6 +111,16 @@ fn span_take_tail(end: i64, kind: i32) -> i64 {
     return -1;
 }
 
+// Where `count` elements of `kind` should go: a reclaimed span, the tail span
+// ending at `end`, or a fresh append at `end`. The caller grows the arena.
+fn span_alloc_first(count: i64, kind: i32, end: i64) -> i64 {
+    if count <= 0 { return end; }
+    var first = span_take(count, kind);
+    if first < 0 { first = span_take_tail(end, kind); }
+    if first < 0 { first = end; }
+    return first;
+}
+
 fn mesh_count() -> i64 { g_meshes.len }
 
 fn mesh(id: i32) -> Mesh& { return g_meshes[id] }
@@ -191,18 +201,10 @@ fn mesh_close(_fv: i64, _fi: i64) -> i32 {
     let index_count = g_build_indices.len - fi;
     var b = aabb_empty();
     for i in fv..g_build_verts.len { aabb_add(b, g_build_verts[i].pos); }
-    var first_vertex = if vertex_count > 0 { span_take(vertex_count, 0) } else { g_verts.len };
-    if first_vertex < 0 {
-        first_vertex = span_take_tail(g_verts.len, 0);
-        if first_vertex < 0 { first_vertex = g_verts.len; }
-        while g_verts.len < first_vertex + vertex_count { g_verts.push(Vertex { .. }); }
-    }
-    var first_index = if index_count > 0 { span_take(index_count, 1) } else { g_indices.len };
-    if first_index < 0 {
-        first_index = span_take_tail(g_indices.len, 1);
-        if first_index < 0 { first_index = g_indices.len; }
-        while g_indices.len < first_index + index_count { g_indices.push(0); }
-    }
+    let first_vertex = span_alloc_first(vertex_count, 0, g_verts.len);
+    while g_verts.len < first_vertex + vertex_count { g_verts.push(Vertex { .. }); }
+    let first_index = span_alloc_first(index_count, 1, g_indices.len);
+    while g_indices.len < first_index + index_count { g_indices.push(0); }
     for i in 0..vertex_count { g_verts[first_vertex + i] = g_build_verts[fv + i]; }
     for i in 0..index_count { g_indices[first_index + i] = g_build_indices[fi + i]; }
     let id = g_meshes.len as i32;
@@ -222,18 +224,10 @@ fn mesh_asset_create(verts: const Vertex[:], indices: const u32[:]) -> i32 {
     guard verts.len > 0 && indices.len > 0 else { return -1; }
     var bounds = aabb_empty();
     for v in verts { aabb_add(bounds, v.pos); }
-    var fv = span_take(verts.len, 0);
-    if fv < 0 {
-        fv = span_take_tail(g_verts.len, 0);
-        if fv < 0 { fv = g_verts.len; }
-        while g_verts.len < fv + verts.len { g_verts.push(verts[g_verts.len - fv]); }
-    }
-    var fi = span_take(indices.len, 1);
-    if fi < 0 {
-        fi = span_take_tail(g_indices.len, 1);
-        if fi < 0 { fi = g_indices.len; }
-        while g_indices.len < fi + indices.len { g_indices.push(indices[g_indices.len - fi]); }
-    }
+    let fv = span_alloc_first(verts.len, 0, g_verts.len);
+    while g_verts.len < fv + verts.len { g_verts.push(Vertex { .. }); }
+    let fi = span_alloc_first(indices.len, 1, g_indices.len);
+    while g_indices.len < fi + indices.len { g_indices.push(0); }
     for j in 0..verts.len { g_verts[fv + j] = verts[j]; }
     for j in 0..indices.len { g_indices[fi + j] = indices[j]; }
     for i in 0..g_meshes.len {
