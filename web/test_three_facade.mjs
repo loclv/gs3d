@@ -1200,6 +1200,72 @@ function buildTestGLB() {
   renderer.dispose();
 }
 
+// Drag the camera through both sides of the rock and across the azimuth seam.
+// Inspect the camera sent to the engine, not just the controls' position.
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const listeners = {};
+  const element = { clientHeight: 600, style: {},
+    addEventListener(name, fn) { listeners[name] = fn; }, removeEventListener() {},
+    setPointerCapture() {}, releasePointerCapture() {} };
+  const camera = new THREE.PerspectiveCamera();
+  const target = new THREE.Vector3(1, 2, -3);
+  camera.position.set(1, 4, 1);
+  const controls = new THREE.OrbitControls(camera, element);
+  controls.target.copy(target);
+  controls.update();
+  const scene = new THREE.Scene();
+  const verify = label => {
+    renderer.render(scene, camera);
+    const args = named(engine, '_g3_asset_camera_update').at(-1);
+    const p = args.slice(2, 5), t = args.slice(5, 8), up = args.slice(8, 11);
+    const delta = [target.x - p[0], target.y - p[1], target.z - p[2]];
+    const length = Math.hypot(...delta);
+    assert.ok(t.every((v, i) => Math.abs(v - p[i] - delta[i] / length) < 1e-6), `${label}: camera faces target`);
+    assert.ok(up.every(Number.isFinite) && up[1] > 0, `${label}: camera remains upright`);
+  };
+  listeners.pointerdown({ pointerId: 1, clientX: 0, clientY: 0, button: 0 });
+  for (const x of [150, 300, 450, 600, 750]) {
+    listeners.pointermove({ pointerId: 1, clientX: x, clientY: 0 });
+    verify(`drag ${x}`);
+    controls.update();
+    verify(`repeated update ${x}`);
+  }
+  listeners.pointerup({ pointerId: 1 });
+  controls.dispose();
+  renderer.dispose();
+}
+
+// At either pole lookAt must remain finite and face the target.
+{
+  const camera = new THREE.PerspectiveCamera();
+  for (const y of [-5, 5]) {
+    camera.position.set(0, y, 0);
+    camera.lookAt(new THREE.Vector3());
+    const direction = camera.getWorldDirection();
+    assert.ok([direction.x, direction.y, direction.z].every(Number.isFinite), 'pole direction is finite');
+    assert.ok(Math.abs(direction.y + Math.sign(y)) < 1e-6, 'pole direction points at target');
+  }
+}
+
+// Ordinary objects look along +Z, unlike cameras and lights which face -Z.
+{
+  const object = new THREE.Object3D();
+  const light = new THREE.DirectionalLight();
+  for (const target of [new THREE.Vector3(0, 0, 5), new THREE.Vector3(0, 0, -5), new THREE.Vector3(3, 2, -4)]) {
+    const length = target.length();
+    for (const [node, sign] of [[object, -1], [light, 1]]) {
+      node.lookAt(target);
+      const direction = node.getWorldDirection();
+      assert.ok(Math.abs(sign * direction.x - target.x / length) < 1e-6 &&
+        Math.abs(sign * direction.y - target.y / length) < 1e-6 &&
+        Math.abs(sign * direction.z - target.z / length) < 1e-6, 'lookAt uses the correct facing axis');
+    }
+  }
+}
+
 // material.flatShading expands indexed geometry into per-face normals.
 {
   const engine = createMockEngine();
