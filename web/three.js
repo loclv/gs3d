@@ -227,7 +227,7 @@ function quatMul(a, b) {
 function quatFromEulerOrder(x, y, z, order = 'XYZ') {
   const angles = { x, y, z };
   let q = null;
-  for (const axis of String(order).toUpperCase()) {
+  for (const axis of String(order).toLowerCase()) {
     if (axis !== 'x' && axis !== 'y' && axis !== 'z') continue;
     const a = axisQuat(axis, angles[axis]);
     q = q ? quatMul(q, a) : a;
@@ -2547,7 +2547,9 @@ export class OrbitControls {
     if (this._disposed) return false;
     const moved = this._thetaDelta !== 0 || this._phiDelta !== 0 || this._radiusDelta !== 1
       || this._panOffset.x !== 0 || this._panOffset.y !== 0 || this._panOffset.z !== 0;
-    this._phi = Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._phi + this._phiDelta));
+    const EPS = 1e-5;
+    this._phi = Math.max(EPS, Math.min(Math.PI - EPS,
+      Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._phi + this._phiDelta))));
     this._theta += this._thetaDelta;
     this._radius = Math.max(this.minDistance, Math.min(this.maxDistance, this._radius * this._radiusDelta));
     this._thetaDelta = 0; this._phiDelta = 0; this._radiusDelta = 1;

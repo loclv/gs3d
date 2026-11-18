@@ -1268,6 +1268,28 @@ function buildTestGLB() {
   }
 }
 
+// Dragging vertically to 90 degrees (top-down / bottom-up) must clamp away from
+// the exact pole so lookAt does not snap or flip the camera up-vector.
+{
+  const listeners = {};
+  const element = { clientHeight: 600, style: {},
+    addEventListener(name, fn) { listeners[name] = fn; }, removeEventListener() {},
+    setPointerCapture() {}, releasePointerCapture() {} };
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(0, 0, 5);
+  const controls = new THREE.OrbitControls(camera, element);
+  controls.update();
+  listeners.pointerdown({ pointerId: 1, clientX: 0, clientY: 0, button: 0 });
+  listeners.pointermove({ pointerId: 1, clientX: 0, clientY: 600 });
+  const upTop = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  assert.ok(upTop.z < -0.99, `top-down drag preserves forward up-vector (got z=${upTop.z})`);
+  listeners.pointermove({ pointerId: 1, clientX: 0, clientY: -1200 });
+  const upBottom = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  assert.ok(upBottom.z > 0.99, `bottom-up drag preserves forward up-vector (got z=${upBottom.z})`);
+  listeners.pointerup({ pointerId: 1 });
+  controls.dispose();
+}
+
 // Ordinary objects look along +Z, unlike cameras and lights which face -Z.
 {
   const object = new THREE.Object3D();
