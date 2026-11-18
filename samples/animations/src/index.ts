@@ -228,6 +228,7 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.minDistance = 1.2;
 controls.maxDistance = 9;
+controls.minPolarAngle = 0.15;
 controls.maxPolarAngle = Math.PI * 0.55;
 
 selectClip(0);
