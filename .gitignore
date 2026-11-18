@@ -35,3 +35,4 @@ web/gs3d/app.js.map
 
 # playwright mcp artifacts
 .playwright-mcp/
+shots/
