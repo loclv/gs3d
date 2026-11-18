@@ -105,8 +105,8 @@ void g3p_texture_wrap(int32_t a,int32_t b,int32_t c){if(active_backend==1)g3glp_
 void g3p_texture_filter(int32_t a,int32_t b,int32_t c){if(active_backend==1)g3glp_texture_filter(a,b,c);}
 void g3p_texture_generate_mips(int32_t a){if(active_backend==1)g3glp_texture_generate_mips(a);}
 void g3p_texture_generate_env_mips(int32_t a){if(active_backend==1)g3glp_texture_generate_env_mips(a);}
-uint8_t g3p_create_render_target(int32_t a,int32_t b,int32_t c){return active_backend==1?g3glp_create_render_target(a,b,c):0;}
-uint8_t g3p_resize_render_target(int32_t a,int32_t b,int32_t c){return active_backend==1?g3glp_resize_render_target(a,b,c):0;}
+uint8_t g3p_create_render_target(int32_t a,int32_t b,int32_t c,int32_t d){return active_backend==1?g3glp_create_render_target(a,b,c):0;}
+uint8_t g3p_resize_render_target(int32_t a,int32_t b,int32_t c,int32_t d){return active_backend==1?g3glp_resize_render_target(a,b,c):0;}
 uint8_t g3p_post_process(int32_t a,int32_t b,int32_t c){return active_backend==1?g3glp_post_process(a,b,c):0;}
 uint8_t g3p_post_process_shader_create(int32_t a,g3_u8_slice b){return active_backend==1?g3glp_post_process_shader_create(a,b):0;}
 void g3p_post_process_shader_release(int32_t a){if(active_backend==1)g3glp_post_process_shader_release(a);}

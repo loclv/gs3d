@@ -454,7 +454,8 @@ void g3p_release_texture(int32_t id) {
     memset(t, 0, sizeof(*t));
 }
 
-uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height) {
+uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height, int32_t format) {
+    (void)format; /* The CPU backend keeps float target buffers and reads 8-bit. */
     if (id < 0 || width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
         (uint64_t)width * (uint64_t)height > 4194304ull) return 0;
     if (id >= texture_count) {
@@ -484,7 +485,8 @@ uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height) {
 int32_t g3p_texture_width(int32_t id) { return id >= 0 && id < texture_count ? textures[id].w : 0; }
 int32_t g3p_texture_height(int32_t id) { return id >= 0 && id < texture_count ? textures[id].h : 0; }
 
-uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height) {
+uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height, int32_t format) {
+    (void)format;
     if (id < 0 || id >= texture_count || !textures[id].target_fb || width <= 0 || height <= 0 ||
         width > 4096 || height > 4096 || (uint64_t)width * (uint64_t)height > 4194304ull) return 0;
     size_t pixels = (size_t)width * (size_t)height;
@@ -1093,7 +1095,7 @@ void g3p_material_shader_release(int32_t id) { (void)id; }
 void g3p_upload_texture_3d(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth) { (void)id; (void)pixels; (void)width; (void)height; (void)depth; }
 void g3p_upload_texture_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height) { (void)id; (void)pixels; (void)width; (void)height; }
 void g3p_upload_texture_3d_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth) { (void)id; (void)pixels; (void)width; (void)height; (void)depth; }
-uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragment) { (void)id; (void)vertex; (void)fragment; return 0; }
+uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragment, int32_t glsl3) { (void)id; (void)vertex; (void)fragment; (void)glsl3; return 0; }
 void g3p_raw_shader_release(int32_t id) { (void)id; }
 uint8_t g3p_raw_shader_uniform(int32_t id, g3_u8_slice name, int32_t type, int32_t count, g3_f32_slice values) { (void)id; (void)name; (void)type; (void)count; (void)values; return 0; }
 uint8_t g3p_raw_shader_uniform_texture(int32_t id, g3_u8_slice name, int32_t texture) { (void)id; (void)name; (void)texture; return 0; }
@@ -1537,18 +1539,22 @@ static void render_shadow_map(g3_draw_item_slice items, const g3_view_state *vs,
 
 /* One shaded colour over what the framebuffer already holds: replace it, or
    alpha-blend over it, then quantise. `blended` items leave depth alone. */
-static void blend_pixel(uint8_t *dst, const float rgb[3], float alpha, int blended) {
+static void blend_pixel(uint8_t *dst, const float rgb[3], float alpha, int mode) {
     for (int c = 0; c < 3; c++) {
         float v = clamp01(rgb[c]);
-        if (blended) v = v * alpha + (float)dst[c] * (1.0f / 255.0f) * (1.0f - alpha);
+        if (mode == 3) v = v + (float)dst[c] * (1.0f / 255.0f);
+        else if (mode == 4) v = v + (float)dst[c] * (1.0f / 255.0f) * (1.0f - alpha);
+        else if (mode) v = v * alpha + (float)dst[c] * (1.0f / 255.0f) * (1.0f - alpha);
         dst[c] = (uint8_t)(clamp01(v) * 255.0f + 0.5f);
     }
 }
 
-static void blend_pixel_hdr(float *dst, const float rgb[3], float alpha, int blended) {
+static void blend_pixel_hdr(float *dst, const float rgb[3], float alpha, int mode) {
     for (int c=0;c<3;c++) {
         float value=rgb[c];
-        if (blended) value=value*alpha+dst[c]*(1.0f-alpha);
+        if (mode==3) value=value+dst[c];
+        else if (mode==4) value=value+dst[c]*(1.0f-alpha);
+        else if (mode) value=value*alpha+dst[c]*(1.0f-alpha);
         dst[c]=value;
     }
 }
@@ -1794,8 +1800,9 @@ static void rasterize(const g3_draw_item *it, const g3_view_state *vs,
             shade(it, vs, wp, n, clearcoat_n, tex, vertex_color, mr, ao, emission, specular_strength, specular_color,
                   clearcoat, clearcoat_roughness, sheen_color, sheen_roughness, aniso_t, aniso_b, anisotropy_strength, rgb);
             if (counting) shaded += 1;
-            if (vs->params.z > 0.5f) blend_pixel_hdr(hdr_fb + at * 3, rgb, alpha, blended);
-            else blend_pixel(fb + at * 3, rgb, alpha, blended);
+            int blend_mode = blended ? it->alpha_mode : 0;
+            if (vs->params.z > 0.5f) blend_pixel_hdr(hdr_fb + at * 3, rgb, alpha, blend_mode);
+            else blend_pixel(fb + at * 3, rgb, alpha, blend_mode);
             if (!blended) depth[at] = z;
         }
     }

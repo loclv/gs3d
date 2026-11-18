@@ -1131,7 +1131,7 @@ fn case_render_target() {
     g3::set_output_srgb(true);
     g3::set_tone_mapping_mode(g3::TONE_MAPPING_ACES);
     g3::set_background(float4 { 0.5, 0.5, 0.5, 1.0 });
-    let target = g3::render_target_create(80, 40);
+    let target = g3::render_target_create(80, 40, 0);
     let target_handle = g3::render_target_handle(target);
     testing::check(target >= 0 && g3::render_target_handle_valid(target_handle) &&
                    g3::render_target_texture_id(target_handle) == target && g3::render_target_set_handle(target_handle),
@@ -1157,7 +1157,7 @@ fn case_render_target() {
     g3::frame(1.0 / 60.0);
     testing::check(is_color(g3::read_pixel(200, 200), 128, 128, 128, 2), "render target texture can be sampled with linear values");
 
-    let processed = g3::render_target_create(40, 80);
+    let processed = g3::render_target_create(40, 80, 0);
     testing::check(processed >= 0, "secondary render target allocates");
     let custom_shader = g3::post_process_shader_create("color.rgb = vec3(1.0) - color.rgb;");
     testing::check(custom_shader == -1 && !g3::post_process_shader_run(custom_shader, target, processed),
@@ -1191,7 +1191,7 @@ fn case_render_target() {
                    is_color(draw_target_texture(processed), 76, 76, 76, 2), "grayscale uses the 0.299 red luma weight");
     let edge_pixels: u8[12] = [0,0,0,255, 255,255,255,255, 0,0,0,255];
     let edge_texture = g3::texture_create(3, 1, edge_pixels[..]);
-    let fxaa_target = g3::render_target_create(3, 1);
+    let fxaa_target = g3::render_target_create(3, 1, 0);
     testing::check(g3::post_process_run(edge_texture, fxaa_target, g3::POST_PROCESS_FXAA) &&
                    is_color(draw_target_texture(fxaa_target), 128, 128, 128, 2), "FXAA pass averages a high-contrast centre pixel with its across-edge neighbours");
 

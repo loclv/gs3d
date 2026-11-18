@@ -26,6 +26,7 @@
 #include <emscripten/heap.h>
 #include <emscripten/html5.h>
 
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,9 +44,9 @@ EMSCRIPTEN_KEEPALIVE int32_t g3_host_material_shader_create(uint32_t hp, int32_t
     if (!g3_host_slice_ok(hp, hn, 1) || !g3_host_slice_ok(bp, bn, 1) || !g3_host_slice_ok(tp, tn, 1)) return -1;
     return g3_asset_material_shader_create((sl_u8){(uint8_t *)(uintptr_t)hp, hn}, (sl_u8){(uint8_t *)(uintptr_t)bp, bn}, (sl_u8){(uint8_t *)(uintptr_t)tp, tn});
 }
-EMSCRIPTEN_KEEPALIVE int32_t g3_host_raw_shader_create(uint32_t vp, int32_t vn, uint32_t fp, int32_t fn) {
+EMSCRIPTEN_KEEPALIVE int32_t g3_host_raw_shader_create(uint32_t vp, int32_t vn, uint32_t fp, int32_t fn, int32_t glsl3) {
     if (!g3_host_slice_ok(vp, vn, 1) || !g3_host_slice_ok(fp, fn, 1)) return -1;
-    return g3_asset_raw_shader_create((sl_u8){(uint8_t *)(uintptr_t)vp, vn}, (sl_u8){(uint8_t *)(uintptr_t)fp, fn});
+    return g3_asset_raw_shader_create((sl_u8){(uint8_t *)(uintptr_t)vp, vn}, (sl_u8){(uint8_t *)(uintptr_t)fp, fn}, glsl3);
 }
 EMSCRIPTEN_KEEPALIVE uint8_t g3_host_raw_shader_uniform(int32_t id, uint32_t np, int32_t nn, int32_t kind, uint32_t vp, int32_t vn) {
     if (!g3_host_slice_ok(np, nn, 1) || vp % 4 || !g3_host_slice_ok(vp, vn, sizeof(float))) return 0;
@@ -203,6 +204,7 @@ typedef struct {
 
 typedef struct {
     int active;
+    int glsl3;           /* compile as GLSL ES 3.00 (three.js WebGL2 style) */
     char *vertex, *fragment;
     GLuint program;
     raw_uniform uniforms[RAW_MAX_UNIFORMS];
@@ -250,7 +252,8 @@ static double last_scene_draw_ms;
 static GLuint *textures;
 static int32_t *texture_widths, *texture_heights, *texture_is_hdr, *texture_is_3d;
 static int32_t texture_count;
-typedef struct { int32_t id; GLuint fbo, depth; int mipmapped; } web_render_target;
+/* format: 0 = RGBA8, 1 = RGBA16F, 2 = RGBA32F (read back as float). */
+typedef struct { int32_t id; GLuint fbo, depth; int mipmapped; int32_t format; } web_render_target;
 static web_render_target *render_targets;
 static int32_t render_target_count, render_target_cap;
 typedef struct { GLuint program; GLint source; } web_custom_post_shader;
@@ -417,7 +420,7 @@ static const char *UNLIT_FRAGMENT_SRC =
     "vec3 tone_map_color(vec3 x,int m){x=max(x,vec3(0.0));if(m==1)return x/(vec3(1.0)+x);"
     "if(m==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\n"
     "vec3 encode_srgb(vec3 c){vec3 lo=c*12.92;vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055;"
-    "return mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}\n"
+    "return mix(lo,hi,step(vec3(0.0031308),c));}\n"
     "void main(){vec4 texel=vec4(1.0);\n#ifdef G3_BASE_TEXTURE\n"
     "texel=texture(u_tex,material_uv(0));\n#endif\n"
     "float alpha=u_color.a*v_color.a*texel.a;if(u_alpha_mode==1&&alpha<u_alpha_cutoff)discard;"
@@ -427,7 +430,7 @@ static const char *UNLIT_FRAGMENT_SRC =
     "if(u_fog.a>0.0){float dist=length(u_eye-v_world);"
     "float fog=clamp(1.0-exp(-dist*u_fog.a),0.0,1.0);col=mix(col,u_fog.rgb,fog);}\n#endif\n"
     "if(u_tone_map_inline!=0)col=tone_map_color(col*u_exposure_inline,u_tone_map_inline);"
-    "if(u_srgb_output)col=encode_srgb(col);out_color=vec4(col,u_alpha_mode==2?alpha:1.0);}\n";
+    "if(u_srgb_output)col=encode_srgb(col);out_color=vec4(col,u_alpha_mode>=2?alpha:1.0);}\n";
 
 /* Keep this in step with shade() in g3_soft.c. */
 static const char *FRAGMENT_SRC =
@@ -530,7 +533,7 @@ static const char *FRAGMENT_SRC =
     "vec2 environment_uv(vec3 d) { d=vec3(d.x*u_env_rotation.x+d.z*u_env_rotation.y,d.y,-d.x*u_env_rotation.y+d.z*u_env_rotation.x); return vec2(atan(d.z,d.x)/6.28318530718+0.5,acos(clamp(d.y,-1.0,1.0))/3.14159265359); }\n"
     "float dielectric_f0(float ior) { float ratio=(clamp(ior,1.0,2.333)-1.0)/(clamp(ior,1.0,2.333)+1.0); return ratio*ratio; }\n"
     "vec3 tone_map_color(vec3 x,int mode) { x=max(x,vec3(0.0)); if(mode==1) return x/(vec3(1.0)+x); if(mode==2) return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); return x; }\n"
-    "vec3 encode_srgb(vec3 c) { vec3 lo=c*12.92; vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055; return mix(hi,lo,lessThanEqual(c,vec3(0.0031308))); }\n"
+    "vec3 encode_srgb(vec3 c) { vec3 lo=c*12.92; vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055; return mix(lo,hi,step(vec3(0.0031308),c)); }\n"
     "vec3 pbr_light(vec3 n, vec3 v, vec3 l, vec3 base, float metal, float rough, float ior, float specular_strength, vec3 specular_color) {\n"
     "    float nl = max(dot(n,l), 0.0), nv = max(dot(n,v), 0.0);\n"
     "    vec3 sum = l + v; float len = length(sum);\n"
@@ -736,7 +739,7 @@ static const char *FRAGMENT_SRC =
     "    col = mix(col, u_fog.rgb, fog);\n"
     "    if (u_tone_map_inline!=0) col=tone_map_color(col*u_exposure_inline,u_tone_map_inline);\n"
     "    if (u_srgb_output) col=encode_srgb(col);\n"
-    "    out_color = vec4(col, u_alpha_mode == 2 ? alpha : 1.0);\n"
+    "    out_color = vec4(col, u_alpha_mode >= 2 ? alpha : 1.0);\n"
     "}\n";
 
 /* --- the program --- */
@@ -1718,17 +1721,30 @@ void g3p_upload_texture_3d_f16(int32_t id, g3_u8_slice pixels, int32_t width, in
     texture_widths[id]=width;texture_heights[id]=height;texture_is_hdr[id]=0;texture_is_3d[id]=1;
 }
 
-uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height) {
+static GLenum render_target_internal(int32_t format) {
+    return format == 2 ? GL_RGBA32F : format == 1 ? GL_RGBA16F : GL_RGBA8;
+}
+static GLenum render_target_read_type(int32_t format) {
+    return format ? GL_FLOAT : GL_UNSIGNED_BYTE;
+}
+
+uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height, int32_t format) {
     if (id < 0 || width <= 0 || height <= 0 || width > gpu_max_texture_size || height > gpu_max_texture_size ||
-        (uint64_t)width * (uint64_t)height > 4194304ull) return 0;
-    size_t bytes = (size_t)width * (size_t)height * 4;
-    if (bytes / 4 != (size_t)width * (size_t)height) return 0;
-    uint8_t *blank = calloc(bytes, 1);
-    if (!blank) return 0;
-    g3_u8_slice pixels = { blank, (int64_t)bytes };
-    g3p_upload_texture(id, pixels, width, height);
-    free(blank);
-    if (id >= texture_count || !textures[id]) return 0;
+        (uint64_t)width * (uint64_t)height > 4194304ull || format < 0 || format > 2) return 0;
+    /* Float and half-float targets need colour-renderable float support. */
+    if (format && !float_color_buffer_supported) return 0;
+    if (!texture_reserve(id)) return 0;
+    if (texture_is_3d[id]) { glDeleteTextures(1, &textures[id]); textures[id] = 0; texture_is_3d[id] = 0; }
+    if (!textures[id]) glGenTextures(1, &textures[id]);
+    glBindTexture(GL_TEXTURE_2D, textures[id]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, render_target_internal(format), width, height, 0, GL_RGBA,
+                 render_target_read_type(format), NULL);
+    texture_widths[id] = width; texture_heights[id] = height;
+    texture_is_hdr[id] = format ? 1 : 0;
     GLuint fbo = 0, depth = 0;
     glGenFramebuffers(1, &fbo);
     glGenRenderbuffers(1, &depth);
@@ -1750,21 +1766,23 @@ uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height) {
         if (!grown) { glDeleteRenderbuffers(1, &depth); glDeleteFramebuffers(1, &fbo); g3p_release_texture(id); return 0; }
         render_targets = grown; render_target_cap = cap;
     }
-    render_targets[render_target_count++] = (web_render_target){ id, fbo, depth, 0 };
+    render_targets[render_target_count++] = (web_render_target){ id, fbo, depth, 0, format };
     return 1;
 }
 
 int32_t g3p_texture_width(int32_t id) { return id >= 0 && id < texture_count ? texture_widths[id] : 0; }
 int32_t g3p_texture_height(int32_t id) { return id >= 0 && id < texture_count ? texture_heights[id] : 0; }
 
-uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height) {
+uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height, int32_t format) {
     web_render_target *target = NULL;
     for (int32_t i = 0; i < render_target_count; i++) if (render_targets[i].id == id) { target = &render_targets[i]; break; }
     if (!target || width <= 0 || height <= 0 || width > gpu_max_texture_size || height > gpu_max_texture_size ||
-        (uint64_t)width * (uint64_t)height > 4194304ull) return 0;
+        (uint64_t)width * (uint64_t)height > 4194304ull || format < 0 || format > 2) return 0;
+    if (format && !float_color_buffer_supported) return 0;
     while (glGetError() != GL_NO_ERROR) { }
     glBindTexture(GL_TEXTURE_2D, textures[id]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, render_target_internal(format), width, height, 0, GL_RGBA,
+                 render_target_read_type(format), NULL);
     glBindRenderbuffer(GL_RENDERBUFFER, target->depth);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, width, height);
     glBindFramebuffer(GL_FRAMEBUFFER, target->fbo);
@@ -1773,13 +1791,16 @@ uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     if (error != GL_NO_ERROR || status != GL_FRAMEBUFFER_COMPLETE) {
         glBindTexture(GL_TEXTURE_2D, textures[id]);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture_widths[id], texture_heights[id], 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, render_target_internal(target->format), texture_widths[id],
+                     texture_heights[id], 0, GL_RGBA, render_target_read_type(target->format), NULL);
         glBindRenderbuffer(GL_RENDERBUFFER, target->depth);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, texture_widths[id], texture_heights[id]);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return 0;
     }
     texture_widths[id] = width; texture_heights[id] = height;
+    target->format = format;
+    texture_is_hdr[id] = format ? 1 : 0;
     if (target->mipmapped) {
         glBindTexture(GL_TEXTURE_2D, textures[id]);
         glGenerateMipmap(GL_TEXTURE_2D);
@@ -1792,13 +1813,14 @@ uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height) {
 uint8_t g3p_render_target_read(int32_t id, int32_t x, int32_t y, int32_t w, int32_t h, g3_u8_slice pixels) {
     web_render_target *target = NULL;
     for (int32_t i = 0; i < render_target_count; i++) if (render_targets[i].id == id) { target = &render_targets[i]; break; }
+    int32_t texel_bytes = target->format ? 16 : 4;
     if (!target || !pixels.data || w <= 0 || h <= 0 || x < 0 || y < 0 ||
         x + w > texture_widths[id] || y + h > texture_heights[id] ||
-        pixels.len < (int64_t)w * (int64_t)h * 4) return 0;
+        pixels.len < (int64_t)w * (int64_t)h * texel_bytes) return 0;
     GLint prev_fbo = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, target->fbo);
-    glReadPixels(x, texture_heights[id] - y - h, w, h, GL_RGBA, GL_UNSIGNED_BYTE, (void *)(uintptr_t)pixels.data);
+    glReadPixels(x, texture_heights[id] - y - h, w, h, GL_RGBA, render_target_read_type(target->format), (void *)(uintptr_t)pixels.data);
     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fbo);
     return 1;
 }
@@ -2346,6 +2368,9 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
     if (it->params.w > 0.5f) {
         glEnable(GL_BLEND);
         glDepthMask(GL_FALSE);       /* blended: test depth, do not write it */
+        if (it->alpha_mode == 3) glBlendFunc(GL_ONE, GL_ONE);
+        else if (it->alpha_mode == 4) glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     } else {
         glDisable(GL_BLEND);
         glDepthMask(GL_TRUE);
@@ -2587,7 +2612,7 @@ static void report_first_gl_error(void) {
 static int ensure_output_target(int hdr) {
     if (!output_program) {
         const char *vs_src = "#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}\n";
-        const char *fs_src = "#version 300 es\nprecision highp float;\nuniform sampler2D u_linear;uniform int u_tone_map,u_effect;uniform float u_exposure;uniform vec2 u_output_size;uniform bool u_encode_srgb,u_fxaa;out vec4 color;\nvec3 tone_map_color(vec3 x,int mode){x=max(x,vec3(0.0));if(mode==1)return x/(vec3(1.0)+x);if(mode==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\nvec3 display_color(ivec2 p){vec3 c=texelFetch(u_linear,p,0).rgb;if(u_tone_map!=0)c=tone_map_color(c*u_exposure,u_tone_map);if(u_encode_srgb){vec3 lo=c*12.92;vec3 hi=1.055*pow(c,vec3(1.0/2.4))-0.055;c=mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}return c;}\nfloat luma(vec3 c){return dot(c,vec3(0.299,0.587,0.114));}\nvoid main(){ivec2 size=textureSize(u_linear,0),p=clamp(ivec2(gl_FragCoord.xy*vec2(size)/u_output_size),ivec2(0),size-1);vec3 c=display_color(p);if(u_fxaa){vec3 l=display_color(clamp(p+ivec2(-1,0),ivec2(0),size-1)),r=display_color(clamp(p+ivec2(1,0),ivec2(0),size-1)),n=display_color(clamp(p+ivec2(0,-1),ivec2(0),size-1)),s=display_color(clamp(p+ivec2(0,1),ivec2(0),size-1));float lc=luma(c),ll=luma(l),lr=luma(r),ln=luma(n),ls=luma(s),lo=min(lc,min(min(ll,lr),min(ln,ls))),hi=max(lc,max(max(ll,lr),max(ln,ls)));if(hi-lo>=0.125){vec3 across=abs(lr-ll)>=abs(ls-ln)?0.5*(l+r):0.5*(n+s);c=0.5*(c+across);}}if(u_effect==1)c=vec3(luma(c));else if(u_effect==2)c=vec3(1.0)-c;color=vec4(c,1.0);}\n";
+        const char *fs_src = "#version 300 es\nprecision highp float;\nuniform sampler2D u_linear;uniform int u_tone_map,u_effect;uniform float u_exposure;uniform vec2 u_output_size;uniform bool u_encode_srgb,u_fxaa;out vec4 color;\nvec3 tone_map_color(vec3 x,int mode){x=max(x,vec3(0.0));if(mode==1)return x/(vec3(1.0)+x);if(mode==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\nvec3 display_color(ivec2 p){vec3 c=texelFetch(u_linear,p,0).rgb;if(u_tone_map!=0)c=tone_map_color(c*u_exposure,u_tone_map);if(u_encode_srgb){vec3 lo=c*12.92;vec3 hi=1.055*pow(c,vec3(1.0/2.4))-0.055;c=mix(lo,hi,step(vec3(0.0031308),c));}return c;}\nfloat luma(vec3 c){return dot(c,vec3(0.299,0.587,0.114));}\nvoid main(){ivec2 size=textureSize(u_linear,0),p=clamp(ivec2(gl_FragCoord.xy*vec2(size)/u_output_size),ivec2(0),size-1);vec3 c=display_color(p);if(u_fxaa){vec3 l=display_color(clamp(p+ivec2(-1,0),ivec2(0),size-1)),r=display_color(clamp(p+ivec2(1,0),ivec2(0),size-1)),n=display_color(clamp(p+ivec2(0,-1),ivec2(0),size-1)),s=display_color(clamp(p+ivec2(0,1),ivec2(0),size-1));float lc=luma(c),ll=luma(l),lr=luma(r),ln=luma(n),ls=luma(s),lo=min(lc,min(min(ll,lr),min(ln,ls))),hi=max(lc,max(max(ll,lr),max(ln,ls)));if(hi-lo>=0.125){vec3 across=abs(lr-ll)>=abs(ls-ln)?0.5*(l+r):0.5*(n+s);c=0.5*(c+across);}}if(u_effect==1)c=vec3(luma(c));else if(u_effect==2)c=vec3(1.0)-c;color=vec4(c,1.0);}\n";
         GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src, "output vertex");
         GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src, "output fragment");
         if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); return 0; }
@@ -2783,6 +2808,108 @@ static const char RAW_VS_PREFIX[] =
     "uniform mat3 normalMatrix;\n"
     "uniform vec3 cameraPosition;\n";
 
+/* GLSL ES 3.00 raw programs. three.js compiles every ShaderMaterial as
+   300 es, so ES 1.00-style sources (attribute/varying/texture2D/gl_FragColor)
+   are translated token by token, and the prefix declares only the standard
+   builtins the source does not declare itself. Sources that are already
+   written as 300 es (in/out, own fragment outputs) pass through unchanged. */
+
+/* Is `name` used as an identifier in the source? */
+static int raw_uses(const char *src, const char *name) {
+    size_t n = strlen(name);
+    for (const char *p = src; (p = strstr(p, name)); p += n) {
+        if ((p > src && (isalnum((unsigned char)p[-1]) || p[-1] == '_')) ||
+            (isalnum((unsigned char)p[n]) || p[n] == '_')) continue;
+        return 1;
+    }
+    return 0;
+}
+
+/* Does the source declare `name` itself (in/attribute/uniform/layout in)? */
+static int raw_declares(const char *src, const char *name) {
+    size_t n = strlen(name);
+    for (const char *p = src; (p = strstr(p, name)); p += n) {
+        if ((p > src && (isalnum((unsigned char)p[-1]) || p[-1] == '_')) ||
+            (isalnum((unsigned char)p[n]) || p[n] == '_')) continue;
+        const char *line = p;
+        while (line > src && line[-1] != '\n' && line[-1] != ';' && line[-1] != '{' && line[-1] != '}' &&
+               line[-1] != ',' && line[-1] != ')') line--;
+        while (*line == ' ' || *line == '\t') line++;
+        if (!strncmp(line, "in ", 3) || !strncmp(line, "attribute ", 10) ||
+            !strncmp(line, "uniform ", 8) || !strncmp(line, "layout", 6)) return 1;
+    }
+    return 0;
+}
+
+static char *raw_glsl3_translate(const char *src, int vertex, int *frag_color) {
+    size_t n = strlen(src);
+    char *out = malloc(n * 2 + 1);
+    if (!out) return NULL;
+    const char *p = src;
+    if (!strncmp(p, "#version", 8)) { const char *nl = strchr(p, '\n'); if (nl) p = nl + 1; }
+    size_t o = 0;
+    while (*p) {
+        if (isalpha((unsigned char)*p) || *p == '_') {
+            const char *start = p;
+            while (*p && (isalnum((unsigned char)*p) || *p == '_')) p++;
+            size_t len = (size_t)(p - start);
+            if (len == 9 && !strncmp(start, "attribute", 9)) { memcpy(out + o, "in", 2); o += 2; }
+            else if (len == 7 && !strncmp(start, "varying", 7)) {
+                if (vertex) { memcpy(out + o, "out", 3); o += 3; }
+                else { memcpy(out + o, "in", 2); o += 2; }
+            }
+            else if (len == 9 && !strncmp(start, "texture2D", 9)) { memcpy(out + o, "texture", 7); o += 7; }
+            else if (len == 12 && !strncmp(start, "gl_FragColor", 12)) {
+                memcpy(out + o, "g3_frag_color", 13); o += 13; *frag_color = 1;
+            }
+            else { memcpy(out + o, start, len); o += len; }
+        } else {
+            out[o++] = *p++;
+        }
+    }
+    out[o] = 0;
+    return out;
+}
+
+static char *raw_glsl3_source(const char *user, int vertex, int frag_color) {
+    size_t cap = strlen(user) + 4096;
+    char *src = calloc(cap, 1);
+    if (!src) return NULL;
+    strcat(src, "#version 300 es\nprecision highp float;\nprecision highp int;\n");
+    if (vertex) {
+        static const char *const attrs[][2] = {
+            { "position", "in vec3 position;\n" }, { "normal", "in vec3 normal;\n" },
+            { "uv", "in vec2 uv;\n" }, { "color", "in vec3 color;\n" },
+            { "tangent", "in vec4 tangent;\n" },
+            { "_g3_uv01", "in vec4 _g3_uv01;\n" }, { "_g3_uv23", "in vec4 _g3_uv23;\n" },
+            { "_g3_uv45", "in vec4 _g3_uv45;\n" }, { "_g3_uv67", "in vec4 _g3_uv67;\n" },
+        };
+        for (size_t i = 0; i < sizeof(attrs) / sizeof(attrs[0]); i++)
+            if (raw_uses(user, attrs[i][0]) && !raw_declares(user, attrs[i][0])) strcat(src, attrs[i][1]);
+        static const char *const builtins[][2] = {
+            { "modelMatrix", "uniform mat4 modelMatrix;\n" },
+            { "modelViewMatrix", "uniform mat4 modelViewMatrix;\n" },
+            { "projectionMatrix", "uniform mat4 projectionMatrix;\n" },
+            { "viewMatrix", "uniform mat4 viewMatrix;\n" },
+            { "normalMatrix", "uniform mat3 normalMatrix;\n" },
+            { "cameraPosition", "uniform vec3 cameraPosition;\n" },
+        };
+        for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++)
+            if (raw_uses(user, builtins[i][0]) && !raw_declares(user, builtins[i][0])) strcat(src, builtins[i][1]);
+    } else {
+        if (raw_uses(user, "cameraPosition") && !raw_declares(user, "cameraPosition")) strcat(src, "uniform vec3 cameraPosition;\n");
+        strcat(src, "uniform float u_g3_tone_mode;\nuniform float u_g3_exposure;\nuniform float u_g3_output_srgb;\n");
+        strcat(src, "vec3 g3_tone_map(vec3 x){x=max(x,vec3(0.0));int m=int(u_g3_tone_mode+0.5);if(m==0)return x;"
+                    "x*=u_g3_exposure;if(m==1)return x/(vec3(1.0)+x);"
+                    "if(m==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\n"
+                    "vec3 g3_encode_srgb(vec3 c){vec3 lo=c*12.92;vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055;"
+                    "return mix(lo,hi,step(vec3(0.0031308),c));}\n");
+        if (frag_color) strcat(src, "out vec4 g3_frag_color;\n");
+    }
+    strcat(src, user);
+    return src;
+}
+
 static const char RAW_FS_PREFIX[] =
     "precision highp float;\n"
     "precision highp int;\n"
@@ -2794,7 +2921,7 @@ static const char RAW_FS_PREFIX[] =
     "x*=u_g3_exposure;if(m==1)return x/(vec3(1.0)+x);"
     "if(m==2)return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);return x;}\n"
     "vec3 g3_encode_srgb(vec3 c){vec3 lo=c*12.92;vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055;"
-    "return mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}\n";
+    "return mix(lo,hi,step(vec3(0.0031308),c));}\n";
 
 static int raw_uniform_components(int type) {
     switch (type) {
@@ -2832,16 +2959,29 @@ static int link_raw_program(raw_program *rp, GLuint vs, GLuint fs) {
 }
 
 static int build_raw_program(raw_program *rp) {
-    size_t vs_len = sizeof(RAW_VS_PREFIX) - 1 + strlen(rp->vertex) + 1;
-    size_t fs_len = sizeof(RAW_FS_PREFIX) - 1 + strlen(rp->fragment) + 1;
-    char *vs = malloc(vs_len), *fs = malloc(fs_len);
+    char *vs = NULL, *fs = NULL;
+    if (rp->glsl3) {
+        int vfrag = 0, ffrag = 0;
+        char *v = raw_glsl3_translate(rp->vertex, 1, &vfrag);
+        char *f = raw_glsl3_translate(rp->fragment, 0, &ffrag);
+        if (!v || !f) { free(v); free(f); return 0; }
+        vs = raw_glsl3_source(v, 1, vfrag);
+        fs = raw_glsl3_source(f, 0, ffrag);
+        free(v); free(f);
+    } else {
+        size_t vs_len = sizeof(RAW_VS_PREFIX) - 1 + strlen(rp->vertex) + 1;
+        size_t fs_len = sizeof(RAW_FS_PREFIX) - 1 + strlen(rp->fragment) + 1;
+        vs = malloc(vs_len); fs = malloc(fs_len);
+        if (vs && fs) {
+            char *p = vs;
+            memcpy(p, RAW_VS_PREFIX, sizeof(RAW_VS_PREFIX) - 1); p += sizeof(RAW_VS_PREFIX) - 1;
+            strcpy(p, rp->vertex);
+            p = fs;
+            memcpy(p, RAW_FS_PREFIX, sizeof(RAW_FS_PREFIX) - 1); p += sizeof(RAW_FS_PREFIX) - 1;
+            strcpy(p, rp->fragment);
+        }
+    }
     if (!vs || !fs) { free(vs); free(fs); return 0; }
-    char *p = vs;
-    memcpy(p, RAW_VS_PREFIX, sizeof(RAW_VS_PREFIX) - 1); p += sizeof(RAW_VS_PREFIX) - 1;
-    strcpy(p, rp->vertex);
-    p = fs;
-    memcpy(p, RAW_FS_PREFIX, sizeof(RAW_FS_PREFIX) - 1); p += sizeof(RAW_FS_PREFIX) - 1;
-    strcpy(p, rp->fragment);
     GLuint v = compile_shader(GL_VERTEX_SHADER, vs, "raw vertex");
     GLuint f = compile_shader(GL_FRAGMENT_SHADER, fs, "raw fragment");
     free(vs); free(fs);
@@ -2867,6 +3007,12 @@ static int build_raw_program(raw_program *rp) {
                 report("Raw shader material exceeds the device's fragment texture budget.");
                 return 0;
             }
+            u->location = glGetUniformLocation(rp->program, u->name);
+            if (u->location < 0 && u->count > 1) {
+                char indexed[RAW_MAX_NAME + 4];
+                snprintf(indexed, sizeof(indexed), "%s[0]", u->name);
+                u->location = glGetUniformLocation(rp->program, indexed);
+            }
         } else {
             u->unit = -1;
             /* Array uniforms must be queried by their first element's name. */
@@ -2877,6 +3023,46 @@ static int build_raw_program(raw_program *rp) {
             }
             if (u->location < 0 || u->count <= 1)
                 u->location = glGetUniformLocation(rp->program, u->name);
+        }
+    }
+    /* Samplers the app never set still need a defined binding: without an
+       entry their GL uniform defaults to unit 0 and samples whatever another
+       program left bound there — including the render target being drawn,
+       which is a feedback loop. Give each declared sampler an entry that
+       binds no texture until the app provides one. */
+    {
+        GLint active = 0;
+        glGetProgramiv(rp->program, GL_ACTIVE_UNIFORMS, &active);
+        for (int i = 0; i < active; i++) {
+            char name[RAW_MAX_NAME + 8];
+            GLenum type = 0;
+            GLint size = 0;
+            glGetActiveUniform(rp->program, i, sizeof(name), NULL, &size, &type, name);
+            if (type != GL_SAMPLER_2D && type != GL_SAMPLER_3D && type != GL_SAMPLER_CUBE &&
+                type != GL_SAMPLER_2D_SHADOW && type != GL_SAMPLER_2D_ARRAY &&
+                type != GL_SAMPLER_2D_ARRAY_SHADOW && type != GL_SAMPLER_CUBE_SHADOW) continue;
+            /* Array samplers report as name[0]; the app sets the base name. */
+            char base[RAW_MAX_NAME + 8];
+            snprintf(base, sizeof(base), "%s", name);
+            char *br = strstr(base, "[");
+            if (br) *br = 0;
+            int known = 0;
+            for (int j = 0; j < rp->uniform_count; j++)
+                if (rp->uniforms[j].type == RAW_T_SAMPLER && !strcmp(rp->uniforms[j].name, base)) { known = 1; break; }
+            if (known || rp->uniform_count >= RAW_MAX_UNIFORMS) continue;
+            raw_uniform *u = &rp->uniforms[rp->uniform_count++];
+            memset(u, 0, sizeof(*u));
+            snprintf(u->name, sizeof(u->name), "%s", base);
+            u->type = RAW_T_SAMPLER;
+            u->count = 1;
+            u->location = glGetUniformLocation(rp->program, name);
+            if (u->location < 0) u->location = glGetUniformLocation(rp->program, base);
+            u->unit = unit++;
+            if (u->unit >= fragment_texture_units) {
+                report("Raw shader material exceeds the device's fragment texture budget.");
+                return 0;
+            }
+            u->texture = -1;
         }
     }
     rp->uploaded_generation = 0; /* forces the first uniform upload */
@@ -2906,15 +3092,19 @@ static void raw_upload_uniforms(raw_program *rp) {
         case RAW_T_VEC3: glUniform3fv(u->location, u->count, u->values); break;
         case RAW_T_VEC4: glUniform4fv(u->location, u->count, u->values); break;
         case RAW_T_MAT4: glUniformMatrix4fv(u->location, u->count, GL_FALSE, u->values); break;
-        case RAW_T_SAMPLER: {
-            int32_t t = u->texture;
-            int ok = t >= 0 && t < texture_count && textures[t];
-            glActiveTexture(GL_TEXTURE0 + u->unit);
-            glBindTexture(ok && texture_is_3d[t] ? GL_TEXTURE_3D : GL_TEXTURE_2D, ok ? textures[t] : 0);
-            glUniform1i(u->location, u->unit);
-            break;
         }
-        }
+    }
+}
+
+static void raw_upload_samplers(raw_program *rp) {
+    for (int i = 0; i < rp->uniform_count; i++) {
+        raw_uniform *u = &rp->uniforms[i];
+        if (u->type != RAW_T_SAMPLER || u->location < 0) continue;
+        int32_t t = u->texture;
+        int ok = t >= 0 && t < texture_count && textures[t];
+        glActiveTexture(GL_TEXTURE0 + u->unit);
+        glBindTexture(ok && texture_is_3d[t] ? GL_TEXTURE_3D : GL_TEXTURE_2D, ok ? textures[t] : 0);
+        glUniform1i(u->location, u->unit);
     }
 }
 
@@ -2939,6 +3129,7 @@ static void raw_upload_frame(raw_program *rp, const g3_draw_item *it) {
         raw_upload_uniforms(rp);
         rp->uploaded_generation = rp->generation;
     }
+    raw_upload_samplers(rp);
 }
 
 static void draw_raw_item(const g3_draw_item *it, web_mesh *m) {
@@ -2947,6 +3138,9 @@ static void draw_raw_item(const g3_draw_item *it, web_mesh *m) {
     if (it->params.w > 0.5f) {
         glEnable(GL_BLEND);
         glDepthMask(GL_FALSE);
+        if (it->alpha_mode == 3) glBlendFunc(GL_ONE, GL_ONE);
+        else if (it->alpha_mode == 4) glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     } else {
         glDisable(GL_BLEND);
         glDepthMask(GL_TRUE);
@@ -2958,7 +3152,7 @@ static void draw_raw_item(const g3_draw_item *it, web_mesh *m) {
     scene_draw_calls++;
 }
 
-uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragment) {
+uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragment, int32_t glsl3) {
     if (id < 0 || id >= RAW_SHADER_MAX || raw_programs[id].active ||
         !vertex.data || !fragment.data || vertex.len <= 0 || fragment.len <= 0 ||
         vertex.len + fragment.len > 262144) return 0;
@@ -2969,6 +3163,7 @@ uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragme
     raw_program *rp = &raw_programs[id];
     memset(rp, 0, sizeof(*rp));
     rp->active = 1;
+    rp->glsl3 = glsl3 != 0;
     rp->vertex = v;
     rp->fragment = f;
     rp->generation = 1;
@@ -3154,6 +3349,17 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     output_srgb_inline_frame = !target && !encode && view->params.y > 0.5f;
     glBindFramebuffer(GL_FRAMEBUFFER, target ? target->fbo : (encode ? output_fbo : 0));
     glViewport(0, 0, target ? view->target_width : surf_w, target ? view->target_height : surf_h);
+    if (target) {
+        /* Texture-unit bindings persist across programs; a stale binding of
+           the target's own texture on any unit reads as a feedback loop even
+           when the drawn program does not sample it. Every draw path binds
+           its textures explicitly, so clearing is safe. */
+        for (int u = 0; u < fragment_texture_units && u < 32; u++) {
+            glActiveTexture(GL_TEXTURE0 + u);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            glBindTexture(GL_TEXTURE_3D, 0);
+        }
+    }
     float cr=view->clear.x,cg=view->clear.y,cb=view->clear.z;
     if(tone_map_inline_frame){
         cr*=view->params.w;cg*=view->params.w;cb*=view->params.w;

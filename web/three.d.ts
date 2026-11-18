@@ -635,3 +635,114 @@ export class WebGPURenderer {
   setClearColor(color: number | string | Color, alpha?: number): this;
   dispose(): void;
 }
+
+/* --- shader materials, render targets and blend state -----------------------
+   Added with the raw-shader and render-target paths; still a subset. */
+
+export const NoBlending: 0;
+export const NormalBlending: 1;
+export const AdditiveBlending: 2;
+export const SubtractiveBlending: 3;
+export const MultiplyBlending: 4;
+export const CustomBlending: 5;
+
+export const GLSL1: '100';
+export const GLSL3: '300';
+
+export const ZeroFactor: 0;
+export const OneFactor: 1;
+export const SrcColorFactor: 2;
+export const OneMinusSrcColorFactor: 3;
+export const SrcAlphaFactor: 4;
+export const OneMinusSrcAlphaFactor: 5;
+export const DstAlphaFactor: 6;
+export const OneMinusDstAlphaFactor: 7;
+export const DstColorFactor: 8;
+export const OneMinusDstColorFactor: 9;
+export const SrcAlphaSaturateFactor: 10;
+
+export const AddEquation: 100;
+export const SubtractEquation: 101;
+export const ReverseSubtractEquation: 102;
+export const MinEquation: 103;
+export const MaxEquation: 104;
+
+export class ShaderMaterial extends Material {
+  constructor(parameters?: {
+    uniforms?: Record<string, { value: unknown }>;
+    vertexShader?: string;
+    fragmentShader?: string;
+    blending?: number;
+    side?: number;
+    transparent?: boolean;
+    depthWrite?: boolean;
+    depthTest?: boolean;
+    [key: string]: unknown;
+  });
+  readonly isShaderMaterial: true;
+  uniforms: Record<string, { value: unknown }>;
+  vertexShader: string;
+  fragmentShader: string;
+  blending: number;
+  side: number;
+  transparent: boolean;
+  depthWrite: boolean;
+  depthTest: boolean;
+}
+export class RawShaderMaterial extends ShaderMaterial {
+  readonly isRawShaderMaterial: true;
+}
+
+export interface WebGLRenderTargetOptions {
+  depthBuffer?: boolean;
+  stencilBuffer?: boolean;
+  count?: number;
+  minFilter?: number;
+  magFilter?: number;
+  wrapS?: number;
+  wrapT?: number;
+  wrap?: number;
+  type?: number;
+}
+export class WebGLRenderTarget {
+  constructor(width?: number, height?: number, options?: WebGLRenderTargetOptions);
+  readonly isRenderTarget: true;
+  width: number;
+  height: number;
+  depthBuffer: boolean;
+  texture: Texture;
+  setSize(width: number, height: number): this;
+  dispose(): void;
+}
+
+export class Data3DTexture extends Texture {
+  constructor(data?: ArrayLike<number> | null, width?: number, height?: number, depth?: number);
+  readonly isData3DTexture: true;
+}
+
+export class PMREMGenerator {
+  constructor(renderer: WebGPURenderer);
+  fromScene(scene: Scene, sigma?: number, near?: number, far?: number, options?: { size?: number }): { texture: Texture; dispose(): void };
+  fromEquirectangular(texture: Texture): { texture: Texture; dispose(): void };
+}
+
+export class RoomEnvironment extends Scene {
+  constructor();
+}
+
+export interface RendererExtensions {
+  has(name: string): boolean;
+}
+export interface RendererCapabilities {
+  maxTextureSize: number;
+  getMaxAnisotropy(): number;
+}
+
+export interface WebGPURenderer {
+  readonly extensions: RendererExtensions;
+  readonly capabilities: RendererCapabilities;
+  clear(color?: boolean, depth?: boolean, stencil?: boolean): this;
+  setRenderTarget(renderTarget: WebGLRenderTarget | null): this;
+  getRenderTarget(): WebGLRenderTarget | null;
+  compile?(scene: Scene, camera: Camera): void;
+}

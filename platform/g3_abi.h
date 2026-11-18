@@ -31,7 +31,8 @@ typedef struct { g3_vec3 pos, normal; g3_vec2 uv, uv1, uv2, uv3, uv4, uv5, uv6, 
 
 /* One primitive: mesh, matrices, colour, and the shading parameters.
    params.x is 1 for unlit, .y specular strength, .z shininess, .w 1 when
-   the item is blended. alpha_mode selects opaque, mask, or blend.
+   the item is blended. alpha_mode selects opaque, mask, blend,
+   additive, or premultiplied blending.
    double_sided draws both winding directions and flips back-face normals.
  
    `key` is the engine's sort key, kept so a backend can see why the list is
@@ -284,8 +285,10 @@ void g3p_upload_texture_hdr(int32_t id, g3_f32_slice pixels, int32_t width, int3
 void g3p_upload_texture_3d(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth);
 void g3p_upload_texture_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height);
 void g3p_upload_texture_3d_f16(int32_t id, g3_u8_slice pixels, int32_t width, int32_t height, int32_t depth);
-uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height);
-uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height);
+uint8_t g3p_create_render_target(int32_t id, int32_t width, int32_t height, int32_t format);
+uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height, int32_t format);
+/* format: 0 = RGBA8 (4 bytes/texel), 1 = RGBA16F, 2 = RGBA32F (16 bytes/texel
+   when read back as float). Reads return bottom-up rows. */
 uint8_t g3p_render_target_read(int32_t id, int32_t x, int32_t y, int32_t width, int32_t height, g3_u8_slice pixels);
 uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect);
 uint8_t g3p_post_process_shader_create(int32_t id, g3_u8_slice body);
@@ -293,7 +296,9 @@ void g3p_post_process_shader_release(int32_t id);
 uint8_t g3p_post_process_shader_run(int32_t shader, int32_t source, int32_t destination);
 uint8_t g3p_material_shader_create(int32_t id, g3_u8_slice header, g3_u8_slice body, g3_u8_slice tail);
 void g3p_material_shader_release(int32_t id);
-uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragment);
+/* glsl3: 0 = GLSL ES 1.00 sources, 1 = GLSL ES 3.00 (three.js WebGL2 style;
+   ES 1.00-style sources are translated and standard builtins injected). */
+uint8_t g3p_raw_shader_create(int32_t id, g3_u8_slice vertex, g3_u8_slice fragment, int32_t glsl3);
 void g3p_raw_shader_release(int32_t id);
 uint8_t g3p_raw_shader_uniform(int32_t id, g3_u8_slice name, int32_t type, int32_t count, g3_f32_slice values);
 uint8_t g3p_raw_shader_uniform_texture(int32_t id, g3_u8_slice name, int32_t texture);

@@ -159,8 +159,12 @@ export fn g3_asset_environment_lighting(sky_r: f32, sky_g: f32, sky_b: f32, grou
     return g3::set_environment(float3 { sky_r, sky_g, sky_b }, float3 { ground_r, ground_g, ground_b }, intensity);
 }
 export fn g3_asset_environment_rotation(rotation: f32) -> bool { return g3::set_environment_rotation(rotation); }
-export fn g3_asset_render_target_create(width: i32, height: i32) -> i32 { return g3::render_target_create(width, height); }
+// format: 0 = RGBA8, 1 = RGBA16F, 2 = RGBA32F. Float targets read back as
+// float (16 bytes per texel); RGBA8 reads as 4-byte RGBA.
+export fn g3_asset_render_target_create(width: i32, height: i32, format: i32) -> i32 { return g3::render_target_create(width, height, format); }
 export fn g3_asset_render_target_select(id: i32) -> bool { return g3::render_target_set(id); }
+export fn g3_asset_render_target_resize(id: i32, width: i32, height: i32) -> bool { return g3::render_target_resize(id, width, height); }
+export fn g3_asset_render_target_release(id: i32) -> bool { return g3::render_target_remove(id); }
 export fn g3_asset_render_target_read(id: i32, x: i32, y: i32, width: i32, height: i32, pixels: const u8[:]) -> bool {
     return g3::render_target_read(id, x, y, width, height, pixels);
 }
@@ -235,13 +239,15 @@ export fn g3_asset_material_set_shader(id: i32, shader: i32) -> bool {
     g3::material(id).shader = shader;
     return true;
 }
-// Raw shader programs (ShaderMaterial-style): complete GLSL ES 1.00 vertex
-// and fragment sources. Returns an encoded id (>= 64) for
+// Raw shader programs (ShaderMaterial-style): complete vertex and fragment
+// sources. glsl3 = 0 compiles them as GLSL ES 1.00; glsl3 = 1 compiles as
+// 300 es and translates ES 1.00-style sources (attribute/varying/texture2D/
+// gl_FragColor). Returns an encoded id (>= 64) for
 // g3_asset_material_set_shader; -1 where unsupported. Uniform kinds:
 // 0 float, 1 vec2, 2 vec3, 3 vec4, 4 mat4, 5 int; samplers bind through
 // g3_asset_raw_shader_uniform_texture with a 2D or 3D texture id.
-export fn g3_asset_raw_shader_create(vertex: const u8[:], fragment: const u8[:]) -> i32 {
-    return g3::material_raw_shader_create(vertex, fragment);
+export fn g3_asset_raw_shader_create(vertex: const u8[:], fragment: const u8[:], glsl3: i32) -> i32 {
+    return g3::material_raw_shader_create(vertex, fragment, glsl3);
 }
 export fn g3_asset_raw_shader_release(id: i32) -> bool { return g3::material_raw_shader_remove(id); }
 export fn g3_asset_raw_shader_uniform(id: i32, name: const u8[:], kind: i32, values: const f32[:]) -> bool {

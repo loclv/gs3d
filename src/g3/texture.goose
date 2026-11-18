@@ -18,7 +18,7 @@ var g_render_target: i32 = -1;
 var g_render_target_width: i32;
 var g_render_target_height: i32;
 var g_asset_textures: i32[>..];
-struct TextureSlot { generation: i32 = 1, asset_owned: bool, asset_free: bool, removed: bool, render_target: bool }
+struct TextureSlot { generation: i32 = 1, asset_owned: bool, asset_free: bool, removed: bool, render_target: bool, rt_format: i32 }
 struct TextureHandle { id: i32 = -1, generation: i32 }
 struct RenderTargetHandle { texture: TextureHandle }
 var g_texture_slots: TextureSlot[>..];
@@ -99,13 +99,15 @@ fn texture_create_hdr(width: i32, height: i32, pixels: const f32[:]) -> i32 {
 
 // Create a sampleable linear RGBA render target. The target keeps its own
 // dimensions when the window is resized. Tone mapping and FXAA are screen-only.
-fn render_target_create(width: i32, height: i32) -> i32 {
+// format: 0 = RGBA8, 1 = RGBA16F, 2 = RGBA32F (float formats need
+// EXT_color_buffer_float; the CPU backend keeps floats either way).
+fn render_target_create(width: i32, height: i32, format: i32) -> i32 {
     guard width > 0 && height > 0 && width <= 4096 && height <= 4096 &&
-          width as i64 * height <= 4194304 else { return -1; }
+          width as i64 * height <= 4194304 && format >= 0 && format <= 2 else { return -1; }
     let id = g_texture_count;
     g_texture_count += 1;
-    g_texture_slots.push(TextureSlot { render_target: true, .. });
-    guard g3p_create_render_target(id, width, height) else {
+    g_texture_slots.push(TextureSlot { render_target: true, rt_format: format, .. });
+    guard g3p_create_render_target(id, width, height, format) else {
         g_texture_slots[id].removed = true;
         return -1;
     }
@@ -156,7 +158,7 @@ fn render_target_resize(id: i32, width: i32, height: i32) -> bool {
     guard id >= 0 && id < g_texture_count && g_texture_slots[id].render_target && texture_slot_live(id) &&
           width > 0 && height > 0 && width <= 4096 && height <= 4096 &&
           width as i64 * height <= 4194304 else { return false; }
-    guard g3p_resize_render_target(id, width, height) else { return false; }
+    guard g3p_resize_render_target(id, width, height, g_texture_slots[id].rt_format) else { return false; }
     if id == g_render_target { g_render_target_width = width; g_render_target_height = height; }
     return true;
 }

@@ -37,7 +37,7 @@ struct DrawItem {
     // why that order is what it is (mesh id for opaque, distance for blended).
     key: f32,
     texture: i32,       // -1 means untextured
-    alpha_mode: i32,    // 0 opaque, 1 mask, 2 blend
+    alpha_mode: i32,    // 0 opaque, 1 mask, 2 blend, 3 additive, 4 premultiplied
     alpha_cutoff: f32,
     pbr: float4,        // x enabled, y metallic, z roughness, w index of refraction
     metallic_roughness_texture: i32, // linear texture: G roughness, B metallic
@@ -152,8 +152,8 @@ extern fn g3p_upload_texture_hdr(id: i32, pixels: const f32[:], width: i32, heig
 extern fn g3p_upload_texture_3d(id: i32, pixels: const u8[:], width: i32, height: i32, depth: i32);
 extern fn g3p_upload_texture_f16(id: i32, pixels: const u8[:], width: i32, height: i32);
 extern fn g3p_upload_texture_3d_f16(id: i32, pixels: const u8[:], width: i32, height: i32, depth: i32);
-extern fn g3p_create_render_target(id: i32, width: i32, height: i32) -> bool;
-extern fn g3p_resize_render_target(id: i32, width: i32, height: i32) -> bool;
+extern fn g3p_create_render_target(id: i32, width: i32, height: i32, format: i32) -> bool;
+extern fn g3p_resize_render_target(id: i32, width: i32, height: i32, format: i32) -> bool;
 extern fn g3p_render_target_read(id: i32, x: i32, y: i32, width: i32, height: i32, pixels: const u8[:]) -> bool;
 extern fn g3p_post_process(source: i32, destination: i32, effect: i32) -> bool;
 extern fn g3p_post_process_shader_create(id: i32, body: const u8[:]) -> bool;
@@ -161,7 +161,7 @@ extern fn g3p_post_process_shader_release(id: i32);
 extern fn g3p_post_process_shader_run(shader: i32, source: i32, destination: i32) -> bool;
 extern fn g3p_material_shader_create(id: i32, header: const u8[:], body: const u8[:], tail: const u8[:]) -> bool;
 extern fn g3p_material_shader_release(id: i32);
-extern fn g3p_raw_shader_create(id: i32, vertex: const u8[:], fragment: const u8[:]) -> bool;
+extern fn g3p_raw_shader_create(id: i32, vertex: const u8[:], fragment: const u8[:], glsl3: i32) -> bool;
 extern fn g3p_raw_shader_release(id: i32);
 extern fn g3p_raw_shader_uniform(id: i32, name: const u8[:], kind: i32, count: i32, values: const f32[:]) -> bool;
 extern fn g3p_raw_shader_uniform_texture(id: i32, name: const u8[:], texture: i32) -> bool;

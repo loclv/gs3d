@@ -19,7 +19,7 @@ export fn g3_app_frame(dt: f32) { g3::frame(dt); }
 export fn g3_app_shutdown() { g3::shutdown(); }
 
 export fn g3_reference_target_create(width: i32, height: i32) -> i32 {
-    return g3::render_target_create(width, height);
+    return g3::render_target_create(width, height, 0);
 }
 
 export fn g3_reference_target_resize(target: i32, width: i32, height: i32) -> bool {

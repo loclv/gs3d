@@ -448,12 +448,12 @@ const g_raw_shader_base: i32 = 64;
 var g_raw_shader_count: i32;
 var g_raw_shader_live: bool[>..];
 
-fn material_raw_shader_create(vertex: const u8[:], fragment: const u8[:]) -> i32 {
+fn material_raw_shader_create(vertex: const u8[:], fragment: const u8[:], glsl3: i32) -> i32 {
     guard vertex.len + fragment.len > 0 && vertex.len + fragment.len <= 262144 && g_raw_shader_count < 64 else { return -1; }
     let id = g_raw_shader_count;
     g_raw_shader_count += 1;
     g_raw_shader_live.push(false);
-    if !g3p_raw_shader_create(id, vertex, fragment) { return -1; }
+    if !g3p_raw_shader_create(id, vertex, fragment, glsl3) { return -1; }
     g_raw_shader_live[id] = true;
     return g_raw_shader_base + id;
 }
@@ -615,7 +615,9 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
                          if blended { 1.0 } else { 0.0 } },
         key: sort_key(n.mesh, dist, blended),
         texture: surface.texture,
-        alpha_mode: if surface.alpha_mode == 1 { 1 } else if blended { 2 } else { 0 },
+        alpha_mode: if surface.alpha_mode == 1 { 1 } else if blended {
+            if surface.alpha_mode >= 2 { surface.alpha_mode } else { 2 }
+        } else { 0 },
         alpha_cutoff: surface.alpha_cutoff,
         pbr: float4 { if surface.pbr { 1.0 } else { 0.0 }, surface.metallic, surface.roughness, surface.ior },
         metallic_roughness_texture: surface.metallic_roughness_texture,
@@ -667,10 +669,11 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
     };
 }
 
-// alpha_mode 2 is always blended; mode 0 blends when the colour's alpha is
-// below opaque. Shared by pack_item and the distance-sort path.
+// alpha_mode 2 and above (2 blend, 3 additive, 4 premultiplied) is always
+// blended; mode 0 blends when the colour's alpha is below opaque. Shared by
+// pack_item and the distance-sort path.
 fn surface_is_blended(alpha_mode: i32, alpha: f32) -> bool {
-    return alpha_mode == 2 || (alpha_mode == 0 && alpha < 0.999);
+    return alpha_mode >= 2 || (alpha_mode == 0 && alpha < 0.999);
 }
 
 fn node_is_blended(n: Node&) -> bool {

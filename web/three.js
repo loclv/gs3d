@@ -192,6 +192,13 @@ export class Vector3 {
   setFromMatrixPosition(m) { return this.set(m[12], m[13], m[14]); }
 }
 
+export class Vector4 {
+  constructor(x = 0, y = 0, z = 0, w = 0) { this.isVector4 = true; this.x = x; this.y = y; this.z = z; this.w = w; }
+  set(x, y, z, w) { this.x = x; this.y = y; this.z = z; this.w = w; return this; }
+  copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; this.w = v.w; return this; }
+  clone() { return new Vector4(this.x, this.y, this.z, this.w); }
+}
+
 export class Euler {
   constructor(x = 0, y = 0, z = 0, order = 'XYZ') {
     this.x = x; this.y = y; this.z = z; this.order = order; this.isEuler = true;
@@ -199,6 +206,33 @@ export class Euler {
   set(x, y, z, order) { this.x = x; this.y = y; this.z = z; if (order) this.order = order; return this; }
   copy(e) { this.x = e.x; this.y = e.y; this.z = e.z; this.order = e.order; return this; }
   clone() { return new Euler(this.x, this.y, this.z, this.order); }
+}
+
+// Euler order: three.js applies the axes in the listed order, so 'XYZ' is
+// qx * qy * qz (verified against the original XYZ formula below).
+function axisQuat(axis, angle) {
+  const h = angle * 0.5, s = Math.sin(h), c = Math.cos(h);
+  if (axis === 'x') return { x: s, y: 0, z: 0, w: c };
+  if (axis === 'y') return { x: 0, y: s, z: 0, w: c };
+  return { x: 0, y: 0, z: s, w: c };
+}
+function quatMul(a, b) {
+  return {
+    x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+  };
+}
+function quatFromEulerOrder(x, y, z, order = 'XYZ') {
+  const angles = { x, y, z };
+  let q = null;
+  for (const axis of String(order).toUpperCase()) {
+    if (axis !== 'x' && axis !== 'y' && axis !== 'z') continue;
+    const a = axisQuat(axis, angles[axis]);
+    q = q ? quatMul(q, a) : a;
+  }
+  return q || { x: 0, y: 0, z: 0, w: 1 };
 }
 
 // XYZ-order Euler <-> quaternion, matching the convention composeLocal used.
@@ -232,7 +266,7 @@ export class Quaternion {
   copy(q) { this.x = q.x; this.y = q.y; this.z = q.z; this.w = q.w; return this; }
   clone() { return new Quaternion(this.x, this.y, this.z, this.w); }
   identity() { return this.set(0, 0, 0, 1); }
-  setFromEuler(e) { const q = quatFromEulerXYZ(e.x, e.y, e.z); return this.set(q.x, q.y, q.z, q.w); }
+  setFromEuler(e) { const q = quatFromEulerOrder(e.x, e.y, e.z, e.order); return this.set(q.x, q.y, q.z, q.w); }
   setFromAxisAngle(axis, angle) {
     const h = angle / 2, s = Math.sin(h);
     const l = Math.hypot(axis.x, axis.y, axis.z) || 1;
@@ -292,6 +326,18 @@ export class Quaternion {
       aw * bz + ax * by - ay * bx + az * bw,
       aw * bw - ax * bx - ay * by - az * bz,
     );
+  }
+  setFromUnitVectors(vFrom, vTo) {
+    // Quaternion rotating unit vector vFrom onto vTo (three.js algorithm).
+    let r = vFrom.x * vTo.x + vFrom.y * vTo.y + vFrom.z * vTo.z + 1;
+    if (r < 1e-8) {
+      r = 0;
+      if (Math.abs(vFrom.x) > Math.abs(vFrom.z)) this.set(-vFrom.y, vFrom.x, 0, r);
+      else this.set(0, -vFrom.z, vFrom.y, r);
+      return this.normalize();
+    }
+    return this.set(vFrom.y * vTo.z - vFrom.z * vTo.y, vFrom.z * vTo.x - vFrom.x * vTo.z,
+      vFrom.x * vTo.y - vFrom.y * vTo.x, r).normalize();
   }
   conjugate() { this.x = -this.x; this.y = -this.y; this.z = -this.z; return this; }
   invert() { return this.conjugate().normalize(); }
@@ -457,12 +503,14 @@ export class Object3D {
     this.scale = new Vector3(1, 1, 1);
     // Rotation snapshots for resolvedQuaternion's change detection.
     this._qCache = { x: 0, y: 0, z: 0, w: 1 };
-    this._eCache = { x: 0, y: 0, z: 0 };
+    this._eCache = { x: 0, y: 0, z: 0, order: 'XYZ' };
     this.children = [];
     this.parent = null;
     this.visible = true;
     this.castShadow = false;
     this.receiveShadow = false;
+    this.renderOrder = 0;
+    this.frustumCulled = true;
     this.matrixAutoUpdate = true;
     this.matrix = new Matrix4();
     this.matrixWorld = new Matrix4();
@@ -656,6 +704,56 @@ export class BufferGeometry {
     else this.index = new Uint32BufferAttribute(index, 1);
     this.version++;
     return this;
+  }
+  // Rotate/translate the stored positions (and normals) in place, like
+  // three.js geometry transforms: they bake into the attribute arrays.
+  _transformPositions(fn, normalFn) {
+    const position = this.attributes.position;
+    if (position) {
+      const pd = attrData(position);
+      for (let i = 0; i < pd.count; i++) fn(pd.array, i * pd.itemSize, pd.itemSize);
+      this.version++;
+    }
+    const normal = this.attributes.normal;
+    if (normal && normalFn) {
+      const nd = attrData(normal);
+      for (let i = 0; i < nd.count; i++) normalFn(nd.array, i * nd.itemSize, nd.itemSize);
+      this.version++;
+    }
+    return this;
+  }
+  rotateX(angle) {
+    const c = Math.cos(angle), sn = Math.sin(angle);
+    return this._transformPositions((a, o, st) => {
+      const y = a[o + 1], z = a[o + 2];
+      a[o + 1] = c * y - sn * z; a[o + 2] = sn * y + c * z;
+    }, (a, o, st) => {
+      const y = a[o + 1], z = a[o + 2];
+      a[o + 1] = c * y - sn * z; a[o + 2] = sn * y + c * z;
+    });
+  }
+  rotateY(angle) {
+    const c = Math.cos(angle), sn = Math.sin(angle);
+    return this._transformPositions((a, o, st) => {
+      const x = a[o], z = a[o + 2];
+      a[o] = c * x + sn * z; a[o + 2] = -sn * x + c * z;
+    }, (a, o, st) => {
+      const x = a[o], z = a[o + 2];
+      a[o] = c * x + sn * z; a[o + 2] = -sn * x + c * z;
+    });
+  }
+  rotateZ(angle) {
+    const c = Math.cos(angle), sn = Math.sin(angle);
+    return this._transformPositions((a, o, st) => {
+      const x = a[o], y = a[o + 1];
+      a[o] = c * x - sn * y; a[o + 1] = sn * x + c * y;
+    }, (a, o, st) => {
+      const x = a[o], y = a[o + 1];
+      a[o] = c * x - sn * y; a[o + 1] = sn * x + c * y;
+    });
+  }
+  translate(x, y, z) {
+    return this._transformPositions((a, o, st) => { a[o] += x; a[o + 1] += y; a[o + 2] += z; });
   }
   computeVertexNormals() {
     const position = this.attributes.position;
@@ -1596,7 +1694,28 @@ export const NormalBlending = 1;
 export const AdditiveBlending = 2;
 export const SubtractiveBlending = 3;
 export const MultiplyBlending = 4;
+export const GLSL1 = '100';
+export const GLSL3 = '300';
+
 export const CustomBlending = 5;
+
+export const ZeroFactor = 0;
+export const OneFactor = 1;
+export const SrcColorFactor = 2;
+export const OneMinusSrcColorFactor = 3;
+export const SrcAlphaFactor = 4;
+export const OneMinusSrcAlphaFactor = 5;
+export const DstAlphaFactor = 6;
+export const OneMinusDstAlphaFactor = 7;
+export const DstColorFactor = 8;
+export const OneMinusDstColorFactor = 9;
+export const SrcAlphaSaturateFactor = 10;
+
+export const AddEquation = 100;
+export const SubtractEquation = 101;
+export const ReverseSubtractEquation = 102;
+export const MinEquation = 103;
+export const MaxEquation = 104;
 
 export const RepeatWrapping = 1000;
 export const ClampToEdgeWrapping = 1001;
@@ -1610,7 +1729,9 @@ export const LinearMipmapNearestFilter = 1007;
 export const LinearMipmapLinearFilter = 1008;
 
 const WRAP_TO_ENGINE = { [ClampToEdgeWrapping]: 0, [RepeatWrapping]: 1, [MirroredRepeatWrapping]: 2 };
-const FILTER_TO_GL = { [NearestFilter]: 9728, [LinearFilter]: 9729 };
+const FILTER_TO_GL = { [NearestFilter]: 9728, [LinearFilter]: 9729,
+  [NearestMipmapNearestFilter]: 9984, [NearestMipmapLinearFilter]: 9985,
+  [LinearMipmapNearestFilter]: 9986, [LinearMipmapLinearFilter]: 9987 };
 
 // Normalizes the accepted image sources to {width, height, pixels} where
 // pixels is RGBA8. Returns null while the image is not ready.
@@ -1699,6 +1820,73 @@ export class CubeTexture extends Texture {
   constructor() { super(null); this.isCubeTexture = true; this.images = []; }
 }
 
+// Render targets map onto the engine's explicit render-target textures. The
+// engine id is created lazily on first use (the wasm module may not be
+// loaded yet at construction time); rt.texture carries the binding.
+const RT_FORMAT = { [UnsignedByteType]: 0, [HalfFloatType]: 1, [FloatType]: 2 };
+
+export class WebGLRenderTarget {
+  constructor(width = 1, height = 1, options = {}) {
+    this.isRenderTarget = true;
+    this.width = Math.max(1, width | 0);
+    this.height = Math.max(1, height | 0);
+    this.depthBuffer = options.depthBuffer !== false;
+    this.stencilBuffer = !!options.stencilBuffer;
+    // Multiple render targets are not reachable through the engine ABI.
+    this.count = options.count || 1;
+    this.texture = new Texture(null);
+    this.texture.isRenderTargetTexture = true;
+    this.texture._renderTarget = this;
+    this.texture.generateMipmaps = false;
+    this.texture.flipY = false;
+    this.texture.minFilter = options.minFilter ?? LinearFilter;
+    this.texture.magFilter = options.magFilter ?? LinearFilter;
+    this.texture.wrapS = options.wrapS ?? options.wrap ?? ClampToEdgeWrapping;
+    this.texture.wrapT = options.wrapT ?? options.wrap ?? ClampToEdgeWrapping;
+    this.texture.type = options.type ?? UnsignedByteType;
+    this._rtId = -1;
+    this._rtWidth = 0;
+    this._rtHeight = 0;
+    this._rtGeneration = -1;
+  }
+  setSize(width, height) {
+    this.width = Math.max(1, width | 0);
+    this.height = Math.max(1, height | 0);
+    return this;
+  }
+  dispose() {
+    const engine = sharedEngine;
+    if (engine && this._rtId >= 0 && typeof engine._g3_asset_render_target_release === 'function') {
+      try { engine._g3_asset_render_target_release(this._rtId); } catch {}
+    }
+    this._rtId = -1; this._rtWidth = 0; this._rtHeight = 0;
+  }
+}
+
+function ensureEngineRenderTarget(engine, rt) {
+  if (!rt || !rt.isRenderTarget) return -1;
+  if (rt.count !== 1) throw new Error('gs3d: multiple render targets are not supported');
+  if (rt._rtId >= 0 && rt._rtWidth === rt.width && rt._rtHeight === rt.height) return rt._rtId;
+  if (typeof engine._g3_asset_render_target_create !== 'function')
+    throw new Error('gs3d: this engine build has no render-target support');
+  const format = RT_FORMAT[rt.texture.type] ?? 0;
+  const id = engine._g3_asset_render_target_create(rt.width, rt.height, format);
+  if (id < 0) throw new Error('gs3d: render target creation failed (float targets need EXT_color_buffer_float)');
+  if (rt._rtId >= 0 && typeof engine._g3_asset_render_target_release === 'function') {
+    try { engine._g3_asset_render_target_release(rt._rtId); } catch {}
+  }
+  rt._rtId = id; rt._rtWidth = rt.width; rt._rtHeight = rt.height;
+  rt._rtGeneration = typeof engine._g3_asset_texture_generation === 'function'
+    ? engine._g3_asset_texture_generation(id) : 0;
+  const wrapU = WRAP_TO_ENGINE[rt.texture.wrapS] ?? 1;
+  const wrapV = WRAP_TO_ENGINE[rt.texture.wrapT] ?? 1;
+  engine._g3_host_texture_wrap(id, wrapU, wrapV);
+  const minFilter = FILTER_TO_GL[rt.texture.minFilter] ?? 9729;
+  const magFilter = FILTER_TO_GL[rt.texture.magFilter] ?? 9729;
+  engine._g3_host_texture_filter(id, minFilter, magFilter);
+  return id;
+}
+
 export class TextureLoader {
   constructor() { this.manager = null; }
   load(url, onLoad, onProgress, onError) {
@@ -1748,6 +1936,9 @@ export class Material {
     this.opacity = 1;
     this.transparent = false;
     this.alphaTest = 0;
+    this.polygonOffset = false;
+    this.polygonOffsetFactor = 0;
+    this.polygonOffsetUnits = 0;
     this.side = FrontSide;
     this.visible = true;
     this.map = null;
@@ -1816,6 +2007,15 @@ export class ShaderMaterial extends Material {
     this.blending = parameters.blending ?? NormalBlending;
     this.side = parameters.side ?? FrontSide;
     this.transparent = parameters.transparent === true;
+  }
+}
+
+// RawShaderMaterial is ShaderMaterial without three's prefix chunk injection;
+// the gs3d raw-shader path already compiles user sources verbatim.
+export class RawShaderMaterial extends ShaderMaterial {
+  constructor(parameters = {}) {
+    super(parameters);
+    this.isRawShaderMaterial = true;
   }
 }
 
@@ -1935,7 +2135,12 @@ export class OrthographicCamera extends Object3D {
 Object.assign(OrthographicCamera.prototype, cameraViewOffset);
 
 export class Camera extends Object3D {
-  constructor() { super(); this.isCamera = true; }
+  constructor() {
+    super(); this.isCamera = true;
+    // Defaults so a bare Camera still yields a sane engine projection; the
+    // drawing shaders of compute passes ignore the matrices anyway.
+    this.near = 0.1; this.far = 2000; this.aspect = 1; this.fov = 50;
+  }
 }
 
 export class Mesh extends Object3D {
@@ -1970,6 +2175,15 @@ export class Sprite extends Object3D {
 
 /* --- raycasting and bounds ------------------------------------------------------ */
 
+export class Plane {
+  constructor(normal = new Vector3(1, 0, 0), constant = 0) {
+    this.isPlane = true;
+    this.normal = normal.clone ? normal.clone() : new Vector3(normal.x, normal.y, normal.z);
+    this.constant = constant;
+  }
+  set(normal, constant) { this.normal.copy(normal); this.constant = constant; return this; }
+}
+
 export class Ray {
   constructor(origin = new Vector3(), direction = new Vector3(0, 0, -1)) {
     this.origin = origin;
@@ -1979,6 +2193,13 @@ export class Ray {
   at(t, target = new Vector3()) {
     return target.set(this.origin.x + this.direction.x * t,
       this.origin.y + this.direction.y * t, this.origin.z + this.direction.z * t);
+  }
+  intersectPlane(plane, target = new Vector3()) {
+    const denom = plane.normal.dot(this.direction);
+    if (Math.abs(denom) < 1e-12) return null;
+    const t = -(plane.normal.dot(this.origin) + plane.constant) / denom;
+    if (t < 0) return null;
+    return target.copy(this.origin).addScaledVector(this.direction, t);
   }
 }
 
@@ -2428,6 +2649,10 @@ function textureSignature(texture) {
 }
 
 function ensureTexture(engine, texture) {
+  if (texture.isRenderTargetTexture) {
+    const rt = texture._renderTarget;
+    return rt ? ensureEngineRenderTarget(engine, rt) : -1;
+  }
   const signature = textureSignature(texture);
   const state = textureStates.get(texture);
   if (state && state.signature === signature) return state.id;
@@ -2509,16 +2734,18 @@ function resolvedQuaternion(object) {
   const q = object.quaternion, e = object.rotation;
   const qc = object._qCache, ec = object._eCache;
   const qChanged = q.x !== qc.x || q.y !== qc.y || q.z !== qc.z || q.w !== qc.w;
-  const eChanged = e.x !== ec.x || e.y !== ec.y || e.z !== ec.z;
+  const eChanged = e.x !== ec.x || e.y !== ec.y || e.z !== ec.z || e.order !== ec.order;
   if (qChanged) {
-    const [ex, ey, ez] = eulerFromQuatXYZ(q);
-    e.set(ex, ey, ez);
+    if ((e.order || 'XYZ') === 'XYZ') {
+      const [ex, ey, ez] = eulerFromQuatXYZ(q);
+      e.set(ex, ey, ez);
+    }
   } else if (eChanged) {
-    const nq = quatFromEulerXYZ(e.x, e.y, e.z);
+    const nq = quatFromEulerOrder(e.x, e.y, e.z, e.order);
     q.set(nq.x, nq.y, nq.z, nq.w);
   }
   qc.x = q.x; qc.y = q.y; qc.z = q.z; qc.w = q.w;
-  ec.x = e.x; ec.y = e.y; ec.z = e.z;
+  ec.x = e.x; ec.y = e.y; ec.z = e.z; ec.order = e.order;
   return q;
 }
 
@@ -2695,7 +2922,7 @@ function preparedGeometry(geometry, useVertexColors, flatShading, material) {
   if (defaults) for (const name of Object.keys(defaults)) {
     if (Array.isArray(defaults[name])) pushName(name);
   }
-  if (material && material.isShaderMaterial) {
+  if (material && (material.isShaderMaterial || material.isRawShaderMaterial)) {
     for (const a of vertexAttrInfo(material)) pushName(a.name);
   }
 
@@ -2740,7 +2967,7 @@ function preparedGeometry(geometry, useVertexColors, flatShading, material) {
     regVersion: customAttrRegistryVersion,
     vs: material ? material.vertexShader : undefined,
     defaults,
-    isShader: !!(material && material.isShaderMaterial),
+    isShader: !!(material && (material.isShaderMaterial || material.isRawShaderMaterial)),
   };
 }
 
@@ -2753,7 +2980,7 @@ function cachedPreparedGeometry(geometry, useVertexColors, flatShading, material
   if (!byFlags) byMaterial.set(key, byFlags = new Map());
   let entry = byFlags.get(flags);
   const defaults = material && material.defaultAttributeValues;
-  const isShader = !!(material && material.isShaderMaterial);
+  const isShader = !!(material && (material.isShaderMaterial || material.isRawShaderMaterial));
   if (entry && entry.gVersion === geometry.version &&
       entry.regVersion === customAttrRegistryVersion &&
       entry.vs === (material ? material.vertexShader : undefined) &&
@@ -2822,7 +3049,7 @@ function ensureGeometry(engine, geometry, useVertexColors = false, flatShading =
   return id;
 }
 
-const ALPHA_OPAQUE = 0, ALPHA_MASK = 1, ALPHA_BLEND = 2;
+const ALPHA_OPAQUE = 0, ALPHA_MASK = 1, ALPHA_BLEND = 2, ALPHA_ADDITIVE = 3, ALPHA_PREMULTIPLIED = 4;
 
 function materialSignature(material) {
   const parts = [material.color.r, material.color.g, material.color.b, material.opacity,
@@ -2897,6 +3124,14 @@ function rawUploadText(engine, text) {
   return [ptr, bytes.length];
 }
 
+// three.js WebGL2 shaders are GLSL ES 3.00 when they use `texture()`,
+// textureLod/Grad, `in`/`out` globals or #version 300; the engine compiles
+// those through its translation path instead of plain GLSL ES 1.00.
+function rawNeedsGlsl3(vs, fs) {
+  const re = /(?:^|[^\w.])(texture|textureLod|textureGrad|textureProj|textureSize)\s*\(|#version\s+300|\b(?:in|out)\s+(?:lowp\s+|mediump\s+|highp\s+)?(?:vec[234]|mat[234]|float|int|bool|sampler\w*)\b|gl_FragDepth/;
+  return re.test(vs || '') || re.test(fs || '');
+}
+
 function ensureRawShader(engine, material) {
   const vertex = rewriteRawVertex(material);
   const fragment = resolveRawChunks(material.fragmentShader);
@@ -2909,9 +3144,10 @@ function ensureRawShader(engine, material) {
   if (typeof engine._g3_host_raw_shader_create !== 'function') return { id: -1, sourceKey };
   const v = rawUploadText(engine, vertex);
   const f = rawUploadText(engine, fragment);
+  const glsl3 = rawNeedsGlsl3(material.vertexShader, material.fragmentShader) ? 1 : 0;
   let id = -1;
   try {
-    id = engine._g3_host_raw_shader_create(v[0], v[1], f[0], f[1]);
+    id = engine._g3_host_raw_shader_create(v[0], v[1], f[0], f[1], glsl3);
   } finally {
     engine._free(v[0]);
     engine._free(f[0]);
@@ -3004,6 +3240,34 @@ function rewriteRawVertex(material) {
 
 // Classify a uniform value into {kind, floats} or {texture}. Returns null
 // for unsupported shapes (the uniform is skipped with a warning).
+// Uniform declarations parsed from the shader sources, so flat float arrays
+// bind as the declared vector/scalar arrays three.js would infer
+// (e.g. `uniform vec4 uW[24]` <- Float32Array(96)).
+const RAW_UNIFORM_DECL_KIND = { float: 0, int: 5, bool: 5, ivec2: 5, ivec3: 5, ivec4: 5,
+  vec2: 1, vec3: 2, vec4: 3, bvec2: 5, bvec3: 5, bvec4: 5, mat4: 4, mat3: 4 };
+const RAW_UNIFORM_COMPONENTS = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 16, 5: 1 };
+
+function shaderUniformDecls(vs, fs) {
+  const decls = new Map();
+  const re = /uniform\s+(\w+)\s+([^;]+);/g;
+  for (const src of [vs, fs]) {
+    if (!src) continue;
+    let m;
+    while ((m = re.exec(src))) {
+      const type = m[1];
+      if (type.startsWith('sampler')) continue;
+      const kind = RAW_UNIFORM_DECL_KIND[type];
+      if (kind === undefined) continue;
+      for (const part of m[2].split(',')) {
+        const dm = part.trim().match(/^(\w+)\s*(?:\[\s*(\d+)\s*\])?$/);
+        if (!dm) continue;
+        if (!decls.has(dm[1])) decls.set(dm[1], { kind, count: dm[2] ? +dm[2] : 1 });
+      }
+    }
+  }
+  return decls;
+}
+
 function rawUniformPayload(value) {
   const v = value && value.value !== undefined ? value.value : value;
   if (v === undefined || v === null) return null;
@@ -3043,7 +3307,7 @@ function rawUniformPayload(value) {
   return null;
 }
 
-function rawUniformEntries(engine, material) {
+function rawUniformEntries(engine, material, decls) {
   const entries = [];
   for (const name of Object.keys(material.uniforms || {})) {
     const entry = material.uniforms[name];
@@ -3056,7 +3320,11 @@ function rawUniformEntries(engine, material) {
         : ensureTexture(engine, tex);
       entries.push({ name, texture: texId });
     } else {
-      entries.push({ name, kind: payload.kind, floats: payload.floats });
+      // The shader's own declaration wins over value sniffing, so flat
+      // arrays land as the declared vecN/float arrays.
+      const decl = decls && decls.get(name);
+      const kind = decl ? decl.kind : payload.kind;
+      entries.push({ name, kind, floats: payload.floats });
     }
   }
   return entries;
@@ -3096,7 +3364,8 @@ function uploadRawUniforms(engine, shaderId, entries) {
 function ensureRawMaterial(engine, material) {
   const src = ensureRawShader(engine, material);
   if (src.id < 0) return -1;
-  const entries = rawUniformEntries(engine, material);
+  if (!material._rawDecls) material._rawDecls = shaderUniformDecls(material.vertexShader, material.fragmentShader);
+  const entries = rawUniformEntries(engine, material, material._rawDecls);
   const uniformSig = rawUniformSignature(entries);
   if (src.uniformSig !== uniformSig) {
     uploadRawUniforms(engine, src.id, entries);
@@ -3474,7 +3743,7 @@ function syncObcUniforms(engine, material, id) {
 }
 
 function ensureMaterial(engine, material) {
-  if (material && material.isShaderMaterial) {
+  if (material && (material.isShaderMaterial || material.isRawShaderMaterial)) {
     const id = ensureRawMaterial(engine, material);
     if (frameMaterialCache) frameMaterialCache.set(material, id);
     return id;
@@ -3511,7 +3780,16 @@ function ensureMaterial(engine, material) {
 
   const color = material.color || new Color(0xffffff);
   const opacity = material.opacity ?? 1;
-  const alphaMode = material.transparent || opacity < 1 ? ALPHA_BLEND : material.alphaTest > 0 ? ALPHA_MASK : ALPHA_OPAQUE;
+  let alphaMode = material.transparent || opacity < 1 ? ALPHA_BLEND : material.alphaTest > 0 ? ALPHA_MASK : ALPHA_OPAQUE;
+  const blendEquation = material.blendEquation ?? AddEquation;
+  if (blendEquation === AddEquation && material.blendSrc === OneFactor &&
+      (material.blending === AdditiveBlending ||
+       (material.blending === CustomBlending && material.blendDst === OneFactor))) {
+    alphaMode = ALPHA_ADDITIVE;
+  } else if (blendEquation === AddEquation && material.blending === CustomBlending &&
+             material.blendSrc === OneFactor && material.blendDst === OneMinusSrcAlphaFactor) {
+    alphaMode = ALPHA_PREMULTIPLIED;
+  }
   const alphaCutoff = material.alphaTest > 0 ? material.alphaTest : 0.5;
   const unlit = material.isMeshBasicMaterial || material.isMeshNormalMaterial ? 1 : 0;
   const metallic = material.metalness ?? (unlit ? 0 : 0);
@@ -3953,6 +4231,54 @@ export class WebGPURenderer {
     this._clearColor = color instanceof Color ? color : new Color(color);
     this._clearAlpha = alpha;
     return this;
+  }
+
+  // The engine clears the bound target at the start of every frame with the
+  // clear colour, so clear() only needs to be API-compatible here.
+  clear(_color = true, _depth = true, _stencil = true) { return this; }
+
+  _ensureRenderTarget(rt) {
+    const engine = this._engine;
+    if (!engine) throw new Error('gs3d: call init() before using render targets');
+    ensureEngineRenderTarget(engine, rt);
+    return rt;
+  }
+  setRenderTarget(rt) {
+    this._currentRenderTarget = rt || null;
+    if (rt) this._ensureRenderTarget(rt);
+    this._captureTarget = rt ? rt._rtId : -1;
+    return this;
+  }
+  getRenderTarget() { return this._currentRenderTarget || null; }
+
+  get extensions() {
+    if (!this._extensions) {
+      const renderer = this;
+      this._extensions = {
+        has(name) {
+          if (name !== 'EXT_color_buffer_float' && name !== 'EXT_color_buffer_half_float' &&
+              name !== 'EXT_color_buffer_half_float' && name !== 'OES_texture_float_linear' &&
+              name !== 'OES_texture_half_float_linear') return false;
+          return renderer._floatTargetsSupported();
+        },
+      };
+    }
+    return this._extensions;
+  }
+  _floatTargetsSupported() {
+    if (this._floatSupport !== undefined) return this._floatSupport;
+    // The engine owns the context; asking the canvas for the same context
+    // type returns it without creating a second one.
+    let gl = null;
+    try { gl = this.domElement.getContext('webgl2') || this.domElement.getContext('experimental-webgl2'); } catch {}
+    if (gl && typeof gl.getExtension === 'function') {
+      this._floatSupport = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
+    } else {
+      // No reachable GL context (e.g. before init on a WebGPU build): assume
+      // support and let render-target creation report the real failure.
+      this._floatSupport = true;
+    }
+    return this._floatSupport;
   }
 
   _applyOutputSettings() {
