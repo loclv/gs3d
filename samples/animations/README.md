@@ -1,11 +1,11 @@
-# Goose 3D Model Lab
+# Goose 3D Animation Lab
 
-A small TypeScript-first model authoring sample for humans and coding agents.
-Change the typed model parameters, inspect the Three.js WebGPU-first preview,
-and export a standard `.glb` file. The preview automatically uses WebGL2 when
-WebGPU is unavailable. The shared [`web/model-authoring.ts`](../web/model-authoring.ts)
-helper writes the GLB directly. Install the sample's Three.js dependency with
-`bun install` before starting it.
+A small TypeScript-first animation sample for the `gs3d` package. It builds a
+little robot from primitives, rigs it with named joint groups, and plays
+keyframe clips through the Three.js-compatible `gs3d/three` facade. There is
+no `AnimationMixer` or skeleton in the facade — clips are plain typed data in
+[`src/clips.ts`](src/clips.ts), sampled each frame by
+[`src/animation.ts`](src/animation.ts) and applied to `Object3D` transforms.
 
 ## Run it
 
@@ -16,17 +16,10 @@ bun install
 bun run dev
 ```
 
-Open the local URL printed by Rsbuild. The starter scene is a three-part signal
-beacon. Select a part to edit its name, size, position, and colour; add or remove
-boxes; drag the preview to orbit it; then choose Export model to download a
-`.glb`. The exported file is glTF 2.0 and can be loaded by the Goose 3D asset
-loader.
-
-The preview uses Three.js r187 (0.187.0) and imports `WebGPURenderer` from
-`three/webgpu`. It initializes WebGPU when available and falls back to Three.js's
-WebGL2 backend otherwise. Use a secure browser context (localhost is fine) for
-WebGPU; the fallback keeps the sample usable on browsers and devices without
-WebGPU.
+Open the local URL printed by Rsbuild. Pick a clip (Idle, Walk, Wave, Jump,
+Dance), drag the timeline to scrub, change playback speed, or toggle loop.
+The joint probe shows the live euler/position values of any joint. Orbit with
+drag, zoom with scroll; pan with shift-drag.
 
 ```sh
 bun run check
@@ -35,17 +28,37 @@ bun run lint
 bun run build
 ```
 
-## Source workflow
+## Authoring a clip
 
-[`src/model.ts`](src/model.ts) contains the authored part list and returns typed
-geometry for the live preview plus GLB bytes for download. Three.js renders the
-same part geometry through its WebGPU/WebGL2 renderer. Each part becomes a
-named glTF mesh, material, and translated node. The UI in [`src/index.ts`](src/index.ts)
-binds controls to the selected part. For a new model type, edit `src/model.ts` to use `GlbBuilder`, `boxGeometry`,
-`planeGeometry`, and custom typed vertex arrays. The shared authoring guide has
-a full source example and a prompt template for assigning model work to an AI
-coding agent: [`../docs/model-authoring.md`](../docs/model-authoring.md).
+[`src/clips.ts`](src/clips.ts) exports `CLIPS`, an array of `Clip` objects:
 
-The sample keeps the scene definition in reviewable TypeScript while the builder
-owns accessor validation, binary packing, and GLB alignment. No manual byte
-offsets or binary file edits are part of the authoring loop.
+```ts
+{
+  name: 'Wave',
+  duration: 2.2,
+  tracks: {
+    shoulderR: {
+      rotation: [
+        { t: 0, value: [0, 0, 0] },
+        { t: 0.3, value: [0, 0, 150], ease: 'out' },
+        { t: 2.2, value: [0, 0, 0], ease: 'inOut' },
+      ],
+    },
+  },
+}
+```
+
+- `rotation` values are euler degrees `[x, y, z]`; positive X swings a limb
+  backward. Rotation interpolation always takes the shortest arc.
+- `position` values are **deltas** added to the joint's rest offset, so
+  `hips.position` `[0, 0.5, 0]` lifts the body half a unit.
+- `scale` values are absolute.
+- `ease` on a keyframe shapes the segment that starts there: `linear`, `in`,
+  `out`, `inOut`, or `bounce`.
+- Keep the first and last keyframe of every channel identical (or the clip
+  will pop when it loops). `bun run test` checks this for every shipped clip.
+
+Joint names come from [`src/character.ts`](src/character.ts): `root`, `hips`,
+`torso`, `head`, `shoulderL/R`, `elbowL/R`, `hipL/R`, `kneeL/R`. To rig
+something new, build `Group` pivots at each joint location, parent meshes
+under them, and register the group in `joints`/`bases`.

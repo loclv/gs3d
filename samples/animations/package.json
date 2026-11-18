@@ -1,5 +1,5 @@
 {
-  "name": "rsbuild-project",
+  "name": "gs3d-animations",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "dev": "rsbuild",
     "lint": "rslint",
     "preview": "rsbuild preview",
-    "test": "node --experimental-strip-types ./test-model.ts"
+    "test": "node --experimental-strip-types ./test-animation.ts"
   },
   "devDependencies": {
     "@rsbuild/core": "^2.3.2",

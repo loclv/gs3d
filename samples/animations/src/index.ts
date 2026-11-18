@@ -1,59 +1,69 @@
 import './index.css';
-import { authorModel, type AuthoredModel } from './model';
 import * as THREE from 'gs3d/three';
+import { buildCharacter, JOINT_NAMES } from './character';
+import { CLIPS } from './clips';
+import { sampleClip, type Clip, type ClipPose, type Vec3 } from './animation';
 
 const root = document.querySelector<HTMLDivElement>('#root');
 if (!root) throw new Error('Missing #root app mount');
 
+const clipButtons = CLIPS.map(
+  (clip, index) => `<button type="button" class="clip-btn" data-clip="${index}" aria-pressed="${index === 0}">
+    <span class="clip-index">${String(index + 1).padStart(2, '0')}</span>
+    <span class="clip-name">${clip.name}</span>
+    <span class="clip-duration">${clip.duration.toFixed(1)}s</span>
+  </button>`,
+).join('');
+
 root.innerHTML = `
   <main class="workspace">
     <header class="topbar">
-      <a class="brand" href="#"><span class="brand-mark">g</span> Goose 3D <span class="slash">/</span> Model Lab</a>
-      <span class="mode"><i></i> TypeScript authoring</span>
+      <a class="brand" href="#"><span class="brand-mark">g</span> Goose 3D <span class="slash">/</span> Animation Lab</a>
+      <span class="mode"><i></i> Procedural clips · gs3d/three</span>
     </header>
     <section class="hero">
-      <div class="eyebrow">CODE-FIRST · GLB EXPORT</div>
-      <h1>Shape it in source.<br><span>See it in 3D.</span></h1>
-      <p class="intro">A small, AI-friendly model authoring sample. Change a few typed parameters, inspect a live preview, and export a standard glTF binary model.</p>
+      <div class="eyebrow">CODE-FIRST · KEYFRAME CLIPS</div>
+      <h1>Choreograph it in source.<br><span>Watch it move in 3D.</span></h1>
+      <p class="intro">A small animation sample for the Goose 3D TypeScript facade. Clips are plain typed keyframe data — pick one, scrub the timeline, or edit <code>src/clips.ts</code> and see the change live.</p>
     </section>
-    <section class="studio" aria-label="3D model authoring studio">
+    <section class="studio" aria-label="3D animation studio">
       <aside class="editor">
-        <div class="section-title"><span>01</span> Model spec <code>src/model.ts</code></div>
-        <label class="field">Model name
-          <input id="model-name" value="Signal Beacon" maxlength="48" autocomplete="off">
-        </label>
-        <div class="parts-heading"><span>Parts</span><div><button id="add-part" type="button">+ Add box</button><button id="remove-part" type="button" aria-label="Remove selected part">−</button></div></div>
-        <select id="part-list" class="part-list" aria-label="Select model part"></select>
-        <label class="field part-name-field">Part name
-          <input id="part-name" value="Body" maxlength="40" autocomplete="off">
-        </label>
-        <fieldset class="dimensions">
-          <legend>Size <span>meters</span></legend>
-          <label><span>W</span><input id="width" type="range" min="0.4" max="3.2" step="0.1" value="1.2"><output id="width-value">1.2</output></label>
-          <label><span>H</span><input id="height" type="range" min="0.4" max="3.2" step="0.1" value="1.8"><output id="height-value">1.8</output></label>
-          <label><span>D</span><input id="depth" type="range" min="0.4" max="3.2" step="0.1" value="0.8"><output id="depth-value">0.8</output></label>
-        </fieldset>
-        <fieldset class="dimensions position-fields">
-          <legend>Position <span>meters</span></legend>
-          <label><span>X</span><input id="x" type="range" min="-1.5" max="1.5" step="0.1" value="0"><output id="x-value">0.0</output></label>
-          <label><span>Y</span><input id="y" type="range" min="-1.5" max="1.5" step="0.1" value="0"><output id="y-value">0.0</output></label>
-          <label><span>Z</span><input id="z" type="range" min="-1.5" max="1.5" step="0.1" value="0"><output id="z-value">0.0</output></label>
-        </fieldset>
-        <label class="field color-field">Base color
-          <span class="color-control"><input id="color" type="color" value="#6b8cff"><output id="color-value">#6B8CFF</output></span>
-        </label>
-        <div class="spec-note"><span class="code-dot"></span><code>parts: ModelPart[]</code><span>· meshes & transforms</span></div>
-        <button id="export" class="export"><span>Export model</span><span aria-hidden="true">↗</span></button>
+        <div class="section-title"><span>01</span> Clips <code>src/clips.ts</code></div>
+        <div class="clip-list" role="group" aria-label="Animation clips">${clipButtons}</div>
+        <div class="section-title transport-title"><span>02</span> Transport</div>
+        <div class="transport">
+          <button id="play-pause" class="play" type="button" aria-label="Pause"><span id="play-icon">❚❚</span></button>
+          <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Scrub timeline">
+          <output id="time-readout">0.00 / 2.4s</output>
+        </div>
+        <div class="transport-row">
+          <label class="field speed-field">Speed
+            <select id="speed">
+              <option value="0.25">0.25×</option>
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+            </select>
+          </label>
+          <label class="loop-field"><input id="loop" type="checkbox" checked> Loop</label>
+        </div>
+        <div class="section-title probe-title"><span>03</span> Joint probe</div>
+        <div class="probe">
+          <select id="joint" aria-label="Joint to inspect"></select>
+          <output id="joint-values" class="joint-values">—</output>
+        </div>
+        <div class="spec-note"><span class="code-dot"></span><code>sampleClip(clip, t)</code><span>· euler ° · pos Δ</span></div>
         <div id="status" class="status" role="status" aria-live="polite"></div>
       </aside>
       <div class="preview-wrap">
-        <div class="preview-head"><span><i></i> LIVE PREVIEW</span><span>DRAG TO ORBIT</span></div>
-        <canvas id="preview" aria-label="Interactive 3D model preview"></canvas>
-        <div class="preview-foot"><span id="preview-name">SIGNAL BEACON</span><span id="mesh-stats">3 PARTS · 36 TRIANGLES · GLB 0 KB</span></div>
+        <div class="preview-head"><span><i></i> LIVE PREVIEW</span><span>DRAG TO ORBIT · SCROLL TO ZOOM</span></div>
+        <canvas id="preview" aria-label="Interactive 3D animation preview"></canvas>
+        <div class="preview-foot"><span id="clip-label">IDLE</span><span id="scene-stats">12 JOINTS · 0 KEYS · 0 TRIANGLES</span></div>
         <div class="grid-glow"></div>
       </div>
     </section>
-    <footer><span>Plain TypeScript source → standard glTF 2.0</span><a href="https://github.com/aardappel/goose">Built for Goose 3D <span>↗</span></a></footer>
+    <footer><span>Plain TypeScript keyframes → gs3d/three transforms</span><a href="https://github.com/aardappel/goose">Built for Goose 3D <span>↗</span></a></footer>
   </main>`;
 
 const $ = <T extends HTMLElement>(selector: string): T => {
@@ -62,66 +72,142 @@ const $ = <T extends HTMLElement>(selector: string): T => {
   return element;
 };
 
-const nameInput = $<HTMLInputElement>('#model-name');
-const widthInput = $<HTMLInputElement>('#width');
-const heightInput = $<HTMLInputElement>('#height');
-const depthInput = $<HTMLInputElement>('#depth');
-const colorInput = $<HTMLInputElement>('#color');
 const canvas = $<HTMLCanvasElement>('#preview');
 const status = $<HTMLDivElement>('#status');
+const scrub = $<HTMLInputElement>('#scrub');
+const timeReadout = $<HTMLOutputElement>('#time-readout');
+const playButton = $<HTMLButtonElement>('#play-pause');
+const playIcon = $<HTMLSpanElement>('#play-icon');
+const speedSelect = $<HTMLSelectElement>('#speed');
+const loopToggle = $<HTMLInputElement>('#loop');
+const jointSelect = $<HTMLSelectElement>('#joint');
+const jointValues = $<HTMLOutputElement>('#joint-values');
+const clipLabel = $<HTMLSpanElement>('#clip-label');
+const sceneStats = $<HTMLSpanElement>('#scene-stats');
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0c0f15);
-const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-camera.position.set(0, 0, 5.3);
-scene.add(new THREE.HemisphereLight(0xcbd8ff, 0x263247, 2.1));
-const keyLight = new THREE.DirectionalLight(0xffe2bd, 3.2);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+camera.position.set(2.6, 1.5, 3.1);
+
+scene.add(new THREE.HemisphereLight(0xcbd8ff, 0x263247, 2.0));
+const keyLight = new THREE.DirectionalLight(0xffe2bd, 3.0);
 keyLight.position.set(-3, 5, 6);
 scene.add(keyLight);
-const modelGroup = new THREE.Group();
-scene.add(modelGroup);
-const renderer = new THREE.WebGPURenderer({ canvas, alpha: false, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+const rimLight = new THREE.DirectionalLight(0x8ca6ff, 1.4);
+rimLight.position.set(3, 2, -4);
+scene.add(rimLight);
 
-let model: AuthoredModel;
-let yaw = -0.5;
-let pitch = 0.25;
-let pointer: { id: number; x: number; y: number } | undefined;
-interface PartDraft { name: string; size: [number, number, number]; position: [number, number, number]; color: string }
-const parts: PartDraft[] = [
-  { name: 'Body', size: [1.25, 0.72, 0.78], position: [0, 0, 0], color: '#6b8cff' },
-  { name: 'Housing', size: [0.76, 0.58, 0.66], position: [0, 0.62, 0], color: '#aabaff' },
-  { name: 'Beacon lens', size: [0.28, 0.34, 0.3], position: [0, 1.08, 0], color: '#ffc16f' },
-];
-let selectedPart = 0;
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x141a26, roughness: 0.9, metalness: 0.05 });
+const ground = new THREE.Mesh(new THREE.CircleGeometry(6, 48), groundMat);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+const ringMat = new THREE.MeshStandardMaterial({ color: 0x1b2740, roughness: 0.6, metalness: 0.3, emissive: 0x2a3d66, emissiveIntensity: 0.5 });
+const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.012, 8, 96), ringMat);
+ring.rotation.x = Math.PI / 2;
+scene.add(ring);
 
-const partList = document.querySelector<HTMLSelectElement>('#part-list')!;
-const partName = document.querySelector<HTMLInputElement>('#part-name')!;
-const dimensionInputs = [widthInput, heightInput, depthInput];
-const positionInputs = [$<HTMLInputElement>('#x'), $<HTMLInputElement>('#y'), $<HTMLInputElement>('#z')];
+const rig = buildCharacter();
+scene.add(rig.root);
+const DEG = Math.PI / 180;
 
-function currentPart(): PartDraft { return parts[selectedPart]; }
+let clip: Clip = CLIPS[0];
+let time = 0;
+let playing = true;
+let speed = 1;
+let loop = true;
+let lastNow = 0;
+let pose: ClipPose = {};
 
-function syncInputsToPart(): void {
-  const part = currentPart();
-  part.name = partName.value.trim() || 'Untitled part';
-  part.size = dimensionInputs.map(input => Number(input.value)) as PartDraft['size'];
-  part.position = positionInputs.map(input => Number(input.value)) as PartDraft['position'];
-  part.color = colorInput.value;
+const jointSelectOptions = JOINT_NAMES.map(name => `<option value="${name}">${name}</option>`).join('');
+jointSelect.innerHTML = jointSelectOptions;
+
+function applyPose(poseNow: ClipPose): void {
+  for (const name of JOINT_NAMES) {
+    const joint = rig.joints[name];
+    if (!joint) continue;
+    const channel = poseNow[name];
+    const base = rig.bases[name];
+    const p = channel?.position;
+    joint.position.set(base[0] + (p?.[0] ?? 0), base[1] + (p?.[1] ?? 0), base[2] + (p?.[2] ?? 0));
+    const r = channel?.rotation;
+    joint.rotation.set((r?.[0] ?? 0) * DEG, (r?.[1] ?? 0) * DEG, (r?.[2] ?? 0) * DEG);
+    const s = channel?.scale;
+    joint.scale.set(s?.[0] ?? 1, s?.[1] ?? 1, s?.[2] ?? 1);
+  }
 }
 
-function loadPartInputs(): void {
-  const part = currentPart();
-  partName.value = part.name;
-  dimensionInputs.forEach((input, axis) => { input.value = String(part.size[axis]); });
-  positionInputs.forEach((input, axis) => { input.value = String(part.position[axis]); });
-  colorInput.value = part.color;
+function keyCount(c: Clip): number {
+  let n = 0;
+  for (const track of Object.values(c.tracks)) {
+    n += (track.position?.length ?? 0) + (track.rotation?.length ?? 0) + (track.scale?.length ?? 0);
+  }
+  return n;
 }
 
-function refreshPartOptions(): void {
-  partList.replaceChildren(...parts.map((part, index) => new Option(`${String(index + 1).padStart(2, '0')}  ${part.name}`, String(index))));
-  partList.value = String(selectedPart);
-  $('#remove-part').toggleAttribute('disabled', parts.length <= 1);
+let triangleCount = 0;
+rig.root.traverse(object => {
+  const mesh = object as THREE.Mesh;
+  if (mesh.isMesh && mesh.geometry?.index) triangleCount += mesh.geometry.index.count / 3;
+});
+
+function selectClip(index: number, resetTime = true): void {
+  clip = CLIPS[index];
+  if (resetTime) time = 0;
+  for (const button of root!.querySelectorAll<HTMLButtonElement>('.clip-btn')) {
+    button.setAttribute('aria-pressed', String(Number(button.dataset.clip) === index));
+  }
+  clipLabel.textContent = clip.name.toUpperCase();
+  sceneStats.textContent = `${JOINT_NAMES.length} JOINTS · ${keyCount(clip)} KEYS · ${Math.round(triangleCount)} TRIANGLES`;
+}
+
+for (const button of root!.querySelectorAll<HTMLButtonElement>('.clip-btn')) {
+  button.addEventListener('click', () => selectClip(Number(button.dataset.clip)));
+}
+
+playButton.addEventListener('click', () => {
+  playing = !playing;
+  playIcon.textContent = playing ? '❚❚' : '▶';
+  playButton.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+});
+scrub.addEventListener('input', () => {
+  time = (Number(scrub.value) / 1000) * clip.duration;
+});
+speedSelect.addEventListener('change', () => { speed = Number(speedSelect.value); });
+loopToggle.addEventListener('change', () => { loop = loopToggle.checked; });
+
+function updateProbe(): void {
+  const name = jointSelect.value as (typeof JOINT_NAMES)[number];
+  const joint = rig.joints[name];
+  const base = rig.bases[name];
+  const p: Vec3 = [joint.position.x - base[0], joint.position.y - base[1], joint.position.z - base[2]];
+  const r: Vec3 = [joint.rotation.x / DEG, joint.rotation.y / DEG, joint.rotation.z / DEG];
+  const f = (v: number) => v.toFixed(1).padStart(6);
+  jointValues.textContent = `pos Δ (${f(p[0])}, ${f(p[1])}, ${f(p[2])})  rot° (${f(r[0])}, ${f(r[1])}, ${f(r[2])})`;
+}
+
+function render(now: number): void {
+  const dt = lastNow ? Math.min(0.1, (now - lastNow) / 1000) : 0;
+  lastNow = now;
+  if (playing) {
+    time += dt * speed;
+    if (loop) {
+      time %= clip.duration;
+    } else if (time >= clip.duration) {
+      time = clip.duration;
+      playing = false;
+      playIcon.textContent = '▶';
+      playButton.setAttribute('aria-label', 'Play');
+    }
+  }
+  pose = sampleClip(clip, time, loop);
+  applyPose(pose);
+  scrub.value = String(Math.round((time / clip.duration) * 1000));
+  timeReadout.textContent = `${time.toFixed(2)} / ${clip.duration.toFixed(1)}s`;
+  updateProbe();
+  ring.rotation.z = now * 0.0002;
+  controls.update();
+  renderer.render(scene, camera);
 }
 
 function resizeCanvas(): void {
@@ -133,104 +219,18 @@ function resizeCanvas(): void {
   renderer.setSize(width, height, false);
 }
 
-function clearPreview(): void {
-  for (const child of [...modelGroup.children]) {
-    if (child instanceof THREE.Mesh) {
-      child.geometry.dispose();
-      const materials = Array.isArray(child.material) ? child.material : [child.material];
-      for (const material of materials) material.dispose();
-    }
-  }
-  modelGroup.clear();
-}
+const renderer = new THREE.WebGPURenderer({ canvas, alpha: false, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.target.set(0, 1.0, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 1.2;
+controls.maxDistance = 9;
+controls.maxPolarAngle = Math.PI * 0.55;
 
-function setGeometry(): void {
-  syncInputsToPart();
-  refreshPartOptions();
-  model = authorModel(nameInput.value.trim() || 'Untitled model', parts);
-  clearPreview();
-  for (const part of model.parts) {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(part.geometry.positions.flat(), 3));
-    if (part.geometry.normals) geometry.setAttribute('normal', new THREE.Float32BufferAttribute(part.geometry.normals.flat(), 3));
-    else geometry.computeVertexNormals();
-    geometry.setIndex([...part.geometry.indices]);
-    const material = new THREE.MeshStandardMaterial({ color: part.color, metalness: 0.12, roughness: 0.38 });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(...part.position);
-    modelGroup.add(mesh);
-  }
-  const selected = currentPart();
-  const axes = ['width', 'height', 'depth'];
-  axes.forEach((axis, index) => { $(`#${axis}-value`).textContent = selected.size[index].toFixed(1); });
-  ['x', 'y', 'z'].forEach((axis, index) => { $(`#${axis}-value`).textContent = selected.position[index].toFixed(1); });
-  $('#color-value').textContent = colorInput.value.toUpperCase();
-  $('#preview-name').textContent = (nameInput.value.trim() || 'UNTITLED PROP').toUpperCase();
-  $('#mesh-stats').textContent = `${model.parts.length} PARTS · ${model.triangleCount} TRIANGLES · GLB ${(model.glb.byteLength / 1024).toFixed(1)} KB`;
-  status.textContent = `Ready · ${model.parts.length} parts · ${model.vertexCount} vertices · ${model.glb.byteLength.toLocaleString()} byte GLB · Goose 3D · WebGL2`;
-}
-
-function render(): void {
-  modelGroup.rotation.set(pitch, yaw, 0);
-  renderer.render(scene, camera);
-}
-
-for (const input of [nameInput, partName, widthInput, heightInput, depthInput, colorInput, ...positionInputs]) {
-  input.addEventListener('input', setGeometry);
-}
-partList.addEventListener('change', () => {
-  syncInputsToPart();
-  selectedPart = Number(partList.value);
-  loadPartInputs();
-  setGeometry();
-});
-$('#add-part').addEventListener('click', () => {
-  syncInputsToPart();
-  const number = parts.length + 1;
-  const palette = ['#73d3b0', '#ffa66f', '#d691f2', '#f1d36b'];
-  parts.push({ name: `Part ${number}`, size: [0.5, 0.5, 0.5], position: [0, 0, 0], color: palette[(number - 1) % palette.length] });
-  selectedPart = parts.length - 1;
-  loadPartInputs();
-  setGeometry();
-});
-$('#remove-part').addEventListener('click', () => {
-  if (parts.length <= 1) return;
-  syncInputsToPart();
-  parts.splice(selectedPart, 1);
-  selectedPart = Math.min(selectedPart, parts.length - 1);
-  loadPartInputs();
-  setGeometry();
-});
-canvas.addEventListener('pointerdown', event => {
-  pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
-  canvas.setPointerCapture(event.pointerId);
-});
-canvas.addEventListener('pointermove', event => {
-  if (!pointer || pointer.id !== event.pointerId) return;
-  yaw += (event.clientX - pointer.x) * 0.009;
-  pitch = Math.max(-1.35, Math.min(1.35, pitch + (event.clientY - pointer.y) * 0.009));
-  pointer.x = event.clientX;
-  pointer.y = event.clientY;
-});
-canvas.addEventListener('pointerup', () => { pointer = undefined; });
-canvas.addEventListener('pointercancel', () => { pointer = undefined; });
-
-$('#export').addEventListener('click', () => {
-  setGeometry();
-  const fileBase = (nameInput.value.trim() || 'untitled-model').toLowerCase().replace(/[^a-z\d]+/g, '-').replace(/^-|-$/g, '');
-  const blob = new Blob([model.glb.slice().buffer as ArrayBuffer], { type: 'model/gltf-binary' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${fileBase || 'untitled-model'}.glb`;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  status.textContent = `Downloaded ${link.download} · ${model.glb.byteLength.toLocaleString()} bytes`;
-});
-
-refreshPartOptions();
-loadPartInputs();
-setGeometry();
+selectClip(0);
 
 async function startRenderer(): Promise<void> {
   try {
@@ -238,7 +238,7 @@ async function startRenderer(): Promise<void> {
     resizeCanvas();
     new ResizeObserver(resizeCanvas).observe(canvas);
     const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2';
-    status.textContent = `Ready · ${model.parts.length} parts · ${model.vertexCount} vertices · ${model.glb.byteLength.toLocaleString()} byte GLB · ${backend}`;
+    status.textContent = `Ready · ${JOINT_NAMES.length} joints · ${CLIPS.length} clips · ${keyCount(CLIPS[0])}–${Math.max(...CLIPS.map(keyCount))} keys · ${Math.round(triangleCount)} triangles · ${backend}`;
     renderer.setAnimationLoop(render);
   } catch (error) {
     console.error('Could not start the Goose 3D renderer:', error);
