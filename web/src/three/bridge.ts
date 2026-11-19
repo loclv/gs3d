@@ -26,7 +26,7 @@ let engineCanvasSeq = 0;
 // Objects that currently own an engine node. render() releases records for
 // objects absent from the scene being drawn, so switching scenes cannot leak
 // the previous scene's nodes into the frame.
-export const syncedObjects = new Set();
+export const syncedObjects = new Set<any>();
 
 export function releaseNodeRecord(record) {
   if (!record || !sharedEngine) return;
@@ -672,7 +672,7 @@ function rewriteRawVertex(material) {
   const stripped = resolved.replace(/attribute\s+(float|int|vec2|vec3|vec4)\s+(\w+)\s*;/g,
     (match, type, name) => {
       if (name === 'position' || name === 'normal' || name === 'uv' || name === 'color' || name === 'tangent') return '';
-      const decl = byName.get(name) || { type };
+      const decl: any = byName.get(name) || { type };
       decodes.push(`${decl.type} ${name} = ${rawAttrDecode(name, decl.type, material)};`);
       return '';
     });
@@ -743,7 +743,7 @@ function rawUniformPayload(value) {
     return { kind: RAW_UNIFORM_KIND.vec2, floats: [v.x, v.y] };
   }
   if (Array.isArray(v) || ArrayBuffer.isView(v)) {
-    const floats = Array.from(v);
+    const floats = Array.from(v as ArrayLike<number>);
     if (floats.every(x => typeof x === 'number')) {
       return { kind: RAW_UNIFORM_KIND.float, floats };
     }

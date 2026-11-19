@@ -9,6 +9,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "declaration": true,
+    "useDefineForClassFields": false,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": false
   },

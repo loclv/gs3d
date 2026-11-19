@@ -4,6 +4,31 @@ import { releaseEngineTree, localMatrixOf, worldMatrixOf } from './bridge';
 /* --- scene graph ---------------------------------------------------------- */
 
 export class Object3D {
+  isObject3D: boolean;
+  name: string;
+  position: Vector3;
+  rotation: Euler;
+  quaternion: Quaternion;
+  scale: Vector3;
+  _qCache: { x: number; y: number; z: number; w: number };
+  _eCache: { x: number; y: number; z: number; order: string };
+  children: Object3D[];
+  parent: Object3D | null;
+  visible: boolean;
+  castShadow: boolean;
+  receiveShadow: boolean;
+  renderOrder: number;
+  frustumCulled: boolean;
+  matrixAutoUpdate: boolean;
+  matrix: Matrix4;
+  matrixWorld: Matrix4;
+  userData: Record<string, any>;
+  isCamera?: boolean;
+  isLight?: boolean;
+  isMesh?: boolean;
+  isInstancedMesh?: boolean;
+  isGroup?: boolean;
+  isScene?: boolean;
   constructor() {
     this.isObject3D = true;
     this.name = '';
@@ -91,7 +116,7 @@ export class Object3D {
     }
     return this;
   }
-  updateMatrixWorld(force) {
+  updateMatrixWorld(force?: boolean) {
     if (this.matrixAutoUpdate) this.updateMatrix();
     if (this.parent && this.parent.matrixWorld) {
       this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
@@ -138,6 +163,11 @@ export class Group extends Object3D {
 }
 
 export class Scene extends Object3D {
+  background: any;
+  fog: any;
+  environment: any;
+  environmentIntensity: number;
+  environmentRotation: number;
   constructor() {
     super();
     this.isScene = true;
@@ -153,7 +183,9 @@ export class Scene extends Object3D {
 /* --- lights ------------------------------------------------------------------- */
 
 export class Light extends Object3D {
-  constructor(color = 0xffffff, intensity = 1) {
+  color: Color;
+  intensity: number;
+  constructor(color: any = 0xffffff, intensity = 1) {
     super();
     this.isLight = true;
     this.color = color instanceof Color ? color : new Color(color);
@@ -162,11 +194,14 @@ export class Light extends Object3D {
 }
 
 export class AmbientLight extends Light {
-  constructor(color = 0xffffff, intensity = 1) { super(color, intensity); this.isAmbientLight = true; }
+  isAmbientLight: boolean;
+  constructor(color: any = 0xffffff, intensity = 1) { super(color, intensity); this.isAmbientLight = true; }
 }
 
 export class HemisphereLight extends Light {
-  constructor(skyColor = 0xffffff, groundColor = 0x444444, intensity = 1) {
+  isHemisphereLight: boolean;
+  groundColor: Color;
+  constructor(skyColor: any = 0xffffff, groundColor: any = 0x444444, intensity = 1) {
     super(skyColor, intensity);
     this.isHemisphereLight = true;
     this.groundColor = groundColor instanceof Color ? groundColor : new Color(groundColor);
@@ -180,6 +215,15 @@ export class HemisphereLight extends Light {
 // and needsUpdate are accepted for API compatibility; the map re-renders
 // every frame while shadows are enabled.
 export class DirectionalLightShadow {
+  mapSize: Vector2;
+  bias: number;
+  normalBias: number;
+  radius: number;
+  camera: { left: number; right: number; top: number; bottom: number; near: number; far: number; updateProjectionMatrix(): void };
+  map: any;
+  mapPass: any;
+  autoUpdate: boolean;
+  needsUpdate: boolean;
   constructor() {
     this.mapSize = new Vector2(512, 512);
     this.bias = 0;
@@ -198,7 +242,10 @@ export class DirectionalLightShadow {
 }
 
 export class DirectionalLight extends Light {
-  constructor(color = 0xffffff, intensity = 1) {
+  isDirectionalLight: boolean;
+  target: Object3D;
+  shadow: DirectionalLightShadow;
+  constructor(color: any = 0xffffff, intensity = 1) {
     super(color, intensity);
     this.isDirectionalLight = true;
     this.target = new Object3D();
@@ -207,7 +254,10 @@ export class DirectionalLight extends Light {
 }
 
 export class PointLight extends Light {
-  constructor(color = 0xffffff, intensity = 1, distance = 0, decay = 2) {
+  isPointLight: boolean;
+  distance: number;
+  decay: number;
+  constructor(color: any = 0xffffff, intensity = 1, distance = 0, decay = 2) {
     super(color, intensity);
     this.isPointLight = true;
     this.distance = distance;
@@ -216,7 +266,13 @@ export class PointLight extends Light {
 }
 
 export class SpotLight extends Light {
-  constructor(color = 0xffffff, intensity = 1, distance = 0, angle = Math.PI / 3, penumbra = 0, decay = 2) {
+  isSpotLight: boolean;
+  distance: number;
+  angle: number;
+  penumbra: number;
+  decay: number;
+  target: Object3D;
+  constructor(color: any = 0xffffff, intensity = 1, distance = 0, angle = Math.PI / 3, penumbra = 0, decay = 2) {
     super(color, intensity);
     this.isSpotLight = true;
     this.distance = distance;
@@ -228,12 +284,19 @@ export class SpotLight extends Light {
 }
 
 export class RectAreaLight extends Light {
-  constructor(color = 0xffffff, intensity = 1) { super(color, intensity); this.isRectAreaLight = true; }
+  isRectAreaLight: boolean;
+  constructor(color: any = 0xffffff, intensity = 1) { super(color, intensity); this.isRectAreaLight = true; }
 }
 
 /* --- cameras -------------------------------------------------------------------- */
 
 export class PerspectiveCamera extends Object3D {
+  isPerspectiveCamera: boolean;
+  fov: number;
+  aspect: number;
+  near: number;
+  far: number;
+  view?: any;
   constructor(fov = 50, aspect = 1, near = 0.1, far = 2000) {
     super();
     this.isCamera = true; this.isPerspectiveCamera = true;
@@ -255,6 +318,14 @@ const cameraViewOffset = {
 Object.assign(PerspectiveCamera.prototype, cameraViewOffset);
 
 export class OrthographicCamera extends Object3D {
+  isOrthographicCamera: boolean;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  near: number;
+  far: number;
+  view?: any;
   constructor(left = -1, right = 1, top = 1, bottom = -1, near = 0.1, far = 2000) {
     super();
     this.isCamera = true; this.isOrthographicCamera = true;
@@ -266,6 +337,10 @@ export class OrthographicCamera extends Object3D {
 Object.assign(OrthographicCamera.prototype, cameraViewOffset);
 
 export class Camera extends Object3D {
+  near: number;
+  far: number;
+  aspect: number;
+  fov: number;
   constructor() {
     super(); this.isCamera = true;
     // Defaults so a bare Camera still yields a sane engine projection; the
@@ -278,14 +353,21 @@ export class Camera extends Object3D {
 /* --- fog ------------------------------------------------------------------------- */
 
 export class Fog {
-  constructor(color = 0xffffff, near = 1, far = 1000) {
+  isFog: boolean;
+  color: Color;
+  near: number;
+  far: number;
+  constructor(color: any = 0xffffff, near = 1, far = 1000) {
     this.isFog = true;
     this.color = color instanceof Color ? color : new Color(color);
     this.near = near; this.far = far;
   }
 }
 export class FogExp2 {
-  constructor(color = 0xffffff, density = 0.00025) {
+  isFogExp2: boolean;
+  color: Color;
+  density: number;
+  constructor(color: any = 0xffffff, density = 0.00025) {
     this.isFogExp2 = true;
     this.color = color instanceof Color ? color : new Color(color);
     this.density = density;

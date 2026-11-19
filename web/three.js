@@ -439,7 +439,7 @@ var BufferGeometry = class BufferGeometry {
 		this.groups.length = 0;
 		return this;
 	}
-	_transformPositions(fn, normalFn) {
+	_transformPositions(fn, normalFn = null) {
 		const position = this.attributes.position;
 		if (position) {
 			const pd = attrData(position);
@@ -2519,8 +2519,8 @@ var RoomEnvironment = class extends Scene {
 			c.g *= intensity;
 			c.b *= intensity;
 			const m = new Mesh(new PlaneGeometry(w, h), new MeshBasicMaterial({ color: c }));
-			m.position.set(...pos);
-			m.lookAt(new Vector3(...look));
+			m.position.set(pos[0], pos[1], pos[2]);
+			m.lookAt(new Vector3(look[0], look[1], look[2]));
 			m.updateMatrixWorld();
 			this.add(m);
 		};
@@ -4515,7 +4515,7 @@ var TextureLoader = class {
 	constructor() {
 		this.manager = null;
 	}
-	load(url, onLoad, onProgress, onError) {
+	load(url, onLoad, _onProgress, onError) {
 		fetch(url).then((response) => {
 			if (!response.ok) throw new Error(`gs3d: failed to fetch texture ${url} (${response.status})`);
 			return response.blob();

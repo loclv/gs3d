@@ -9,7 +9,31 @@ export const BackSide = 1;
 export const DoubleSide = 2;
 
 export class Material {
-  constructor(parameters = {}) {
+  isMaterial: boolean;
+  name: string;
+  color: Color;
+  opacity: number;
+  transparent: boolean;
+  alphaTest: number;
+  polygonOffset: boolean;
+  polygonOffsetFactor: number;
+  polygonOffsetUnits: number;
+  side: number;
+  visible: boolean;
+  map: any;
+  vertexColors: boolean;
+  flatShading: boolean;
+  normalMap: any;
+  normalScale: Vector2;
+  roughnessMap: any;
+  metalnessMap: any;
+  emissiveMap: any;
+  aoMap: any;
+  aoMapIntensity: number;
+  envMapIntensity: number;
+  version?: number;
+  [key: string]: any;
+  constructor(parameters: Record<string, any> = {}) {
     this.isMaterial = true;
     this.name = '';
     this.color = new Color(0xffffff);
@@ -42,7 +66,8 @@ export class Material {
 }
 
 export class MeshBasicMaterial extends Material {
-  constructor(parameters = {}) {
+  isMeshBasicMaterial: boolean;
+  constructor(parameters: Record<string, any> = {}) {
     super(parameters);
     this.isMeshBasicMaterial = true;
     if (parameters.color !== undefined) this.color = parameters.color instanceof Color ? parameters.color : new Color(parameters.color);
@@ -50,7 +75,13 @@ export class MeshBasicMaterial extends Material {
 }
 
 export class MeshStandardMaterial extends Material {
-  constructor(parameters = {}) {
+  isMeshStandardMaterial: boolean;
+  metalness: number;
+  roughness: number;
+  emissive: Color;
+  emissiveIntensity: number;
+  ior: number;
+  constructor(parameters: Record<string, any> = {}) {
     super(parameters);
     this.isMeshStandardMaterial = true;
     this.metalness = parameters.metalness ?? 0;
@@ -76,7 +107,15 @@ export { MeshBasicMaterial as LineBasicMaterial };
 // modes are not reachable. `#include <tonemapping_fragment>` and
 // `#include <colorspace_fragment>` resolve to the engine's output chain.
 export class ShaderMaterial extends Material {
-  constructor(parameters = {}) {
+  isShaderMaterial: boolean;
+  defines: Record<string, any>;
+  uniforms: Record<string, any>;
+  vertexShader: string;
+  fragmentShader: string;
+  depthWrite: boolean;
+  depthTest: boolean;
+  blending: number;
+  constructor(parameters: Record<string, any> = {}) {
     super(parameters);
     this.isShaderMaterial = true;
     this.defines = parameters.defines ? { ...parameters.defines } : {};
@@ -94,7 +133,8 @@ export class ShaderMaterial extends Material {
 // RawShaderMaterial is ShaderMaterial without three's prefix chunk injection;
 // the gs3d raw-shader path already compiles user sources verbatim.
 export class RawShaderMaterial extends ShaderMaterial {
-  constructor(parameters = {}) {
+  isRawShaderMaterial: boolean;
+  constructor(parameters: Record<string, any> = {}) {
     super(parameters);
     this.isRawShaderMaterial = true;
   }

@@ -7,7 +7,39 @@ import { worldMatrixOf } from './bridge';
    once per frame (or rely on the event handlers, which update immediately). */
 
 export class OrbitControls {
-  constructor(object, domElement) {
+  object: any;
+  domElement: any;
+  target: Vector3;
+  enabled: boolean;
+  enableDamping: boolean;
+  dampingFactor: number;
+  enableZoom: boolean;
+  enablePan: boolean;
+  enableRotate: boolean;
+  rotateSpeed: number;
+  zoomSpeed: number;
+  panSpeed: number;
+  minDistance: number;
+  maxDistance: number;
+  minPolarAngle: number;
+  maxPolarAngle: number;
+  screenSpacePanning: boolean;
+  _radius: number;
+  _theta: number;
+  _phi: number;
+  _thetaDelta: number;
+  _phiDelta: number;
+  _radiusDelta: number;
+  _panOffset: Vector3;
+  _pointers: Map<number, any>;
+  _disposed: boolean;
+  _onPointerDown: (e: any) => void;
+  _onPointerMove: (e: any) => void;
+  _onPointerUp: (e: any) => void;
+  _onWheel: (e: any) => void;
+  _onContextMenu: (e: any) => void;
+  _listeners: Map<string, Set<Function>>;
+  constructor(object: any, domElement: any) {
     if (!object || !object.isCamera) throw new TypeError('gs3d: OrbitControls requires a camera');
     this.object = object;
     this.domElement = domElement;

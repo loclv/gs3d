@@ -4,6 +4,11 @@ import { worldMatrixOf } from './bridge';
 
 
 export class Raycaster {
+  ray: Ray;
+  near: number;
+  far: number;
+  camera: any;
+  layers: { mask: number };
   constructor(origin = new Vector3(), direction = new Vector3(0, 0, -1), near = 0, far = Infinity) {
     this.ray = new Ray(origin, direction);
     this.near = near;
@@ -60,7 +65,7 @@ export class Raycaster {
     for (const object of objects) this.intersectObject(object, recursive, hits);
     return hits;
   }
-  _intersectMesh(mesh, world, hits, instanceId) {
+  _intersectMesh(mesh: any, world: any, hits: any[], instanceId?: number) {
     const geometry = mesh.geometry;
     const pos = geometry.attributes.position;
     if (!pos) return;
@@ -122,7 +127,7 @@ export class Raycaster {
         uvArr[ia * uvSize + 1] * w0 + uvArr[ib * uvSize + 1] * u + uvArr[ic * uvSize + 1] * v,
       );
     }
-    const entry = {
+    const entry: any = {
       distance,
       point: new Vector3(wp[0], wp[1], wp[2]),
       face: { a: ia, b: ib, c: ic, normal: new Vector3(wn[0], wn[1], wn[2]), materialIndex },

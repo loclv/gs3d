@@ -6,7 +6,13 @@ import { attrData, releaseGeometry } from './bridge';
 /* --- geometry -------------------------------------------------------------- */
 
 export class BufferAttribute {
-  constructor(array, itemSize, normalized = false) {
+  isBufferAttribute: boolean;
+  array: any;
+  itemSize: number;
+  normalized: boolean;
+  count: number;
+  needsUpdate?: boolean;
+  constructor(array: any, itemSize: number, normalized = false) {
     this.isBufferAttribute = true;
     this.array = array;
     this.itemSize = itemSize;
@@ -25,7 +31,11 @@ export class Uint32BufferAttribute extends BufferAttribute {
 }
 
 export class InterleavedBuffer {
-  constructor(array, stride) {
+  isInterleavedBuffer: boolean;
+  array: any;
+  stride: number;
+  usage: number;
+  constructor(array: any, stride: number) {
     this.isInterleavedBuffer = true;
     this.array = array;
     this.stride = stride;
@@ -36,7 +46,14 @@ export class InterleavedBuffer {
 // Strided view into an InterleavedBuffer; ensureGeometry deinterleaves it
 // into a plain per-attribute array before packing engine vertices.
 export class InterleavedBufferAttribute {
-  constructor(data, itemSize, offset = 0, normalized = false) {
+  isBufferAttribute: boolean;
+  isInterleavedBufferAttribute: boolean;
+  data: InterleavedBuffer;
+  itemSize: number;
+  offset: number;
+  normalized: boolean;
+  count: number;
+  constructor(data: InterleavedBuffer, itemSize: number, offset = 0, normalized = false) {
     this.isBufferAttribute = true;
     this.isInterleavedBufferAttribute = true;
     this.data = data;
@@ -48,6 +65,14 @@ export class InterleavedBufferAttribute {
 }
 
 export class BufferGeometry {
+  isBufferGeometry: boolean;
+  attributes: Record<string, any>;
+  index: BufferAttribute | null;
+  groups: Array<{ start: number; count: number; materialIndex?: number }>;
+  boundingBox: Box3 | null;
+  boundingSphere: Sphere | null;
+  version: number;
+  [key: string]: any;
   constructor() {
     this.isBufferGeometry = true;
     this.attributes = {};
@@ -94,7 +119,7 @@ export class BufferGeometry {
   }
   // Rotate/translate/scale the stored positions (and normals) in place, like
   // three.js geometry transforms: they bake into the attribute arrays.
-  _transformPositions(fn, normalFn) {
+  _transformPositions(fn: any, normalFn: any = null) {
     const position = this.attributes.position;
     if (position) {
       const pd = attrData(position);
@@ -792,7 +817,12 @@ export class Curve {
 }
 
 export class CatmullRomCurve3 extends Curve {
-  constructor(points = [], closed = false, curveType = 'centripetal', tension = 0.5) {
+  points: any[];
+  closed: boolean;
+  curveType: string;
+  tension: number;
+  isCatmullRomCurve3: boolean;
+  constructor(points: any[] = [], closed = false, curveType = 'centripetal', tension = 0.5) {
     super();
     this.points = points.map(p => Array.isArray(p) ? p : [p.x, p.y, p.z]);
     this.closed = closed;
@@ -868,6 +898,8 @@ export class LatheGeometry extends BufferGeometry {
 // 2D path: moveTo/lineTo/quadraticCurveTo/bezierCurveTo/closePath, flattened
 // to point lists by getPoints(). Shape adds holes like three.js.
 export class Path {
+  isPath: boolean;
+  segments: any[];
   constructor() { this.isPath = true; this.segments = []; }
   moveTo(x, y) { this.segments.push({ t: 'M', x, y }); return this; }
   lineTo(x, y) { this.segments.push({ t: 'L', x, y }); return this; }
@@ -914,6 +946,8 @@ export class Path {
 }
 
 export class Shape extends Path {
+  isShape: boolean;
+  holes: any[];
   constructor() { super(); this.isShape = true; this.holes = []; }
 }
 
@@ -1050,7 +1084,7 @@ export class ShapeGeometry extends BufferGeometry {
 export class ExtrudeGeometry extends BufferGeometry {
   // options: { depth, bevelEnabled, bevelThickness, bevelSize, bevelSegments, steps, curveSegments }
   // Bevel parameters are accepted for signature compatibility but ignored.
-  constructor(shape, options = {}) {
+  constructor(shape: any, options: Record<string, any> = {}) {
     super();
     const depth = options.depth ?? 1;
     const curveSegments = options.curveSegments ?? 12;
@@ -1106,7 +1140,9 @@ export class ExtrudeGeometry extends BufferGeometry {
 
 
 export class Mesh extends Object3D {
-  constructor(geometry = new BufferGeometry(), material = new MeshBasicMaterial()) {
+  geometry: BufferGeometry;
+  material: any;
+  constructor(geometry = new BufferGeometry(), material: any = new MeshBasicMaterial()) {
     super();
     this.isMesh = true;
     this.geometry = geometry;
@@ -1126,7 +1162,14 @@ export class Mesh extends Object3D {
 }
 
 export class InstancedMesh extends Mesh {
-  constructor(geometry = new BufferGeometry(), material = new MeshBasicMaterial(), count = 0) {
+  count: number;
+  _maxCount: number;
+  instanceMatrix: BufferAttribute;
+  instanceColor: BufferAttribute | null;
+  _instances: Mesh[];
+  _colorMaterials: Map<string, any>;
+  _tintedSourceMaterial?: any;
+  constructor(geometry = new BufferGeometry(), material: any = new MeshBasicMaterial(), count = 0) {
     super(geometry, material);
     this.isMesh = false;
     this.isInstancedMesh = true;
@@ -1168,12 +1211,20 @@ export class InstancedMesh extends Mesh {
 }
 
 export class Line extends Object3D {
-  constructor(geometry, material) { super(); this.isLine = true; this.geometry = geometry; this.material = material; }
+  isLine: boolean;
+  geometry: any;
+  material: any;
+  constructor(geometry: any, material: any) { super(); this.isLine = true; this.geometry = geometry; this.material = material; }
 }
 export class Points extends Object3D {
-  constructor(geometry, material) { super(); this.isPoints = true; this.geometry = geometry; this.material = material; }
+  isPoints: boolean;
+  geometry: any;
+  material: any;
+  constructor(geometry: any, material: any) { super(); this.isPoints = true; this.geometry = geometry; this.material = material; }
 }
 export class Sprite extends Object3D {
-  constructor(material) { super(); this.isSprite = true; this.material = material; }
+  isSprite: boolean;
+  material: any;
+  constructor(material: any) { super(); this.isSprite = true; this.material = material; }
 }
 

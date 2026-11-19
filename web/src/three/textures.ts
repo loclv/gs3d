@@ -1,5 +1,5 @@
 import { Color, Vector2 } from './math';
-import { sharedEngine, releaseTexture, releaseRenderTarget } from './bridge';
+import { sharedEngine, releaseTexture } from './bridge';
 import { SRGBColorSpace, NoColorSpace } from './renderer';
 
 /* --- textures ------------------------------------------------------------------ */
@@ -72,8 +72,8 @@ export function textureImageData(image) {
       (image instanceof HTMLCanvasElement || image instanceof HTMLImageElement ||
        (typeof ImageBitmap !== 'undefined' && image instanceof ImageBitmap))) {
     const canvas = document.createElement('canvas');
-    canvas.width = image.width || image.videoWidth || image.naturalWidth;
-    canvas.height = image.height || image.videoHeight || image.naturalHeight;
+    canvas.width = image.width || (image as any).videoWidth || (image as any).naturalWidth;
+    canvas.height = image.height || (image as any).videoHeight || (image as any).naturalHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.drawImage(image, 0, 0);
@@ -86,7 +86,27 @@ export function textureImageData(image) {
 }
 
 export class Texture {
-  constructor(image = null) {
+  isTexture: boolean;
+  image: any;
+  colorSpace: string;
+  wrapS: number;
+  wrapT: number;
+  magFilter: number;
+  minFilter: number;
+  offset: Vector2;
+  repeat: Vector2;
+  rotation: number;
+  center: Vector2;
+  channel: number;
+  type: number;
+  matrixAutoUpdate: boolean;
+  generateMipmaps: boolean;
+  version: number;
+  needsUpdate: boolean;
+  flipY?: boolean;
+  isRenderTargetTexture?: boolean;
+  _renderTarget?: any;
+  constructor(image: any = null) {
     this.isTexture = true;
     this.image = image;
     this.colorSpace = NoColorSpace;
@@ -113,7 +133,10 @@ export class Texture {
 }
 
 export class DataTexture extends Texture {
-  constructor(data = null, width = 1, height = 1) {
+  isDataTexture: boolean;
+  flipY: boolean;
+  unpackAlignment: number;
+  constructor(data: any = null, width = 1, height = 1) {
     super(data ? { data, width, height } : null);
     this.isDataTexture = true;
     this.flipY = false;
@@ -151,7 +174,10 @@ export function checkerTexture(a = 0xd0d0d0, b = 0x303030, cells = 8, size = 512
 // as u_lut). Only Uint8Array/Uint8ClampedArray data uploads; the engine
 // fixes linear filtering and clamp-to-edge wrapping.
 export class Data3DTexture extends Texture {
-  constructor(data = null, width = 1, height = 1, depth = 1) {
+  isData3DTexture: boolean;
+  flipY: boolean;
+  unpackAlignment: number;
+  constructor(data: any = null, width = 1, height = 1, depth = 1) {
     super(data ? { data, width, height, depth } : null);
     this.isData3DTexture = true;
     this.flipY = false;
@@ -160,6 +186,7 @@ export class Data3DTexture extends Texture {
 }
 
 export class CanvasTexture extends Texture {
+  isCanvasTexture: boolean;
   constructor(canvas = document.createElement('canvas')) {
     super(canvas);
     this.isCanvasTexture = true;
@@ -167,9 +194,12 @@ export class CanvasTexture extends Texture {
 }
 
 export class CompressedTexture extends Texture {
+  isCompressedTexture: boolean;
   constructor() { super(null); this.isCompressedTexture = true; }
 }
 export class CubeTexture extends Texture {
+  isCubeTexture: boolean;
+  images: any[];
   constructor() { super(null); this.isCubeTexture = true; this.images = []; }
 }
 
@@ -179,7 +209,18 @@ export class CubeTexture extends Texture {
 const RT_FORMAT = { [UnsignedByteType]: 0, [HalfFloatType]: 1, [FloatType]: 2 };
 
 export class WebGLRenderTarget {
-  constructor(width = 1, height = 1, options = {}) {
+  isRenderTarget: boolean;
+  width: number;
+  height: number;
+  depthBuffer: boolean;
+  stencilBuffer: boolean;
+  count: number;
+  texture: Texture;
+  _rtId: number;
+  _rtWidth: number;
+  _rtHeight: number;
+  _rtGeneration: number;
+  constructor(width = 1, height = 1, options: Record<string, any> = {}) {
     this.isRenderTarget = true;
     this.width = Math.max(1, width | 0);
     this.height = Math.max(1, height | 0);
@@ -241,8 +282,9 @@ export function ensureEngineRenderTarget(engine, rt) {
 }
 
 export class TextureLoader {
+  manager: any;
   constructor() { this.manager = null; }
-  load(url, onLoad, onProgress, onError) {
+  load(url: string, onLoad?: (t: Texture) => void, _onProgress?: any, onError?: (e: any) => void) {
     fetch(url)
       .then(response => {
         if (!response.ok) throw new Error(`gs3d: failed to fetch texture ${url} (${response.status})`);
@@ -264,8 +306,9 @@ export class TextureLoader {
 }
 
 export class ImageLoader {
+  manager: any;
   constructor() { this.manager = null; }
-  load(url, onLoad, onProgress, onError) {
+  load(url: string, onLoad?: (img: HTMLImageElement) => void, onProgress?: any, onError?: (e: any) => void) {
     const image = new Image();
     image.onload = () => onLoad && onLoad(image);
     image.onerror = event => onError && onError(event);

@@ -36,12 +36,16 @@ function parseCssColor(style) {
 // Colours store linear working-space components, like three r152+ with the
 // default color management. Hex and CSS strings arrive in sRGB and convert.
 export class Color {
-  constructor(r = 0xffffff, g, b) {
+  isColor: boolean;
+  r: number;
+  g: number;
+  b: number;
+  constructor(r: any = 0xffffff, g?: number, b?: number) {
     this.isColor = true;
     this.r = 1; this.g = 1; this.b = 1;
     this.set(r, g, b);
   }
-  set(value, g, b) {
+  set(value: any, g?: number, b?: number) {
     if (value === undefined) return this;
     if (typeof value === 'number' && g === undefined) return this.setHex(value);
     if (typeof value === 'string') {
@@ -81,7 +85,7 @@ export class Color {
     return this;
   }
   // HSL helpers operate in linear space like the stored components.
-  getHSL(target = {}) {
+  getHSL(target: { h?: number; s?: number; l?: number } = {}) {
     const r = this.r, g = this.g, b = this.b;
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
     const l = (max + min) / 2, d = max - min;
@@ -119,6 +123,10 @@ export class Color {
 /* --- vectors and transforms ---------------------------------------------- */
 
 export class Vector3 {
+  isVector3: boolean;
+  x: number;
+  y: number;
+  z: number;
   constructor(x = 0, y = 0, z = 0) { this.isVector3 = true; this.x = x; this.y = y; this.z = z; }
   set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
   setScalar(s) { return this.set(s, s, s); }
@@ -161,6 +169,11 @@ export class Vector3 {
 }
 
 export class Vector4 {
+  isVector4: boolean;
+  x: number;
+  y: number;
+  z: number;
+  w: number;
   constructor(x = 0, y = 0, z = 0, w = 0) { this.isVector4 = true; this.x = x; this.y = y; this.z = z; this.w = w; }
   set(x, y, z, w) { this.x = x; this.y = y; this.z = z; this.w = w; return this; }
   copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; this.w = v.w; return this; }
@@ -168,6 +181,11 @@ export class Vector4 {
 }
 
 export class Euler {
+  x: number;
+  y: number;
+  z: number;
+  order: string;
+  isEuler: boolean;
   constructor(x = 0, y = 0, z = 0, order = 'XYZ') {
     this.x = x; this.y = y; this.z = z; this.order = order; this.isEuler = true;
   }
@@ -229,6 +247,11 @@ export function eulerFromQuatXYZ(q) {
 }
 
 export class Quaternion {
+  isQuaternion: boolean;
+  x: number;
+  y: number;
+  z: number;
+  w: number;
   constructor(x = 0, y = 0, z = 0, w = 1) { this.isQuaternion = true; this.x = x; this.y = y; this.z = z; this.w = w; }
   set(x, y, z, w) { this.x = x; this.y = y; this.z = z; this.w = w; return this; }
   copy(q) { this.x = q.x; this.y = q.y; this.z = q.z; this.w = q.w; return this; }
@@ -396,6 +419,8 @@ export function invertMat4(m) {
 
 // Column-major 4x4, same layout as the internal matrices above.
 export class Matrix4 {
+  isMatrix4: boolean;
+  elements: Float64Array;
   constructor() { this.isMatrix4 = true; this.elements = new Float64Array(16); this.identity(); }
   set(n11, n12, n13, n14, n21, n22, n23, n24, n31, n32, n33, n34, n41, n42, n43, n44) {
     const e = this.elements;
@@ -481,6 +506,9 @@ export const MathUtils = {
 /* --- raycasting and bounds ------------------------------------------------------ */
 
 export class Plane {
+  isPlane: boolean;
+  normal: Vector3;
+  constant: number;
   constructor(normal = new Vector3(1, 0, 0), constant = 0) {
     this.isPlane = true;
     this.normal = normal.clone ? normal.clone() : new Vector3(normal.x, normal.y, normal.z);
@@ -490,6 +518,8 @@ export class Plane {
 }
 
 export class Ray {
+  origin: Vector3;
+  direction: Vector3;
   constructor(origin = new Vector3(), direction = new Vector3(0, 0, -1)) {
     this.origin = origin;
     this.direction = direction;
@@ -595,6 +625,10 @@ export function rayTriangle(ox, oy, oz, dx, dy, dz, ax, ay, az, bx, by, bz, cx, 
 }
 
 export class Sphere {
+  center: Vector3;
+  radius: number;
+  isSphere: boolean;
+  isBoundingSphere: boolean;
   constructor(center = new Vector3(), radius = -1) {
     this.center = center;
     this.radius = radius;
@@ -642,6 +676,9 @@ export class Sphere {
 }
 
 export class Box3 {
+  min: Vector3;
+  max: Vector3;
+  isBox3: boolean;
   constructor(min = new Vector3(Infinity, Infinity, Infinity), max = new Vector3(-Infinity, -Infinity, -Infinity)) {
     this.min = min; this.max = max; this.isBox3 = true;
   }
@@ -738,6 +775,9 @@ export class Box3 {
 
 // Vector2 is used only by getSize; keep it dependency-free.
 export class Vector2 {
+  isVector2: boolean;
+  x: number;
+  y: number;
   constructor(x = 0, y = 0) { this.isVector2 = true; this.x = x; this.y = y; }
   set(x, y) { this.x = x; this.y = y; return this; }
   setScalar(s) { this.x = s; this.y = s; return this; }

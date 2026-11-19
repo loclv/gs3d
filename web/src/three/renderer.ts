@@ -56,7 +56,33 @@ const TONE_MODES = {
 /* --- the renderer ------------------------------------------------------------------ */
 
 export class WebGPURenderer {
-  constructor(parameters = {}) {
+  domElement: any;
+  isWebGPURenderer: boolean;
+  _enginePromise: Promise<any> | null;
+  _engine: any;
+  _lightLease: number;
+  _pixelRatio: number;
+  _cssWidth: number;
+  _cssHeight: number;
+  _lastFrame: number;
+  _animationLoop: ((time: number) => void) | null;
+  _raf: number;
+  _disposed: boolean;
+  backend: { isWebGPUBackend: boolean; isWebGLBackend: boolean };
+  outputColorSpace: string;
+  toneMapping: number | string;
+  toneMappingExposure: number;
+  _engineOverride: any;
+  shadowMap: { enabled: boolean; type: number; autoUpdate: boolean; needsUpdate: boolean };
+  _captureTarget: number;
+  capabilities: { maxTextureSize: number; getMaxAnisotropy: () => number };
+  _currentRenderTarget: any;
+  _extensions: any;
+  _floatSupport?: boolean;
+  _clearColor?: Color;
+  _clearAlpha?: number;
+  _selectedCameraId?: number;
+  constructor(parameters: Record<string, any> = {}) {
     const canvas = parameters.canvas;
     if (!canvas || typeof canvas.getContext !== 'function') {
       throw new Error('gs3d: WebGPURenderer requires a canvas element');
@@ -227,7 +253,7 @@ export class WebGPURenderer {
     this._lastFrame = now;
     if (scene) {
       const collected = collectLights(scene);
-      const seen = new Set();
+      const seen = new Set<any>();
       setFrameMaterialCache(new Map());
       try {
         syncSceneTree(scene, seen);
@@ -326,14 +352,16 @@ function envFaceBasis(face) {
 }
 
 export class PMREMGenerator {
-  constructor(renderer) { this.renderer = renderer; this._rt = -1; }
+  renderer: any;
+  _rt: number;
+  constructor(renderer: any) { this.renderer = renderer; this._rt = -1; }
 
   fromEquirectangular(texture) {
     // Already equirectangular — pass through; the engine generates env mips.
     return { texture, dispose() {} };
   }
 
-  fromScene(scene, sigma = 0, near = 0.1, far = 100, options = {}) {
+  fromScene(scene: any, sigma = 0, near = 0.1, far = 100, options: Record<string, any> = {}) {
     const renderer = this.renderer;
     const engine = renderer && renderer._engine;
     const size = options && options.size ? options.size : 256;
@@ -435,6 +463,7 @@ function sampleFaceBilinear(face, size, fx, fy, out, outOff) {
 // built from emissive planes, matching the look of the addon closely enough
 // for image-based lighting.
 export class RoomEnvironment extends Scene {
+  isRoomEnvironment: boolean;
   constructor() {
     super();
     this.isRoomEnvironment = true;
@@ -445,8 +474,8 @@ export class RoomEnvironment extends Scene {
         new PlaneGeometry(w, h),
         new MeshBasicMaterial({ color: c })
       );
-      m.position.set(...pos);
-      m.lookAt(new Vector3(...look));
+      m.position.set(pos[0], pos[1], pos[2]);
+      m.lookAt(new Vector3(look[0], look[1], look[2]));
       m.updateMatrixWorld();
       this.add(m);
     };
