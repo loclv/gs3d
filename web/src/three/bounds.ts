@@ -233,6 +233,23 @@ export class Box3 {
     this.max.set(this.max.x + scalar, this.max.y + scalar, this.max.z + scalar);
     return this;
   }
+  translate(offset) {
+    this.min.add(offset);
+    this.max.add(offset);
+    return this;
+  }
+  applyMatrix4(matrix) {
+    if (this.isEmpty()) return this;
+    const m = matrix.elements || matrix;
+    const x0 = this.min.x, y0 = this.min.y, z0 = this.min.z;
+    const x1 = this.max.x, y1 = this.max.y, z1 = this.max.z;
+    this.makeEmpty();
+    for (let cx = 0; cx <= 1; cx++) for (let cy = 0; cy <= 1; cy++) for (let cz = 0; cz <= 1; cz++) {
+      const w = transformPoint(m, cx ? x1 : x0, cy ? y1 : y0, cz ? z1 : z0);
+      this.expandByPoint(new Vector3(w[0], w[1], w[2]));
+    }
+    return this;
+  }
   containsPoint(point) {
     return point.x >= this.min.x && point.x <= this.max.x &&
       point.y >= this.min.y && point.y <= this.max.y && point.z >= this.min.z && point.z <= this.max.z;

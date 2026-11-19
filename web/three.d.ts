@@ -53,8 +53,16 @@ export class Vector3 {
   copy(v: Vector3): this;
   clone(): Vector3;
   add(v: Vector3): this;
+  addVectors(a: Vector3, b: Vector3): this;
+  addScaledVector(v: Vector3, scale: number): this;
   sub(v: Vector3): this;
+  subVectors(a: Vector3, b: Vector3): this;
   multiplyScalar(s: number): this;
+  divideScalar(s: number): this;
+  min(v: Vector3): this;
+  max(v: Vector3): this;
+  clamp(min: Vector3, max: Vector3): this;
+  equals(v: Vector3): boolean;
   length(): number;
   lengthSq(): number;
   normalize(): this;
@@ -62,6 +70,7 @@ export class Vector3 {
   distanceToSquared(v: Vector3): number;
   dot(v: Vector3): number;
   cross(v: Vector3): this;
+  crossVectors(a: Vector3, b: Vector3): this;
   lerp(v: Vector3, alpha: number): this;
   negate(): this;
   fromArray(a: ArrayLike<number>, offset?: number): this;
@@ -69,7 +78,9 @@ export class Vector3 {
   applyQuaternion(q: Quaternion): this;
   applyEuler(e: Euler): this;
   applyAxisAngle(axis: Vector3, angle: number): this;
-  setFromMatrixPosition(m: ArrayLike<number>): this;
+  applyMatrix4(m: Matrix4): this;
+  transformDirection(m: Matrix4): this;
+  setFromMatrixPosition(m: Matrix4 | ArrayLike<number>): this;
 }
 
 export class Euler {
@@ -394,6 +405,12 @@ export class Matrix4 {
   invert(): this;
   makeRotationFromQuaternion(q: Quaternion): this;
   makeTranslation(x: number, y: number, z: number): this;
+  makeScale(x: number, y: number, z: number): this;
+  makeRotationX(theta: number): this;
+  makeRotationY(theta: number): this;
+  makeRotationZ(theta: number): this;
+  lookAt(eye: Vector3, target: Vector3, up: Vector3): this;
+  equals(m: Matrix4): boolean;
   setPosition(v: Vector3 | number[]): this;
   extractRotation(): this;
 }
@@ -590,6 +607,8 @@ export class Box3 {
   getSize(target?: Vector3): Vector3;
   expandByPoint(point: Vector3): this;
   expandByScalar(scalar: number): this;
+  translate(offset: Vector3): this;
+  applyMatrix4(matrix: Matrix4): this;
   containsPoint(point: Vector3): boolean;
   intersectsBox(box: Box3): boolean;
   clone(): Box3;

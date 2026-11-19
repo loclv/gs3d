@@ -1724,6 +1724,24 @@ function buildTestGLB() {
   assert.equal(tex.image.width, 16, 'checkerTexture width');
   assert.equal(tex.image.data[0], 255, 'checkerTexture top-left pixel is colorA');
   assert.equal(tex.image.data[4 * 4], 0, 'checkerTexture next cell is colorB');
+
+  // Vector3, Matrix4, and Box3 parity helpers.
+  const vA = new THREE.Vector3(1, 2, 3);
+  const vB = new THREE.Vector3(4, 5, 6);
+  assert.equal(new THREE.Vector3().subVectors(vB, vA).equals(new THREE.Vector3(3, 3, 3)), true, 'subVectors');
+  assert.equal(new THREE.Vector3().addVectors(vA, vB).equals(new THREE.Vector3(5, 7, 9)), true, 'addVectors');
+  assert.equal(new THREE.Vector3().crossVectors(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0)).equals(new THREE.Vector3(0, 0, 1)), true, 'crossVectors');
+  const mScale = new THREE.Matrix4().makeScale(2, 3, 4);
+  assert.equal(vA.clone().applyMatrix4(mScale).equals(new THREE.Vector3(2, 6, 12)), true, 'Vector3.applyMatrix4');
+  const mRot = new THREE.Matrix4().makeRotationZ(Math.PI / 2);
+  const dir = new THREE.Vector3(1, 0, 0).transformDirection(mRot);
+  assert.ok(Math.abs(dir.x) < 1e-6 && Math.abs(dir.y - 1) < 1e-6, 'Vector3.transformDirection');
+  const mLook = new THREE.Matrix4().lookAt(new THREE.Vector3(0, 0, 5), new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0));
+  assert.ok(Math.abs(mLook.elements[10] - 1) < 1e-6, 'Matrix4.lookAt aligns +Z toward eye');
+  const b3 = new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1))
+    .applyMatrix4(new THREE.Matrix4().makeTranslation(5, 0, 0))
+    .translate(new THREE.Vector3(0, 2, 0));
+  assert.ok(b3.min.equals(new THREE.Vector3(4, 1, -1)) && b3.max.equals(new THREE.Vector3(6, 3, 1)), 'Box3.applyMatrix4 and translate');
 }
 
 

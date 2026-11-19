@@ -32,6 +32,9 @@ var Vector3 = class Vector3 {
 		this.z += v.z;
 		return this;
 	}
+	addVectors(a, b) {
+		return this.set(a.x + b.x, a.y + b.y, a.z + b.z);
+	}
 	addScaledVector(v, scale) {
 		this.x += v.x * scale;
 		this.y += v.y * scale;
@@ -44,11 +47,38 @@ var Vector3 = class Vector3 {
 		this.z -= v.z;
 		return this;
 	}
+	subVectors(a, b) {
+		return this.set(a.x - b.x, a.y - b.y, a.z - b.z);
+	}
 	multiplyScalar(s) {
 		this.x *= s;
 		this.y *= s;
 		this.z *= s;
 		return this;
+	}
+	divideScalar(s) {
+		return this.multiplyScalar(1 / (s || 1));
+	}
+	min(v) {
+		this.x = Math.min(this.x, v.x);
+		this.y = Math.min(this.y, v.y);
+		this.z = Math.min(this.z, v.z);
+		return this;
+	}
+	max(v) {
+		this.x = Math.max(this.x, v.x);
+		this.y = Math.max(this.y, v.y);
+		this.z = Math.max(this.z, v.z);
+		return this;
+	}
+	clamp(min, max) {
+		this.x = Math.max(min.x, Math.min(max.x, this.x));
+		this.y = Math.max(min.y, Math.min(max.y, this.y));
+		this.z = Math.max(min.z, Math.min(max.z, this.z));
+		return this;
+	}
+	equals(v) {
+		return this.x === v.x && this.y === v.y && this.z === v.z;
 	}
 	length() {
 		return Math.hypot(this.x, this.y, this.z);
@@ -73,6 +103,9 @@ var Vector3 = class Vector3 {
 	cross(v) {
 		const x = this.y * v.z - this.z * v.y, y = this.z * v.x - this.x * v.z, z = this.x * v.y - this.y * v.x;
 		return this.set(x, y, z);
+	}
+	crossVectors(a, b) {
+		return this.set(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
 	}
 	lerp(v, alpha) {
 		this.x += (v.x - this.x) * alpha;
@@ -111,8 +144,18 @@ var Vector3 = class Vector3 {
 	applyAxisAngle(axis, angle) {
 		return this.applyQuaternion(new Quaternion().setFromAxisAngle(axis, angle));
 	}
+	applyMatrix4(m) {
+		const e = m.elements || m, x = this.x, y = this.y, z = this.z;
+		const w = 1 / (e[3] * x + e[7] * y + e[11] * z + e[15] || 1);
+		return this.set((e[0] * x + e[4] * y + e[8] * z + e[12]) * w, (e[1] * x + e[5] * y + e[9] * z + e[13]) * w, (e[2] * x + e[6] * y + e[10] * z + e[14]) * w);
+	}
+	transformDirection(m) {
+		const e = m.elements || m, x = this.x, y = this.y, z = this.z;
+		return this.set(e[0] * x + e[4] * y + e[8] * z, e[1] * x + e[5] * y + e[9] * z, e[2] * x + e[6] * y + e[10] * z).normalize();
+	}
 	setFromMatrixPosition(m) {
-		return this.set(m[12], m[13], m[14]);
+		const e = m.elements || m;
+		return this.set(e[12], e[13], e[14]);
 	}
 };
 var Vector4 = class Vector4 {
@@ -522,6 +565,79 @@ var Matrix4 = class Matrix4 {
 		e[13] = y;
 		e[14] = z;
 		return this;
+	}
+	makeScale(x, y, z) {
+		const e = this.elements;
+		e.fill(0);
+		e[0] = x;
+		e[5] = y;
+		e[10] = z;
+		e[15] = 1;
+		return this;
+	}
+	makeRotationX(theta) {
+		const c = Math.cos(theta), s = Math.sin(theta);
+		return this.set(1, 0, 0, 0, 0, c, -s, 0, 0, s, c, 0, 0, 0, 0, 1);
+	}
+	makeRotationY(theta) {
+		const c = Math.cos(theta), s = Math.sin(theta);
+		return this.set(c, 0, s, 0, 0, 1, 0, 0, -s, 0, c, 0, 0, 0, 0, 1);
+	}
+	makeRotationZ(theta) {
+		const c = Math.cos(theta), s = Math.sin(theta);
+		return this.set(c, -s, 0, 0, s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+	}
+	lookAt(eye, target, up) {
+		const e = this.elements;
+		let zx = eye.x - target.x, zy = eye.y - target.y, zz = eye.z - target.z;
+		let zl = Math.hypot(zx, zy, zz);
+		if (zl === 0) {
+			zz = 1;
+			zl = 1;
+		}
+		zx /= zl;
+		zy /= zl;
+		zz /= zl;
+		let xx = up.y * zz - up.z * zy, xy = up.z * zx - up.x * zz, xz = up.x * zy - up.y * zx;
+		let xl = Math.hypot(xx, xy, xz);
+		if (xl === 0) {
+			if (Math.abs(up.z) === 1) zx += 1e-4;
+			else zz += 1e-4;
+			const nz = Math.hypot(zx, zy, zz) || 1;
+			zx /= nz;
+			zy /= nz;
+			zz /= nz;
+			xx = up.y * zz - up.z * zy;
+			xy = up.z * zx - up.x * zz;
+			xz = up.x * zy - up.y * zx;
+			xl = Math.hypot(xx, xy, xz) || 1;
+		}
+		xx /= xl;
+		xy /= xl;
+		xz /= xl;
+		const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+		e[0] = xx;
+		e[1] = xy;
+		e[2] = xz;
+		e[3] = 0;
+		e[4] = yx;
+		e[5] = yy;
+		e[6] = yz;
+		e[7] = 0;
+		e[8] = zx;
+		e[9] = zy;
+		e[10] = zz;
+		e[11] = 0;
+		e[12] = 0;
+		e[13] = 0;
+		e[14] = 0;
+		e[15] = 1;
+		return this;
+	}
+	equals(m) {
+		const a = this.elements, b = m.elements || m;
+		for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return false;
+		return true;
 	}
 	setPosition(v) {
 		const e = this.elements;
@@ -4134,6 +4250,23 @@ var Box3 = class Box3 {
 	expandByScalar(scalar) {
 		this.min.set(this.min.x - scalar, this.min.y - scalar, this.min.z - scalar);
 		this.max.set(this.max.x + scalar, this.max.y + scalar, this.max.z + scalar);
+		return this;
+	}
+	translate(offset) {
+		this.min.add(offset);
+		this.max.add(offset);
+		return this;
+	}
+	applyMatrix4(matrix) {
+		if (this.isEmpty()) return this;
+		const m = matrix.elements || matrix;
+		const x0 = this.min.x, y0 = this.min.y, z0 = this.min.z;
+		const x1 = this.max.x, y1 = this.max.y, z1 = this.max.z;
+		this.makeEmpty();
+		for (let cx = 0; cx <= 1; cx++) for (let cy = 0; cy <= 1; cy++) for (let cz = 0; cz <= 1; cz++) {
+			const w = transformPoint(m, cx ? x1 : x0, cy ? y1 : y0, cz ? z1 : z0);
+			this.expandByPoint(new Vector3(w[0], w[1], w[2]));
+		}
 		return this;
 	}
 	containsPoint(point) {
