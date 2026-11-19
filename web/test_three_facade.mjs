@@ -1744,5 +1744,35 @@ function buildTestGLB() {
   assert.ok(b3.min.equals(new THREE.Vector3(4, 1, -1)) && b3.max.equals(new THREE.Vector3(6, 3, 1)), 'Box3.applyMatrix4 and translate');
 }
 
+{
+  // Bulk matrix (_g3_asset_matrix16) and bulk geometry (_g3_host_mesh_upload) paths.
+  const engine = createMockEngine();
+  engine.HEAPF32 = new Float32Array(engine.HEAPU8.buffer);
+  engine.HEAPU32 = new Uint32Array(engine.HEAPU8.buffer);
+  let bulkMeshes = 0;
+  let bulkMatrices = 0;
+  engine._g3_host_mesh_upload = (vp, fc, ip, ic) => {
+    bulkMeshes++;
+    assert.ok(fc > 0 && fc % 30 === 0, 'bulk vertex float count is multiple of 30');
+    assert.ok(ic > 0 && ic % 3 === 0, 'bulk index count is multiple of 3');
+    return 100 + bulkMeshes;
+  };
+  engine._g3_asset_matrix16 = (id, ...m) => {
+    bulkMatrices++;
+    assert.equal(m.length, 16, 'matrix16 passes 16 floats');
+  };
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+  mesh.position.set(1, 2, 3);
+  scene.add(mesh);
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  assert.equal(bulkMeshes, 1, 'uses bulk mesh upload when available');
+  assert.equal(bulkMatrices, 2, 'uses matrix16 for scene and mesh');
+  assert.equal(named(engine, '_g3_asset_vertex').length, 0, 'skips per-vertex bridge calls');
+  assert.equal(named(engine, '_g3_asset_matrix').length, 0, 'skips per-element matrix calls');
+}
+
 
 console.log('three.js facade checks passed');

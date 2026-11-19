@@ -36,7 +36,17 @@ function syncNode(engine, object, parentEngineIndex, local) {
     }
   }
   if (!record.matrix || !matricesEqual(record.matrix, local)) {
-    for (let i = 0; i < 16; i++) engine._g3_asset_matrix(record.index, i, local[i]);
+    if (typeof engine._g3_asset_matrix16 === 'function') {
+      engine._g3_asset_matrix16(
+        record.index,
+        local[0], local[1], local[2], local[3],
+        local[4], local[5], local[6], local[7],
+        local[8], local[9], local[10], local[11],
+        local[12], local[13], local[14], local[15],
+      );
+    } else {
+      for (let i = 0; i < 16; i++) engine._g3_asset_matrix(record.index, i, local[i]);
+    }
     record.matrix = Float64Array.from(local);
   }
   return record.index;

@@ -424,6 +424,70 @@ function cachedPreparedGeometry(geometry, useVertexColors, flatShading, material
   return entry;
 }
 
+function fillVertexSlots(slotVals, slotData, customs, fills, i) {
+  slotVals.fill(0);
+  for (let set = 0; set < 8; set++) {
+    const attr = slotData[set];
+    if (attr) {
+      const ui = i * attr.itemSize;
+      slotVals[set * 2] = attr.array[ui] || 0;
+      slotVals[set * 2 + 1] = attr.array[ui + 1] || 0;
+    }
+  }
+  for (const cu of customs) {
+    const base = i * cu.data.itemSize;
+    for (let f = 0; f < cu.count; f++) {
+      slotVals[cu.slots[f >> 1] * 2 + (f & 1)] = cu.data.array[base + f] || 0;
+    }
+  }
+  for (const f of fills) {
+    for (let k = 0; k < f.count; k++) {
+      slotVals[f.slots[k >> 1] * 2 + (k & 1)] = f.values[k] || 0;
+    }
+  }
+}
+
+function uploadGeometryBulk(engine, prepared) {
+  const { position, normal, color, count, ns, cs, slotData, customs, fills, indexIds } = prepared;
+  const indexCount = indexIds ? indexIds.length - (indexIds.length % 3) : count - (count % 3);
+  if (count <= 0 || indexCount <= 0) return -1;
+  const p = position.array, n = normal ? normal.array : null, c = color ? color.array : null;
+  const floatCount = count * 30;
+  const vPtr = engine._malloc(floatCount * 4);
+  const iPtr = engine._malloc(indexCount * 4);
+  try {
+    const vf = engine.HEAPF32;
+    const vBase = vPtr >> 2;
+    const slotVals = new Float64Array(16);
+    for (let i = 0; i < count; i++) {
+      const pi = i * position.itemSize, ni = i * ns, ci = i * cs;
+      fillVertexSlots(slotVals, slotData, customs, fills, i);
+      const o = vBase + i * 30;
+      vf[o] = p[pi]; vf[o + 1] = p[pi + 1]; vf[o + 2] = p[pi + 2];
+      vf[o + 3] = n && ns > 0 ? n[ni] : 0;
+      vf[o + 4] = n && ns > 1 ? n[ni + 1] : 0;
+      vf[o + 5] = n && ns > 2 ? n[ni + 2] : 1;
+      for (let s = 0; s < 16; s++) vf[o + 6 + s] = slotVals[s];
+      vf[o + 22] = 0; vf[o + 23] = 0; vf[o + 24] = 0; vf[o + 25] = 0;
+      vf[o + 26] = c && cs > 0 ? c[ci] : 1;
+      vf[o + 27] = c && cs > 1 ? c[ci + 1] : 1;
+      vf[o + 28] = c && cs > 2 ? c[ci + 2] : 1;
+      vf[o + 29] = c && cs > 3 ? c[ci + 3] : 1;
+    }
+    const iu = engine.HEAPU32 || new Uint32Array(engine.HEAPU8.buffer);
+    const iBase = iPtr >> 2;
+    if (indexIds) {
+      for (let i = 0; i < indexCount; i++) iu[iBase + i] = indexIds[i];
+    } else {
+      for (let i = 0; i < indexCount; i++) iu[iBase + i] = i;
+    }
+    return engine._g3_host_mesh_upload(vPtr, floatCount, iPtr, indexCount);
+  } finally {
+    engine._free(vPtr);
+    engine._free(iPtr);
+  }
+}
+
 export function ensureGeometry(engine, geometry, useVertexColors = false, flatShading = false, material = null) {
   if (!geometry || !geometry.attributes || !geometry.attributes.position) return -1;
   const prepared = cachedPreparedGeometry(geometry, useVertexColors, flatShading, material);
@@ -435,46 +499,33 @@ export function ensureGeometry(engine, geometry, useVertexColors = false, flatSh
   if (state && state.version === geometry.version) return state.id;
   if (state) engine._g3_asset_release_mesh(state.id, state.generation);
 
-  const slotVals = new Float64Array(16);
-  engine._g3_asset_mesh_begin();
-  for (let i = 0; i < count; i++) {
-    const pi = i * position.itemSize, ni = i * ns, ci = i * cs;
-    slotVals.fill(0);
-    for (let set = 0; set < 8; set++) {
-      const attr = slotData[set];
-      if (attr) {
-        const ui = i * attr.itemSize;
-        slotVals[set * 2] = attr.array[ui] || 0;
-        slotVals[set * 2 + 1] = attr.array[ui + 1] || 0;
-      }
-    }
-    for (const cu of customs) {
-      const base = i * cu.data.itemSize;
-      for (let f = 0; f < cu.count; f++) {
-        slotVals[cu.slots[f >> 1] * 2 + (f & 1)] = cu.data.array[base + f] || 0;
-      }
-    }
-    for (const f of fills) {
-      for (let k = 0; k < f.count; k++) {
-        slotVals[f.slots[k >> 1] * 2 + (k & 1)] = f.values[k] || 0;
-      }
-    }
-    engine._g3_asset_vertex(
-      p[pi], p[pi + 1], p[pi + 2],
-      n && ns > 0 ? n[ni] : 0, n && ns > 1 ? n[ni + 1] : 0, n && ns > 2 ? n[ni + 2] : 1,
-      ...slotVals,
-      0, 0, 0, 0, // tangent
-      c && cs > 0 ? c[ci] : 1, c && cs > 1 ? c[ci + 1] : 1, c && cs > 2 ? c[ci + 2] : 1,
-      c && cs > 3 ? c[ci + 3] : 1,
-    );
+  let id = -1;
+  if (typeof engine._g3_host_mesh_upload === 'function' && engine.HEAPF32 && (engine.HEAPU32 || engine.HEAPU8)) {
+    id = uploadGeometryBulk(engine, prepared);
   }
-  if (indexIds) {
-    const ids = indexIds;
-    for (let i = 0; i + 2 < ids.length; i += 3) engine._g3_asset_triangle(ids[i], ids[i + 1], ids[i + 2]);
-  } else {
-    for (let i = 0; i + 2 < count; i += 3) engine._g3_asset_triangle(i, i + 1, i + 2);
+  if (id < 0) {
+    const slotVals = new Float64Array(16);
+    engine._g3_asset_mesh_begin();
+    for (let i = 0; i < count; i++) {
+      const pi = i * position.itemSize, ni = i * ns, ci = i * cs;
+      fillVertexSlots(slotVals, slotData, customs, fills, i);
+      engine._g3_asset_vertex(
+        p[pi], p[pi + 1], p[pi + 2],
+        n && ns > 0 ? n[ni] : 0, n && ns > 1 ? n[ni + 1] : 0, n && ns > 2 ? n[ni + 2] : 1,
+        ...slotVals,
+        0, 0, 0, 0, // tangent
+        c && cs > 0 ? c[ci] : 1, c && cs > 1 ? c[ci + 1] : 1, c && cs > 2 ? c[ci + 2] : 1,
+        c && cs > 3 ? c[ci + 3] : 1,
+      );
+    }
+    if (indexIds) {
+      const ids = indexIds;
+      for (let i = 0; i + 2 < ids.length; i += 3) engine._g3_asset_triangle(ids[i], ids[i + 1], ids[i + 2]);
+    } else {
+      for (let i = 0; i + 2 < count; i += 3) engine._g3_asset_triangle(i, i + 1, i + 2);
+    }
+    id = engine._g3_asset_mesh_end();
   }
-  const id = engine._g3_asset_mesh_end();
   const record = { id, generation: engine._g3_asset_mesh_generation(id), version: geometry.version };
   byFlag[flag] = record;
   geometryStates.set(geometry, byFlag);

@@ -20,6 +20,33 @@ export fn g3_asset_vertex(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, u: 
 }
 export fn g3_asset_triangle(a: u32, b: u32, c: u32) { asset_indices.push(a); asset_indices.push(b); asset_indices.push(c); }
 export fn g3_asset_mesh_end() -> i32 { return g3::mesh_asset_create(asset_vertices[..], asset_indices[..]); }
+export fn g3_asset_mesh_upload(verts: const f32[:], indices: const u32[:]) -> i32 {
+    guard verts.len % 30 == 0 && indices.len % 3 == 0 else { return -1; }
+    asset_vertices.clear();
+    asset_indices.clear();
+    let vert_count = verts.len / 30;
+    for v in 0..vert_count {
+        let o = v * 30;
+        asset_vertices.push(g3::Vertex {
+            pos: float3 { verts[o], verts[o + 1], verts[o + 2] },
+            normal: float3 { verts[o + 3], verts[o + 4], verts[o + 5] },
+            uv: float2 { verts[o + 6], verts[o + 7] },
+            uv1: float2 { verts[o + 8], verts[o + 9] },
+            uv2: float2 { verts[o + 10], verts[o + 11] },
+            uv3: float2 { verts[o + 12], verts[o + 13] },
+            uv4: float2 { verts[o + 14], verts[o + 15] },
+            uv5: float2 { verts[o + 16], verts[o + 17] },
+            uv6: float2 { verts[o + 18], verts[o + 19] },
+            uv7: float2 { verts[o + 20], verts[o + 21] },
+            tangent: float4 { verts[o + 22], verts[o + 23], verts[o + 24], verts[o + 25] },
+            color: float4 { verts[o + 26], verts[o + 27], verts[o + 28], verts[o + 29] },
+        });
+    }
+    for idx in indices {
+        asset_indices.push(idx);
+    }
+    return g3::mesh_asset_create(asset_vertices[..], asset_indices[..]);
+}
 export fn g3_asset_mesh_update(id: i32, positions: const f32[:], normals: const f32[:], tangents: const f32[:]) -> bool {
     return g3::mesh_asset_update(id, positions, normals, tangents);
 }
@@ -38,6 +65,19 @@ export fn g3_asset_node(mesh: i32, parent: i32) -> i32 {
     return id as i32;
 }
 export fn g3_asset_matrix(id: i32, index: i32, value: f32) { g3::node(id).local_matrix.m[index] = value; }
+export fn g3_asset_matrix16(
+    id: i32,
+    m0: f32, m1: f32, m2: f32, m3: f32,
+    m4: f32, m5: f32, m6: f32, m7: f32,
+    m8: f32, m9: f32, m10: f32, m11: f32,
+    m12: f32, m13: f32, m14: f32, m15: f32,
+) {
+    let n .= g3::node(id);
+    n.local_matrix.m[0] = m0; n.local_matrix.m[1] = m1; n.local_matrix.m[2] = m2; n.local_matrix.m[3] = m3;
+    n.local_matrix.m[4] = m4; n.local_matrix.m[5] = m5; n.local_matrix.m[6] = m6; n.local_matrix.m[7] = m7;
+    n.local_matrix.m[8] = m8; n.local_matrix.m[9] = m9; n.local_matrix.m[10] = m10; n.local_matrix.m[11] = m11;
+    n.local_matrix.m[12] = m12; n.local_matrix.m[13] = m13; n.local_matrix.m[14] = m14; n.local_matrix.m[15] = m15;
+}
 export fn g3_asset_material(r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_mode: i32, alpha_cutoff: f32, metallic: f32, roughness: f32, metallic_roughness_texture: i32, normal_texture: i32, normal_scale: f32, occlusion_texture: i32, occlusion_strength: f32, emissive_r: f32, emissive_g: f32, emissive_b: f32, emissive_texture: i32, double_sided: bool, unlit: bool, ior: f32) -> i32 {
     let id = g3::material_asset_add();
     let m .= g3::material(id);

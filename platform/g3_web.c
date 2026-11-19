@@ -112,6 +112,22 @@ EMSCRIPTEN_KEEPALIVE uint8_t g3_host_mesh_update_cpu(int32_t id, uint32_t positi
     return g3_asset_mesh_update_cpu(id, positions, normals, tangents);
 }
 
+EMSCRIPTEN_KEEPALIVE int32_t g3_host_mesh_upload(uint32_t verts_ptr, int32_t float_count,
+                                                 uint32_t indices_ptr, int32_t index_count) {
+    if (!verts_ptr || !indices_ptr || verts_ptr % 4 || indices_ptr % 4 ||
+        float_count <= 0 || float_count % 30 || index_count <= 0 || index_count % 3 ||
+        float_count > INT32_MAX / (int32_t)sizeof(float) ||
+        index_count > INT32_MAX / (int32_t)sizeof(uint32_t)) return -1;
+    const uint64_t vert_bytes = (uint64_t)float_count * sizeof(float);
+    const uint64_t idx_bytes = (uint64_t)index_count * sizeof(uint32_t);
+    const uint64_t heap_size = emscripten_get_heap_size();
+    if ((uint64_t)verts_ptr + vert_bytes > heap_size ||
+        (uint64_t)indices_ptr + idx_bytes > heap_size) return -1;
+    sl_f32 verts = { (float *)(uintptr_t)verts_ptr, float_count };
+    sl_u32 indices = { (uint32_t *)(uintptr_t)indices_ptr, index_count };
+    return g3_asset_mesh_upload(verts, indices);
+}
+
 typedef struct {
     GLuint vao, vbo, ebo;
     int instance_attributes_enabled;
