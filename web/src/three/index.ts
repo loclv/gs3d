@@ -1,5 +1,4 @@
 export {
-  Color,
   Vector2,
   Vector3,
   Vector4,
@@ -7,11 +6,9 @@ export {
   Quaternion,
   Matrix4,
   MathUtils,
-  Plane,
-  Ray,
-  Sphere,
-  Box3,
 } from './math';
+export { Color } from './color';
+export { Plane, Ray, Sphere, Box3 } from './bounds';
 
 export {
   Object3D,
@@ -40,6 +37,13 @@ export {
   InterleavedBuffer,
   InterleavedBufferAttribute,
   BufferGeometry,
+  Mesh,
+  InstancedMesh,
+  Line,
+  Points,
+  Sprite,
+} from './geometry';
+export {
   BoxGeometry,
   SphereGeometry,
   PlaneGeometry,
@@ -56,19 +60,16 @@ export {
   DodecahedronGeometry,
   TorusKnotGeometry,
   TubeGeometry,
+  LatheGeometry,
+} from './primitives';
+export {
   Curve,
   CatmullRomCurve3,
-  LatheGeometry,
   Path,
   Shape,
   ShapeGeometry,
   ExtrudeGeometry,
-  Mesh,
-  InstancedMesh,
-  Line,
-  Points,
-  Sprite,
-} from './geometry';
+} from './shapes';
 
 export {
   UnsignedByteType,
@@ -167,6 +168,5 @@ export {
   VSMShadowMap,
   WebGPURenderer,
   WebGLRenderer,
-  PMREMGenerator,
-  RoomEnvironment,
 } from './renderer';
+export { PMREMGenerator, RoomEnvironment } from './pmrem';

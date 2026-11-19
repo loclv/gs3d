@@ -1,4 +1,5 @@
-import { Color, Vector2, Vector3, Euler, Quaternion, Matrix4, transformPoint, transformDir, normalize3 } from './math';
+import { Color } from './color';
+import { Vector2, Vector3, Euler, Quaternion, Matrix4, transformPoint, transformDir, normalize3 } from './math';
 import { releaseEngineTree, localMatrixOf, worldMatrixOf } from './bridge';
 
 /* --- scene graph ---------------------------------------------------------- */

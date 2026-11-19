@@ -1,4 +1,5 @@
-import { Vector2, Vector3, Ray, multiplyMat4, invertMat4, transformPoint, transformDir, normalize3, rayBoxT, rayTriangle } from './math';
+import { Vector2, Vector3, multiplyMat4, invertMat4, transformPoint, transformDir, normalize3 } from './math';
+import { Ray, rayBoxT, rayTriangle } from './bounds';
 import { FrontSide } from './materials';
 import { worldMatrixOf } from './bridge';
 

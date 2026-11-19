@@ -1,4 +1,5 @@
-import { Color, Vector2 } from './math';
+import { Color } from './color';
+import { Vector2 } from './math';
 import { NormalBlending } from './textures';
 import { releaseMaterial } from './bridge';
 
