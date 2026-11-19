@@ -119,17 +119,23 @@ export class BufferGeometry {
   index: BufferAttribute | null;
   groups: Array<{ start: number; count: number; materialIndex?: number }>;
   boundingBox: Box3 | null;
-  boundingSphere: unknown;
+  boundingSphere: Sphere | null;
   version: number;
   setAttribute(name: string, attribute: BufferAttribute): this;
   getAttribute(name: string): BufferAttribute | undefined;
+  deleteAttribute(name: string): this;
+  getIndex(): BufferAttribute | null;
   setIndex(index: ArrayLike<number> | BufferAttribute | null): this;
+  addGroup(start: number, count: number, materialIndex?: number): this;
+  clearGroups(): this;
   rotateX(angle: number): this;
   rotateY(angle: number): this;
   rotateZ(angle: number): this;
   translate(x: number, y: number, z: number): this;
   scale(x: number, y: number, z: number): this;
   center(): this;
+  applyMatrix4(matrix: Matrix4): this;
+  clone(): BufferGeometry;
   computeVertexNormals(): this;
   computeBoundingBox(): this;
   computeBoundingSphere(): this;
@@ -288,6 +294,7 @@ export class DataTexture extends Texture {
   flipY: boolean;
   unpackAlignment: number;
 }
+export function checkerTexture(a?: Color | number | string, b?: Color | number | string, cells?: number, size?: number): DataTexture;
 export class CanvasTexture extends Texture { readonly isCanvasTexture: true; }
 export class CompressedTexture extends Texture { readonly isCompressedTexture: true; }
 export class CubeTexture extends Texture {
@@ -521,6 +528,8 @@ export class Ray {
   intersectPlane(plane: Plane, target?: Vector3): Vector3 | null;
   intersectBox(box: Box3, target?: Vector3): Vector3 | null;
   intersectsBox(box: Box3): boolean;
+  intersectSphere(sphere: Sphere, target?: Vector3): Vector3 | null;
+  intersectsSphere(sphere: Sphere): boolean;
   intersectTriangle(a: Vector3, b: Vector3, c: Vector3, backfaceCulling?: boolean, target?: Vector3): Vector3 | null;
 }
 
@@ -546,14 +555,37 @@ export class Raycaster {
   intersectObjects(objects: Object3D[], recursive?: boolean, target?: Intersection[]): Intersection[];
 }
 
+export class Sphere {
+  constructor(center?: Vector3, radius?: number);
+  readonly isSphere: true;
+  center: Vector3;
+  radius: number;
+  set(center: Vector3, radius: number): this;
+  copy(sphere: Sphere): this;
+  clone(): Sphere;
+  isEmpty(): boolean;
+  makeEmpty(): this;
+  containsPoint(point: Vector3): boolean;
+  distanceToPoint(point: Vector3): number;
+  intersectsSphere(sphere: Sphere): boolean;
+  intersectsBox(box: Box3): boolean;
+  getBoundingBox(target?: Box3): Box3;
+  setFromPoints(points: Vector3[], optionalCenter?: Vector3): this;
+}
+
 export class Box3 {
   constructor(min?: Vector3, max?: Vector3);
   readonly isBox3: true;
   min: Vector3;
   max: Vector3;
   set(min: Vector3, max: Vector3): this;
+  copy(box: Box3): this;
   makeEmpty(): this;
   isEmpty(): boolean;
+  setFromArray(array: ArrayLike<number>): this;
+  setFromPoints(points: Vector3[]): this;
+  getBoundingSphere(target?: Sphere): Sphere;
+  intersectsSphere(sphere: Sphere): boolean;
   getCenter(target?: Vector3): Vector3;
   getSize(target?: Vector3): Vector3;
   expandByPoint(point: Vector3): this;

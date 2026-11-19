@@ -1689,5 +1689,42 @@ function buildTestGLB() {
   assert.ok(Math.abs(instBounds.min.z + 10.5) < 1e-6 && Math.abs(instBounds.max.z + 3.5) < 1e-6, 'Box3.setFromObject spans InstancedMesh');
 }
 
+{
+  // Sphere, Box3 extensions, Ray.intersectSphere, BufferGeometry.clone/applyMatrix4/groups, and checkerTexture.
+  const sphere = new THREE.Sphere(new THREE.Vector3(0, 0, -5), 2);
+  assert.equal(sphere.containsPoint(new THREE.Vector3(0, 0, -4)), true, 'Sphere.containsPoint inside');
+  assert.equal(sphere.containsPoint(new THREE.Vector3(0, 0, 0)), false, 'Sphere.containsPoint outside');
+  const ray = new THREE.Ray(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1));
+  const hitPt = ray.intersectSphere(sphere, new THREE.Vector3());
+  assert.ok(hitPt && Math.abs(hitPt.z + 3) < 1e-6, 'Ray.intersectSphere hits front of sphere');
+  assert.equal(ray.intersectsSphere(sphere), true, 'Ray.intersectsSphere returns true');
+
+  const box = new THREE.Box3().setFromArray([-1, -2, -3, 1, 2, 3]);
+  assert.equal(box.intersectsSphere(sphere), true, 'Box3.intersectsSphere detects overlap');
+  const bs = box.getBoundingSphere(new THREE.Sphere());
+  assert.ok(Math.abs(bs.radius - Math.hypot(1, 2, 3)) < 1e-6, 'Box3.getBoundingSphere radius');
+
+  const baseGeo = new THREE.BoxGeometry(1, 1, 1);
+  baseGeo.addGroup(0, 6, 1);
+  const cloned = baseGeo.clone();
+  cloned.applyMatrix4(new THREE.Matrix4().makeTranslation(10, 0, 0));
+  cloned.computeBoundingBox();
+  assert.ok(Math.abs(cloned.boundingBox.min.x - 9.5) < 1e-6, 'applyMatrix4 translates cloned geometry');
+  baseGeo.computeBoundingBox();
+  assert.ok(Math.abs(baseGeo.boundingBox.min.x + 0.5) < 1e-6, 'clone leaves original geometry untouched');
+  assert.equal(cloned.groups.length, 1, 'clone copies groups');
+  cloned.clearGroups();
+  assert.equal(cloned.groups.length, 0, 'clearGroups empties groups');
+  assert.ok(cloned.getIndex() !== null, 'getIndex returns index');
+  cloned.deleteAttribute('uv');
+  assert.equal(cloned.getAttribute('uv'), undefined, 'deleteAttribute removes attribute');
+
+  const tex = THREE.checkerTexture(0xffffff, 0x000000, 4, 16);
+  assert.equal(tex.isDataTexture, true, 'checkerTexture returns DataTexture');
+  assert.equal(tex.image.width, 16, 'checkerTexture width');
+  assert.equal(tex.image.data[0], 255, 'checkerTexture top-left pixel is colorA');
+  assert.equal(tex.image.data[4 * 4], 0, 'checkerTexture next cell is colorB');
+}
+
 
 console.log('three.js facade checks passed');

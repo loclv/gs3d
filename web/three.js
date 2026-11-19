@@ -703,11 +703,29 @@ export class BufferGeometry {
     return this;
   }
   getAttribute(name) { return this.attributes[name]; }
+  deleteAttribute(name) {
+    delete this.attributes[name];
+    if (name === 'position') {
+      this.boundingBox = null;
+      this.boundingSphere = null;
+    }
+    this.version++;
+    return this;
+  }
+  getIndex() { return this.index; }
   setIndex(index) {
     if (index === null || index === undefined) this.index = null;
     else if (index.isBufferAttribute) this.index = index;
     else this.index = new Uint32BufferAttribute(index, 1);
     this.version++;
+    return this;
+  }
+  addGroup(start, count, materialIndex = 0) {
+    this.groups.push({ start, count, materialIndex });
+    return this;
+  }
+  clearGroups() {
+    this.groups.length = 0;
     return this;
   }
   // Rotate/translate/scale the stored positions (and normals) in place, like
@@ -778,6 +796,35 @@ export class BufferGeometry {
     const c = this.boundingBox.getCenter(new Vector3());
     return this.translate(-c.x, -c.y, -c.z).computeBoundingBox();
   }
+  applyMatrix4(matrix) {
+    const m = matrix.elements || matrix;
+    const inv = invertMat4(m);
+    return this._transformPositions((a, o) => {
+      const x = a[o], y = a[o + 1], z = a[o + 2];
+      a[o] = m[0] * x + m[4] * y + m[8] * z + m[12];
+      a[o + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+      a[o + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+    }, inv ? (a, o) => {
+      const x = a[o], y = a[o + 1], z = a[o + 2];
+      const nx = inv[0] * x + inv[1] * y + inv[2] * z;
+      const ny = inv[4] * x + inv[5] * y + inv[6] * z;
+      const nz = inv[8] * x + inv[9] * y + inv[10] * z;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      a[o] = nx / l; a[o + 1] = ny / l; a[o + 2] = nz / l;
+    } : null);
+  }
+  clone() {
+    const copy = new BufferGeometry();
+    for (const key of Object.keys(this.attributes)) {
+      const attr = this.attributes[key];
+      copy.attributes[key] = new BufferAttribute(attr.array.slice(), attr.itemSize, attr.normalized);
+    }
+    if (this.index) copy.index = new BufferAttribute(this.index.array.slice(), this.index.itemSize, this.index.normalized);
+    for (const g of this.groups) copy.groups.push({ ...g });
+    if (this.boundingBox) copy.boundingBox = this.boundingBox.clone();
+    if (this.boundingSphere) copy.boundingSphere = this.boundingSphere.clone();
+    return copy;
+  }
   computeVertexNormals() {
     const position = this.attributes.position;
     if (!position) return this;
@@ -828,26 +875,18 @@ export class BufferGeometry {
     return this;
   }
   computeBoundingSphere() {
-    const position = this.attributes.position;
-    if (!position) { this.boundingSphere = null; return this; }
-    const pd = attrData(position);
+    this.computeBoundingBox();
+    if (!this.boundingBox) { this.boundingSphere = null; return this; }
+    const pd = attrData(this.attributes.position);
     const p = pd.array, ps = pd.itemSize;
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (let i = 0; i < pd.count; i++) {
-      const x = p[i * ps], y = p[i * ps + 1], z = p[i * ps + 2];
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
-    }
-    const center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+    const center = this.boundingBox.getCenter(new Vector3());
     let radius = 0;
     for (let i = 0; i < pd.count; i++) {
       const dx = p[i * ps] - center.x, dy = p[i * ps + 1] - center.y, dz = p[i * ps + 2] - center.z;
       const d = dx * dx + dy * dy + dz * dz;
       if (d > radius) radius = d;
     }
-    this.boundingSphere = { isBoundingSphere: true, center, radius: Math.sqrt(radius) };
+    this.boundingSphere = new Sphere(center, Math.sqrt(radius));
     return this;
   }
   dispose() {
@@ -1836,6 +1875,32 @@ export class DataTexture extends Texture {
   }
 }
 
+export function checkerTexture(a = 0xd0d0d0, b = 0x303030, cells = 8, size = 512) {
+  const ca = new Color(a), cb = new Color(b);
+  const ar = Math.round(ca.r * 255), ag = Math.round(ca.g * 255), ab = Math.round(ca.b * 255);
+  const br = Math.round(cb.r * 255), bg = Math.round(cb.g * 255), bb = Math.round(cb.b * 255);
+  const data = new Uint8Array(size * size * 4);
+  const step = Math.max(1, size / cells);
+  for (let y = 0; y < size; y++) {
+    const cy = Math.floor(y / step);
+    for (let x = 0; x < size; x++) {
+      const cx = Math.floor(x / step);
+      const useA = ((cx + cy) & 1) === 0;
+      const o = (y * size + x) * 4;
+      data[o] = useA ? ar : br;
+      data[o + 1] = useA ? ag : bg;
+      data[o + 2] = useA ? ab : bb;
+      data[o + 3] = 255;
+    }
+  }
+  const tex = new DataTexture(data, size, size);
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = RepeatWrapping;
+  tex.colorSpace = SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 // RGBA8 3D texture for custom material shaders (material.lutTexture, sampled
 // as u_lut). Only Uint8Array/Uint8ClampedArray data uploads; the engine
 // fixes linear filtering and clamp-to-edge wrapping.
@@ -2295,6 +2360,15 @@ export class Ray {
     return rayBoxT(this.origin.x, this.origin.y, this.origin.z,
       this.direction.x, this.direction.y, this.direction.z, box) !== null;
   }
+  intersectSphere(sphere, target = new Vector3()) {
+    const t = raySphereT(this.origin.x, this.origin.y, this.origin.z,
+      this.direction.x, this.direction.y, this.direction.z, sphere);
+    return t === null ? null : this.at(t, target);
+  }
+  intersectsSphere(sphere) {
+    return raySphereT(this.origin.x, this.origin.y, this.origin.z,
+      this.direction.x, this.direction.y, this.direction.z, sphere) !== null;
+  }
   intersectTriangle(a, b, c, backfaceCulling = false, target = new Vector3()) {
     const hit = rayTriangle(this.origin.x, this.origin.y, this.origin.z,
       this.direction.x, this.direction.y, this.direction.z,
@@ -2325,6 +2399,20 @@ function rayBoxT(ox, oy, oz, dx, dy, dz, box) {
   }
   if (tmax < 0) return null;
   return tmin >= 0 ? tmin : tmax;
+}
+
+function raySphereT(ox, oy, oz, dx, dy, dz, sphere) {
+  if (!sphere || sphere.radius < 0) return null;
+  const vx = sphere.center.x - ox, vy = sphere.center.y - oy, vz = sphere.center.z - oz;
+  const tca = vx * dx + vy * dy + vz * dz;
+  const d2 = vx * vx + vy * vy + vz * vz - tca * tca;
+  const r2 = sphere.radius * sphere.radius;
+  if (d2 > r2) return null;
+  const thc = Math.sqrt(r2 - d2);
+  const t0 = tca - thc;
+  const t1 = tca + thc;
+  if (t1 < 0) return null;
+  return t0 < 0 ? t1 : t0;
 }
 
 // Möller–Trumbore ray/triangle test in the mesh's local space.
@@ -2483,13 +2571,91 @@ export class Raycaster {
   }
 }
 
+export class Sphere {
+  constructor(center = new Vector3(), radius = -1) {
+    this.center = center;
+    this.radius = radius;
+    this.isSphere = true;
+    this.isBoundingSphere = true;
+  }
+  set(center, radius) { this.center.copy(center); this.radius = radius; return this; }
+  copy(sphere) { this.center.copy(sphere.center); this.radius = sphere.radius; return this; }
+  clone() { return new Sphere(this.center.clone(), this.radius); }
+  isEmpty() { return this.radius < 0; }
+  makeEmpty() { this.center.set(0, 0, 0); this.radius = -1; return this; }
+  containsPoint(point) {
+    if (this.radius < 0) return false;
+    const dx = point.x - this.center.x, dy = point.y - this.center.y, dz = point.z - this.center.z;
+    return dx * dx + dy * dy + dz * dz <= this.radius * this.radius;
+  }
+  distanceToPoint(point) {
+    const dx = point.x - this.center.x, dy = point.y - this.center.y, dz = point.z - this.center.z;
+    return Math.hypot(dx, dy, dz) - this.radius;
+  }
+  intersectsSphere(sphere) {
+    if (this.radius < 0 || sphere.radius < 0) return false;
+    const r = this.radius + sphere.radius;
+    const dx = sphere.center.x - this.center.x, dy = sphere.center.y - this.center.y, dz = sphere.center.z - this.center.z;
+    return dx * dx + dy * dy + dz * dz <= r * r;
+  }
+  intersectsBox(box) { return box.intersectsSphere(this); }
+  getBoundingBox(target = new Box3()) {
+    if (this.isEmpty()) return target.makeEmpty();
+    target.min.set(this.center.x - this.radius, this.center.y - this.radius, this.center.z - this.radius);
+    target.max.set(this.center.x + this.radius, this.center.y + this.radius, this.center.z + this.radius);
+    return target;
+  }
+  setFromPoints(points, optionalCenter) {
+    if (optionalCenter) this.center.copy(optionalCenter);
+    else new Box3().setFromPoints(points).getCenter(this.center);
+    let maxR2 = 0;
+    for (const p of points) {
+      const dx = p.x - this.center.x, dy = p.y - this.center.y, dz = p.z - this.center.z;
+      maxR2 = Math.max(maxR2, dx * dx + dy * dy + dz * dz);
+    }
+    this.radius = points.length ? Math.sqrt(maxR2) : -1;
+    return this;
+  }
+}
+
 export class Box3 {
   constructor(min = new Vector3(Infinity, Infinity, Infinity), max = new Vector3(-Infinity, -Infinity, -Infinity)) {
     this.min = min; this.max = max; this.isBox3 = true;
   }
   set(min, max) { this.min.copy(min); this.max.copy(max); return this; }
+  copy(box) { this.min.copy(box.min); this.max.copy(box.max); return this; }
   makeEmpty() { this.min.set(Infinity, Infinity, Infinity); this.max.set(-Infinity, -Infinity, -Infinity); return this; }
   isEmpty() { return this.max.x < this.min.x || this.max.y < this.min.y || this.max.z < this.min.z; }
+  setFromArray(array) {
+    this.makeEmpty();
+    for (let i = 0; i + 2 < array.length; i += 3) {
+      const x = array[i], y = array[i + 1], z = array[i + 2];
+      if (x < this.min.x) this.min.x = x; if (x > this.max.x) this.max.x = x;
+      if (y < this.min.y) this.min.y = y; if (y > this.max.y) this.max.y = y;
+      if (z < this.min.z) this.min.z = z; if (z > this.max.z) this.max.z = z;
+    }
+    return this;
+  }
+  setFromPoints(points) {
+    this.makeEmpty();
+    for (const p of points) this.expandByPoint(p);
+    return this;
+  }
+  getBoundingSphere(target = new Sphere()) {
+    if (this.isEmpty()) return target.makeEmpty();
+    this.getCenter(target.center);
+    const sz = this.getSize(new Vector3());
+    target.radius = Math.hypot(sz.x, sz.y, sz.z) * 0.5;
+    return target;
+  }
+  intersectsSphere(sphere) {
+    if (this.isEmpty() || sphere.isEmpty()) return false;
+    const cx = Math.max(this.min.x, Math.min(sphere.center.x, this.max.x));
+    const cy = Math.max(this.min.y, Math.min(sphere.center.y, this.max.y));
+    const cz = Math.max(this.min.z, Math.min(sphere.center.z, this.max.z));
+    const dx = cx - sphere.center.x, dy = cy - sphere.center.y, dz = cz - sphere.center.z;
+    return dx * dx + dy * dy + dz * dz <= sphere.radius * sphere.radius;
+  }
   getCenter(target = new Vector3()) {
     return this.isEmpty() ? target.set(0, 0, 0)
       : target.set((this.min.x + this.max.x) / 2, (this.min.y + this.max.y) / 2, (this.min.z + this.max.z) / 2);
