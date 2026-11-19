@@ -447,6 +447,8 @@ function fillVertexSlots(slotVals, slotData, customs, fills, i) {
   }
 }
 
+const _slotVals = new Float64Array(16);
+
 function uploadGeometryBulk(engine, prepared) {
   const { position, normal, color, count, ns, cs, slotData, customs, fills, indexIds } = prepared;
   const indexCount = indexIds ? indexIds.length - (indexIds.length % 3) : count - (count % 3);
@@ -458,16 +460,15 @@ function uploadGeometryBulk(engine, prepared) {
   try {
     const vf = engine.HEAPF32;
     const vBase = vPtr >> 2;
-    const slotVals = new Float64Array(16);
     for (let i = 0; i < count; i++) {
       const pi = i * position.itemSize, ni = i * ns, ci = i * cs;
-      fillVertexSlots(slotVals, slotData, customs, fills, i);
+      fillVertexSlots(_slotVals, slotData, customs, fills, i);
       const o = vBase + i * 30;
       vf[o] = p[pi]; vf[o + 1] = p[pi + 1]; vf[o + 2] = p[pi + 2];
       vf[o + 3] = n && ns > 0 ? n[ni] : 0;
       vf[o + 4] = n && ns > 1 ? n[ni + 1] : 0;
       vf[o + 5] = n && ns > 2 ? n[ni + 2] : 1;
-      for (let s = 0; s < 16; s++) vf[o + 6 + s] = slotVals[s];
+      for (let s = 0; s < 16; s++) vf[o + 6 + s] = _slotVals[s];
       vf[o + 22] = 0; vf[o + 23] = 0; vf[o + 24] = 0; vf[o + 25] = 0;
       vf[o + 26] = c && cs > 0 ? c[ci] : 1;
       vf[o + 27] = c && cs > 1 ? c[ci + 1] : 1;

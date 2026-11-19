@@ -2544,7 +2544,8 @@ function syncNode(engine, object, parentEngineIndex, local) {
 	if (!record.matrix || !matricesEqual(record.matrix, local)) {
 		if (typeof engine._g3_asset_matrix16 === "function") engine._g3_asset_matrix16(record.index, local[0], local[1], local[2], local[3], local[4], local[5], local[6], local[7], local[8], local[9], local[10], local[11], local[12], local[13], local[14], local[15]);
 		else for (let i = 0; i < 16; i++) engine._g3_asset_matrix(record.index, i, local[i]);
-		record.matrix = Float64Array.from(local);
+		if (!record.matrix) record.matrix = Float64Array.from(local);
+		else record.matrix.set(local);
 	}
 	return record.index;
 }
@@ -2774,9 +2775,10 @@ function syncCamera(engine, renderer, camera) {
 		state.viewKey = voKey;
 	}
 }
-function tintedInstanceMaterial(instanced, colArr, index) {
+function tintedInstanceMaterial(instanced, proxy, colArr, index) {
 	const o = index * 3;
 	const r = colArr[o], g = colArr[o + 1], b = colArr[o + 2];
+	if (proxy._tintedMat && proxy._cr === r && proxy._cg === g && proxy._cb === b) return proxy._tintedMat;
 	const key = `${r.toFixed(4)},${g.toFixed(4)},${b.toFixed(4)}`;
 	let tinted = instanced._colorMaterials.get(key);
 	if (!tinted) {
@@ -2786,6 +2788,10 @@ function tintedInstanceMaterial(instanced, colArr, index) {
 		tinted.color = new Color(base.r * r, base.g * g, base.b * b);
 		instanced._colorMaterials.set(key, tinted);
 	}
+	proxy._cr = r;
+	proxy._cg = g;
+	proxy._cb = b;
+	proxy._tintedMat = tinted;
 	return tinted;
 }
 function syncInstancedMesh(instanced, engineParent, seen) {
@@ -2795,6 +2801,7 @@ function syncInstancedMesh(instanced, engineParent, seen) {
 	if (instanced._tintedSourceMaterial !== instanced.material) {
 		instanced._colorMaterials.clear();
 		instanced._tintedSourceMaterial = instanced.material;
+		for (const p of instanced._instances) if (p) p._tintedMat = null;
 	}
 	for (let i = 0; i < count; i++) {
 		let proxy = instanced._instances[i];
@@ -2805,7 +2812,7 @@ function syncInstancedMesh(instanced, engineParent, seen) {
 		proxy.geometry = instanced.geometry;
 		proxy.castShadow = instanced.castShadow;
 		proxy.receiveShadow = instanced.receiveShadow;
-		proxy.material = colArr && instanced.material ? tintedInstanceMaterial(instanced, colArr, i) : instanced.material;
+		proxy.material = colArr && instanced.material ? tintedInstanceMaterial(instanced, proxy, colArr, i) : instanced.material;
 		syncNode(sharedEngine, proxy, engineParent, arr.subarray(i * 16, i * 16 + 16));
 		seen.add(proxy);
 	}
@@ -3545,6 +3552,7 @@ function fillVertexSlots(slotVals, slotData, customs, fills, i) {
 	}
 	for (const f of fills) for (let k = 0; k < f.count; k++) slotVals[f.slots[k >> 1] * 2 + (k & 1)] = f.values[k] || 0;
 }
+const _slotVals = /* @__PURE__ */ new Float64Array(16);
 function uploadGeometryBulk(engine, prepared) {
 	const { position, normal, color, count, ns, cs, slotData, customs, fills, indexIds } = prepared;
 	const indexCount = indexIds ? indexIds.length - indexIds.length % 3 : count - count % 3;
@@ -3556,10 +3564,9 @@ function uploadGeometryBulk(engine, prepared) {
 	try {
 		const vf = engine.HEAPF32;
 		const vBase = vPtr >> 2;
-		const slotVals = /* @__PURE__ */ new Float64Array(16);
 		for (let i = 0; i < count; i++) {
 			const pi = i * position.itemSize, ni = i * ns, ci = i * cs;
-			fillVertexSlots(slotVals, slotData, customs, fills, i);
+			fillVertexSlots(_slotVals, slotData, customs, fills, i);
 			const o = vBase + i * 30;
 			vf[o] = p[pi];
 			vf[o + 1] = p[pi + 1];
@@ -3567,7 +3574,7 @@ function uploadGeometryBulk(engine, prepared) {
 			vf[o + 3] = n && ns > 0 ? n[ni] : 0;
 			vf[o + 4] = n && ns > 1 ? n[ni + 1] : 0;
 			vf[o + 5] = n && ns > 2 ? n[ni + 2] : 1;
-			for (let s = 0; s < 16; s++) vf[o + 6 + s] = slotVals[s];
+			for (let s = 0; s < 16; s++) vf[o + 6 + s] = _slotVals[s];
 			vf[o + 22] = 0;
 			vf[o + 23] = 0;
 			vf[o + 24] = 0;

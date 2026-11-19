@@ -47,7 +47,8 @@ function syncNode(engine, object, parentEngineIndex, local) {
     } else {
       for (let i = 0; i < 16; i++) engine._g3_asset_matrix(record.index, i, local[i]);
     }
-    record.matrix = Float64Array.from(local);
+    if (!record.matrix) record.matrix = Float64Array.from(local);
+    else record.matrix.set(local);
   }
   return record.index;
 }
@@ -269,9 +270,12 @@ export function syncCamera(engine, renderer, camera) {
   }
 }
 
-function tintedInstanceMaterial(instanced, colArr, index) {
+function tintedInstanceMaterial(instanced, proxy, colArr, index) {
   const o = index * 3;
   const r = colArr[o], g = colArr[o + 1], b = colArr[o + 2];
+  if (proxy._tintedMat && proxy._cr === r && proxy._cg === g && proxy._cb === b) {
+    return proxy._tintedMat;
+  }
   const key = `${r.toFixed(4)},${g.toFixed(4)},${b.toFixed(4)}`;
   let tinted = instanced._colorMaterials.get(key);
   if (!tinted) {
@@ -281,6 +285,8 @@ function tintedInstanceMaterial(instanced, colArr, index) {
     tinted.color = new Color(base.r * r, base.g * g, base.b * b);
     instanced._colorMaterials.set(key, tinted);
   }
+  proxy._cr = r; proxy._cg = g; proxy._cb = b;
+  proxy._tintedMat = tinted;
   return tinted;
 }
 
@@ -291,6 +297,9 @@ function syncInstancedMesh(instanced, engineParent, seen) {
   if (instanced._tintedSourceMaterial !== instanced.material) {
     instanced._colorMaterials.clear();
     instanced._tintedSourceMaterial = instanced.material;
+    for (const p of instanced._instances) {
+      if (p) (p as any)._tintedMat = null;
+    }
   }
   for (let i = 0; i < count; i++) {
     let proxy = instanced._instances[i];
@@ -302,7 +311,7 @@ function syncInstancedMesh(instanced, engineParent, seen) {
     proxy.castShadow = instanced.castShadow;
     proxy.receiveShadow = instanced.receiveShadow;
     proxy.material = colArr && instanced.material
-      ? tintedInstanceMaterial(instanced, colArr, i)
+      ? tintedInstanceMaterial(instanced, proxy, colArr, i)
       : instanced.material;
     syncNode(sharedEngine, proxy, engineParent, arr.subarray(i * 16, i * 16 + 16));
     seen.add(proxy);
