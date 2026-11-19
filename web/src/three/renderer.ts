@@ -1,6 +1,6 @@
 import createGoose3D from './gs3d/app.js';
 import { Color } from './color';
-import { Vector2 } from './math';
+import { Vector2, Vector4 } from './math';
 import { sharedEngine, setSharedEngine, nodeStates, syncedObjects, releaseNodeRecord, setFrameMaterialCache } from './bridge';
 import { collectLights, syncSceneTree, syncBackground, syncFog, syncEnvironment, syncLights, syncCamera } from './sync';
 import { ensureEngineRenderTarget } from './textures';
@@ -75,6 +75,13 @@ export class WebGPURenderer {
   shadowMap: { enabled: boolean; type: number; autoUpdate: boolean; needsUpdate: boolean };
   _captureTarget: number;
   capabilities: { maxTextureSize: number; getMaxAnisotropy: () => number };
+  autoClear: boolean;
+  info: { autoReset: boolean; reset(): void; render: { calls: number; triangles: number; frame: number }; memory: { geometries: number; textures: number } };
+  debug: { checkShaderErrors: boolean; onShaderError: ((gl: any, program: any, vs: any, fs: any) => void) | null };
+  properties: { get(obj: any): Record<string, any> };
+  _viewport: Vector4;
+  _scissor: Vector4;
+  _scissorTest: boolean;
   _currentRenderTarget: any;
   _extensions: any;
   _floatSupport?: boolean;
@@ -112,6 +119,25 @@ export class WebGPURenderer {
     // Conservative stand-ins for the GL caps apps probe; the engine owns the
     // context, so these cannot be queried without a second getContext call.
     this.capabilities = { maxTextureSize: 8192, getMaxAnisotropy: () => 16 };
+    this.autoClear = true;
+    this.info = {
+      autoReset: true,
+      render: { calls: 0, triangles: 0, frame: 0 },
+      memory: { geometries: 0, textures: 0 },
+      reset() { this.render.calls = 0; this.render.triangles = 0; },
+    };
+    this.debug = { checkShaderErrors: true, onShaderError: null };
+    const propMap = new WeakMap<any, Record<string, any>>();
+    this.properties = {
+      get(obj: any) {
+        let p = propMap.get(obj);
+        if (!p) { p = {}; propMap.set(obj, p); }
+        return p;
+      },
+    };
+    this._viewport = new Vector4(0, 0, this._cssWidth, this._cssHeight);
+    this._scissor = new Vector4(0, 0, this._cssWidth, this._cssHeight);
+    this._scissorTest = false;
     this.setPixelRatio(parameters.pixelRatio ?? (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1));
     this._measure();
   }
@@ -156,6 +182,24 @@ export class WebGPURenderer {
   // The engine clears the bound target at the start of every frame with the
   // clear colour, so clear() only needs to be API-compatible here.
   clear(_color = true, _depth = true, _stencil = true) { return this; }
+  getContext() {
+    try { return this.domElement.getContext('webgl2') || this.domElement.getContext('experimental-webgl2') || null; }
+    catch { return null; }
+  }
+  setViewport(x: number, y: number, width: number, height: number) {
+    this._viewport.set(x, y, width, height);
+    return this;
+  }
+  setScissor(x: number, y: number, width: number, height: number) {
+    this._scissor.set(x, y, width, height);
+    return this;
+  }
+  setScissorTest(enable: boolean) {
+    this._scissorTest = !!enable;
+    return this;
+  }
+  compile(_scene: any, _camera?: any) { return new Set(); }
+  async compileAsync(_scene: any, _camera?: any) { return new Set(); }
 
   _ensureRenderTarget(rt) {
     const engine = this._engine;

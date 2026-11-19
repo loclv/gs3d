@@ -1,5 +1,5 @@
 import { Color } from './color';
-import { Vector2 } from './math';
+import { Vector2, Vector4 } from './math';
 import { sharedEngine, releaseTexture } from './bridge';
 import { SRGBColorSpace, NoColorSpace } from './renderer';
 
@@ -217,6 +217,10 @@ export class WebGLRenderTarget {
   stencilBuffer: boolean;
   count: number;
   texture: Texture;
+  textures: Texture[];
+  viewport: Vector4;
+  scissor: Vector4;
+  scissorTest: boolean;
   _rtId: number;
   _rtWidth: number;
   _rtHeight: number;
@@ -230,6 +234,10 @@ export class WebGLRenderTarget {
     // Multiple render targets are not reachable through the engine ABI.
     this.count = options.count || 1;
     this.texture = new Texture(null);
+    this.textures = [this.texture];
+    this.viewport = new Vector4(0, 0, this.width, this.height);
+    this.scissor = new Vector4(0, 0, this.width, this.height);
+    this.scissorTest = false;
     this.texture.isRenderTargetTexture = true;
     this.texture._renderTarget = this;
     this.texture.generateMipmaps = false;
@@ -247,6 +255,7 @@ export class WebGLRenderTarget {
   setSize(width, height) {
     this.width = Math.max(1, width | 0);
     this.height = Math.max(1, height | 0);
+    this.viewport.set(0, 0, this.width, this.height);
     return this;
   }
   dispose() {

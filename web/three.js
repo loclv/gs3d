@@ -1342,9 +1342,18 @@ var BufferGeometry = class BufferGeometry {
 		this.attributes = {};
 		this.index = null;
 		this.groups = [];
+		this.drawRange = {
+			start: 0,
+			count: 1e400
+		};
 		this.boundingBox = null;
 		this.boundingSphere = null;
 		this.version = 0;
+	}
+	setDrawRange(start, count) {
+		this.drawRange.start = start;
+		this.drawRange.count = count;
+		return this;
 	}
 	setAttribute(name, attribute) {
 		this.attributes[name] = attribute;
@@ -2904,6 +2913,39 @@ var WebGPURenderer = class {
 			maxTextureSize: 8192,
 			getMaxAnisotropy: () => 16
 		};
+		this.autoClear = true;
+		this.info = {
+			autoReset: true,
+			render: {
+				calls: 0,
+				triangles: 0,
+				frame: 0
+			},
+			memory: {
+				geometries: 0,
+				textures: 0
+			},
+			reset() {
+				this.render.calls = 0;
+				this.render.triangles = 0;
+			}
+		};
+		this.debug = {
+			checkShaderErrors: true,
+			onShaderError: null
+		};
+		const propMap = /* @__PURE__ */ new WeakMap();
+		this.properties = { get(obj) {
+			let p = propMap.get(obj);
+			if (!p) {
+				p = {};
+				propMap.set(obj, p);
+			}
+			return p;
+		} };
+		this._viewport = new Vector4(0, 0, this._cssWidth, this._cssHeight);
+		this._scissor = new Vector4(0, 0, this._cssWidth, this._cssHeight);
+		this._scissorTest = false;
 		this.setPixelRatio(parameters.pixelRatio ?? (typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1));
 		this._measure();
 	}
@@ -2955,6 +2997,31 @@ var WebGPURenderer = class {
 	}
 	clear(_color = true, _depth = true, _stencil = true) {
 		return this;
+	}
+	getContext() {
+		try {
+			return this.domElement.getContext("webgl2") || this.domElement.getContext("experimental-webgl2") || null;
+		} catch {
+			return null;
+		}
+	}
+	setViewport(x, y, width, height) {
+		this._viewport.set(x, y, width, height);
+		return this;
+	}
+	setScissor(x, y, width, height) {
+		this._scissor.set(x, y, width, height);
+		return this;
+	}
+	setScissorTest(enable) {
+		this._scissorTest = !!enable;
+		return this;
+	}
+	compile(_scene, _camera) {
+		return /* @__PURE__ */ new Set();
+	}
+	async compileAsync(_scene, _camera) {
+		return /* @__PURE__ */ new Set();
 	}
 	_ensureRenderTarget(rt) {
 		const engine = this._engine;
@@ -3879,6 +3946,10 @@ var WebGLRenderTarget = class {
 		this.stencilBuffer = !!options.stencilBuffer;
 		this.count = options.count || 1;
 		this.texture = new Texture(null);
+		this.textures = [this.texture];
+		this.viewport = new Vector4(0, 0, this.width, this.height);
+		this.scissor = new Vector4(0, 0, this.width, this.height);
+		this.scissorTest = false;
 		this.texture.isRenderTargetTexture = true;
 		this.texture._renderTarget = this;
 		this.texture.generateMipmaps = false;
@@ -3896,6 +3967,7 @@ var WebGLRenderTarget = class {
 	setSize(width, height) {
 		this.width = Math.max(1, width | 0);
 		this.height = Math.max(1, height | 0);
+		this.viewport.set(0, 0, this.width, this.height);
 		return this;
 	}
 	dispose() {

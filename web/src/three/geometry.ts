@@ -70,6 +70,7 @@ export class BufferGeometry {
   attributes: Record<string, any>;
   index: BufferAttribute | null;
   groups: Array<{ start: number; count: number; materialIndex?: number }>;
+  drawRange: { start: number; count: number };
   boundingBox: Box3 | null;
   boundingSphere: Sphere | null;
   version: number;
@@ -79,9 +80,15 @@ export class BufferGeometry {
     this.attributes = {};
     this.index = null;
     this.groups = [];
+    this.drawRange = { start: 0, count: Infinity };
     this.boundingBox = null;
     this.boundingSphere = null;
     this.version = 0;
+  }
+  setDrawRange(start: number, count: number) {
+    this.drawRange.start = start;
+    this.drawRange.count = count;
+    return this;
   }
   setAttribute(name, attribute) {
     this.attributes[name] = attribute;

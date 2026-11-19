@@ -129,6 +129,8 @@ export class BufferGeometry {
   attributes: Record<string, BufferAttribute>;
   index: BufferAttribute | null;
   groups: Array<{ start: number; count: number; materialIndex?: number }>;
+  drawRange: { start: number; count: number };
+  setDrawRange(start: number, count: number): this;
   boundingBox: Box3 | null;
   boundingSphere: Sphere | null;
   version: number;
@@ -701,8 +703,19 @@ export class WebGPURenderer {
   toneMapping: number;
   toneMappingExposure: number;
   shadowMap: { enabled: boolean };
+  autoClear: boolean;
+  info: { autoReset: boolean; reset(): void; render: { calls: number; triangles: number; frame: number }; memory: { geometries: number; textures: number } };
+  debug: { checkShaderErrors: boolean; onShaderError: ((gl: unknown, program: unknown, vs: unknown, fs: unknown) => void) | null };
+  properties: { get(obj: object): Record<string, unknown> };
   init(): Promise<unknown>;
   render(scene: Scene, camera: Camera): void;
+  getContext(): WebGL2RenderingContext | null;
+  setViewport(x: number, y: number, width: number, height: number): this;
+  setScissor(x: number, y: number, width: number, height: number): this;
+  setScissorTest(enable: boolean): this;
+  clear(color?: boolean, depth?: boolean, stencil?: boolean): this;
+  compile(scene: Object3D, camera?: Camera): Set<unknown>;
+  compileAsync(scene: Object3D, camera?: Camera): Promise<Set<unknown>>;
   setAnimationLoop(callback: ((time: number) => void) | null): this;
   setPixelRatio(value: number): this;
   getPixelRatio(): number;
@@ -790,6 +803,10 @@ export class WebGLRenderTarget {
   height: number;
   depthBuffer: boolean;
   texture: Texture;
+  textures: Texture[];
+  viewport: Vector4;
+  scissor: Vector4;
+  scissorTest: boolean;
   setSize(width: number, height: number): this;
   dispose(): void;
 }

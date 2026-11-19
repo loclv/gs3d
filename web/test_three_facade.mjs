@@ -1772,6 +1772,19 @@ function buildTestGLB() {
   assert.equal(bulkMatrices, 2, 'uses matrix16 for scene and mesh');
   assert.equal(named(engine, '_g3_asset_vertex').length, 0, 'skips per-vertex bridge calls');
   assert.equal(named(engine, '_g3_asset_matrix').length, 0, 'skips per-element matrix calls');
+
+  // WebGLRenderer / BufferGeometry / WebGLRenderTarget parity properties.
+  const rt = new THREE.WebGLRenderTarget(64, 32);
+  assert.equal(rt.textures[0], rt.texture, 'WebGLRenderTarget.textures[0] aliases texture');
+  assert.equal(rt.viewport.z, 64, 'WebGLRenderTarget.viewport tracks width');
+  rt.setSize(128, 96);
+  assert.equal(rt.viewport.w, 96, 'WebGLRenderTarget.setSize updates viewport height');
+  const gRange = new THREE.BufferGeometry().setDrawRange(0, 3);
+  assert.equal(gRange.drawRange.count, 3, 'BufferGeometry.setDrawRange sets count');
+  assert.equal(typeof renderer.getContext, 'function', 'renderer.getContext exists');
+  assert.equal(renderer.autoClear, true, 'renderer.autoClear defaults to true');
+  assert.equal(typeof renderer.properties.get(rt), 'object', 'renderer.properties.get returns record');
+  await renderer.compileAsync(scene, new THREE.PerspectiveCamera());
 }
 
 
