@@ -117,13 +117,22 @@ export class BufferGeometry {
   readonly isBufferGeometry: true;
   attributes: Record<string, BufferAttribute>;
   index: BufferAttribute | null;
-  groups: unknown[];
+  groups: Array<{ start: number; count: number; materialIndex?: number }>;
+  boundingBox: Box3 | null;
   boundingSphere: unknown;
   version: number;
   setAttribute(name: string, attribute: BufferAttribute): this;
   getAttribute(name: string): BufferAttribute | undefined;
   setIndex(index: ArrayLike<number> | BufferAttribute | null): this;
+  rotateX(angle: number): this;
+  rotateY(angle: number): this;
+  rotateZ(angle: number): this;
+  translate(x: number, y: number, z: number): this;
+  scale(x: number, y: number, z: number): this;
+  center(): this;
   computeVertexNormals(): this;
+  computeBoundingBox(): this;
+  computeBoundingSphere(): this;
   dispose(): void;
 }
 
@@ -509,14 +518,20 @@ export class Ray {
   direction: Vector3;
   set(origin: Vector3, direction: Vector3): this;
   at(t: number, target?: Vector3): Vector3;
+  intersectPlane(plane: Plane, target?: Vector3): Vector3 | null;
+  intersectBox(box: Box3, target?: Vector3): Vector3 | null;
+  intersectsBox(box: Box3): boolean;
+  intersectTriangle(a: Vector3, b: Vector3, c: Vector3, backfaceCulling?: boolean, target?: Vector3): Vector3 | null;
 }
 
 export interface Intersection {
   distance: number;
   point: Vector3;
-  face: { a: number; b: number; c: number; normal: Vector3 } | null;
+  face: { a: number; b: number; c: number; normal: Vector3; materialIndex?: number } | null;
+  faceIndex?: number;
   object: Object3D;
   uv: Vector2 | null;
+  instanceId?: number;
 }
 
 export class Raycaster {
@@ -527,8 +542,8 @@ export class Raycaster {
   camera: Camera | null;
   set(origin: Vector3, direction: Vector3): this;
   setFromCamera(coords: Vector2, camera: Camera): this;
-  intersectObject(object: Object3D, recursive?: boolean): Intersection[];
-  intersectObjects(objects: Object3D[], recursive?: boolean): Intersection[];
+  intersectObject(object: Object3D, recursive?: boolean, target?: Intersection[]): Intersection[];
+  intersectObjects(objects: Object3D[], recursive?: boolean, target?: Intersection[]): Intersection[];
 }
 
 export class Box3 {

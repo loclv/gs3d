@@ -1634,5 +1634,60 @@ function buildTestGLB() {
   assert.equal(inst._instances[1].material.color.r, 0, 'material swap invalidates tinted cache');
 }
 
+{
+  // BufferGeometry.computeBoundingBox/scale/center, Ray box/triangle tests,
+  // and Raycaster exact non-uniform scale distance, OrthographicCamera, InstancedMesh, UVs, and side.
+  const geo = new THREE.BoxGeometry(2, 2, 2);
+  geo.scale(1, 2, 0.5);
+  geo.translate(4, 0, 0);
+  geo.computeBoundingBox();
+  const sz = geo.boundingBox.getSize(new THREE.Vector3());
+  assert.ok(Math.abs(sz.x - 2) < 1e-6 && Math.abs(sz.y - 4) < 1e-6 && Math.abs(sz.z - 1) < 1e-6, 'scale updates boundingBox');
+  geo.center();
+  const ctr = geo.boundingBox.getCenter(new THREE.Vector3());
+  assert.ok(Math.hypot(ctr.x, ctr.y, ctr.z) < 1e-6, 'center recenters geometry');
+
+  const ray = new THREE.Ray(new THREE.Vector3(0, 0, 5), new THREE.Vector3(0, 0, -1));
+  const boxHit = ray.intersectBox(geo.boundingBox, new THREE.Vector3());
+  assert.ok(boxHit && Math.abs(boxHit.z - 0.5) < 1e-6, 'Ray.intersectBox hits front face');
+  assert.equal(ray.intersectsBox(geo.boundingBox), true, 'Ray.intersectsBox returns true');
+
+  const scaledScene = new THREE.Scene();
+  const scaledBox = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+  scaledBox.position.set(0, 0, -5);
+  scaledBox.scale.set(1, 1, 4);
+  scaledScene.add(scaledBox);
+  const rcScaled = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1));
+  const scaledHits = rcScaled.intersectObject(scaledScene, true);
+  assert.equal(scaledHits.length, 1, 'non-uniformly scaled box hit');
+  assert.ok(Math.abs(scaledHits[0].distance - 3) < 1e-5, `exact world distance 3 (got ${scaledHits[0].distance})`);
+  assert.ok(scaledHits[0].uv !== null, 'UV interpolated on hit');
+  assert.equal(typeof scaledHits[0].faceIndex, 'number', 'faceIndex reported on hit');
+
+  // BackSide vs FrontSide on a single-sided plane facing +Z.
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ side: THREE.FrontSide }));
+  const backRay = new THREE.Raycaster(new THREE.Vector3(0, 0, -2), new THREE.Vector3(0, 0, 1));
+  assert.equal(backRay.intersectObject(plane).length, 0, 'FrontSide culls back-facing ray');
+  plane.material.side = THREE.DoubleSide;
+  assert.equal(backRay.intersectObject(plane).length, 1, 'DoubleSide hits back-facing ray');
+
+  // OrthographicCamera raycasting.
+  const ortho = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100);
+  ortho.position.set(0, 0, 10);
+  const rcOrtho = new THREE.Raycaster().setFromCamera(new THREE.Vector2(0, 0), ortho);
+  assert.equal(rcOrtho.intersectObject(scaledScene, true).length, 1, 'OrthographicCamera setFromCamera hits');
+
+  // InstancedMesh raycasting and Box3.setFromObject.
+  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial(), 2);
+  inst.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, 0, -10));
+  inst.setMatrixAt(1, new THREE.Matrix4().makeTranslation(0, 0, -4));
+  const instHits = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)).intersectObject(inst);
+  assert.equal(instHits.length, 2, 'InstancedMesh hits both aligned instances');
+  assert.equal(instHits[0].instanceId, 1, 'nearest instanceId sorted first');
+  assert.equal(instHits[1].instanceId, 0, 'farther instanceId sorted second');
+  const instBounds = new THREE.Box3().setFromObject(inst);
+  assert.ok(Math.abs(instBounds.min.z + 10.5) < 1e-6 && Math.abs(instBounds.max.z + 3.5) < 1e-6, 'Box3.setFromObject spans InstancedMesh');
+}
+
 
 console.log('three.js facade checks passed');

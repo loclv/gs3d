@@ -689,11 +689,16 @@ export class BufferGeometry {
     this.attributes = {};
     this.index = null;
     this.groups = [];
+    this.boundingBox = null;
     this.boundingSphere = null;
     this.version = 0;
   }
   setAttribute(name, attribute) {
     this.attributes[name] = attribute;
+    if (name === 'position') {
+      this.boundingBox = null;
+      this.boundingSphere = null;
+    }
     this.version++;
     return this;
   }
@@ -705,13 +710,15 @@ export class BufferGeometry {
     this.version++;
     return this;
   }
-  // Rotate/translate the stored positions (and normals) in place, like
+  // Rotate/translate/scale the stored positions (and normals) in place, like
   // three.js geometry transforms: they bake into the attribute arrays.
   _transformPositions(fn, normalFn) {
     const position = this.attributes.position;
     if (position) {
       const pd = attrData(position);
       for (let i = 0; i < pd.count; i++) fn(pd.array, i * pd.itemSize, pd.itemSize);
+      this.boundingBox = null;
+      this.boundingSphere = null;
       this.version++;
     }
     const normal = this.attributes.normal;
@@ -753,7 +760,23 @@ export class BufferGeometry {
     });
   }
   translate(x, y, z) {
-    return this._transformPositions((a, o, st) => { a[o] += x; a[o + 1] += y; a[o + 2] += z; });
+    return this._transformPositions((a, o) => { a[o] += x; a[o + 1] += y; a[o + 2] += z; });
+  }
+  scale(x, y, z) {
+    const ix = x ? 1 / x : 0, iy = y ? 1 / y : 0, iz = z ? 1 / z : 0;
+    return this._transformPositions((a, o) => {
+      a[o] *= x; a[o + 1] *= y; a[o + 2] *= z;
+    }, (a, o) => {
+      const nx = a[o] * ix, ny = a[o + 1] * iy, nz = a[o + 2] * iz;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      a[o] = nx / l; a[o + 1] = ny / l; a[o + 2] = nz / l;
+    });
+  }
+  center() {
+    this.computeBoundingBox();
+    if (!this.boundingBox || this.boundingBox.isEmpty()) return this;
+    const c = this.boundingBox.getCenter(new Vector3());
+    return this.translate(-c.x, -c.y, -c.z).computeBoundingBox();
   }
   computeVertexNormals() {
     const position = this.attributes.position;
@@ -783,6 +806,25 @@ export class BufferGeometry {
       else { normals[i] = 0; normals[i + 1] = 0; normals[i + 2] = 1; }
     }
     this.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+    return this;
+  }
+  computeBoundingBox() {
+    const position = this.attributes.position;
+    if (!position) { this.boundingBox = null; return this; }
+    const pd = attrData(position);
+    const p = pd.array, ps = pd.itemSize;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < pd.count; i++) {
+      const o = i * ps;
+      const x = p[o], y = p[o + 1], z = p[o + 2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    if (!this.boundingBox) this.boundingBox = new Box3();
+    this.boundingBox.min.set(minX, minY, minZ);
+    this.boundingBox.max.set(maxX, maxY, maxZ);
     return this;
   }
   computeBoundingSphere() {
@@ -2244,15 +2286,60 @@ export class Ray {
     if (t < 0) return null;
     return target.copy(this.origin).addScaledVector(this.direction, t);
   }
+  intersectBox(box, target = new Vector3()) {
+    const t = rayBoxT(this.origin.x, this.origin.y, this.origin.z,
+      this.direction.x, this.direction.y, this.direction.z, box);
+    return t === null ? null : this.at(t, target);
+  }
+  intersectsBox(box) {
+    return rayBoxT(this.origin.x, this.origin.y, this.origin.z,
+      this.direction.x, this.direction.y, this.direction.z, box) !== null;
+  }
+  intersectTriangle(a, b, c, backfaceCulling = false, target = new Vector3()) {
+    const hit = rayTriangle(this.origin.x, this.origin.y, this.origin.z,
+      this.direction.x, this.direction.y, this.direction.z,
+      a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, backfaceCulling ? FrontSide : DoubleSide);
+    return hit ? this.at(hit.t, target) : null;
+  }
+}
+
+function rayBoxT(ox, oy, oz, dx, dy, dz, box) {
+  if (!box || box.isEmpty()) return null;
+  let tmin = -Infinity, tmax = Infinity;
+  const mins = [box.min.x, box.min.y, box.min.z];
+  const maxs = [box.max.x, box.max.y, box.max.z];
+  const orig = [ox, oy, oz];
+  const dir = [dx, dy, dz];
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(dir[i]) < 1e-12) {
+      if (orig[i] < mins[i] || orig[i] > maxs[i]) return null;
+    } else {
+      const inv = 1 / dir[i];
+      let t1 = (mins[i] - orig[i]) * inv;
+      let t2 = (maxs[i] - orig[i]) * inv;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      if (t1 > tmin) tmin = t1;
+      if (t2 < tmax) tmax = t2;
+      if (tmin > tmax) return null;
+    }
+  }
+  if (tmax < 0) return null;
+  return tmin >= 0 ? tmin : tmax;
 }
 
 // Möller–Trumbore ray/triangle test in the mesh's local space.
-function rayTriangle(ox, oy, oz, dx, dy, dz, ax, ay, az, bx, by, bz, cx, cy, cz) {
+function rayTriangle(ox, oy, oz, dx, dy, dz, ax, ay, az, bx, by, bz, cx, cy, cz, side = DoubleSide) {
   const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
   const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
   const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
   const det = e1x * px + e1y * py + e1z * pz;
-  if (Math.abs(det) < 1e-12) return null;
+  if (side === FrontSide) {
+    if (det < 1e-12) return null;
+  } else if (side === BackSide) {
+    if (det > -1e-12) return null;
+  } else if (Math.abs(det) < 1e-12) {
+    return null;
+  }
   const inv = 1 / det;
   const tx = ox - ax, ty = oy - ay, tz = oz - az;
   const u = (tx * px + ty * py + tz * pz) * inv;
@@ -2276,6 +2363,17 @@ export class Raycaster {
   setFromCamera(coords, camera) {
     // coords are normalized device coordinates (-1..1); camera is a facade camera.
     const world = worldMatrixOf(camera);
+    this.camera = camera;
+    if (camera.isOrthographicCamera) {
+      const cx = (camera.left + camera.right) * 0.5 + coords.x * (camera.right - camera.left) * 0.5;
+      const cy = (camera.bottom + camera.top) * 0.5 + coords.y * (camera.top - camera.bottom) * 0.5;
+      const near = Number.isFinite(camera.near) ? camera.near : 0.1;
+      const pos = transformPoint(world, cx, cy, -near);
+      const dir = normalize3(transformDir(world, 0, 0, -1));
+      this.ray.origin.set(pos[0], pos[1], pos[2]);
+      this.ray.direction.set(dir[0], dir[1], dir[2]);
+      return this;
+    }
     const pos = transformPoint(world, 0, 0, 0);
     const tanFov = Math.max(1e-4, Math.tan(((camera.fov ?? 50) * Math.PI / 180) / 2));
     const aspect = camera.aspect > 0 ? camera.aspect : 1;
@@ -2287,12 +2385,18 @@ export class Raycaster {
     this.ray.direction.set(dir[0], dir[1], dir[2]);
     return this;
   }
-  intersectObject(object, recursive = true) {
-    const hits = [];
+  intersectObject(object, recursive = true, hits = []) {
     const walk = node => {
-      if (node.isMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
-        const hit = this._intersectMesh(node);
-        if (hit) hits.push(hit);
+      if (node.isInstancedMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
+        const world = worldMatrixOf(node);
+        const count = Math.min(node.count, node._maxCount);
+        const arr = node.instanceMatrix.array;
+        for (let i = 0; i < count; i++) {
+          const instWorld = multiplyMat4(world, arr.subarray(i * 16, i * 16 + 16));
+          this._intersectMesh(node, instWorld, hits, i);
+        }
+      } else if (node.isMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
+        this._intersectMesh(node, worldMatrixOf(node), hits);
       }
       if (recursive) for (const child of node.children) walk(child);
     };
@@ -2300,52 +2404,82 @@ export class Raycaster {
     hits.sort((a, b) => a.distance - b.distance);
     return hits;
   }
-  intersectObjects(objects, recursive = true) {
-    const hits = [];
-    for (const object of objects) hits.push(...this.intersectObject(object, recursive));
-    hits.sort((a, b) => a.distance - b.distance);
+  intersectObjects(objects, recursive = true, hits = []) {
+    for (const object of objects) this.intersectObject(object, recursive, hits);
     return hits;
   }
-  _intersectMesh(mesh) {
+  _intersectMesh(mesh, world, hits, instanceId) {
     const geometry = mesh.geometry;
     const pos = geometry.attributes.position;
-    if (!pos) return null;
-    const p = pos.array, is = pos.itemSize;
-    const index = geometry.index && geometry.index.array;
-    const world = worldMatrixOf(mesh);
+    if (!pos) return;
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
     const inv = invertMat4(world);
-    if (!inv) return null;
+    if (!inv) return;
+    const ox = this.ray.origin.x, oy = this.ray.origin.y, oz = this.ray.origin.z;
     // Ray into mesh-local space.
-    const lo = transformPoint(inv, this.ray.origin.x, this.ray.origin.y, this.ray.origin.z);
+    const lo = transformPoint(inv, ox, oy, oz);
     const ld = normalize3(transformDir(inv, this.ray.direction.x, this.ray.direction.y, this.ray.direction.z));
-    const count = pos.count;
-    const triCount = index ? index.length / 3 : count / 3;
-    let best = null;
-    for (let t = 0; t < triCount; t++) {
-      const ia = index ? index[t * 3] : t * 3, ib = index ? index[t * 3 + 1] : t * 3 + 1, ic = index ? index[t * 3 + 2] : t * 3 + 2;
-      const a = ia * is, b = ib * is, c = ic * is;
-      const hit = rayTriangle(lo[0], lo[1], lo[2], ld[0], ld[1], ld[2],
-        p[a], p[a + 1], p[a + 2], p[b], p[b + 1], p[b + 2], p[c], p[c + 1], p[c + 2]);
-      if (!hit || hit.t < this.near || hit.t > this.far) continue;
-      if (!best || hit.t < best.t) best = { t: hit.t, u: hit.u, v: hit.v, a: ia, b: ib, c: ic };
+    if (geometry.boundingBox && rayBoxT(lo[0], lo[1], lo[2], ld[0], ld[1], ld[2], geometry.boundingBox) === null) {
+      return;
     }
-    if (!best) return null;
-    // Distance in world units: local t scaled by the world scale along the ray.
-    // Approximate with the average world scale of the mesh.
-    const ws = Math.cbrt(Math.abs(world[0] * world[5] * world[10]) || 1);
-    const distance = best.t * ws;
-    const point = this.ray.at(distance);
-    const pa = best.a * is, pb = best.b * is, pc = best.c * is;
-    const e1 = [p[pb] - p[pa], p[pb + 1] - p[pa + 1], p[pb + 2] - p[pa + 2]];
-    const e2 = [p[pc] - p[pa], p[pc + 1] - p[pa + 1], p[pc + 2] - p[pa + 2]];
+    const p = pos.array, is = pos.itemSize;
+    const uvAttr = geometry.attributes.uv;
+    const uvArr = uvAttr ? uvAttr.array : null;
+    const uvSize = uvAttr ? uvAttr.itemSize : 0;
+    const index = geometry.index && geometry.index.array;
+    const totalIndices = index ? index.length : pos.count;
+    const groups = geometry.groups && geometry.groups.length
+      ? geometry.groups
+      : [{ start: 0, count: totalIndices, materialIndex: 0 }];
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    let best = null;
+    for (const grp of groups) {
+      const mat = mats[Math.min(grp.materialIndex || 0, mats.length - 1)];
+      const side = mat && mat.side !== undefined ? mat.side : FrontSide;
+      const end = Math.min(grp.start + grp.count, totalIndices);
+      for (let i = grp.start; i + 2 < end; i += 3) {
+        const ia = index ? index[i] : i;
+        const ib = index ? index[i + 1] : i + 1;
+        const ic = index ? index[i + 2] : i + 2;
+        const a = ia * is, b = ib * is, c = ic * is;
+        const hit = rayTriangle(lo[0], lo[1], lo[2], ld[0], ld[1], ld[2],
+          p[a], p[a + 1], p[a + 2], p[b], p[b + 1], p[b + 2], p[c], p[c + 1], p[c + 2], side);
+        if (!hit) continue;
+        const wp = transformPoint(world, lo[0] + ld[0] * hit.t, lo[1] + ld[1] * hit.t, lo[2] + ld[2] * hit.t);
+        const distance = Math.hypot(wp[0] - ox, wp[1] - oy, wp[2] - oz);
+        if (distance < this.near || distance > this.far) continue;
+        if (!best || distance < best.distance) {
+          best = {
+            distance, wp, ia, ib, ic, a, b, c, u: hit.u, v: hit.v,
+            faceIndex: Math.floor(i / 3), materialIndex: grp.materialIndex || 0,
+          };
+        }
+      }
+    }
+    if (!best) return;
+    const { distance, wp, ia, ib, ic, a, b, c, u, v, faceIndex, materialIndex } = best;
+    const e1 = [p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]];
+    const e2 = [p[c] - p[a], p[c + 1] - p[a + 1], p[c + 2] - p[a + 2]];
     const n = normalize3([e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]);
     const wn = normalize3(transformDir(world, n[0], n[1], n[2]));
-    return {
-      distance, point,
-      face: { a: best.a, b: best.b, c: best.c, normal: new Vector3(wn[0], wn[1], wn[2]) },
+    let uv = null;
+    if (uvArr && uvSize >= 2) {
+      const w0 = 1 - u - v;
+      uv = new Vector2(
+        uvArr[ia * uvSize] * w0 + uvArr[ib * uvSize] * u + uvArr[ic * uvSize] * v,
+        uvArr[ia * uvSize + 1] * w0 + uvArr[ib * uvSize + 1] * u + uvArr[ic * uvSize + 1] * v,
+      );
+    }
+    const entry = {
+      distance,
+      point: new Vector3(wp[0], wp[1], wp[2]),
+      face: { a: ia, b: ib, c: ic, normal: new Vector3(wn[0], wn[1], wn[2]), materialIndex },
+      faceIndex,
       object: mesh,
-      uv: null,
+      uv,
     };
+    if (instanceId !== undefined) entry.instanceId = instanceId;
+    hits.push(entry);
   }
 }
 
@@ -2386,25 +2520,26 @@ export class Box3 {
   clone() { return new Box3(this.min.clone(), this.max.clone()); }
   setFromObject(object) {
     this.makeEmpty();
-    object.traverse(node => {
-      if (!node.isMesh || !node.geometry || !node.geometry.attributes || !node.geometry.attributes.position) return;
-      const geometry = node.geometry;
-      let bb = geometry._bbox;
-      if (!bb) {
-        bb = geometry._bbox = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
-        const p = geometry.attributes.position.array, is = geometry.attributes.position.itemSize;
-        for (let i = 0; i < p.length; i += is) {
-          for (let k = 0; k < 3; k++) {
-            const v = p[i + k];
-            if (v < bb[k]) bb[k] = v;
-            if (v > bb[3 + k]) bb[3 + k] = v;
-          }
-        }
-      }
-      const world = worldMatrixOf(node);
+    const expandBox = (box, world) => {
       for (let cx = 0; cx <= 1; cx++) for (let cy = 0; cy <= 1; cy++) for (let cz = 0; cz <= 1; cz++) {
-        const w = transformPoint(world, cx ? bb[3] : bb[0], cy ? bb[4] : bb[1], cz ? bb[5] : bb[2]);
+        const w = transformPoint(world, cx ? box.max.x : box.min.x, cy ? box.max.y : box.min.y, cz ? box.max.z : box.min.z);
         this.expandByPoint(new Vector3(w[0], w[1], w[2]));
+      }
+    };
+    object.traverse(node => {
+      if ((!node.isMesh && !node.isInstancedMesh) || !node.geometry || !node.geometry.attributes || !node.geometry.attributes.position) return;
+      const geometry = node.geometry;
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      if (!geometry.boundingBox || geometry.boundingBox.isEmpty()) return;
+      const world = worldMatrixOf(node);
+      if (node.isInstancedMesh) {
+        const count = Math.min(node.count, node._maxCount);
+        const arr = node.instanceMatrix.array;
+        for (let i = 0; i < count; i++) {
+          expandBox(geometry.boundingBox, multiplyMat4(world, arr.subarray(i * 16, i * 16 + 16)));
+        }
+      } else {
+        expandBox(geometry.boundingBox, world);
       }
     });
     return this;
