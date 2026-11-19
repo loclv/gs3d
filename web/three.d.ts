@@ -483,6 +483,18 @@ export class Mesh extends Object3D {
   geometry: BufferGeometry;
   material: Material | Material[];
 }
+export class InstancedMesh extends Mesh {
+  constructor(geometry?: BufferGeometry, material?: Material | Material[], count?: number);
+  readonly isInstancedMesh: true;
+  count: number;
+  instanceMatrix: BufferAttribute;
+  instanceColor: BufferAttribute | null;
+  setMatrixAt(index: number, matrix: Matrix4): void;
+  getMatrixAt(index: number, matrix: Matrix4): Matrix4;
+  setColorAt(index: number, color: Color): void;
+  getColorAt(index: number, color: Color): Color;
+  dispose(): void;
+}
 export class Line extends Object3D {
   constructor(geometry?: BufferGeometry, material?: Material | Material[]);
   readonly isLine: true; geometry: BufferGeometry; material: Material | Material[];
@@ -669,6 +681,7 @@ export const MaxEquation: 104;
 
 export class ShaderMaterial extends Material {
   constructor(parameters?: {
+    defines?: Record<string, string | number | boolean>;
     uniforms?: Record<string, { value: unknown }>;
     vertexShader?: string;
     fragmentShader?: string;

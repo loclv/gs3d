@@ -1290,6 +1290,30 @@ function buildTestGLB() {
   controls.dispose();
 }
 
+// enableDamping applies dampingFactor per update() and converges to the full drag angle.
+{
+  const listeners = {};
+  const element = { clientHeight: 600, style: {},
+    addEventListener(name, fn) { listeners[name] = fn; }, removeEventListener() {},
+    setPointerCapture() {}, releasePointerCapture() {} };
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(0, 0, 5);
+  const controls = new THREE.OrbitControls(camera, element);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.1;
+  controls.update();
+  listeners.pointerdown({ pointerId: 1, clientX: 0, clientY: 0, button: 0 });
+  listeners.pointermove({ pointerId: 1, clientX: 150, clientY: 0 });
+  listeners.pointerup({ pointerId: 1 });
+  const expectedTotal = -(2 * Math.PI * 150) / 600;
+  const firstTheta = Math.atan2(camera.position.x, camera.position.z);
+  assert.ok(Math.abs(firstTheta - expectedTotal * 0.1) < 1e-6, 'damping applies only dampingFactor on initial drag');
+  for (let i = 0; i < 200; i++) controls.update();
+  const settledTheta = Math.atan2(camera.position.x, camera.position.z);
+  assert.ok(Math.abs(settledTheta - expectedTotal) < 1e-4, 'damping converges to full drag angle');
+  controls.dispose();
+}
+
 // Ordinary objects look along +Z, unlike cameras and lights which face -Z.
 {
   const object = new THREE.Object3D();
@@ -1512,6 +1536,102 @@ function buildTestGLB() {
   renderer.render(scene, new THREE.PerspectiveCamera());
   const lastUser = named(engine, '_g3_asset_material_user').at(-1);
   assert.equal(lastUser[3], 0.25, 'live uniform update reaches engine');
+}
+
+{
+  // ShaderMaterial honors additive and premultiplied custom blending modes,
+  // and syncCamera re-selects cameras when alternating across passes.
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const geo = new THREE.PlaneGeometry(1, 1);
+  const additive = new THREE.ShaderMaterial({
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneFactor,
+    vertexShader: 'void main() { gl_Position = vec4(position, 1.0); }',
+    fragmentShader: 'void main() { gl_FragColor = vec4(1.0); }',
+  });
+  const premul = new THREE.ShaderMaterial({
+    transparent: true,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    vertexShader: 'void main() { gl_Position = vec4(position, 1.0); }',
+    fragmentShader: 'void main() { gl_FragColor = vec4(1.0); }',
+  });
+  const sceneA = new THREE.Scene();
+  sceneA.add(new THREE.Mesh(geo, additive));
+  const sceneB = new THREE.Scene();
+  sceneB.add(new THREE.Mesh(geo, premul));
+  const camA = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+  const camB = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+  renderer.render(sceneA, camA);
+  renderer.render(sceneB, camB);
+  renderer.render(sceneA, camA);
+  const matAlphaModes = named(engine, '_g3_asset_material').map(c => c[6]);
+  assert.deepEqual(matAlphaModes, [3, 4], 'raw ShaderMaterial maps additive and premultiplied custom blending');
+  const camSelects = named(engine, '_g3_asset_camera_select').map(c => c[1]);
+  assert.equal(camSelects.length, 3, 'switching cameras re-selects in engine');
+  assert.notEqual(camSelects[0], camSelects[1], 'distinct camera ids selected');
+  assert.equal(camSelects[0], camSelects[2], 'switching back re-selects camA');
+}
+
+{
+  // ShaderMaterial.defines injects #define lines, and InstancedMesh creates
+  // per-instance child nodes with per-instance transforms and optional colors.
+  const engine = createMockEngine();
+  let rawSources = [];
+  engine._g3_host_raw_shader_create = (vp, vl, fp, fl) => {
+    const dec = new TextDecoder();
+    rawSources.push({
+      v: dec.decode(engine.HEAPU8.subarray(vp, vp + vl)),
+      f: dec.decode(engine.HEAPU8.subarray(fp, fp + fl)),
+    });
+    return rawSources.length;
+  };
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene();
+  const mat = new THREE.ShaderMaterial({
+    defines: { USE_WAVE: true, STEPS: 8, SKIP: false },
+    vertexShader: 'void main() { gl_Position = vec4(position, 1.0); }',
+    fragmentShader: 'void main() { gl_FragColor = vec4(1.0); }',
+  });
+  scene.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat));
+  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xffffff }), 3);
+  inst.setMatrixAt(0, new THREE.Matrix4().makeTranslation(1, 0, 0));
+  inst.setMatrixAt(1, new THREE.Matrix4().makeTranslation(2, 0, 0));
+  inst.setMatrixAt(2, new THREE.Matrix4().makeTranslation(3, 0, 0));
+  inst.setColorAt(1, new THREE.Color(1, 0, 0));
+  inst.count = 2;
+  scene.add(inst);
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  assert.ok(rawSources[0].v.includes('#define USE_WAVE\n'), 'boolean true define injected');
+  assert.ok(rawSources[0].f.includes('#define STEPS 8\n'), 'numeric define injected in fragment');
+  assert.ok(!rawSources[0].f.includes('SKIP'), 'false define omitted');
+  const readBack = new THREE.Matrix4();
+  inst.getMatrixAt(1, readBack);
+  assert.equal(readBack.elements[12], 2, 'getMatrixAt reads instance translation');
+  const readCol = new THREE.Color();
+  inst.getColorAt(1, readCol);
+  assert.equal(readCol.r, 1, 'getColorAt reads instance color');
+  const meshNodes = named(engine, '_g3_asset_node').filter(c => c[1] >= 0);
+  // 1 ShaderMaterial Mesh + 2 active InstancedMesh instances (count=2, third skipped)
+  assert.equal(meshNodes.length, 3, 'InstancedMesh syncs active instance count');
+
+  // #version 300 es stays on the first line when defines are injected.
+  const v300Mat = new THREE.ShaderMaterial({
+    defines: { FOO: 1 },
+    vertexShader: '#version 300 es\nvoid main() { gl_Position = vec4(position, 1.0); }',
+    fragmentShader: '#version 300 es\nout vec4 fragColor;\nvoid main() { fragColor = vec4(1.0); }',
+  });
+  scene.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), v300Mat));
+  // Replacing InstancedMesh.material invalidates cached tinted materials.
+  inst.material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+  renderer.render(scene, new THREE.PerspectiveCamera());
+  assert.ok(rawSources[1].f.startsWith('#version 300 es\n#define FOO 1\n'), '#version stays first line before defines');
+  assert.equal(inst._instances[1].material.color.r, 0, 'material swap invalidates tinted cache');
 }
 
 

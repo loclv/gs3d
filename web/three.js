@@ -1999,6 +1999,7 @@ export class ShaderMaterial extends Material {
   constructor(parameters = {}) {
     super(parameters);
     this.isShaderMaterial = true;
+    this.defines = parameters.defines ? { ...parameters.defines } : {};
     this.uniforms = parameters.uniforms || {};
     this.vertexShader = parameters.vertexShader || '';
     this.fragmentShader = parameters.fragmentShader || '';
@@ -2160,6 +2161,48 @@ export class Mesh extends Object3D {
     copy.castShadow = this.castShadow;
     copy.receiveShadow = this.receiveShadow;
     return copy;
+  }
+}
+
+export class InstancedMesh extends Mesh {
+  constructor(geometry = new BufferGeometry(), material = new MeshBasicMaterial(), count = 0) {
+    super(geometry, material);
+    this.isMesh = false;
+    this.isInstancedMesh = true;
+    this.count = Math.max(0, count | 0);
+    this._maxCount = this.count;
+    this.instanceMatrix = new BufferAttribute(new Float32Array(this._maxCount * 16), 16);
+    this.instanceColor = null;
+    this._instances = [];
+    this._colorMaterials = new Map();
+  }
+  setMatrixAt(index, matrix) {
+    if (index < 0 || index >= this._maxCount) return;
+    this.instanceMatrix.array.set(matrix.elements, index * 16);
+    this.instanceMatrix.needsUpdate = true;
+  }
+  getMatrixAt(index, matrix) {
+    if (index < 0 || index >= this._maxCount) return matrix;
+    const o = index * 16;
+    for (let i = 0; i < 16; i++) matrix.elements[i] = this.instanceMatrix.array[o + i];
+    return matrix;
+  }
+  setColorAt(index, color) {
+    if (index < 0 || index >= this._maxCount) return;
+    if (!this.instanceColor) this.instanceColor = new BufferAttribute(new Float32Array(this._maxCount * 3), 3);
+    this.instanceColor.array[index * 3] = color.r;
+    this.instanceColor.array[index * 3 + 1] = color.g;
+    this.instanceColor.array[index * 3 + 2] = color.b;
+    this.instanceColor.needsUpdate = true;
+  }
+  getColorAt(index, color) {
+    if (!this.instanceColor || index < 0 || index >= this._maxCount) return color;
+    const o = index * 3;
+    return color.setRGB(this.instanceColor.array[o], this.instanceColor.array[o + 1], this.instanceColor.array[o + 2]);
+  }
+  dispose() {
+    this._instances.length = 0;
+    this._colorMaterials.clear();
   }
 }
 
@@ -2548,16 +2591,35 @@ export class OrbitControls {
     const moved = this._thetaDelta !== 0 || this._phiDelta !== 0 || this._radiusDelta !== 1
       || this._panOffset.x !== 0 || this._panOffset.y !== 0 || this._panOffset.z !== 0;
     const EPS = 1e-5;
+    const ZERO_EPS = 1e-6;
+    const damp = this.enableDamping ? Math.min(1, Math.max(0.01, this.dampingFactor)) : 1;
+    const keep = 1 - damp;
+
     this._phi = Math.max(EPS, Math.min(Math.PI - EPS,
-      Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._phi + this._phiDelta))));
-    this._theta += this._thetaDelta;
-    this._radius = Math.max(this.minDistance, Math.min(this.maxDistance, this._radius * this._radiusDelta));
-    this._thetaDelta = 0; this._phiDelta = 0; this._radiusDelta = 1;
+      Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._phi + this._phiDelta * damp))));
+    this._theta += this._thetaDelta * damp;
+    this._radius = Math.max(this.minDistance, Math.min(this.maxDistance,
+      this._radius * (1 + (this._radiusDelta - 1) * damp)));
+
+    this._thetaDelta *= keep;
+    this._phiDelta *= keep;
+    this._radiusDelta = 1 + (this._radiusDelta - 1) * keep;
+    if (Math.abs(this._thetaDelta) < ZERO_EPS) this._thetaDelta = 0;
+    if (Math.abs(this._phiDelta) < ZERO_EPS) this._phiDelta = 0;
+    if (Math.abs(this._radiusDelta - 1) < ZERO_EPS) this._radiusDelta = 1;
+
     const offset = this._sphericalVector(new Vector3());
-    this.object.position.set(this.target.x + offset.x + this._panOffset.x,
-      this.target.y + offset.y + this._panOffset.y,
-      this.target.z + offset.z + this._panOffset.z);
-    this._panOffset.set(0, 0, 0);
+    const pan = this._panOffset;
+    this.object.position.set(
+      this.target.x + offset.x + pan.x * damp,
+      this.target.y + offset.y + pan.y * damp,
+      this.target.z + offset.z + pan.z * damp,
+    );
+    pan.x *= keep;
+    pan.y *= keep;
+    pan.z *= keep;
+    if (Math.hypot(pan.x, pan.y, pan.z) < ZERO_EPS) pan.set(0, 0, 0);
+
     this.object.lookAt(this.target);
     if (moved) this.dispatchEvent('change');
     return true;
@@ -3134,9 +3196,28 @@ function rawNeedsGlsl3(vs, fs) {
   return re.test(vs || '') || re.test(fs || '');
 }
 
+function shaderDefinesPrefix(defines) {
+  if (!defines) return '';
+  let out = '';
+  for (const key of Object.keys(defines)) {
+    const val = defines[key];
+    if (val === false || val === undefined || val === null) continue;
+    out += val === true ? `#define ${key}\n` : `#define ${key} ${val}\n`;
+  }
+  return out;
+}
+
+function injectShaderDefines(source, defPrefix) {
+  if (!defPrefix) return source;
+  const match = /^\s*#version[^\n]*\n/.exec(source);
+  if (match) return match[0] + defPrefix + source.slice(match[0].length);
+  return defPrefix + source;
+}
+
 function ensureRawShader(engine, material) {
-  const vertex = rewriteRawVertex(material);
-  const fragment = resolveRawChunks(material.fragmentShader);
+  const defPrefix = shaderDefinesPrefix(material.defines);
+  const vertex = injectShaderDefines(rewriteRawVertex(material), defPrefix);
+  const fragment = injectShaderDefines(resolveRawChunks(material.fragmentShader), defPrefix);
   const sourceKey = vertex + '\n' + fragment;
   let state = rawShaderStates.get(material);
   if (state && state.sourceKey === sourceKey) return state;
@@ -3363,6 +3444,22 @@ function uploadRawUniforms(engine, shaderId, entries) {
   }
 }
 
+function materialAlphaMode(material, opacity) {
+  const blendEquation = material.blendEquation ?? AddEquation;
+  if (blendEquation === AddEquation && material.blendSrc === OneFactor) {
+    if (material.blending === AdditiveBlending ||
+        (material.blending === CustomBlending && material.blendDst === OneFactor)) {
+      return ALPHA_ADDITIVE;
+    }
+    if (material.blending === CustomBlending && material.blendDst === OneMinusSrcAlphaFactor) {
+      return ALPHA_PREMULTIPLIED;
+    }
+  }
+  if (material.transparent || opacity < 1) return ALPHA_BLEND;
+  if (material.alphaTest > 0) return ALPHA_MASK;
+  return ALPHA_OPAQUE;
+}
+
 function ensureRawMaterial(engine, material) {
   const src = ensureRawShader(engine, material);
   if (src.id < 0) return -1;
@@ -3375,13 +3472,15 @@ function ensureRawMaterial(engine, material) {
   }
   // The engine material only carries render state for raw programs:
   // double-sidedness, blending and the shader id itself.
-  const signature = `raw|${material.side}|${material.transparent}|${material.opacity}|${src.id}`;
+  const opacity = material.opacity ?? 1;
+  const alphaMode = materialAlphaMode(material, opacity);
+  const signature = `raw|${material.side}|${alphaMode}|${opacity}|${src.id}`;
   const state = materialStates.get(material);
   if (state && state.signature === signature) return state.id;
   if (state) engine._g3_asset_release_material(state.id, state.generation);
-  const alpha = material.transparent ? material.opacity : 1;
+  const alpha = material.transparent ? opacity : 1;
   const id = engine._g3_asset_material(1, 1, 1, alpha,
-    -1, material.transparent ? 2 : 0, 0, 0, 0,
+    -1, alphaMode, 0, 0, 0,
     -1, -1, 0, -1, 0,
     0, 0, 0, -1,
     material.side !== FrontSide, true, 1.5);
@@ -3782,16 +3881,7 @@ function ensureMaterial(engine, material) {
 
   const color = material.color || new Color(0xffffff);
   const opacity = material.opacity ?? 1;
-  let alphaMode = material.transparent || opacity < 1 ? ALPHA_BLEND : material.alphaTest > 0 ? ALPHA_MASK : ALPHA_OPAQUE;
-  const blendEquation = material.blendEquation ?? AddEquation;
-  if (blendEquation === AddEquation && material.blendSrc === OneFactor &&
-      (material.blending === AdditiveBlending ||
-       (material.blending === CustomBlending && material.blendDst === OneFactor))) {
-    alphaMode = ALPHA_ADDITIVE;
-  } else if (blendEquation === AddEquation && material.blending === CustomBlending &&
-             material.blendSrc === OneFactor && material.blendDst === OneMinusSrcAlphaFactor) {
-    alphaMode = ALPHA_PREMULTIPLIED;
-  }
+  const alphaMode = materialAlphaMode(material, opacity);
   const alphaCutoff = material.alphaTest > 0 ? material.alphaTest : 0.5;
   const unlit = material.isMeshBasicMaterial || material.isMeshNormalMaterial ? 1 : 0;
   const metallic = material.metalness ?? (unlit ? 0 : 0);
@@ -4078,27 +4168,27 @@ function syncCamera(engine, renderer, camera) {
   const up = normalize3(transformDir(world, 0, 1, 0));
   const target = [position[0] + forward[0], position[1] + forward[1], position[2] + forward[2]];
   const aspect = camera.aspect > 0 ? camera.aspect : renderer._cssWidth / Math.max(1, renderer._cssHeight);
+  const isPlainCam = !camera.isPerspectiveCamera && !camera.isOrthographicCamera;
+  const orthographic = camera.isOrthographicCamera || isPlainCam ? 1 : 0;
+  const fov = camera.isPerspectiveCamera ? camera.fov * DEG2RAD : 0.9;
+  const orthoHeight = camera.isOrthographicCamera ? camera.top - camera.bottom : (isPlainCam ? 2000 : 0);
+  const near = isPlainCam ? -1000 : (Number.isFinite(camera.near) ? camera.near : 0.1);
+  const far = isPlainCam ? 1000 : (Number.isFinite(camera.far) ? camera.far : 2000);
   let state = cameraStates.get(camera);
   if (!state) {
-    const orthographic = camera.isOrthographicCamera ? 1 : 0;
-    const fov = camera.isPerspectiveCamera ? camera.fov * DEG2RAD : 0.9;
-    const orthoHeight = camera.isOrthographicCamera ? camera.top - camera.bottom : 0;
     const id = engine._g3_asset_camera_add(position[0], position[1], position[2],
       target[0], target[1], target[2], up[0], up[1], up[2],
-      fov, aspect, orthographic, orthoHeight, camera.near, camera.far);
+      fov, aspect, orthographic, orthoHeight, near, far);
     if (id < 0) return;
-    state = { id, selected: false, viewKey: '' };
+    state = { id, viewKey: '' };
     cameraStates.set(camera, state);
   }
-  const orthographic = camera.isOrthographicCamera ? 1 : 0;
-  const fov = camera.isPerspectiveCamera ? camera.fov * DEG2RAD : 0.9;
-  const orthoHeight = camera.isOrthographicCamera ? camera.top - camera.bottom : 0;
   engine._g3_asset_camera_update(state.id,
     position[0], position[1], position[2], target[0], target[1], target[2],
-    up[0], up[1], up[2], fov, aspect, orthographic, orthoHeight, camera.near, camera.far);
-  if (!state.selected) {
+    up[0], up[1], up[2], fov, aspect, orthographic, orthoHeight, near, far);
+  if (renderer._selectedCameraId !== state.id) {
     engine._g3_asset_camera_select(state.id);
-    state.selected = true;
+    renderer._selectedCameraId = state.id;
   }
   const vo = camera.view;
   const voKey = vo && vo.enabled
@@ -4115,6 +4205,46 @@ function syncCamera(engine, renderer, camera) {
   }
 }
 
+function tintedInstanceMaterial(instanced, colArr, index) {
+  const o = index * 3;
+  const r = colArr[o], g = colArr[o + 1], b = colArr[o + 2];
+  const key = `${r.toFixed(4)},${g.toFixed(4)},${b.toFixed(4)}`;
+  let tinted = instanced._colorMaterials.get(key);
+  if (!tinted) {
+    const baseMat = instanced.material;
+    tinted = Object.assign(Object.create(Object.getPrototypeOf(baseMat)), baseMat);
+    const base = baseMat.color || new Color(1, 1, 1);
+    tinted.color = new Color(base.r * r, base.g * g, base.b * b);
+    instanced._colorMaterials.set(key, tinted);
+  }
+  return tinted;
+}
+
+function syncInstancedMesh(instanced, engineParent, seen) {
+  const count = Math.min(instanced.count, instanced._maxCount);
+  const arr = instanced.instanceMatrix.array;
+  const colArr = instanced.instanceColor ? instanced.instanceColor.array : null;
+  if (instanced._tintedSourceMaterial !== instanced.material) {
+    instanced._colorMaterials.clear();
+    instanced._tintedSourceMaterial = instanced.material;
+  }
+  for (let i = 0; i < count; i++) {
+    let proxy = instanced._instances[i];
+    if (!proxy) {
+      proxy = new Mesh(instanced.geometry, instanced.material);
+      instanced._instances[i] = proxy;
+    }
+    proxy.geometry = instanced.geometry;
+    proxy.castShadow = instanced.castShadow;
+    proxy.receiveShadow = instanced.receiveShadow;
+    proxy.material = colArr && instanced.material
+      ? tintedInstanceMaterial(instanced, colArr, i)
+      : instanced.material;
+    syncNode(sharedEngine, proxy, engineParent, arr.subarray(i * 16, i * 16 + 16));
+    seen.add(proxy);
+  }
+}
+
 function syncSceneTree(scene, seen) {
   scene.updateMatrixWorld();
   const walk = (object, parentEngineIndex) => {
@@ -4124,6 +4254,9 @@ function syncSceneTree(scene, seen) {
     if (!object.isLight && !object.isCamera) {
       engineParent = syncNode(sharedEngine, object, parentEngineIndex, localMatrixOf(object));
       seen.add(object);
+      if (object.isInstancedMesh) {
+        syncInstancedMesh(object, engineParent, seen);
+      }
     }
     for (const child of object.children) walk(child, engineParent);
   };
