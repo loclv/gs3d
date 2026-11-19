@@ -1279,10 +1279,23 @@ export async function loadGLTF(engine, url, options = {}) {
   let activeLightLease = -1;
   let activeLightShadows = null;
   let touchedTransforms = new Set();
+  const writeNodeMatrix = (id, matrix) => {
+    if (typeof engine._g3_asset_matrix16 === 'function') {
+      engine._g3_asset_matrix16(
+        id,
+        matrix[0], matrix[1], matrix[2], matrix[3],
+        matrix[4], matrix[5], matrix[6], matrix[7],
+        matrix[8], matrix[9], matrix[10], matrix[11],
+        matrix[12], matrix[13], matrix[14], matrix[15],
+      );
+    } else {
+      for (let i = 0; i < 16; i++) engine._g3_asset_matrix(id, i, matrix[i]);
+    }
+  };
   const writeTransform = state => {
     if (!state.hasTransform || !isNodeHandleValid(engine, state.handle)) return;
     const matrix = localMatrix({ translation: state.translation, rotation: state.rotation, scale: state.scale }).matrix;
-    matrix.forEach((value, index) => engine._g3_asset_matrix(state.handle.index, index, value));
+    writeNodeMatrix(state.handle.index, matrix);
   };
   const restoreBase = state => {
     if (state.baseTranslation) {
@@ -1668,23 +1681,81 @@ export async function loadGLTF(engine, url, options = {}) {
         if (!enabled && palettePtr) engine._free(palettePtr);
       }
     }
+    function uploadPrimitiveMeshBulk(primitive) {
+      const vertCount = primitive.pos.length / 3;
+      const indexCount = primitive.indices.length - (primitive.indices.length % 3);
+      if (vertCount <= 0 || indexCount <= 0) return -1;
+      const floatCount = vertCount * 30;
+      const vPtr = engine._malloc(floatCount * 4);
+      const iPtr = engine._malloc(indexCount * 4);
+      if (!vPtr || !iPtr) {
+        if (vPtr) engine._free(vPtr);
+        if (iPtr) engine._free(iPtr);
+        return -1;
+      }
+      try {
+        const vf = engine.HEAPF32;
+        const vBase = vPtr >> 2;
+        const pos = primitive.pos, nor = primitive.normal, tan = primitive.tangent;
+        const col = primitive.vertexColor, cc = primitive.colorComponents;
+        const uvs = [primitive.uv, primitive.uv1, primitive.uv2, primitive.uv3,
+          primitive.uv4, primitive.uv5, primitive.uv6, primitive.uv7];
+        for (let i = 0; i < vertCount; i++) {
+          const o = vBase + i * 30, p3 = i * 3;
+          vf[o] = pos[p3]; vf[o + 1] = pos[p3 + 1]; vf[o + 2] = pos[p3 + 2];
+          vf[o + 3] = nor[p3]; vf[o + 4] = nor[p3 + 1]; vf[o + 5] = nor[p3 + 2];
+          for (let s = 0; s < 8; s++) {
+            const u = uvs[s];
+            vf[o + 6 + s * 2] = u ? u[i * 2] : 0;
+            vf[o + 7 + s * 2] = u ? u[i * 2 + 1] : 0;
+          }
+          if (tan) {
+            const t4 = i * 4;
+            vf[o + 22] = tan[t4]; vf[o + 23] = tan[t4 + 1]; vf[o + 24] = tan[t4 + 2]; vf[o + 25] = tan[t4 + 3];
+          } else {
+            vf[o + 22] = 0; vf[o + 23] = 0; vf[o + 24] = 0; vf[o + 25] = 0;
+          }
+          if (col) {
+            const cBase = i * cc;
+            vf[o + 26] = col[cBase]; vf[o + 27] = col[cBase + 1]; vf[o + 28] = col[cBase + 2];
+            vf[o + 29] = cc === 4 ? col[cBase + 3] : 1;
+          } else {
+            vf[o + 26] = 1; vf[o + 27] = 1; vf[o + 28] = 1; vf[o + 29] = 1;
+          }
+        }
+        const iu = engine.HEAPU32 || new Uint32Array(engine.HEAPU8.buffer);
+        const iBase = iPtr >> 2;
+        const idx = primitive.indices;
+        for (let i = 0; i < indexCount; i++) iu[iBase + i] = idx[i];
+        return engine._g3_host_mesh_upload(vPtr, floatCount, iPtr, indexCount);
+      } finally {
+        engine._free(vPtr);
+        engine._free(iPtr);
+      }
+    }
     function uploadPrimitiveMesh(primitive, node) {
-      engine._g3_asset_mesh_begin();
-      const useAuthoredTangents = !!primitive.tangent;
-      for (let i = 0; i < primitive.pos.length / 3; i++) engine._g3_asset_vertex(
-        ...primitive.pos.slice(i*3, i*3+3), ...primitive.normal.slice(i*3, i*3+3), ...(primitive.uv ? primitive.uv.slice(i*2, i*2+2) : [0, 0]),
-        ...(primitive.uv1 ? primitive.uv1.slice(i*2, i*2+2) : [0, 0]),
-        ...(primitive.uv2 ? primitive.uv2.slice(i*2, i*2+2) : [0, 0]),
-        ...(primitive.uv3 ? primitive.uv3.slice(i*2, i*2+2) : [0, 0]),
-        ...(primitive.uv4 ? primitive.uv4.slice(i*2, i*2+2) : [0, 0]),
-        ...(primitive.uv5 ? primitive.uv5.slice(i*2, i*2+2) : [0, 0]),
-        ...(primitive.uv6 ? primitive.uv6.slice(i*2, i*2+2) : [0, 0]),
-        ...(primitive.uv7 ? primitive.uv7.slice(i*2, i*2+2) : [0, 0]),
-        ...(useAuthoredTangents ? primitive.tangent.slice(i*4, i*4+4) : [0, 0, 0, 0]),
-        ...(primitive.vertexColor ? primitive.vertexColor.slice(i*primitive.colorComponents, i*primitive.colorComponents+primitive.colorComponents) : [1, 1, 1, 1]),
-        ...(primitive.vertexColor && primitive.colorComponents === 3 ? [1] : []));
-      for (let i = 0; i < primitive.indices.length; i += 3) engine._g3_asset_triangle(...primitive.indices.slice(i, i+3));
-      const mesh = engine._g3_asset_mesh_end();
+      let mesh = -1;
+      if (typeof engine._g3_host_mesh_upload === 'function' && engine.HEAPF32 && (engine.HEAPU32 || engine.HEAPU8)) {
+        mesh = uploadPrimitiveMeshBulk(primitive);
+      }
+      if (mesh < 0) {
+        engine._g3_asset_mesh_begin();
+        const useAuthoredTangents = !!primitive.tangent;
+        for (let i = 0; i < primitive.pos.length / 3; i++) engine._g3_asset_vertex(
+          ...primitive.pos.slice(i*3, i*3+3), ...primitive.normal.slice(i*3, i*3+3), ...(primitive.uv ? primitive.uv.slice(i*2, i*2+2) : [0, 0]),
+          ...(primitive.uv1 ? primitive.uv1.slice(i*2, i*2+2) : [0, 0]),
+          ...(primitive.uv2 ? primitive.uv2.slice(i*2, i*2+2) : [0, 0]),
+          ...(primitive.uv3 ? primitive.uv3.slice(i*2, i*2+2) : [0, 0]),
+          ...(primitive.uv4 ? primitive.uv4.slice(i*2, i*2+2) : [0, 0]),
+          ...(primitive.uv5 ? primitive.uv5.slice(i*2, i*2+2) : [0, 0]),
+          ...(primitive.uv6 ? primitive.uv6.slice(i*2, i*2+2) : [0, 0]),
+          ...(primitive.uv7 ? primitive.uv7.slice(i*2, i*2+2) : [0, 0]),
+          ...(useAuthoredTangents ? primitive.tangent.slice(i*4, i*4+4) : [0, 0, 0, 0]),
+          ...(primitive.vertexColor ? primitive.vertexColor.slice(i*primitive.colorComponents, i*primitive.colorComponents+primitive.colorComponents) : [1, 1, 1, 1]),
+          ...(primitive.vertexColor && primitive.colorComponents === 3 ? [1] : []));
+        for (let i = 0; i < primitive.indices.length; i += 3) engine._g3_asset_triangle(...primitive.indices.slice(i, i+3));
+        mesh = engine._g3_asset_mesh_end();
+      }
       const meshHandle = makeResourceHandle(engine, mesh, 'mesh');
       if (!meshHandle) throw new AssetError('UPLOAD', 'Could not create mesh');
       meshes.push(meshHandle);
@@ -1724,7 +1795,7 @@ export async function loadGLTF(engine, url, options = {}) {
       nodes.push(groupHandle);
       const primitiveHandles = [];
       const primitiveMaterials = [];
-      node.matrix.forEach((value, index) => engine._g3_asset_matrix(group, index, value));
+      writeNodeMatrix(group, node.matrix);
       const animatedTransform = data.animations.some(animation => animation.channels.some(channel =>
         channel.node === node.index && channel.path !== 'weights'));
       if (node.translation || node.rotation || node.scale || node.weights.length || animatedTransform) transformNodes.set(node.index, {
@@ -1748,7 +1819,7 @@ export async function loadGLTF(engine, url, options = {}) {
           if (!instanceHandle) throw new AssetError('UPLOAD', 'Could not create instance node');
           nodes.push(instanceHandle);
           meshParent = instanceGroup;
-          localMatrix(instance).matrix.forEach((value, index) => engine._g3_asset_matrix(instanceGroup, index, value));
+          writeNodeMatrix(instanceGroup, localMatrix(instance).matrix);
         }
         for (const p of node.primitives) {
           const canShareStaticMesh = node.skinIndex < 0 && p.targets.length === 0;
