@@ -11,6 +11,7 @@ export { Color } from './color';
 export { Plane, Ray, Sphere, Box3 } from './bounds';
 
 export {
+  Layers,
   Object3D,
   Group,
   Scene,

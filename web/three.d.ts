@@ -417,6 +417,18 @@ export class Matrix4 {
   extractRotation(): this;
 }
 
+export class Layers {
+  mask: number;
+  set(channel: number): void;
+  enable(channel: number): void;
+  enableAll(): void;
+  toggle(channel: number): void;
+  disable(channel: number): void;
+  disableAll(): void;
+  test(layers: Layers): boolean;
+  isEnabled(channel: number): boolean;
+}
+
 export class Object3D {
   constructor();
   readonly isObject3D: true;
@@ -428,6 +440,7 @@ export class Object3D {
   children: Object3D[];
   parent: Object3D | null;
   visible: boolean;
+  layers: Layers;
   matrixAutoUpdate: boolean;
   matrix: Matrix4;
   matrixWorld: Matrix4;
@@ -574,6 +587,7 @@ export class Raycaster {
   near: number;
   far: number;
   camera: Camera | null;
+  layers: Layers;
   set(origin: Vector3, direction: Vector3): this;
   setFromCamera(coords: Vector2, camera: Camera): this;
   intersectObject(object: Object3D, recursive?: boolean, target?: Intersection[]): Intersection[];

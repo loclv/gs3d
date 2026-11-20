@@ -4,6 +4,18 @@ import { releaseEngineTree, localMatrixOf, worldMatrixOf } from './bridge';
 
 /* --- scene graph ---------------------------------------------------------- */
 
+export class Layers {
+  mask = 1;
+  set(channel: number) { this.mask = (1 << channel) >>> 0; }
+  enable(channel: number) { this.mask |= 1 << channel; }
+  enableAll() { this.mask = 0xffffffff; }
+  toggle(channel: number) { this.mask ^= 1 << channel; }
+  disable(channel: number) { this.mask &= ~(1 << channel); }
+  disableAll() { this.mask = 0; }
+  test(layers: Layers) { return (this.mask & layers.mask) !== 0; }
+  isEnabled(channel: number) { return (this.mask & (1 << channel)) !== 0; }
+}
+
 export class Object3D {
   isObject3D: boolean;
   name: string;
@@ -16,6 +28,7 @@ export class Object3D {
   children: Object3D[];
   parent: Object3D | null;
   visible: boolean;
+  layers: Layers;
   castShadow: boolean;
   receiveShadow: boolean;
   renderOrder: number;
@@ -43,6 +56,7 @@ export class Object3D {
     this.children = [];
     this.parent = null;
     this.visible = true;
+    this.layers = new Layers();
     this.castShadow = false;
     this.receiveShadow = false;
     this.renderOrder = 0;

@@ -951,6 +951,35 @@ var Color = class Color {
 };
 
 // src/three/scene.ts
+var Layers = class {
+	constructor() {
+		this.mask = 1;
+	}
+	set(channel) {
+		this.mask = 1 << channel >>> 0;
+	}
+	enable(channel) {
+		this.mask |= 1 << channel;
+	}
+	enableAll() {
+		this.mask = 0xffffffff;
+	}
+	toggle(channel) {
+		this.mask ^= 1 << channel;
+	}
+	disable(channel) {
+		this.mask &= ~(1 << channel);
+	}
+	disableAll() {
+		this.mask = 0;
+	}
+	test(layers) {
+		return (this.mask & layers.mask) !== 0;
+	}
+	isEnabled(channel) {
+		return (this.mask & 1 << channel) !== 0;
+	}
+};
 var Object3D = class {
 	constructor() {
 		this.isObject3D = true;
@@ -974,6 +1003,7 @@ var Object3D = class {
 		this.children = [];
 		this.parent = null;
 		this.visible = true;
+		this.layers = new Layers();
 		this.castShadow = false;
 		this.receiveShadow = false;
 		this.renderOrder = 0;
@@ -2545,8 +2575,8 @@ function ensureMaterial(engine, material) {
 // src/three/sync.ts
 const DEG2RAD = Math.PI / 180;
 const MAX_EXTRA_LIGHTS = 8;
-function syncNode(engine, object, parentEngineIndex, local) {
-	const isMesh = object.isMesh === true;
+function syncNode(engine, object, parentEngineIndex, local, draw = true) {
+	const isMesh = draw && object.isMesh === true;
 	const material = isMesh ? Array.isArray(object.material) ? object.material[0] : object.material : null;
 	const meshId = isMesh ? ensureGeometry(engine, object.geometry, !!(material && material.vertexColors), !!(material && material.flatShading), material) : -1;
 	let record = nodeStates.get(object);
@@ -2603,7 +2633,7 @@ function targetWorldPosition(light) {
 	];
 	return transformPoint(worldMatrixOf(target), 0, 0, 0);
 }
-function collectLights(scene) {
+function collectLights(scene, camera) {
 	const result = {
 		ambient: [
 			0,
@@ -2616,7 +2646,7 @@ function collectLights(scene) {
 	const walk = (object, visible) => {
 		const effective = visible && object.visible !== false;
 		if (!effective) return;
-		if (object.isLight) {
+		if (object.isLight && object.layers.test(camera.layers)) {
 			const intensity = object.intensity ?? 1;
 			const color = object.color || new Color(0xffffff);
 			const scaled = [
@@ -2851,7 +2881,7 @@ function syncInstancedMesh(instanced, engineParent, seen) {
 		seen.add(proxy);
 	}
 }
-function syncSceneTree(scene, seen) {
+function syncSceneTree(scene, seen, camera) {
 	scene.updateMatrixWorld();
 	const walk = (object, parentEngineIndex) => {
 		if (object.visible === false) {
@@ -2860,9 +2890,10 @@ function syncSceneTree(scene, seen) {
 		}
 		let engineParent = parentEngineIndex;
 		if (!object.isLight && !object.isCamera) {
-			engineParent = syncNode(sharedEngine, object, parentEngineIndex, localMatrixOf(object));
+			const matchesLayer = object.layers.test(camera.layers);
+			engineParent = syncNode(sharedEngine, object, parentEngineIndex, localMatrixOf(object), matchesLayer);
 			seen.add(object);
-			if (object.isInstancedMesh) syncInstancedMesh(object, engineParent, seen);
+			if (object.isInstancedMesh && matchesLayer) syncInstancedMesh(object, engineParent, seen);
 		}
 		for (const child of object.children) walk(child, engineParent);
 	};
@@ -3135,11 +3166,11 @@ var WebGPURenderer = class {
 		const dt = this._lastFrame ? Math.min((now - this._lastFrame) / 1e3, .1) : 1 / 60;
 		this._lastFrame = now;
 		if (scene) {
-			const collected = collectLights(scene);
+			const collected = collectLights(scene, camera);
 			const seen = /* @__PURE__ */ new Set();
 			setFrameMaterialCache(/* @__PURE__ */ new Map());
 			try {
-				syncSceneTree(scene, seen);
+				syncSceneTree(scene, seen, camera);
 			} finally {
 				setFrameMaterialCache(null);
 			}
@@ -5772,7 +5803,7 @@ var Raycaster = class {
 		this.near = near;
 		this.far = far;
 		this.camera = null;
-		this.layers = { mask: 1 };
+		this.layers = new Layers();
 	}
 	set(origin, direction) {
 		this.ray.set(origin, direction);
@@ -5807,7 +5838,7 @@ var Raycaster = class {
 	}
 	intersectObject(object, recursive = true, hits = []) {
 		const walk = (node) => {
-			if (node.isInstancedMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
+			if (this.layers.test(node.layers) && node.isInstancedMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
 				const world = worldMatrixOf(node);
 				const count = Math.min(node.count, node._maxCount);
 				const arr = node.instanceMatrix.array;
@@ -5815,7 +5846,7 @@ var Raycaster = class {
 					const instWorld = multiplyMat4(world, arr.subarray(i * 16, i * 16 + 16));
 					this._intersectMesh(node, instWorld, hits, i);
 				}
-			} else if (node.isMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) this._intersectMesh(node, worldMatrixOf(node), hits);
+			} else if (this.layers.test(node.layers) && node.isMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) this._intersectMesh(node, worldMatrixOf(node), hits);
 			if (recursive) for (const child of node.children) walk(child);
 		};
 		walk(object);
@@ -6408,4 +6439,4 @@ var RoomEnvironment = class extends Scene {
 	}
 };
 
-export { ACESFilmicToneMapping, AddEquation, AdditiveBlending, AgXToneMapping, AmbientLight, BackSide, BasicShadowMap, Box3, BoxGeometry, BufferAttribute, BufferGeometry, Camera, CanvasTexture, CapsuleGeometry, CatmullRomCurve3, CineonToneMapping, CircleGeometry, ClampToEdgeWrapping, Color, CompressedTexture, ConeGeometry, CubeTexture, Curve, CustomBlending, CustomToneMapping, CylinderGeometry, Data3DTexture, DataTexture, DepthFormat, DepthStencilFormat, DirectionalLight, DirectionalLightShadow, DisplayP3ColorSpace, DodecahedronGeometry, DoubleSide, DstAlphaFactor, DstColorFactor, Euler, ExtrudeGeometry, Float32BufferAttribute, FloatType, Fog, FogExp2, FrontSide, GLSL1, GLSL3, Group, HalfFloatType, HemisphereLight, IcosahedronGeometry, ImageLoader, InstancedMesh, InterleavedBuffer, InterleavedBufferAttribute, LatheGeometry, Light, Line, MeshBasicMaterial as LineBasicMaterial, MeshBasicMaterial, MeshBasicMaterial as MeshNormalMaterial, MeshBasicMaterial as PointsMaterial, MeshBasicMaterial as SpriteMaterial, LinearFilter, LinearMipmapLinearFilter, LinearMipmapNearestFilter, LinearSRGBColorSpace, LinearToneMapping, Material, MathUtils, Matrix4, MaxEquation, Mesh, MeshStandardMaterial as MeshLambertMaterial, MeshStandardMaterial as MeshPhongMaterial, MeshStandardMaterial as MeshPhysicalMaterial, MeshStandardMaterial, MinEquation, MirroredRepeatWrapping, MultiplyBlending, NearestFilter, NearestMipmapLinearFilter, NearestMipmapNearestFilter, NeutralToneMapping, NoBlending, NoColorSpace, NoToneMapping, NormalBlending, Object3D, OctahedronGeometry, OneFactor, OneMinusDstAlphaFactor, OneMinusDstColorFactor, OneMinusSrcAlphaFactor, OneMinusSrcColorFactor, OrbitControls, OrthographicCamera, PCFShadowMap, PCFSoftShadowMap, PMREMGenerator, Path, PerspectiveCamera, Plane, PlaneGeometry, PointLight, Points, PolyhedronGeometry, Quaternion, RGBAFormat, RGBAIntegerFormat, RGBFormat, RGBIntegerFormat, RGFormat, RawShaderMaterial, Ray, Raycaster, RectAreaLight, RedFormat, ReinhardToneMapping, RepeatWrapping, ReverseSubtractEquation, RingGeometry, RoomEnvironment, SRGBColorSpace, Scene, ShaderMaterial, Shape, ShapeGeometry, Sphere, SphereGeometry, SpotLight, Sprite, SrcAlphaFactor, SrcAlphaSaturateFactor, SrcColorFactor, SubtractEquation, SubtractiveBlending, TetrahedronGeometry, Texture, TextureLoader, TorusGeometry, TorusKnotGeometry, TubeGeometry, Uint16BufferAttribute, Uint32BufferAttribute, UnsignedByteType, VSMShadowMap, Vector2, Vector3, Vector4, WebGLRenderTarget, WebGLRenderer, WebGPURenderer, ZeroFactor, checkerTexture };
+export { ACESFilmicToneMapping, AddEquation, AdditiveBlending, AgXToneMapping, AmbientLight, BackSide, BasicShadowMap, Box3, BoxGeometry, BufferAttribute, BufferGeometry, Camera, CanvasTexture, CapsuleGeometry, CatmullRomCurve3, CineonToneMapping, CircleGeometry, ClampToEdgeWrapping, Color, CompressedTexture, ConeGeometry, CubeTexture, Curve, CustomBlending, CustomToneMapping, CylinderGeometry, Data3DTexture, DataTexture, DepthFormat, DepthStencilFormat, DirectionalLight, DirectionalLightShadow, DisplayP3ColorSpace, DodecahedronGeometry, DoubleSide, DstAlphaFactor, DstColorFactor, Euler, ExtrudeGeometry, Float32BufferAttribute, FloatType, Fog, FogExp2, FrontSide, GLSL1, GLSL3, Group, HalfFloatType, HemisphereLight, IcosahedronGeometry, ImageLoader, InstancedMesh, InterleavedBuffer, InterleavedBufferAttribute, LatheGeometry, Layers, Light, Line, MeshBasicMaterial as LineBasicMaterial, MeshBasicMaterial, MeshBasicMaterial as MeshNormalMaterial, MeshBasicMaterial as PointsMaterial, MeshBasicMaterial as SpriteMaterial, LinearFilter, LinearMipmapLinearFilter, LinearMipmapNearestFilter, LinearSRGBColorSpace, LinearToneMapping, Material, MathUtils, Matrix4, MaxEquation, Mesh, MeshStandardMaterial as MeshLambertMaterial, MeshStandardMaterial as MeshPhongMaterial, MeshStandardMaterial as MeshPhysicalMaterial, MeshStandardMaterial, MinEquation, MirroredRepeatWrapping, MultiplyBlending, NearestFilter, NearestMipmapLinearFilter, NearestMipmapNearestFilter, NeutralToneMapping, NoBlending, NoColorSpace, NoToneMapping, NormalBlending, Object3D, OctahedronGeometry, OneFactor, OneMinusDstAlphaFactor, OneMinusDstColorFactor, OneMinusSrcAlphaFactor, OneMinusSrcColorFactor, OrbitControls, OrthographicCamera, PCFShadowMap, PCFSoftShadowMap, PMREMGenerator, Path, PerspectiveCamera, Plane, PlaneGeometry, PointLight, Points, PolyhedronGeometry, Quaternion, RGBAFormat, RGBAIntegerFormat, RGBFormat, RGBIntegerFormat, RGFormat, RawShaderMaterial, Ray, Raycaster, RectAreaLight, RedFormat, ReinhardToneMapping, RepeatWrapping, ReverseSubtractEquation, RingGeometry, RoomEnvironment, SRGBColorSpace, Scene, ShaderMaterial, Shape, ShapeGeometry, Sphere, SphereGeometry, SpotLight, Sprite, SrcAlphaFactor, SrcAlphaSaturateFactor, SrcColorFactor, SubtractEquation, SubtractiveBlending, TetrahedronGeometry, Texture, TextureLoader, TorusGeometry, TorusKnotGeometry, TubeGeometry, Uint16BufferAttribute, Uint32BufferAttribute, UnsignedByteType, VSMShadowMap, Vector2, Vector3, Vector4, WebGLRenderTarget, WebGLRenderer, WebGPURenderer, ZeroFactor, checkerTexture };

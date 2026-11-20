@@ -2,6 +2,7 @@ import { Vector2, Vector3, multiplyMat4, invertMat4, transformPoint, transformDi
 import { Ray, rayBoxT, rayTriangle } from './bounds';
 import { FrontSide } from './materials';
 import { worldMatrixOf } from './bridge';
+import { Layers } from './scene';
 
 
 export class Raycaster {
@@ -9,13 +10,13 @@ export class Raycaster {
   near: number;
   far: number;
   camera: any;
-  layers: { mask: number };
+  layers: Layers;
   constructor(origin = new Vector3(), direction = new Vector3(0, 0, -1), near = 0, far = Infinity) {
     this.ray = new Ray(origin, direction);
     this.near = near;
     this.far = far;
     this.camera = null;
-    this.layers = { mask: 1 };
+    this.layers = new Layers();
   }
   set(origin, direction) { this.ray.set(origin, direction); return this; }
   setFromCamera(coords, camera) {
@@ -45,7 +46,7 @@ export class Raycaster {
   }
   intersectObject(object, recursive = true, hits = []) {
     const walk = node => {
-      if (node.isInstancedMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
+      if (this.layers.test(node.layers) && node.isInstancedMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
         const world = worldMatrixOf(node);
         const count = Math.min(node.count, node._maxCount);
         const arr = node.instanceMatrix.array;
@@ -53,7 +54,7 @@ export class Raycaster {
           const instWorld = multiplyMat4(world, arr.subarray(i * 16, i * 16 + 16));
           this._intersectMesh(node, instWorld, hits, i);
         }
-      } else if (node.isMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
+      } else if (this.layers.test(node.layers) && node.isMesh && node.geometry && node.geometry.attributes && node.geometry.attributes.position) {
         this._intersectMesh(node, worldMatrixOf(node), hits);
       }
       if (recursive) for (const child of node.children) walk(child);

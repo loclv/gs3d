@@ -108,6 +108,47 @@ function createCanvas() {
 
 const named = (engine, name) => engine.calls.filter(call => call[0] === name);
 
+// Layers filter each object independently, including lights and raycasts.
+{
+  const layers = new THREE.Layers();
+  layers.enable(31);
+  assert.equal(layers.isEnabled(31), true);
+  layers.toggle(0);
+  assert.equal(layers.isEnabled(0), false);
+  layers.disable(31);
+  assert.equal(layers.mask, 0);
+  layers.enableAll();
+  assert.equal(layers.isEnabled(31), true);
+  layers.disableAll();
+  assert.equal(layers.test(new THREE.Layers()), false);
+
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+  const parent = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const child = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  parent.layers.set(1);
+  parent.add(child);
+  scene.add(parent);
+  const light = new THREE.PointLight();
+  light.layers.set(1);
+  scene.add(light);
+  renderer.render(scene, camera);
+  assert.deepEqual(named(engine, '_g3_asset_node').map(c => c[1]), [-1, -1, 1]);
+  assert.equal(named(engine, '_g3_asset_light_point').length, 0);
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0, 0, 5));
+  assert.equal(raycaster.intersectObject(parent).some(hit => hit.object === child), true);
+  assert.equal(raycaster.intersectObject(parent).some(hit => hit.object === parent), false);
+  raycaster.layers.set(1);
+  assert.equal(raycaster.intersectObject(parent).some(hit => hit.object === parent), true);
+  camera.layers.set(1);
+  renderer.render(scene, camera);
+  assert.equal(named(engine, '_g3_asset_light_point').length, 1);
+  assert.ok(named(engine, '_g3_asset_node').slice(3).some(c => c[1] > 0));
+  renderer.dispose();
+}
+
 // --- scene graph sync -------------------------------------------------------
 
 {

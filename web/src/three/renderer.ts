@@ -295,11 +295,11 @@ export class WebGPURenderer {
     const dt = this._lastFrame ? Math.min((now - this._lastFrame) / 1000, 0.1) : 1 / 60;
     this._lastFrame = now;
     if (scene) {
-      const collected = collectLights(scene);
+      const collected = collectLights(scene, camera);
       const seen = new Set<any>();
       setFrameMaterialCache(new Map());
       try {
-        syncSceneTree(scene, seen);
+        syncSceneTree(scene, seen, camera);
       } finally {
         setFrameMaterialCache(null);
       }

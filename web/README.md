@@ -78,6 +78,8 @@ meshes and `material.flatShading` (expanded to per-face normals at upload).
 `Object3D` exposes `matrix`/`matrixWorld` (`Matrix4`, refreshed each render)
 and honors `matrixAutoUpdate = false`.
 `Object3D.quaternion` and `rotation` stay in sync (XYZ Euler order).
+`Layers` filters rendered objects and lights against `camera.layers`, and
+raycast intersections against `raycaster.layers`; children are tested independently.
 Pure-JS helpers cover `Ray`/`Raycaster` (Möller–Trumbore against geometry,
 `setFromCamera` for perspective cameras) and `Box3` (`setFromObject` walks
 the scene graph). `scene.environment` accepts an equirectangular texture

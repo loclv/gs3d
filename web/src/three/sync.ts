@@ -10,8 +10,8 @@ const MAX_EXTRA_LIGHTS = 8;
 
 /* --- sync ---------------------------------------------------------------------- */
 
-function syncNode(engine, object, parentEngineIndex, local) {
-  const isMesh = object.isMesh === true;
+function syncNode(engine, object, parentEngineIndex, local, draw = true) {
+  const isMesh = draw && object.isMesh === true;
   const material = isMesh ? (Array.isArray(object.material) ? object.material[0] : object.material) : null;
   const meshId = isMesh ? ensureGeometry(engine, object.geometry,
     !!(material && material.vertexColors), !!(material && material.flatShading), material) : -1;
@@ -70,12 +70,12 @@ function targetWorldPosition(light) {
   return transformPoint(worldMatrixOf(target), 0, 0, 0);
 }
 
-export function collectLights(scene) {
+export function collectLights(scene, camera) {
   const result = { ambient: [0, 0, 0], hemisphere: null, lights: [] };
   const walk = (object, visible) => {
     const effective = visible && object.visible !== false;
     if (!effective) return;
-    if (object.isLight) {
+    if (object.isLight && object.layers.test(camera.layers)) {
       const intensity = object.intensity ?? 1;
       const color = object.color || new Color(0xffffff);
       const scaled = [color.r * intensity, color.g * intensity, color.b * intensity];
@@ -318,16 +318,17 @@ function syncInstancedMesh(instanced, engineParent, seen) {
   }
 }
 
-export function syncSceneTree(scene, seen) {
+export function syncSceneTree(scene, seen, camera) {
   scene.updateMatrixWorld();
   const walk = (object, parentEngineIndex) => {
     // An invisible object hides its whole subtree, like three.js.
     if (object.visible === false) { releaseEngineTree(object); return; }
     let engineParent = parentEngineIndex;
     if (!object.isLight && !object.isCamera) {
-      engineParent = syncNode(sharedEngine, object, parentEngineIndex, localMatrixOf(object));
+      const matchesLayer = object.layers.test(camera.layers);
+      engineParent = syncNode(sharedEngine, object, parentEngineIndex, localMatrixOf(object), matchesLayer);
       seen.add(object);
-      if (object.isInstancedMesh) {
+      if (object.isInstancedMesh && matchesLayer) {
         syncInstancedMesh(object, engineParent, seen);
       }
     }
