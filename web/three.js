@@ -1014,6 +1014,11 @@ var Object3D = class {
 		callback(this);
 		for (const child of this.children) child.traverse(callback);
 	}
+	traverseVisible(callback) {
+		if (!this.visible) return;
+		callback(this);
+		for (const child of this.children) child.traverseVisible(callback);
+	}
 	getObjectByName(name) {
 		if (this.name === name) return this;
 		for (const child of this.children) {
@@ -1054,9 +1059,29 @@ var Object3D = class {
 		for (const child of this.children) child.updateMatrixWorld(force);
 		return this;
 	}
-	lookAt(target) {
+	updateWorldMatrix(updateParents, updateChildren) {
+		if (updateParents && this.parent) this.parent.updateWorldMatrix(true, false);
+		if (this.matrixAutoUpdate) this.updateMatrix();
+		if (this.parent) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
+		else this.matrixWorld.copy(this.matrix);
+		if (updateChildren) for (const child of this.children) child.updateWorldMatrix(false, true);
+		return this;
+	}
+	localToWorld(vector) {
+		this.updateWorldMatrix(true, false);
+		return vector.applyMatrix4(this.matrixWorld);
+	}
+	worldToLocal(vector) {
+		this.updateWorldMatrix(true, false);
+		return vector.applyMatrix4(new Matrix4().copy(this.matrixWorld).invert());
+	}
+	lookAt(target, y, z) {
 		const pos = transformPoint(worldMatrixOf(this), 0, 0, 0);
-		const tp = target && target.isVector3 ? [
+		const tp = typeof target === "number" ? [
+			target,
+			y,
+			z
+		] : target && target.isVector3 ? [
 			target.x,
 			target.y,
 			target.z

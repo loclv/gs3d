@@ -83,6 +83,11 @@ export class Object3D {
     callback(this);
     for (const child of this.children) child.traverse(callback);
   }
+  traverseVisible(callback) {
+    if (!this.visible) return;
+    callback(this);
+    for (const child of this.children) child.traverseVisible(callback);
+  }
   getObjectByName(name) {
     if (this.name === name) return this;
     for (const child of this.children) {
@@ -127,11 +132,28 @@ export class Object3D {
     for (const child of this.children) child.updateMatrixWorld(force);
     return this;
   }
+  updateWorldMatrix(updateParents: boolean, updateChildren: boolean) {
+    if (updateParents && this.parent) this.parent.updateWorldMatrix(true, false);
+    if (this.matrixAutoUpdate) this.updateMatrix();
+    if (this.parent) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
+    else this.matrixWorld.copy(this.matrix);
+    if (updateChildren) for (const child of this.children) child.updateWorldMatrix(false, true);
+    return this;
+  }
+  localToWorld(vector: Vector3) {
+    this.updateWorldMatrix(true, false);
+    return vector.applyMatrix4(this.matrixWorld);
+  }
+  worldToLocal(vector: Vector3) {
+    this.updateWorldMatrix(true, false);
+    return vector.applyMatrix4(new Matrix4().copy(this.matrixWorld).invert());
+  }
   // Cameras and lights face -Z; other objects face +Z. Construct an upright
   // basis so crossing the far side of an orbit does not introduce roll.
-  lookAt(target) {
+  lookAt(target, y?: number, z?: number) {
     const pos = transformPoint(worldMatrixOf(this), 0, 0, 0);
-    const tp = target && target.isVector3 ? [target.x, target.y, target.z]
+    const tp = typeof target === 'number' ? [target, y, z]
+      : target && target.isVector3 ? [target.x, target.y, target.z]
       : target ? transformPoint(worldMatrixOf(target), 0, 0, 0) : [0, 0, 0];
     let dx = tp[0] - pos[0], dy = tp[1] - pos[1], dz = tp[2] - pos[2];
     const len = Math.hypot(dx, dy, dz) || 1;

@@ -674,6 +674,34 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   const mid = curve.getPoint(0.5);
   assert.ok(Math.abs(mid[0] - 1) < 0.6 && mid[1] > 0, 'catmull-rom interpolates');
 
+  // Scene graph helpers use current ancestor transforms and prune hidden trees.
+  {
+    const root = new THREE.Group();
+    root.position.set(10, 0, 0);
+    root.rotation.set(0, 0, Math.PI / 2);
+    const child = new THREE.Object3D();
+    child.position.set(2, 0, 0);
+    root.add(child);
+    const local = new THREE.Vector3(1, 0, 0);
+    const world = child.localToWorld(local.clone());
+    assert.ok(world.distanceTo(new THREE.Vector3(10, 3, 0)) < 1e-6);
+    assert.ok(child.worldToLocal(world).distanceTo(local) < 1e-6);
+    root.updateWorldMatrix(false, true);
+    assert.ok(Math.abs(child.matrixWorld.elements[13] - 2) < 1e-6);
+    const hidden = new THREE.Group();
+    hidden.visible = false;
+    hidden.add(new THREE.Object3D());
+    root.add(hidden);
+    const visited = [];
+    root.traverseVisible(object => visited.push(object));
+    assert.deepEqual(visited, [root, child]);
+    child.removeFromParent();
+    assert.equal(child.parent, null);
+    const camera = new THREE.PerspectiveCamera();
+    camera.lookAt(1, 0, 0);
+    assert.ok(camera.getWorldDirection().distanceTo(new THREE.Vector3(1, 0, 0)) < 1e-6);
+  }
+
   // getWorldQuaternion round-trips a rotated parent chain.
   const parent = new THREE.Group();
   parent.rotation.set(0, Math.PI / 2, 0);
