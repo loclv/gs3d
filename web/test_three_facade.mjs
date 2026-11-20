@@ -149,6 +149,111 @@ const named = (engine, name) => engine.calls.filter(call => call[0] === name);
   renderer.dispose();
 }
 
+{
+  const a = new THREE.Layers(), b = new THREE.Layers();
+  assert.equal(a.mask, 1);
+  assert.equal(a.test(b), true);
+  b.set(2);
+  assert.equal(a.test(b), false);
+  a.enable(2);
+  assert.equal(a.test(b), true);
+  assert.equal(a.isEnabled(0), true, 'enable preserves other channels');
+  a.disable(0);
+  assert.equal(a.mask, 4);
+  a.toggle(2);
+  assert.equal(a.test(b), false);
+  a.toggle(2);
+  assert.equal(a.test(b), true);
+  a.set(31);
+  b.set(31);
+  assert.equal(a.mask, 0x80000000);
+  assert.equal(a.test(b), true, 'highest channel participates in intersections');
+  a.enableAll();
+  assert.equal(a.mask, 0xffffffff);
+  a.disableAll();
+  assert.equal(a.isEnabled(31), false);
+  assert.notEqual(new THREE.Object3D().layers, new THREE.Object3D().layers);
+}
+
+{
+  const root = new THREE.Group();
+  root.layers.set(3);
+  const geometry = new THREE.BoxGeometry();
+  const material = new THREE.MeshBasicMaterial();
+  const near = new THREE.Mesh(geometry, material);
+  const instances = new THREE.InstancedMesh(geometry, material, 1);
+  instances.setMatrixAt(0, new THREE.Matrix4());
+  instances.position.z = -3;
+  instances.layers.set(2);
+  root.add(near, instances);
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0, 0, 5));
+  assert.deepEqual(raycaster.intersectObject(root, false), []);
+  assert.deepEqual(raycaster.intersectObject(root).map(hit => hit.object), [near]);
+  raycaster.layers.enable(2);
+  const hits = raycaster.intersectObject(root);
+  assert.deepEqual(hits.map(hit => hit.object), [near, instances]);
+  assert.equal(hits[1].instanceId, 0);
+  raycaster.layers.disable(0);
+  assert.deepEqual(raycaster.intersectObjects([near, instances]).map(hit => hit.object), [instances]);
+  raycaster.layers.disableAll();
+  assert.deepEqual(raycaster.intersectObject(root), []);
+}
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+  const parent = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  parent.position.x = 7;
+  parent.layers.set(1);
+  const child = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  parent.add(child);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  ambient.layers.set(1);
+  const hidden = new THREE.Group();
+  hidden.visible = false;
+  hidden.add(new THREE.PointLight());
+  scene.add(parent, ambient, hidden);
+  renderer.render(scene, camera);
+  assert.deepEqual(named(engine, '_g3_asset_ambient').at(-1).slice(1), [0, 0, 0, 1]);
+  assert.equal(named(engine, '_g3_asset_light_point').length, 0);
+  assert.equal(child.matrixWorld.elements[12], 7, 'filtered parent still transforms child');
+  assert.deepEqual(named(engine, '_g3_asset_node').map(call => call[1]), [-1, -1, 1]);
+
+  camera.layers.set(1);
+  renderer.render(scene, camera);
+  assert.deepEqual(named(engine, '_g3_asset_ambient').at(-1).slice(1), [0.5, 0.5, 0.5, 1]);
+  assert.deepEqual(named(engine, '_g3_asset_node').slice(3).map(call => call[1]), [2, -1]);
+  assert.ok(named(engine, '_g3_asset_node_release').length >= 2, 'old layer records released');
+  camera.layers.enable(0);
+  renderer.render(scene, camera);
+  assert.ok(named(engine, '_g3_asset_node').at(-1)[1] > 0, 'child returns when camera enables its layer');
+  renderer.dispose();
+}
+
+{
+  const engine = createMockEngine();
+  const renderer = new THREE.WebGPURenderer({ canvas: createCanvas(), engine });
+  await renderer.init();
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+  const instances = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 2);
+  instances.setMatrixAt(0, new THREE.Matrix4());
+  instances.setMatrixAt(1, new THREE.Matrix4().makeTranslation(2, 0, 0));
+  instances.layers.set(2);
+  scene.add(instances);
+  renderer.render(scene, camera);
+  assert.deepEqual(named(engine, '_g3_asset_node').map(call => call[1]), [-1, -1]);
+  camera.layers.enable(2);
+  renderer.render(scene, camera);
+  assert.deepEqual(named(engine, '_g3_asset_node').slice(2).map(call => call[1]), [1, 1]);
+  const releasedBefore = named(engine, '_g3_asset_node_release').length;
+  camera.layers.disable(2);
+  renderer.render(scene, camera);
+  assert.equal(named(engine, '_g3_asset_node_release').length - releasedBefore, 2);
+  renderer.dispose();
+}
+
 // --- scene graph sync -------------------------------------------------------
 
 {
