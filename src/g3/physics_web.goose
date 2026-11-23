@@ -27,18 +27,19 @@ export fn g3_phys_body_capsule(node: i32, half_length: f32, radius: f32, mass: f
     return g3::rapier_body_add_capsule(node, half_length, radius, mass) as i32;
 }
 
+// Writes xyz into the first three slots of `out`.
+fn phys_write_vec3(out: f32[:], v: float3) { out[0] = v.x; out[1] = v.y; out[2] = v.z; }
+
 // Body state. `out` must hold at least 3 floats; functions return false on
 // a bad id or short slice and leave it untouched.
 export fn g3_phys_body_pos(id: i32, out: f32[:]) -> bool {
     guard out.len >= 3 && id >= 0 && id < g3::physics_body_count() else { return false; }
-    let p = g3::rapier_body_translation(id);
-    out[0] = p.x; out[1] = p.y; out[2] = p.z;
+    phys_write_vec3(out, g3::rapier_body_translation(id));
     return true;
 }
 export fn g3_phys_body_vel(id: i32, out: f32[:]) -> bool {
     guard out.len >= 3 && id >= 0 && id < g3::physics_body_count() else { return false; }
-    let v = g3::rapier_body_linvel(id);
-    out[0] = v.x; out[1] = v.y; out[2] = v.z;
+    phys_write_vec3(out, g3::rapier_body_linvel(id));
     return true;
 }
 export fn g3_phys_body_set_pos(id: i32, x: f32, y: f32, z: f32) -> bool {
@@ -75,7 +76,7 @@ export fn g3_phys_contact(id: i32, out: f32[:]) -> bool {
     let c .= g3::physics_contact(id);
     out[0] = c.a;
     out[1] = c.b;
-    out[2] = c.normal.x; out[3] = c.normal.y; out[4] = c.normal.z;
+    phys_write_vec3(out[2..5], c.normal);
     out[5] = c.penetration;
     return true;
 }
@@ -89,7 +90,7 @@ export fn g3_phys_raycast(ox: f32, oy: f32, oz: f32, dx: f32, dy: f32, dz: f32, 
     guard hit.hit else { return false; }
     out[0] = hit.body;
     out[1] = hit.distance;
-    out[2] = hit.point.x; out[3] = hit.point.y; out[4] = hit.point.z;
-    out[5] = hit.normal.x; out[6] = hit.normal.y; out[7] = hit.normal.z;
+    phys_write_vec3(out[2..5], hit.point);
+    phys_write_vec3(out[5..8], hit.normal);
     return true;
 }

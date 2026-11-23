@@ -291,19 +291,25 @@ fn physics_sphere_box_contact(s: PhysicsBody&, b: PhysicsBody&) -> Contact {
         return Contact { normal: d / distance, penetration: s.radius - distance, hit: true };
     }
 
-    // Center inside the box: exit along the axis where the sphere pokes out
-    // least far past the face plus its own radius.
-    let delta = p - c;
-    var best = he.x + s.radius - abs(delta.x);
+    // Center inside the box: exit along the axis of least penetration.
+    let escaped, depth = physics_escape_axis(p - c, he, s.radius);
+    return Contact { normal: escaped, penetration: depth, hit: true };
+}
+
+// Axis of least penetration for a shape center `delta` away from a box
+// center, with `extra` added to every half extent (a radius for rounded
+// shapes). Returns the push-out normal and the overlap along it.
+fn physics_escape_axis(delta: float3, he: float3, extra: f32) -> float3, f32 {
+    var best = he.x + extra - abs(delta.x);
     var axis = 0;
-    let overlap_y = he.y + s.radius - abs(delta.y);
+    let overlap_y = he.y + extra - abs(delta.y);
     if overlap_y < best { best = overlap_y; axis = 1; }
-    let overlap_z = he.z + s.radius - abs(delta.z);
+    let overlap_z = he.z + extra - abs(delta.z);
     if overlap_z < best { best = overlap_z; axis = 2; }
     var normal = float3 { if delta.x < 0.0 { -1.0 } else { 1.0 }, 0.0, 0.0 };
     if axis == 1 { normal = float3 { 0.0, if delta.y < 0.0 { -1.0 } else { 1.0 }, 0.0 }; }
     if axis == 2 { normal = float3 { 0.0, 0.0, if delta.z < 0.0 { -1.0 } else { 1.0 } }; }
-    return Contact { normal: normal, penetration: best, hit: true };
+    return normal, best;
 }
 
 // Collider kinds for the contact dispatch: 0 box, 1 sphere, 2 capsule.
@@ -420,19 +426,19 @@ fn physics_capsule_box_contact(c: PhysicsBody&, b: PhysicsBody&) -> Contact {
     } else {
         // Deep overlap with no surface direction: exit along the axis of
         // least penetration, like the sphere-inside-box case.
-        let delta = c.position - b.position;
-        var best = b.half_extents.x + c.radius - abs(delta.x);
-        var axis = 0;
-        let overlap_y = b.half_extents.y + c.radius - abs(delta.y);
-        if overlap_y < best { best = overlap_y; axis = 1; }
-        let overlap_z = b.half_extents.z + c.radius - abs(delta.z);
-        if overlap_z < best { best = overlap_z; axis = 2; }
-        normal = float3 { if delta.x < 0.0 { -1.0 } else { 1.0 }, 0.0, 0.0 };
-        if axis == 1 { normal = float3 { 0.0, if delta.y < 0.0 { -1.0 } else { 1.0 }, 0.0 }; }
-        if axis == 2 { normal = float3 { 0.0, 0.0, if delta.z < 0.0 { -1.0 } else { 1.0 } }; }
-        penetration = best;
+        let escaped, depth = physics_escape_axis(c.position - b.position, b.half_extents, c.radius);
+        return Contact { normal: escaped, penetration: depth, hit: true };
     }
     return Contact { normal: normal, penetration: penetration, hit: true };
+}
+
+// The sphere/capsule helpers return the push direction — from the other
+// shape toward the rounded one — so the a→b normal needs flipping when
+// the rounded body is a. Misses pass through untouched.
+fn physics_contact_flipped(c: Contact) -> Contact {
+    if !c.hit { return c; }
+    return Contact { normal: float3 { -c.normal.x, -c.normal.y, -c.normal.z },
+                     penetration: c.penetration, hit: true };
 }
 
 fn physics_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
@@ -443,37 +449,13 @@ fn physics_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
         if ka == 1 { return physics_spheres_contact(a, b); }
         return physics_capsules_contact(a, b);
     }
-    // The sphere/capsule helpers return the push direction — from the other
-    // shape toward the sphere or capsule — so it is the a→b normal only when
-    // the shaped body is b; flip it when the shaped body is a.
-    if ka == 1 && kb == 0 {
-        let c = physics_sphere_box_contact(a, b);
-        if !c.hit { return c; }
-        return Contact { normal: float3 { -c.normal.x, -c.normal.y, -c.normal.z },
-                         penetration: c.penetration, hit: true };
-    }
-    if ka == 0 && kb == 1 {
-        let c = physics_sphere_box_contact(b, a);
-        if !c.hit { return c; }
-        return Contact { normal: c.normal, penetration: c.penetration, hit: true };
-    }
+    if ka == 1 && kb == 0 { return physics_contact_flipped(physics_sphere_box_contact(a, b)); }
+    if ka == 0 && kb == 1 { return physics_sphere_box_contact(b, a); }
     if ka == 2 && kb == 1 { return physics_capsule_sphere_contact(a, b); }
-    if ka == 1 && kb == 2 {
-        let c = physics_capsule_sphere_contact(b, a);
-        if !c.hit { return c; }
-        return Contact { normal: float3 { -c.normal.x, -c.normal.y, -c.normal.z },
-                         penetration: c.penetration, hit: true };
-    }
-    if ka == 2 && kb == 0 {
-        let c = physics_capsule_box_contact(a, b);
-        if !c.hit { return c; }
-        return Contact { normal: float3 { -c.normal.x, -c.normal.y, -c.normal.z },
-                         penetration: c.penetration, hit: true };
-    }
+    if ka == 1 && kb == 2 { return physics_contact_flipped(physics_capsule_sphere_contact(b, a)); }
+    if ka == 2 && kb == 0 { return physics_contact_flipped(physics_capsule_box_contact(a, b)); }
     // ka == 0 && kb == 2
-    let c = physics_capsule_box_contact(b, a);
-    if !c.hit { return c; }
-    return Contact { normal: c.normal, penetration: c.penetration, hit: true };
+    return physics_capsule_box_contact(b, a);
 }
 
 fn physics_resolve_pair(a_id: i64, b_id: i64) {
@@ -551,41 +533,50 @@ fn physics_ray_sphere(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f3
     return PhysicsRayHit { hit: true, point: point, normal: normal, distance: t, .. };
 }
 
+// One axis of the box slab test: tightens the entry/exit distances and
+// reports whether this axis set the entry (for the face normal) or the
+// ray misses outright because it starts outside a parallel slab.
+struct RaySlabClip {
+    t_enter: f32,
+    t_exit: f32,
+    entered: bool = false,
+    miss: bool = false,
+}
+
+fn physics_ray_clip_axis(o: f32, d: f32, c: f32, he: f32, t_enter: f32, t_exit: f32) -> RaySlabClip {
+    if abs(d) < 0.0000001 {
+        if o < c - he || o > c + he {
+            return RaySlabClip { t_enter: t_enter, t_exit: t_exit, miss: true, .. };
+        }
+        return RaySlabClip { t_enter: t_enter, t_exit: t_exit, .. };
+    }
+    var t1 = (c - he - o) / d;
+    var t2 = (c + he - o) / d;
+    if t1 > t2 { let tmp = t1; t1 = t2; t2 = tmp; }
+    var clip = RaySlabClip { t_enter: t_enter, t_exit: t_exit, .. };
+    if t1 > clip.t_enter { clip.t_enter = t1; clip.entered = true; }
+    if t2 < clip.t_exit { clip.t_exit = t2; }
+    return clip;
+}
+
 // Ray against an axis-aligned box: slab test. The entry face supplies the
 // normal; a ray starting inside reports distance 0 with -dir as normal.
 fn physics_ray_box(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
     let c = b.position;
     let he = b.half_extents;
+    let oo: f32[3] = [origin.x, origin.y, origin.z];
+    let dd: f32[3] = [dir.x, dir.y, dir.z];
+    let cc: f32[3] = [c.x, c.y, c.z];
+    let hh: f32[3] = [he.x, he.y, he.z];
     var t_enter: f32 = -max_dist;
     var t_exit: f32 = max_dist;
-    var enter_axis = -1;
-
-    if abs(dir.x) < 0.0000001 {
-        if origin.x < c.x - he.x || origin.x > c.x + he.x { return PhysicsRayHit { .. }; }
-    } else {
-        var t1 = (c.x - he.x - origin.x) / dir.x;
-        var t2 = (c.x + he.x - origin.x) / dir.x;
-        if t1 > t2 { let tmp = t1; t1 = t2; t2 = tmp; }
-        if t1 > t_enter { t_enter = t1; enter_axis = 0; }
-        if t2 < t_exit { t_exit = t2; }
-    }
-    if abs(dir.y) < 0.0000001 {
-        if origin.y < c.y - he.y || origin.y > c.y + he.y { return PhysicsRayHit { .. }; }
-    } else {
-        var t1 = (c.y - he.y - origin.y) / dir.y;
-        var t2 = (c.y + he.y - origin.y) / dir.y;
-        if t1 > t2 { let tmp = t1; t1 = t2; t2 = tmp; }
-        if t1 > t_enter { t_enter = t1; enter_axis = 1; }
-        if t2 < t_exit { t_exit = t2; }
-    }
-    if abs(dir.z) < 0.0000001 {
-        if origin.z < c.z - he.z || origin.z > c.z + he.z { return PhysicsRayHit { .. }; }
-    } else {
-        var t1 = (c.z - he.z - origin.z) / dir.z;
-        var t2 = (c.z + he.z - origin.z) / dir.z;
-        if t1 > t2 { let tmp = t1; t1 = t2; t2 = tmp; }
-        if t1 > t_enter { t_enter = t1; enter_axis = 2; }
-        if t2 < t_exit { t_exit = t2; }
+    var enter_axis: i64 = -1;
+    for axis in 0..3 {
+        let clip = physics_ray_clip_axis(oo[axis], dd[axis], cc[axis], hh[axis], t_enter, t_exit);
+        if clip.miss { return PhysicsRayHit { .. }; }
+        t_enter = clip.t_enter;
+        t_exit = clip.t_exit;
+        if clip.entered { enter_axis = axis; }
     }
 
     if t_exit < t_enter || t_exit < 0.0 { return PhysicsRayHit { .. }; }
