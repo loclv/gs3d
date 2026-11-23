@@ -8,6 +8,7 @@
 | `src/g3/mesh.goose` | the geometry arena and its primitives: cube, sphere, plane |
 | `src/g3/scene.goose` | nodes, the parent hierarchy, the camera and its orbit controls |
 | `src/g3/physics.goose` | gravity, forces, static and dynamic box, sphere and capsule bodies, collision response |
+| `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics`: timestep/step, cuboid/ball/capsule bodies, linvel and impulse accessors |
 | `src/g3/render.goose` | per frame: transforms, frustum cull, draw-list pack, sort, submit |
 | `src/g3/engine.goose` | `init` / `frame` / `shutdown`, input state, stats |
 | `src/g3/gltf_native.goose` | native static GLB and JSON glTF scene and primitive loading into checked handles |

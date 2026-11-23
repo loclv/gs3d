@@ -76,6 +76,13 @@ What the API gives you:
   Pairwise overlap uses substeps, positional correction, and normal and
   friction impulses; spheres and capsules resolve against every shape.
   Bodies have no angular motion; `physics_clear()` removes all bodies.
+  `import g3.rapier` offers the same solver in RapierPhysics vocabulary —
+  `rapier_body_add_cuboid/ball/capsule`, `rapier_set_timestep` +
+  `rapier_world_step`, `rapier_body_translation/linvel/set_linvel`,
+  `rapier_body_apply_impulse`, `rapier_body_set_translation` (teleports and
+  zeroes velocity) and `rapier_body_is_dynamic` (mass > 0). Rotation and
+  angular velocity are not simulated; there is one collider per body and no
+  per-body removal.
 * Meshes — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
   for your own geometry. Pushes stage one mesh and `mesh_close(fv, fi)` closes

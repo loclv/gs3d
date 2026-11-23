@@ -5,6 +5,7 @@ import g3.engine;
 import g3.scene;
 import g3.mesh;
 import g3.physics;
+import g3.rapier;
 import g3.collision;
 import game.siege;
 import testing;
@@ -170,6 +171,34 @@ fn main() {
     g3::physics_set_gravity(float3 { 0.0, -9.81, 0.0 });
     testing::check(abs(g3::physics_body(ram_body).position.x - 1.0) < 0.05 &&
                    abs(g3::physics_body(ram_body).velocity.x) < 0.2, "capsule stops at a box wall");
+
+    // Rapier-style facade: same solver and bodies, Rapier vocabulary.
+    // Timestep is world state, clamped to physics_step's (0, 1] range.
+    testing::check(!g3::rapier_set_timestep(0.0) && !g3::rapier_set_timestep(2.0) &&
+                   g3::rapier_set_timestep(1.0 / 30.0) && g3::rapier_timestep() == 1.0 / 30.0,
+                   "rapier timestep accepts only (0, 1] seconds");
+    g3::physics_clear();
+    g3::physics_set_gravity(float3_0);
+    let rfloor = g3::node_add(unit_mesh);
+    g3::node(rfloor).pos = float3 { 0.0, -0.5, 0.0 };
+    g3::rapier_body_add_cuboid(rfloor, float3 { 5.0, 0.5, 5.0 }, 0.0);
+    let rball_node = g3::node_add(unit_mesh);
+    g3::node(rball_node).pos = float3 { 0.0, 2.0, 0.0 };
+    let rball = g3::rapier_body_add_ball(rball_node, 0.5, 1.0);
+    testing::check(g3::rapier_body_is_dynamic(rball) && !g3::rapier_body_is_dynamic(0),
+                   "rapier mass zero is fixed, positive is dynamic");
+    // applyImpulse on a mass-1 body is a pure velocity change; world.step()
+    // then integrates it at the stored timestep: dx = 2.0 * (1/30).
+    g3::rapier_body_apply_impulse(rball, float3 { 2.0, 0.0, 0.0 });
+    testing::check(g3::rapier_body_linvel(rball).x == 2.0, "rapier applyImpulse sets velocity on a unit-mass body");
+    g3::rapier_world_step();
+    testing::check(abs(g3::rapier_body_translation(rball).x - 2.0 / 30.0) < 0.0001,
+                   "rapier world.step integrates linvel at the stored timestep");
+    // setTranslation teleports, zeroes velocity and updates the node at once.
+    g3::rapier_body_set_translation(rball, float3 { 10.0, 0.0, 0.0 });
+    testing::check(g3::node(rball_node).pos.x == 10.0 && g3::rapier_body_linvel(rball).x == 0.0,
+                   "rapier setTranslation teleports the body and its node");
+    g3::rapier_set_timestep(1.0 / 60.0);
     g3::physics_clear();
     g3::shutdown();
     if !testing::finish() { exit(1); }
