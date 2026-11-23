@@ -46,6 +46,7 @@ No GL call, no window, no file I/O appears anywhere in `src/g3/`.
 | `src/g3/scene.goose` | `Node` arena (handles are `i64` indices), `Camera`, parent hierarchy + `node_update_worlds`, orbit camera |
 | `src/g3/physics.goose` | gravity, forces, box/sphere/capsule bodies, impulse collision response |
 | `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics` (translation only) |
+| `src/g3/physics_web.goose` | `g3_phys_*` wasm exports for the `gs3d/physics` package module (gs3d host only) |
 | `src/g3/collision.goose`, `src/g3/picking.goose` | swept segment/sphere tests, raycast picking |
 | `src/g3/render.goose` | per frame: view/proj, frustum, cull loop, `pack_item`/`sort_key`, sort, submit; `Stats`; lighting setters |
 | `src/g3/engine.goose` | `init`/`frame(dt)`/`shutdown`, 512-key input state with edge detection, `read_pixel`, `save_frame`, `KEY_*` codes |

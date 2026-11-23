@@ -31,6 +31,12 @@ fn rapier_set_timestep(seconds: f32) -> bool {
 
 fn rapier_timestep() -> f32 { return g_rapier_timestep; }
 
+// world.gravity — the acceleration applied to every dynamic body each step.
+fn rapier_set_gravity(gravity: float3) { physics_set_gravity(gravity); }
+
+// Remove every body, like constructing a fresh Rapier world.
+fn rapier_world_clear() { physics_clear(); }
+
 // world.step() with no argument, using the stored timestep.
 fn rapier_world_step() { physics_step(g_rapier_timestep); }
 

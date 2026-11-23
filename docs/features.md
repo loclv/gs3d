@@ -100,7 +100,8 @@ and the [Three.js roadmap](threejs-roadmap.md).
   `_Static_assert`s pinning every packed struct's size and offsets, f32
   end to end.
 * `gs3d` npm package (Apache-2.0): asset helpers, orbit controls, glTF
-  loader and exporter, and a Three.js-compatible facade (`gs3d/three`,
+  loader and exporter, a Rapier-style `gs3d/physics` world over the
+  engine solver, and a Three.js-compatible facade (`gs3d/three`,
   `gs3d/webgpu`) covering scene graphs, cameras, common geometries and
   materials, lights, textures, raycasting and controls — a documented
   subset, not full Three.js compatibility.

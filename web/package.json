@@ -7,7 +7,7 @@
   "scripts": {
     "build:three": "tsdown",
     "check:three": "tsc --noEmit",
-    "test": "npm run check:three && npm run build:three && node ./test_webgpu_uploads.mjs && node ./test_assets.mjs && node ./test_orbit_controls.mjs && node ./test_three_facade.mjs && npm run test:three-upstream && node ./test_package_exports.mjs && node ./test_reference_test_server.mjs && node ./test_publish_metadata.mjs && node ./test_package_tarball.mjs && npm run test:model-authoring",
+    "test": "npm run check:three && npm run build:three && node ./test_webgpu_uploads.mjs && node ./test_assets.mjs && node ./test_orbit_controls.mjs && node ./test_three_facade.mjs && npm run test:three-upstream && node ./test_package_exports.mjs && node ./test_reference_test_server.mjs && node ./test_publish_metadata.mjs && node ./test_package_tarball.mjs && node ./test_physics.mjs && npm run test:model-authoring",
     "test:three-upstream": "node ./test_three_upstream.mjs",
     "test:facade-browser": "../build_web.sh --reference-checks && node ./test_browser_reference.mjs --render-only --facade-bridges",
     "build:robot": "node --experimental-strip-types ./viewer/generate_robot.ts",
@@ -40,6 +40,10 @@
     "./gltf-exporter": {
       "types": "./gltf-exporter.d.ts",
       "import": "./gltf-exporter.js"
+    },
+    "./physics": {
+      "types": "./physics.d.ts",
+      "import": "./physics.js"
     }
   },
   "files": [
@@ -53,6 +57,8 @@
     "gltf-loader.d.ts",
     "gltf-exporter.js",
     "gltf-exporter.d.ts",
+    "physics.js",
+    "physics.d.ts",
     "gs3d/app.js",
     "gs3d/app.wasm",
     "LICENSE"

@@ -186,6 +186,33 @@ const buffer = await new GLTFExporter().parseAsync(group, { binary: true });
 Material texture maps, custom shader attributes, skins, morph targets and
 animations are not exported; those attributes are skipped.
 
+## Physics
+
+`gs3d/physics` provides a `PhysicsWorld` in the style of three.js'
+RapierPhysics addon, backed by the engine's own solver (`g3.rapier`):
+
+```js
+import { PhysicsWorld } from 'gs3d/physics';
+
+const world = new PhysicsWorld(engine); // the gs3d host module
+world.setGravity(0, -9.81, 0);
+world.setTimestep(1 / 60);
+
+const body = world.addBall(nodeIndex, 0.5, 1); // mass 0 is fixed
+world.step();
+const [x, y, z] = world.translation(body);    // copy back to your scene
+```
+
+Bodies are created from cuboid, ball and capsule descriptors and expose
+`translation`/`setTranslation`, `linvel`/`setLinvel`, `applyImpulse`,
+restitution and friction, matching Rapier's RigidBody/Collider vocabulary.
+The world is translation-only — there is no rotation, angular velocity or
+torque, one collider per body, and no per-body removal (`clear()` resets).
+Bodies attach to engine node indices, not facade `Object3D`s; read
+`translation()` after `step()` and write it back to your objects yourself.
+This module needs the gs3d host build (`./build_web.sh --gs3d`); other
+browser builds do not export the physics entry points.
+
 ## Reference viewer
 
 From the repository root, run `./build_web.sh --viewer --serve` and open

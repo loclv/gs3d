@@ -10,6 +10,7 @@ import g3.engine;
 import g3.render;
 import g3.texture;
 import g3.asset_web;
+import g3.physics_web;
 
 export fn g3_app_init(width: i32, height: i32) -> bool {
     guard g3::init(width, height, "Goose 3D") else { return false; }
