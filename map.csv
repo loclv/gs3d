@@ -1,0 +1,391 @@
+name,description,path
+agents,"goose-3d — a 3D engine for Goose, on the web",AGENTS.md
+readme,"goose-3d — a 3D engine for Goose, on the web",README.md
+build-native,,build_native.sh
+build-web,,build_web.sh
+codedb,,codedb.snapshot
+,Docs,docs/
+abi,The engine/backend ABI,docs/abi.md
+architecture,Architecture,docs/architecture.md
+assets,Asset loading,docs/assets.md
+browser,Browser examples and benchmarks,docs/browser.md
+features,Features,docs/features.md
+getting-started,Getting started,docs/getting-started.md
+ideals,Ideals,docs/ideals.md
+model-authoring,Code-first model authoring,docs/model-authoring.md
+performance,Performance of the CPU backend,docs/performance.md
+project-map,Project map,docs/project-map.md
+readme-frame-flow,Frame and backend overview,docs/readme-frame-flow.md
+release,Release,docs/release.md
+threejs-roadmap,Toward a Three.js alternative,docs/threejs-roadmap.md
+using-the-engine,Using the engine,docs/using-the-engine.md
+,Platform,platform/
+g3-abi,C/C++ source: g3-abi.,platform/g3_abi.h
+g3-image,C/C++ source: g3-image.,platform/g3_image.c
+g3-input,C/C++ source: g3-input.,platform/g3_input.c
+g3-input,C/C++ source: g3-input.,platform/g3_input.h
+g3-soft,C/C++ source: g3-soft.,platform/g3_soft.c
+g3-web,C/C++ source: g3-web.,platform/g3_web.c
+g3-webgl-rename,C/C++ source: g3-webgl-rename.,platform/g3_webgl_rename.h
+g3-webgpu,C/C++ source: g3-webgpu.,platform/g3_webgpu.c
+,Rsbuild Project,rsbuild-project/
+agents,"Typescript + Rsbuild sample for ""gs3d"" package",rsbuild-project/AGENTS.md
+readme,Goose 3D Model Lab,rsbuild-project/README.md
+bun,,rsbuild-project/bun.lock
+,Dist,rsbuild-project/dist/
+favicon,,rsbuild-project/dist/favicon.png
+index,,rsbuild-project/dist/index.html
+,Static,rsbuild-project/dist/static/
+,Css,rsbuild-project/dist/static/css/
+index-8f176e1d4d,,rsbuild-project/dist/static/css/index.8f176e1d4d.css
+,Js,rsbuild-project/dist/static/js/
+h-c9558a3bb0,JavaScript module: h-c9558a3bb0.,rsbuild-project/dist/static/js/h.c9558a3bb0.js
+index-fa3a0a53ba,JavaScript module: index-fa3a0a53ba.,rsbuild-project/dist/static/js/index.fa3a0a53ba.js
+,Wasm,rsbuild-project/dist/static/wasm/
+619193b85b-module,,rsbuild-project/dist/static/wasm/619193b85b.module.wasm
+,Public,rsbuild-project/public/
+favicon,,rsbuild-project/public/favicon.png
+rsbuild-config,TypeScript module: rsbuild-config.,rsbuild-project/rsbuild.config.ts
+rslint-config,TypeScript module: rslint-config.,rsbuild-project/rslint.config.ts
+,Src,rsbuild-project/src/
+index,,rsbuild-project/src/index.css
+index,TypeScript module: index.,rsbuild-project/src/index.ts
+model,Build a multipart prop and a standard glTF 2.0 binary GLB.,rsbuild-project/src/model.ts
+test-model,TypeScript module: test-model.,rsbuild-project/test-model.ts
+,Samples,samples/
+,Animations,samples/animations/
+agents,"Typescript + Rsbuild sample for ""gs3d"" package — animation",samples/animations/AGENTS.md
+readme,Goose 3D Animation Lab,samples/animations/README.md
+bun,,samples/animations/bun.lock
+,Dist,samples/animations/dist/
+favicon,,samples/animations/dist/favicon.png
+index,,samples/animations/dist/index.html
+,Static,samples/animations/dist/static/
+,Css,samples/animations/dist/static/css/
+index-5b8d2f946b,,samples/animations/dist/static/css/index.5b8d2f946b.css
+,Js,samples/animations/dist/static/js/
+h-063d301a7f,JavaScript module: h-063d301a7f.,samples/animations/dist/static/js/h.063d301a7f.js
+index-197bf2b3e8,JavaScript module: index-197bf2b3e8.,samples/animations/dist/static/js/index.197bf2b3e8.js
+,Wasm,samples/animations/dist/static/wasm/
+619193b85b-module,,samples/animations/dist/static/wasm/619193b85b.module.wasm
+,Public,samples/animations/public/
+favicon,,samples/animations/public/favicon.png
+rsbuild-config,TypeScript module: rsbuild-config.,samples/animations/rsbuild.config.ts
+rslint-config,TypeScript module: rslint-config.,samples/animations/rslint.config.ts
+,Src,samples/animations/src/
+animation,Time in seconds from the start of the clip.,samples/animations/src/animation.ts
+character,Joint name -> Object3D. 'root' is the whole-character group.,samples/animations/src/character.ts
+clips,Subtle breathing idle. Rotation values are degrees.,samples/animations/src/clips.ts
+index,,samples/animations/src/index.css
+index,TypeScript module: index.,samples/animations/src/index.ts
+test-animation,TypeScript module: test-animation.,samples/animations/test-animation.ts
+,Caustic Volume,samples/caustic-volume/
+license,,samples/caustic-volume/LICENSE
+readme,CAUSTIC//LITE,samples/caustic-volume/README.md
+bun,,samples/caustic-volume/bun.lock
+,Docs,samples/caustic-volume/docs/
+lite-lamp,,samples/caustic-volume/docs/lite-lamp.jpg
+lite-pool,,samples/caustic-volume/docs/lite-pool.jpg
+lite,,samples/caustic-volume/docs/lite.jpg
+sandbox-lamps,,samples/caustic-volume/docs/sandbox-lamps.jpg
+sandbox-laser,,samples/caustic-volume/docs/sandbox-laser.jpg
+sandbox-underwater,,samples/caustic-volume/docs/sandbox-underwater.jpg
+sandbox,,samples/caustic-volume/docs/sandbox.jpg
+index,,samples/caustic-volume/index.html
+,Lite,samples/caustic-volume/lite/
+index,,samples/caustic-volume/lite/index.html
+,Sandbox,samples/caustic-volume/sandbox/
+index,,samples/caustic-volume/sandbox/index.html
+,Src,samples/caustic-volume/sandbox/src/
+00-head,,samples/caustic-volume/sandbox/src/00_head.html
+10-sim,============================================================================,samples/caustic-volume/sandbox/src/10_sim.js
+20-caustic,============================================================================,samples/caustic-volume/sandbox/src/20_caustic.js
+25-ink,============================================================================,samples/caustic-volume/sandbox/src/25_ink.js
+27-sand,============================================================================,samples/caustic-volume/sandbox/src/27_sand.js
+28-laser,============================================================================,samples/caustic-volume/sandbox/src/28_laser.js
+30-trace,============================================================================,samples/caustic-volume/sandbox/src/30_trace.js
+40-post,============================================================================,samples/caustic-volume/sandbox/src/40_post.js
+50-gl,============================================================================,samples/caustic-volume/sandbox/src/50_gl.js
+55-resources,============================================================================,samples/caustic-volume/sandbox/src/55_resources.js
+60-physics,============================================================================,samples/caustic-volume/sandbox/src/60_physics.js
+62-models,============================================================================,samples/caustic-volume/sandbox/src/62_models.js
+63-creatures,============================================================================,samples/caustic-volume/sandbox/src/63_creatures.js
+65-sand,============================================================================,samples/caustic-volume/sandbox/src/65_sand.js
+66-laser,============================================================================,samples/caustic-volume/sandbox/src/66_laser.js
+67-particulate,============================================================================,samples/caustic-volume/sandbox/src/67_particulate.js
+70-render,============================================================================,samples/caustic-volume/sandbox/src/70_render.js
+80-main,============================================================================,samples/caustic-volume/sandbox/src/80_main.js
+,Tools,samples/caustic-volume/tools/
+build-sandbox,,samples/caustic-volume/tools/build-sandbox.cjs
+dbg-lite,,samples/caustic-volume/tools/dbg-lite.cjs
+test-lite,,samples/caustic-volume/tools/test-lite.cjs
+test-sandbox,,samples/caustic-volume/tools/test-sandbox.cjs
+,Loverocks,samples/loverocks/
+license,,samples/loverocks/LICENSE
+readme,loverocks,samples/loverocks/README.md
+bun,,samples/loverocks/bun.lock
+,Engine,samples/loverocks/engine/
+cargo,,samples/loverocks/engine/Cargo.lock
+cargo,,samples/loverocks/engine/Cargo.toml
+,Src,samples/loverocks/engine/src/
+ao,Rust module: ao.,samples/loverocks/engine/src/ao.rs
+,Bin,samples/loverocks/engine/src/bin/
+surface-bake,Rust module: surface-bake.,samples/loverocks/engine/src/bin/surface-bake.rs
+erosion,,samples/loverocks/engine/src/erosion.rgba
+field,Rust module: field.,samples/loverocks/engine/src/field.rs
+geology,Rust module: geology.,samples/loverocks/engine/src/geology.rs
+lib,Rust module: lib.,samples/loverocks/engine/src/lib.rs
+math,Rust module: math.,samples/loverocks/engine/src/math.rs
+mesh,Rust module: mesh.,samples/loverocks/engine/src/mesh.rs
+surface,Rust module: surface.,samples/loverocks/engine/src/surface.rs
+volcanic,Rust module: volcanic.,samples/loverocks/engine/src/volcanic.rs
+index,,samples/loverocks/index.html
+,Licenses,samples/loverocks/licenses/
+libreterrain-apache,Apache License,samples/loverocks/licenses/LibreTerrain-Apache.txt
+libreterrain-mit,MIT License,samples/loverocks/licenses/LibreTerrain-MIT.txt
+takram,The MIT License (MIT),samples/loverocks/licenses/Takram.txt
+three-js,The MIT License,samples/loverocks/licenses/Three.js.txt
+,Public,samples/loverocks/public/
+,Atmosphere,samples/loverocks/public/atmosphere/
+irradiance,,samples/loverocks/public/atmosphere/irradiance.bin
+scattering,,samples/loverocks/public/atmosphere/scattering.bin
+transmittance,,samples/loverocks/public/atmosphere/transmittance.bin
+,Surface,samples/loverocks/public/surface/
+relief-448,,samples/loverocks/public/surface/relief-448.rgba
+rust-toolchain,,samples/loverocks/rust-toolchain.toml
+serve,,samples/loverocks/serve.mjs
+,Src,samples/loverocks/src/
+atmosphere,,samples/loverocks/src/atmosphere.glsl
+atmosphere,JavaScript module: atmosphere.,samples/loverocks/src/atmosphere.js
+camera-lut,JavaScript module: camera-lut.,samples/loverocks/src/camera-lut.js
+climate,JavaScript module: climate.,samples/loverocks/src/climate.js
+geology-detail,,samples/loverocks/src/geology-detail.glsl
+geology,JavaScript module: geology.,samples/loverocks/src/geology.js
+main,JavaScript module: main.,samples/loverocks/src/main.js
+moss,"Grow moss over a mesh in place: writes coverage to the moss channel, thins",samples/loverocks/src/moss.js
+random,JavaScript module: random.,samples/loverocks/src/random.js
+still,JavaScript module: still.,samples/loverocks/src/still.js
+style,,samples/loverocks/src/style.css
+surface-detail,,samples/loverocks/src/surface-detail.glsl
+volcanic,JavaScript module: volcanic.,samples/loverocks/src/volcanic.js
+,Wasm,samples/loverocks/src/wasm/
+fjord-engine-d,"First front-facing contact on a finite ray, as position, normal, distance.",samples/loverocks/src/wasm/fjord_engine.d.ts
+fjord-engine,@returns {Float32Array},samples/loverocks/src/wasm/fjord_engine.js
+fjord-engine-bg,,samples/loverocks/src/wasm/fjord_engine_bg.wasm
+fjord-engine-bg-wasm-d,TypeScript module: fjord-engine-bg-wasm-d.,samples/loverocks/src/wasm/fjord_engine_bg.wasm.d.ts
+worker,JavaScript module: worker.,samples/loverocks/src/worker.js
+,Tools,samples/loverocks/tools/
+scan-benchmark,CPU reference experiment for Wang et al. arXiv:2611.15320,samples/loverocks/tools/scan-benchmark.py
+vite-config,JavaScript module: vite-config.,samples/loverocks/vite.config.js
+,Physics,samples/physics/
+agents,"Typescript + Rsbuild sample for ""gs3d"" package — physics",samples/physics/AGENTS.md
+readme,Goose 3D physics Lab,samples/physics/README.md
+bun,,samples/physics/bun.lock
+,Dist,samples/physics/dist/
+favicon,,samples/physics/dist/favicon.png
+index,,samples/physics/dist/index.html
+,Static,samples/physics/dist/static/
+,Css,samples/physics/dist/static/css/
+index-5b8d2f946b,,samples/physics/dist/static/css/index.5b8d2f946b.css
+,Js,samples/physics/dist/static/js/
+h-063d301a7f,JavaScript module: h-063d301a7f.,samples/physics/dist/static/js/h.063d301a7f.js
+index-197bf2b3e8,JavaScript module: index-197bf2b3e8.,samples/physics/dist/static/js/index.197bf2b3e8.js
+,Wasm,samples/physics/dist/static/wasm/
+619193b85b-module,,samples/physics/dist/static/wasm/619193b85b.module.wasm
+,Public,samples/physics/public/
+favicon,,samples/physics/public/favicon.png
+rsbuild-config,TypeScript module: rsbuild-config.,samples/physics/rsbuild.config.ts
+rslint-config,TypeScript module: rslint-config.,samples/physics/rslint.config.ts
+,Src,samples/physics/src/
+animation,Time in seconds from the start of the clip.,samples/physics/src/animation.ts
+character,Joint name -> Object3D. 'root' is the whole-character group.,samples/physics/src/character.ts
+clips,Subtle breathing idle. Rotation values are degrees.,samples/physics/src/clips.ts
+index,,samples/physics/src/index.css
+index,TypeScript module: index.,samples/physics/src/index.ts
+test-animation,TypeScript module: test-animation.,samples/physics/test-animation.ts
+,Src,src/
+app-native,,src/app_native.build
+app-native,,src/app_native.goose
+app-web,,src/app_web.goose
+benchmark-transforms,,src/benchmark_transforms.goose
+benchmark-web,,src/benchmark_web.goose
+,Demo,src/demo/
+scene,,src/demo/scene.goose
+,G3,src/g3/
+asset-web,,src/g3/asset_web.goose
+collision,,src/g3/collision.goose
+engine,,src/g3/engine.goose
+gltf-native,,src/g3/gltf_native.goose
+math,,src/g3/math.goose
+mesh,,src/g3/mesh.goose
+physics,,src/g3/physics.goose
+physics-web,,src/g3/physics_web.goose
+picking,,src/g3/picking.goose
+platform,,src/g3/platform.goose
+rapier,,src/g3/rapier.goose
+render,,src/g3/render.goose
+scene,,src/g3/scene.goose
+texture,,src/g3/texture.goose
+texture-native,,src/g3/texture_native.goose
+,Game,src/game/
+arena,,src/game/arena.goose
+siege,,src/game/siege.goose
+game-web,,src/game_web.goose
+gs3d-web,,src/gs3d_web.goose
+reference-web,,src/reference_web.goose
+siege-web,,src/siege_web.goose
+test-engine,,src/test_engine.build
+test-engine,,src/test_engine.goose
+test-game,,src/test_game.build
+test-game,,src/test_game.goose
+test-math,,src/test_math.goose
+test-siege,,src/test_siege.build
+test-siege,,src/test_siege.goose
+testing,,src/testing.goose
+viewer-web,,src/viewer_web.goose
+,Testdata,testdata/
+native-animation-bad-time,,testdata/native-animation-bad-time.glb
+,Native Animation External,testdata/native-animation-external/
+animation,,testdata/native-animation-external/animation.bin
+model,,testdata/native-animation-external/model.gltf
+native-animation,,testdata/native-animation.glb
+native-bad-light,,testdata/native-bad-light.glb
+native-bad-second-primitive,,testdata/native-bad-second-primitive.glb
+native-bad-second-scene-node,,testdata/native-bad-second-scene-node.glb
+native-bad,,testdata/native-bad.ppm
+native-checker,,testdata/native-checker.png
+native-checker,,testdata/native-checker.ppm
+native-color-vertex,,testdata/native-color-vertex.glb
+,Native External,testdata/native-external/
+bad-buffer-range,,testdata/native-external/bad-buffer-range.gltf
+bad-data-uri,,testdata/native-external/bad-data-uri.gltf
+,Buffers,testdata/native-external/buffers/
+head,,testdata/native-external/buffers/head.bin
+tail,,testdata/native-external/buffers/tail.bin
+data-uri,,testdata/native-external/data-uri.gltf
+image-data-uri,,testdata/native-external/image-data-uri.gltf
+image-malformed,,testdata/native-external/image-malformed.gltf
+image-uri,,testdata/native-external/image-uri.gltf
+,Images,testdata/native-external/images/
+checker,,testdata/native-external/images/checker.png
+missing,,testdata/native-external/missing.gltf
+model,,testdata/native-external/model.gltf
+traversal,,testdata/native-external/traversal.gltf
+native-quantized,,testdata/native-quantized.glb
+native-skin-animation,,testdata/native-skin-animation.glb
+,Native Sparse,testdata/native-sparse/
+invalid-indices,,testdata/native-sparse/invalid-indices.gltf
+mesh-invalid,,testdata/native-sparse/mesh-invalid.bin
+mesh,,testdata/native-sparse/mesh.bin
+mesh,,testdata/native-sparse/mesh.gltf
+native-two-primitives,,testdata/native-two-primitives.glb
+native-two-scenes,,testdata/native-two-scenes.glb
+native-unsupported-required,,testdata/native-unsupported-required.gltf
+radiance-white-8x1,,testdata/radiance-white-8x1.hdr
+,Tools,tools/
+check-web-builds,Reject missing or stale browser renderers after a full build,tools/check_web_builds.py
+native-cc,,tools/native_cc.sh
+,Web,web/
+license,,web/LICENSE
+readme,Goose 3D browser asset helpers,web/README.md
+assets-d,Browser-side image and glTF/GLB helpers for a Goose 3D Emscripten module.,web/assets.d.ts
+assets,Replace the engine's eight extra lights and optionally select one point and spot shadow caster by model.lights index.,web/assets.js
+,Benchmark,web/benchmark/
+animation,,web/benchmark/animation.html
+animation,JavaScript module: animation.,web/benchmark/animation.js
+,Animation,web/benchmark/animation/
+benchmark,JavaScript module: benchmark.,web/benchmark/benchmark.js
+compare,,web/benchmark/compare.html
+compare,JavaScript module: compare.,web/benchmark/compare.js
+generate-morph-sample,"Generate a 32-instance, high-poly 64-target glTF animation benchmark",web/benchmark/generate_morph_sample.py
+index,,web/benchmark/index.html
+measure-webgpu,,web/benchmark/measure-webgpu.mjs
+morph-benchmark,,web/benchmark/morph-benchmark.glb
+canvas,Sizing the canvas.,web/canvas.js
+check-publish-metadata,,web/check_publish_metadata.mjs
+demo-checks,,web/demo-checks.html
+demo-checks,JavaScript module: demo-checks.,web/demo-checks.js
+,Examples,web/examples/
+,Model Loader,web/examples/model-loader/
+index,,web/examples/model-loader/index.html
+model-loader,JavaScript module: model-loader.,web/examples/model-loader/model-loader.js
+,Game,web/game/
+game,JavaScript module: game.,web/game/game.js
+ground,,web/game/ground.jpg
+index,,web/game/index.html
+gltf-exporter-d,TypeScript module: gltf-exporter-d.,web/gltf-exporter.d.ts
+gltf-exporter,JavaScript module: gltf-exporter.,web/gltf-exporter.js
+gltf-loader-d,"Root of the default scene, ready for scene.add().",web/gltf-loader.d.ts
+gltf-loader,A GLTFLoader-compatible loader for the gs3d facade.,web/gltf-loader.js
+,Gs3d,web/gs3d/
+hud,"What the page says: a status overlay while it boots or when something fails,",web/hud.js
+index,,web/index.html
+input,Input: browser events turned into the numbers the backend keeps.,web/input.js
+model-authoring,"Small, dependency-free glTF/GLB authoring helpers for code-first 3D assets.",web/model-authoring.ts
+orbit-controls-d,"Apply azimuth and elevation deltas, in radians.",web/orbit-controls.d.ts
+orbit-controls,Input-only orbit controls. Callbacks apply deltas to the application's camera.,web/orbit-controls.js
+physics-d,Type declarations for gs3d/physics — Rapier-style world over the engine,web/physics.d.ts
+physics,Rapier-style physics for the gs3d engine host.,web/physics.js
+publish-metadata,JavaScript module: publish-metadata.,web/publish_metadata.js
+reference-test-server,,web/reference-test-server.mjs
+shell,"The page's side of the engine: load the module, size the canvas, hand over",web/shell.js
+,Siege,web/siege/
+checks,,web/siege/checks.html
+checks,JavaScript module: checks.,web/siege/checks.js
+index,,web/siege/index.html
+siege,JavaScript module: siege.,web/siege/siege.js
+,Src,web/src/
+,Three,web/src/three/
+bounds,TypeScript module: bounds.,web/src/three/bounds.ts
+bridge,TypeScript module: bridge.,web/src/three/bridge.ts
+color,TypeScript module: color.,web/src/three/color.ts
+controls,TypeScript module: controls.,web/src/three/controls.ts
+geometry,TypeScript module: geometry.,web/src/three/geometry.ts
+gs3d-env-d,TypeScript module: gs3d-env-d.,web/src/three/gs3d-env.d.ts
+index,TypeScript module: index.,web/src/three/index.ts
+materials,TypeScript module: materials.,web/src/three/materials.ts
+math,TypeScript module: math.,web/src/three/math.ts
+on-before-compile,TypeScript module: on-before-compile.,web/src/three/on-before-compile.ts
+pmrem,TypeScript module: pmrem.,web/src/three/pmrem.ts
+primitives,TypeScript module: primitives.,web/src/three/primitives.ts
+raw-shader,TypeScript module: raw-shader.,web/src/three/raw-shader.ts
+raycaster,TypeScript module: raycaster.,web/src/three/raycaster.ts
+renderer,TypeScript module: renderer.,web/src/three/renderer.ts
+scene,TypeScript module: scene.,web/src/three/scene.ts
+shapes,TypeScript module: shapes.,web/src/three/shapes.ts
+sync,TypeScript module: sync.,web/src/three/sync.ts
+textures,TypeScript module: textures.,web/src/three/textures.ts
+test-assets,,web/test_assets.mjs
+test-browser-reference,,web/test_browser_reference.mjs
+test-build-exports,,web/test_build_exports.mjs
+test-model-authoring,TypeScript module: test-model-authoring.,web/test_model_authoring.ts
+test-orbit-controls,,web/test_orbit_controls.mjs
+test-package-exports,,web/test_package_exports.mjs
+test-package-tarball,,web/test_package_tarball.mjs
+test-physics,,web/test_physics.mjs
+test-publish-metadata,,web/test_publish_metadata.mjs
+test-reference-test-server,,web/test_reference_test_server.mjs
+test-reference-wasm-exports,,web/test_reference_wasm_exports.mjs
+test-three-facade,,web/test_three_facade.mjs
+test-three-upstream,,web/test_three_upstream.mjs
+test-viewer-import-map,,web/test_viewer_import_map.mjs
+test-webgpu-uploads,,web/test_webgpu_uploads.mjs
+,Testdata,web/testdata/
+,Three Upstream,web/testdata/three-upstream/
+license,,web/testdata/three-upstream/LICENSE
+vector2-tests,JavaScript module: vector2-tests.,web/testdata/three-upstream/Vector2.tests.js
+vector3-tests,JavaScript module: vector3-tests.,web/testdata/three-upstream/Vector3.tests.js
+three-d,Testing/headless hook: a prebuilt engine module instead of the bundled wasm.,web/three.d.ts
+three,JavaScript module: three.,web/three.js
+tsdown-config,TypeScript module: tsdown-config.,web/tsdown.config.ts
+,Viewer,web/viewer/
+generate-robot,"Detailed, deterministic robot example. Run npm run build:robot from web/.",web/viewer/generate_robot.ts
+generate-sample,Code-first source for the viewer's sample GLB. This is ordinary TypeScript:,web/viewer/generate_sample.ts
+index,,web/viewer/index.html
+reference-checks,,web/viewer/reference-checks.html
+reference-checks,JavaScript module: reference-checks.,web/viewer/reference-checks.js
+,Reference,web/viewer/reference/
+robot,,web/viewer/robot.glb
+sample,,web/viewer/sample.glb
+viewer,JavaScript module: viewer.,web/viewer/viewer.js
+webgpu,WebGPU renderer for the built-in Goose demo. The production WebGL2 backend,web/webgpu.js
