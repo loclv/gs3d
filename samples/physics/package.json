@@ -1,0 +1,23 @@
+{
+  "name": "gs3d-animations",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rsbuild build",
+    "check": "tsc --noEmit",
+    "dev": "rsbuild",
+    "lint": "rslint",
+    "preview": "rsbuild preview",
+    "test": "node --experimental-strip-types ./test-animation.ts"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "^2.3.2",
+    "@rslint/core": "^0.9.5",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "gs3d": "file:../../web"
+  }
+}
