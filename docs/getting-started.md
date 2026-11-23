@@ -59,7 +59,7 @@ Four roots, all exiting non-zero on a failure:
   arena compaction and mesh reuse.
 * `test_game` — 4 checks on the Beacon Run sample rules: scoring, win and
   lose states, reset.
-* `test_siege` — 33 checks on Rift Siege: segment/sphere sweeps, movement
+* `test_siege` — 39 checks on Rift Siege: segment/sphere sweeps, movement
   speed, dash cooldown, cover blocking shots, box/sphere/capsule
   physics colliders, and the Rapier-style `g3.rapier` facade.
 

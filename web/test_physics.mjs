@@ -16,9 +16,15 @@ function mockEngine() {
     _g3_phys_set_gravity: (x, y, z) => calls.push(['gravity', x, y, z]),
     _g3_phys_clear: () => calls.push(['clear']),
     _g3_phys_set_timestep: s => calls.push(['timestep', s]),
-    _g3_phys_body_cuboid: (node, hx, hy, hz, mass) => { calls.push(['cuboid', node, hx, hy, hz, mass]); return 7; },
+    _g3_phys_body_cuboid: (node, hx, hy, hz, mass) => {
+      calls.push(['cuboid', node, hx, hy, hz, mass]);
+      return hx > 0 && hy > 0 && hz > 0 && mass >= 0 ? 7 : -1;
+    },
     _g3_phys_body_ball: (node, radius, mass) => { calls.push(['ball', node, radius, mass]); return radius > 0 ? 8 : -1; },
-    _g3_phys_body_capsule: (node, halfLength, radius, mass) => { calls.push(['capsule', node, halfLength, radius, mass]); return 9; },
+    _g3_phys_body_capsule: (node, halfLength, radius, mass) => {
+      calls.push(['capsule', node, halfLength, radius, mass]);
+      return halfLength >= 0 && radius > 0 ? 9 : -1;
+    },
     _g3_phys_body_dynamic: id => id !== 3,
     _g3_phys_body_pos: (id, ptr, len) => {
       assert.ok(len >= 3, 'pos read-back slice is large enough');
@@ -42,8 +48,11 @@ const world = new PhysicsWorld(mockEngine());
 assert.equal(world.timestep, 1 / 60);
 assert.throws(() => world.setTimestep(0), AssetError);
 assert.throws(() => world.setTimestep(2), AssetError);
+assert.throws(() => world.setTimestep(NaN), AssetError);
+world.setTimestep(1); // upper boundary is inclusive
+assert.throws(() => world.setTimestep(1.0001), AssetError);
 world.setTimestep(1 / 30);
-assert.deepEqual(world.engine.calls.find(c => c[0] === 'timestep'), ['timestep', 1 / 30]);
+assert.deepEqual(world.engine.calls.filter(c => c[0] === 'timestep').at(-1), ['timestep', 1 / 30]);
 
 world.setGravity(0, -9.81, 0);
 world.step();
@@ -59,6 +68,10 @@ assert.equal(cuboid, 7);
 const capsule = world.addCapsule(5, 0.5, 0.25, 2);
 assert.equal(capsule, 9);
 assert.throws(() => world.addBall(0, -1), AssetError);
+assert.throws(() => world.addCuboid(1, [0, 1, 1]), AssetError);
+assert.throws(() => world.addCuboid(1, [1, -1, 1]), AssetError);
+assert.throws(() => world.addCapsule(1, -0.5, 0.5), AssetError);
+assert.throws(() => world.addCapsule(1, 0.5, -0.5), AssetError);
 
 assert.deepEqual(world.translation(ball), [1, 2, 3]);
 assert.deepEqual(world.linvel(ball), [4, 5, 6]);
@@ -74,9 +87,16 @@ assert.equal(world.isDynamic(3), false);
 world.setRestitution(ball, 0.5);
 world.setFriction(ball, 0.25);
 assert.throws(() => world.setRestitution(ball, 2), AssetError);
+assert.throws(() => world.setFriction(ball, -0.5), AssetError);
 assert.throws(() => world.translation(-1), AssetError);
+assert.throws(() => world.linvel(-1), AssetError);
+assert.throws(() => world.setTranslation(-1, [0, 0, 0]), AssetError);
+assert.throws(() => world.setLinvel(-1, [0, 0, 0]), AssetError);
+assert.throws(() => world.setRestitution(-1, 0.5), AssetError);
+assert.throws(() => world.setFriction(-1, 0.5), AssetError);
 world.dispose();
-assert.ok(world.engine.calls.some(c => c[0] === 'free'));
+world.dispose(); // idempotent
+assert.ok(world.engine.calls.filter(c => c[0] === 'free').length === 1);
 assert.throws(() => new PhysicsWorld({}), AssetError);
 
 console.log('physics package checks passed');

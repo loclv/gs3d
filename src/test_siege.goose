@@ -198,6 +198,45 @@ fn main() {
     g3::rapier_body_set_translation(rball, float3 { 10.0, 0.0, 0.0 });
     testing::check(g3::node(rball_node).pos.x == 10.0 && g3::rapier_body_linvel(rball).x == 0.0,
                    "rapier setTranslation teleports the body and its node");
+
+    // Rapier facade guards: constructors and accessors reject bad input.
+    testing::check(g3::rapier_body_add_ball(g3::node_count() + 100, 0.5, 1.0) < 0 &&
+                   g3::rapier_body_add_cuboid(0, float3 { -1.0, 1.0, 1.0 }, 1.0) < 0 &&
+                   g3::rapier_body_add_capsule(0, -0.5, 0.5, 1.0) < 0,
+                   "rapier body constructors reject bad arguments");
+    testing::check(!g3::rapier_body_set_translation(-1, float3_0) &&
+                   !g3::rapier_body_set_linvel(-1, float3_0) &&
+                   !g3::rapier_body_set_restitution(-1, 0.5) &&
+                   !g3::rapier_body_set_friction(-1, 0.5),
+                   "rapier accessors reject bad body ids");
+    // Body 0 is the fixed floor: impulse is rejected there, accepted on rball.
+    testing::check(!g3::rapier_body_apply_impulse(0, float3 { 1.0, 0.0, 0.0 }) &&
+                   g3::rapier_body_apply_impulse(rball, float3 { 0.0, 1.0, 0.0 }),
+                   "rapier applyImpulse works on dynamic bodies only");
+    // Gravity (0,-1,0) for one second at 1/60 steps: the +1 impulse gives
+    // v.y = 1 - t, ending at 0, and y = sum(v_k)/60 = 29.5/60 = 0.49166...
+    // Hand-derived, not read back from the engine.
+    g3::rapier_set_timestep(1.0 / 60.0);
+    g3::rapier_set_gravity(float3 { 0.0, -1.0, 0.0 });
+    for i in 60 { g3::rapier_world_step(); }
+    testing::check(abs(g3::rapier_body_linvel(rball).y) < 0.001 &&
+                   abs(g3::rapier_body_translation(rball).y - 0.4917) < 0.001 &&
+                   g3::rapier_body_translation(rball).x == 10.0,
+                   "rapier gravity integrates through world.step");
+    g3::rapier_world_clear();
+    testing::check(g3::physics_body_count() == 0, "rapier world_clear removes every body");
+    // Capsule end-to-end through the facade: the bottom cap settles with its
+    // center one radius-plus-half-length above the floor top, y = 1.0.
+    g3::physics_set_gravity(float3 { 0.0, -9.81, 0.0 });
+    let rcap_floor = g3::node_add(unit_mesh);
+    g3::node(rcap_floor).pos = float3 { 0.0, -0.5, 0.0 };
+    g3::rapier_body_add_cuboid(rcap_floor, float3 { 5.0, 0.5, 5.0 }, 0.0);
+    let rcap_node = g3::node_add(unit_mesh);
+    g3::node(rcap_node).pos = float3 { 0.0, 3.0, 0.0 };
+    let rcap = g3::rapier_body_add_capsule(rcap_node, 0.5, 0.5, 1.0);
+    for i in 300 { g3::rapier_world_step(); }
+    testing::check(abs(g3::rapier_body_translation(rcap).y - 1.0) < 0.02,
+                   "rapier capsule settles on a box floor");
     g3::rapier_set_timestep(1.0 / 60.0);
     g3::physics_clear();
     g3::shutdown();
