@@ -4,9 +4,11 @@
 // zero makes a body static; dynamic bodies use semi-implicit Euler
 // integration with linear and angular velocity, and an impulse response
 // when their shapes overlap. It is intended for simple game motion, not as
-// a general-purpose solver: there is no sleeping island detection, no
-// broadphase, and friction is a single Coulomb clamp per contact.
+// a general-purpose solver: broadphase is a per-substep sweep-and-prune
+// along x, sleeping is per-body rather than island-based, and friction is
+// a single Coulomb clamp per contact.
 
+import std;
 import vec;
 import math;
 import g3.math;
@@ -52,10 +54,17 @@ struct PhysicsBody {
     // until a real impact or an explicit wake.
     sleeping: bool = false,
     sleep_timer: f32 = 0.0,
+    // Conservative world-space half extents of the collider, refreshed at
+    // the top of every substep. The pair loop rejects on these before any
+    // contact math runs — the broadphase.
+    bounds: float3 = float3_0,
 }
 
 var g_physics_bodies: PhysicsBody[>..];
 var g_physics_gravity: float3 = float3 { 0.0, -9.81, 0.0 };
+// Live body indices sorted by AABB min-x each substep — the sweep-and-prune
+// broadphase that keeps the pair loop near O(n log n + candidates).
+var g_physics_order: i64[>..];
 
 // A contact recorded during the last physics_step: one entry per substep
 // pair overlap. `a` and `b` are body ids, `normal` points from body a
@@ -126,11 +135,15 @@ fn physics_shape_inertia(mass: f32, he: float3, radius: f32, half_length: f32) -
     };
 }
 
-// World direction to body axes and back, through the orientation's
-// transpose. mat4_transpose allocates a Mat4; contacts are not hot enough
-// to matter at this solver's scale.
+// World direction to body axes: R^T v, which is just the orientation's
+// columns dotted with v — no transpose allocation in the contact hot path.
 fn physics_world_to_body(b: PhysicsBody&, v: float3) -> float3 {
-    return mat4_apply_dir(mat4_transpose(b.orientation), v);
+    let m = b.orientation.m;
+    return float3 {
+        m[0] * v.x + m[1] * v.y + m[2] * v.z,
+        m[4] * v.x + m[5] * v.y + m[6] * v.z,
+        m[8] * v.x + m[9] * v.y + m[10] * v.z,
+    };
 }
 
 fn physics_body_to_world(b: PhysicsBody&, v: float3) -> float3 {
@@ -142,6 +155,36 @@ fn physics_box_axis(b: PhysicsBody&, axis: i64) -> float3 {
     if axis == 0 { return float3 { b.orientation.m[0], b.orientation.m[1], b.orientation.m[2] }; }
     if axis == 1 { return float3 { b.orientation.m[4], b.orientation.m[5], b.orientation.m[6] }; }
     return float3 { b.orientation.m[8], b.orientation.m[9], b.orientation.m[10] };
+}
+
+// Conservative world-space half extents of the collider along each world
+// axis — the broadphase bound. For a rotated box this is |R| * he; a
+// capsule extends `radius` past its axis segment.
+fn physics_update_bounds(b: PhysicsBody&) {
+    let kind = physics_kind(b);
+    if kind == 1 {
+        b.bounds = float3 { b.radius, b.radius, b.radius };
+        return;
+    }
+    if kind == 2 {
+        // Capsule axis is local Y: column 1 of the orientation.
+        let ax = abs(b.orientation.m[4]);
+        let ay = abs(b.orientation.m[5]);
+        let az = abs(b.orientation.m[6]);
+        b.bounds = float3 {
+            b.radius + ax * b.half_length,
+            b.radius + ay * b.half_length,
+            b.radius + az * b.half_length,
+        };
+        return;
+    }
+    let he = b.half_extents;
+    let m = b.orientation.m;
+    b.bounds = float3 {
+        abs(m[0]) * he.x + abs(m[4]) * he.y + abs(m[8]) * he.z,
+        abs(m[1]) * he.x + abs(m[5]) * he.y + abs(m[9]) * he.z,
+        abs(m[2]) * he.x + abs(m[6]) * he.y + abs(m[10]) * he.z,
+    };
 }
 
 // Closest point on the oriented box to world point `p`.
@@ -166,7 +209,7 @@ fn physics_box_offset(b: PhysicsBody&, local: float3) -> float3 {
     return b.position + physics_body_to_world(b, local);
 }
 
-fn physics_clear() { g_physics_bodies.clear(); g_physics_contacts.clear(); }
+fn physics_clear() { g_physics_bodies.clear(); g_physics_contacts.clear(); g_physics_order.clear(); }
 
 fn physics_set_gravity(gravity: float3) { g_physics_gravity = gravity; }
 
@@ -409,6 +452,13 @@ fn physics_substep_dt(dt: f32) -> f32 {
 }
 
 fn physics_substep(dt: f32) {
+    // Refresh broadphase bounds for every live body — O(n) once per
+    // substep, so the O(n²) pair loop can reject separated pairs with
+    // three compares instead of a full contact test.
+    for &body in g_physics_bodies {
+        if body.removed { continue; }
+        physics_update_bounds(body);
+    }
     for &body in g_physics_bodies {
         if body.removed || body.sleeping || !node_handle_valid(body.node) { continue; }
         if body.inverse_mass > 0.0 {
@@ -434,9 +484,27 @@ fn physics_substep(dt: f32) {
         }
     }
 
+    // Sweep and prune along x: sort live bodies by AABB min-x once per
+    // substep, then only pairs whose x intervals overlap reach
+    // physics_resolve_pair (which still AABB-rejects on y and z).
+    g_physics_order.clear();
     for i in 0..g_physics_bodies.len {
-        for j in (i + 1)..g_physics_bodies.len {
+        if !g_physics_bodies[i].removed { g_physics_order.push(i); }
+    }
+    sort(g_physics_order) { a, b =>
+        (g_physics_bodies[a].position.x - g_physics_bodies[a].bounds.x) <
+        (g_physics_bodies[b].position.x - g_physics_bodies[b].bounds.x)
+    };
+    for ii in 0..g_physics_order.len {
+        let i = g_physics_order[ii];
+        let a .= g_physics_bodies[i];
+        let xmax = a.position.x + a.bounds.x;
+        var jj = ii + 1;
+        while jj < g_physics_order.len {
+            let j = g_physics_order[jj];
+            if g_physics_bodies[j].position.x - g_physics_bodies[j].bounds.x > xmax { break; }
             physics_resolve_pair(i, j);
+            jj += 1;
         }
     }
 
@@ -872,6 +940,23 @@ fn physics_resolve_pair(a_id: i64, b_id: i64) {
     let b .= g_physics_bodies[b_id];
     if a.removed || b.removed ||
        !node_handle_valid(a.node) || !node_handle_valid(b.node) { return; }
+
+    // Broadphase: world-AABB reject before any contact math.
+    let d = b.position - a.position;
+    if abs(d.x) > a.bounds.x + b.bounds.x ||
+       abs(d.y) > a.bounds.y + b.bounds.y ||
+       abs(d.z) > a.bounds.z + b.bounds.z { return; }
+
+    // Pairs where neither side can move — static, kinematic and sleeping
+    // bodies all contribute zero effective inverse mass — can never need
+    // resolution, and never produced a contact record anyway. The one
+    // exception is a moving kinematic body: it must still reach a sleeping
+    // partner so the impact can wake it.
+    let im_a0 = if a.sleeping { 0.0 } else { a.inverse_mass };
+    let im_b0 = if b.sleeping { 0.0 } else { b.inverse_mass };
+    if im_a0 + im_b0 <= 0.0 &&
+       !(a.kinematic && length(a.velocity) > 0.0001) &&
+       !(b.kinematic && length(b.velocity) > 0.0001) { return; }
 
     let contact = physics_contact(a, b);
     if !contact.hit { return; }

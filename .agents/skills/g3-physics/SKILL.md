@@ -97,8 +97,15 @@ obstacles, character controllers.
 - Euler write-back can hit gimbal lock at pitch ≈ ±90° — extraction
   returns an equivalent rotation (yaw zeroed), so the *matrix* is
   preserved even when the angles differ.
-- Still no broadphase (O(n²) pairs per substep), no collider lists, no
-  joints/constraints. Fine for dozens of bodies.
+- Broadphase is a per-substep **sweep-and-prune along x**: live bodies are
+  sorted by AABB min-x (`bounds` is refreshed every substep) and only
+  x-overlapping pairs reach `physics_resolve_pair`, which still rejects on
+  y/z bounds and skips pairs where neither side can move. Pairs are no
+  longer visited in id order — contact resolution order follows the
+  sorted sweep, which is deterministic but not id-ordered.
+- Still no sleeping islands, no joints/constraints, no collider lists.
+  Fine for dozens-to-hundreds of bodies; `src/benchmark_physics.goose`
+  measures the solver headlessly.
 
 ## Rapier facade (`g3.rapier`)
 
