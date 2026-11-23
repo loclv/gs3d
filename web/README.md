@@ -205,11 +205,19 @@ const [x, y, z] = world.translation(body);    // copy back to your scene
 
 Bodies are created from cuboid, ball and capsule descriptors and expose
 `translation`/`setTranslation`, `linvel`/`setLinvel`, `applyImpulse`,
-restitution and friction, matching Rapier's RigidBody/Collider vocabulary.
+`setRestitution`/`setFriction`, matching Rapier's RigidBody/Collider
+vocabulary. Mass 0 is fixed and mass > 0 is dynamic; `setKinematic` makes a
+body velocity-driven — it ignores gravity, forces and impulses but still
+pushes dynamic bodies — and `setMass` changes mass after creation.
+`removeBody` tombstones a body without renumbering the others, and
+`syncFromNode` adopts a node position that your code moved directly.
+`contacts()` returns the overlaps detected during the last `step()`
+(`{a, b, normal, penetration}`), and `raycast(origin, direction, maxDist)`
+returns the nearest `{body, distance, point, normal}` or `null`.
 The world is translation-only — there is no rotation, angular velocity or
-torque, one collider per body, and no per-body removal (`clear()` resets).
-Bodies attach to engine node indices, not facade `Object3D`s; read
-`translation()` after `step()` and write it back to your objects yourself.
+torque, and one collider per body. Bodies attach to engine node indices,
+not facade `Object3D`s; read `translation()` after `step()` and write it
+back to your objects yourself.
 This module needs the gs3d host build (`./build_web.sh --gs3d`); other
 browser builds do not export the physics entry points.
 

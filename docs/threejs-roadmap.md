@@ -362,6 +362,8 @@ reuse, and published examples build and run through the supported API.
   evolve.
 
 Physics exists engine-side as `g3.physics` with a RapierPhysics-style
-facade (`g3.rapier`) — translation-only box/sphere/capsule bodies; a
-`gs3d` package binding and audio can follow if needed. They are useful
-for games, but are not prerequisites for a 3D rendering library.
+facade (`g3.rapier`) — translation-only box/sphere/capsule bodies with
+static, dynamic and kinematic modes, per-body removal, contact queries
+and raycasts; a `gs3d` package binding (`gs3d/physics`) and audio can
+follow if needed. They are useful for games, but are not prerequisites
+for a 3D rendering library.

@@ -7,9 +7,9 @@
 | `src/g3/math.goose` | column-major `Mat4`, transforms, perspective, AABB, frustum planes |
 | `src/g3/mesh.goose` | the geometry arena and its primitives: cube, sphere, plane |
 | `src/g3/scene.goose` | nodes, the parent hierarchy, the camera and its orbit controls |
-| `src/g3/physics.goose` | gravity, forces, static and dynamic box, sphere and capsule bodies, collision response |
-| `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics`: timestep/step, cuboid/ball/capsule bodies, linvel and impulse accessors |
-| `src/g3/physics_web.goose` | `g3_phys_*` wasm exports of the rapier facade for the `gs3d/physics` package module |
+| `src/g3/physics.goose` | gravity, forces, static/dynamic/kinematic box, sphere and capsule bodies, collision response, contacts, raycasts |
+| `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics`: timestep/step, cuboid/ball/capsule bodies, linvel and impulse accessors, body-type/mass/removal, raycast |
+| `src/g3/physics_web.goose` | `g3_phys_*` wasm exports of the rapier facade plus contacts and raycast for the `gs3d/physics` package module |
 | `src/g3/render.goose` | per frame: transforms, frustum cull, draw-list pack, sort, submit |
 | `src/g3/engine.goose` | `init` / `frame` / `shutdown`, input state, stats |
 | `src/g3/gltf_native.goose` | native static GLB and JSON glTF scene and primitive loading into checked handles |

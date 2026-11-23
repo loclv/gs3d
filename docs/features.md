@@ -87,9 +87,11 @@ and the [Three.js roadmap](threejs-roadmap.md).
 * Raycast picking (`pick_screen`, `raycast`), swept segment/sphere
   collision (`segment_sphere_intersects`), and box/sphere/capsule physics
   bodies — gravity, one-step forces, velocity, restitution, friction,
-  substeps. A RapierPhysics-style facade (`g3.rapier`) exposes the same
-  solver with Rapier vocabulary: cuboid/ball/capsule bodies, world
-  timestep + step, translation/linvel accessors and applyImpulse.
+  substeps, kinematic bodies, per-body removal, per-step contact queries
+  and collider raycasts. A RapierPhysics-style facade (`g3.rapier`) exposes
+  the same solver with Rapier vocabulary: cuboid/ball/capsule bodies,
+  world timestep + step, translation/linvel accessors, applyImpulse,
+  body-type/mass changes and `world.castRay`-style raycasts.
 * Input: 512-key state with edge detection (`key_down`/`key_pressed`/
   `key_released`), mouse deltas; a typed orbit/pan/pinch/keyboard
   controls package with click selection.
