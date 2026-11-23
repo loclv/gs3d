@@ -1,9 +1,9 @@
 // Small 3D rigid-body physics for scene nodes.
 //
-// This module uses axis-aligned box and sphere colliders. A mass of zero
-// makes a body static; dynamic bodies use semi-implicit Euler integration
-// and an impulse response when their shapes overlap. It is intended for
-// simple game motion, not as a general-purpose simulation solver.
+// This module uses axis-aligned box, sphere and capsule colliders. A mass of
+// zero makes a body static; dynamic bodies use semi-implicit Euler
+// integration and an impulse response when their shapes overlap. It is
+// intended for simple game motion, not as a general-purpose solver.
 
 import vec;
 import math;
@@ -19,6 +19,9 @@ struct PhysicsBody {
     half_extents: float3 = float3 { 0.5, 0.5, 0.5 },
     // Collider radius; zero means the body is an axis-aligned box.
     radius: f32 = 0.0,
+    // Capsule cylinder half-length (center to cap center) along world Y;
+    // zero with a positive radius means a sphere.
+    half_length: f32 = 0.0,
     inverse_mass: f32,
     restitution: f32 = 0.0,
     friction: f32 = 0.5,
@@ -35,10 +38,10 @@ fn physics_clear() { g_physics_bodies.clear(); }
 
 fn physics_set_gravity(gravity: float3) { g_physics_gravity = gravity; }
 
-fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, mass: f32) -> i64 {
+fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, half_length: f32, mass: f32) -> i64 {
     guard node_id >= 0 && node_id < node_count() &&
           half_extents.x > 0.0 && half_extents.y > 0.0 && half_extents.z > 0.0 &&
-          radius >= 0.0 && mass >= 0.0 && mass <= 3.4e38 else { return -1; }
+          radius >= 0.0 && half_length >= 0.0 && mass >= 0.0 && mass <= 3.4e38 else { return -1; }
     let handle = node_handle(node_id);
     guard node_handle_valid(handle) else { return -1; }
     let position = node(node_id).pos;
@@ -48,6 +51,7 @@ fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, mass:
         position: position,
         half_extents: half_extents,
         radius: radius,
+        half_length: half_length,
         inverse_mass: inverse_mass,
         ..
     });
@@ -57,14 +61,22 @@ fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, mass:
 // Attach a box body to a scene node. The node's position is the collider
 // center. `mass == 0` creates an immovable body.
 fn physics_body_add(node_id: i64, half_extents: float3, mass: f32) -> i64 {
-    return physics_body_add_shape(node_id, half_extents, 0.0, mass);
+    return physics_body_add_shape(node_id, half_extents, 0.0, 0.0, mass);
 }
 
 // Attach a sphere body to a scene node. `radius` is the collider radius in
 // world units; the node's position is the sphere center.
 fn physics_body_add_sphere(node_id: i64, radius: f32, mass: f32) -> i64 {
     guard radius > 0.0 && radius <= 3.4e38 else { return -1; }
-    return physics_body_add_shape(node_id, float3 { radius, radius, radius }, radius, mass);
+    return physics_body_add_shape(node_id, float3 { radius, radius, radius }, radius, 0.0, mass);
+}
+
+// Attach a capsule body to a scene node: a cylinder of `half_length` capped
+// by spheres of `radius`, aligned with world Y through the node's position.
+fn physics_body_add_capsule(node_id: i64, radius: f32, half_length: f32, mass: f32) -> i64 {
+    guard radius > 0.0 && radius <= 3.4e38 && half_length >= 0.0 && half_length <= 3.4e38 else { return -1; }
+    return physics_body_add_shape(node_id,
+        float3 { radius, half_length + radius, radius }, radius, half_length, mass);
 }
 
 fn physics_body_set_restitution(id: i64, restitution: f32) -> bool {
@@ -204,20 +216,174 @@ fn physics_sphere_box_contact(s: PhysicsBody&, b: PhysicsBody&) -> Contact {
     return Contact { normal: normal, penetration: best, hit: true };
 }
 
+// Collider kinds for the contact dispatch: 0 box, 1 sphere, 2 capsule.
+fn physics_kind(b: PhysicsBody&) -> i32 {
+    if b.radius <= 0.0 { return 0; }
+    if b.half_length > 0.0 { return 2; }
+    return 1;
+}
+
+struct Segment { start: float3, end: float3 }
+
+struct SegmentPoints { on_first: float3, on_second: float3 }
+
+// A capsule's axis is world Y through its center; half_length runs from the
+// center to each cap center.
+fn physics_capsule_segment(b: PhysicsBody&) -> Segment {
+    return Segment {
+        start: b.position - float3 { 0.0, b.half_length, 0.0 },
+        end: b.position + float3 { 0.0, b.half_length, 0.0 },
+    };
+}
+
+fn closest_on_segment(p: float3, s: Segment) -> float3 {
+    let d = s.end - s.start;
+    let len_sq = dot(d, d);
+    var t: f32 = 0.0;
+    if len_sq > 0.0000001 { t = clamp(dot(p - s.start, d) / len_sq, 0.0, 1.0); }
+    return s.start + d * t;
+}
+
+// Closest points between two segments (Ericson, Real-Time Collision
+// Detection). Degenerate segments are handled as points.
+fn segment_segment_closest(s1: Segment, s2: Segment) -> SegmentPoints {
+    let d1 = s1.end - s1.start;
+    let d2 = s2.end - s2.start;
+    let r = s1.start - s2.start;
+    let a = dot(d1, d1);
+    let e = dot(d2, d2);
+    let f = dot(d2, r);
+    let c = dot(d1, r);
+    let b = dot(d1, d2);
+    var s: f32 = 0.0;
+    var t: f32 = 0.0;
+    if a <= 0.0000001 && e <= 0.0000001 {
+        // Both degenerate: the points themselves.
+    } else if a <= 0.0000001 {
+        t = clamp(f / e, 0.0, 1.0);
+    } else if e <= 0.0000001 {
+        s = clamp(-c / a, 0.0, 1.0);
+    } else {
+        let denom = a * e - b * b;
+        if denom > 0.0000001 { s = clamp((b * f - c * e) / denom, 0.0, 1.0); }
+        t = clamp((b * s + f) / e, 0.0, 1.0);
+        s = clamp((b * t - c) / a, 0.0, 1.0);
+    }
+    return SegmentPoints {
+        on_first: s1.start + d1 * s,
+        on_second: s2.start + d2 * t,
+    };
+}
+
+fn clamp_to_box(p: float3, c: float3, he: float3) -> float3 {
+    return float3 {
+        clamp(p.x, c.x - he.x, c.x + he.x),
+        clamp(p.y, c.y - he.y, c.y + he.y),
+        clamp(p.z, c.z - he.z, c.z + he.z),
+    };
+}
+
+// Capsule against capsule: distance between the two axis segments.
+fn physics_capsules_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
+    let points = segment_segment_closest(physics_capsule_segment(a), physics_capsule_segment(b));
+    let d = points.on_second - points.on_first;
+    let dist = length(d);
+    let radii = a.radius + b.radius;
+    if dist >= radii { return Contact { .. }; }
+    var normal = float3 { 0.0, 1.0, 0.0 };
+    if dist > 0.0001 { normal = d / dist; }
+    return Contact { normal: normal, penetration: radii - dist, hit: true };
+}
+
+// Capsule against sphere. The normal points from the capsule toward the
+// sphere: from the closest point on the capsule's axis to the sphere center.
+fn physics_capsule_sphere_contact(c: PhysicsBody&, s: PhysicsBody&) -> Contact {
+    let q = closest_on_segment(s.position, physics_capsule_segment(c));
+    let d = s.position - q;
+    let dist = length(d);
+    let radii = c.radius + s.radius;
+    if dist >= radii { return Contact { .. }; }
+    var normal = float3 { 0.0, 1.0, 0.0 };
+    if dist > 0.0001 { normal = d / dist; }
+    return Contact { normal: normal, penetration: radii - dist, hit: true };
+}
+
+// Capsule against box. The segment and the box are both convex, so
+// alternating projections converge on the closest point pair; sixteen
+// rounds is ample for the axis-aligned contacts this solver sees. The
+// returned normal pushes the capsule out of the box.
+fn physics_capsule_box_contact(c: PhysicsBody&, b: PhysicsBody&) -> Contact {
+    let seg = physics_capsule_segment(c);
+    var p_seg = closest_on_segment(b.position, seg);
+    for i in 0..16 {
+        let p_box = clamp_to_box(p_seg, b.position, b.half_extents);
+        p_seg = closest_on_segment(p_box, seg);
+    }
+    let p_box = clamp_to_box(p_seg, b.position, b.half_extents);
+    let d = p_seg - p_box;
+    let dist = length(d);
+    if dist >= c.radius { return Contact { .. }; }
+    var normal = float3 { 0.0, 1.0, 0.0 };
+    var penetration = c.radius - dist;
+    if dist > 0.0001 {
+        normal = d / dist;
+    } else {
+        // Deep overlap with no surface direction: exit along the axis of
+        // least penetration, like the sphere-inside-box case.
+        let delta = c.position - b.position;
+        var best = b.half_extents.x + c.radius - abs(delta.x);
+        var axis = 0;
+        let overlap_y = b.half_extents.y + c.radius - abs(delta.y);
+        if overlap_y < best { best = overlap_y; axis = 1; }
+        let overlap_z = b.half_extents.z + c.radius - abs(delta.z);
+        if overlap_z < best { best = overlap_z; axis = 2; }
+        normal = float3 { if delta.x < 0.0 { -1.0 } else { 1.0 }, 0.0, 0.0 };
+        if axis == 1 { normal = float3 { 0.0, if delta.y < 0.0 { -1.0 } else { 1.0 }, 0.0 }; }
+        if axis == 2 { normal = float3 { 0.0, 0.0, if delta.z < 0.0 { -1.0 } else { 1.0 } }; }
+        penetration = best;
+    }
+    return Contact { normal: normal, penetration: penetration, hit: true };
+}
+
 fn physics_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
-    if a.radius > 0.0 && b.radius > 0.0 { return physics_spheres_contact(a, b); }
-    if a.radius > 0.0 {
+    let ka = physics_kind(a);
+    let kb = physics_kind(b);
+    if ka == kb {
+        if ka == 0 { return physics_box_contact(a, b); }
+        if ka == 1 { return physics_spheres_contact(a, b); }
+        return physics_capsules_contact(a, b);
+    }
+    // The sphere/capsule helpers return the push direction — from the other
+    // shape toward the sphere or capsule — so it is the a→b normal only when
+    // the shaped body is b; flip it when the shaped body is a.
+    if ka == 1 && kb == 0 {
         let c = physics_sphere_box_contact(a, b);
         if !c.hit { return c; }
         return Contact { normal: float3 { -c.normal.x, -c.normal.y, -c.normal.z },
                          penetration: c.penetration, hit: true };
     }
-    if b.radius > 0.0 {
+    if ka == 0 && kb == 1 {
         let c = physics_sphere_box_contact(b, a);
         if !c.hit { return c; }
         return Contact { normal: c.normal, penetration: c.penetration, hit: true };
     }
-    return physics_box_contact(a, b);
+    if ka == 2 && kb == 1 { return physics_capsule_sphere_contact(a, b); }
+    if ka == 1 && kb == 2 {
+        let c = physics_capsule_sphere_contact(b, a);
+        if !c.hit { return c; }
+        return Contact { normal: float3 { -c.normal.x, -c.normal.y, -c.normal.z },
+                         penetration: c.penetration, hit: true };
+    }
+    if ka == 2 && kb == 0 {
+        let c = physics_capsule_box_contact(a, b);
+        if !c.hit { return c; }
+        return Contact { normal: float3 { -c.normal.x, -c.normal.y, -c.normal.z },
+                         penetration: c.penetration, hit: true };
+    }
+    // ka == 0 && kb == 2
+    let c = physics_capsule_box_contact(b, a);
+    if !c.hit { return c; }
+    return Contact { normal: c.normal, penetration: c.penetration, hit: true };
 }
 
 fn physics_resolve_pair(a_id: i64, b_id: i64) {

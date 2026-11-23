@@ -113,6 +113,63 @@ fn main() {
     // gives penetration 0.0194; restitution 1 mirrors the normal velocity,
     // so v.y ends near +1.16.
     testing::check(g3::physics_body(bounce).velocity.y > 0.5, "restitution bounces a sphere off a box");
+
+    // Capsule colliders: a cylinder of half_length capped by r spheres on
+    // world Y. Bottom surface sits at center.y - (half_length + radius).
+    testing::check(g3::physics_body_add_capsule(g3::node_count() + 100, 0.5, 0.5, 1.0) < 0 &&
+                   g3::physics_body_add_capsule(0, -0.5, 0.5, 1.0) < 0 &&
+                   g3::physics_body_add_capsule(0, 0.5, -0.5, 1.0) < 0, "capsule bodies reject bad nodes, radii and lengths");
+    g3::physics_clear();
+    let cap_floor = g3::node_add(unit_mesh);
+    g3::node(cap_floor).pos = float3 { 0.0, -0.5, 0.0 };
+    g3::physics_body_add(cap_floor, float3 { 5.0, 0.5, 5.0 }, 0.0);
+    let cap_drop = g3::node_add(unit_mesh);
+    g3::node(cap_drop).pos = float3 { 0.0, 3.0, 0.0 };
+    let capsule = g3::physics_body_add_capsule(cap_drop, 0.5, 0.5, 1.0);
+    for i in 300 { g3::physics_step(1.0 / 60.0); }
+    // Bottom cap touches the floor's top face (y=0) when center y = 0.5+0.5 = 1.0.
+    testing::check(abs(g3::physics_body(capsule).position.y - 1.0) < 0.02, "capsule settles with its cap on the box floor");
+
+    // Capsule cap resting on a sphere: sphere top at y=0.5, capsule bottom
+    // reaches it when center y = 0.5 + 0.5 + 0.5 = 1.5.
+    g3::physics_clear();
+    let peg = g3::node_add(unit_mesh);
+    g3::node(peg).pos = float3_0;
+    g3::physics_body_add_sphere(peg, 0.5, 0.0);
+    let cap_on_sphere = g3::node_add(unit_mesh);
+    g3::node(cap_on_sphere).pos = float3 { 0.0, 3.0, 0.0 };
+    let capsule2 = g3::physics_body_add_capsule(cap_on_sphere, 0.5, 0.5, 1.0);
+    for i in 300 { g3::physics_step(1.0 / 60.0); }
+    testing::check(abs(g3::physics_body(capsule2).position.y - 1.5) < 0.02, "capsule cap rests on a sphere");
+
+    // Two r=0.5 capsules touch when their axis distance is 1.0, so the
+    // mover stops at x = -1.0 exactly like the sphere pair did.
+    g3::physics_clear();
+    g3::physics_set_gravity(float3_0);
+    let cap_a_node = g3::node_add(unit_mesh);
+    g3::node(cap_a_node).pos = float3 { -2.0, 0.0, 0.0 };
+    let cap_b_node = g3::node_add(unit_mesh);
+    g3::node(cap_b_node).pos = float3_0;
+    let cap_a = g3::physics_body_add_capsule(cap_a_node, 0.5, 0.5, 1.0);
+    g3::physics_body_add_capsule(cap_b_node, 0.5, 0.5, 0.0);
+    g3::physics_body_set_velocity(cap_a, float3 { 3.0, 0.0, 0.0 });
+    for i in 40 { g3::physics_step(1.0 / 60.0); }
+    // A capsule rammed at a box wall: the wall's near face is x=1.5 and the
+    // capsule surface reaches it when the center is at x = 1.0.
+    testing::check(abs(g3::physics_body(cap_a).position.x + 1.0) < 0.05 &&
+                   abs(g3::physics_body(cap_a).velocity.x) < 0.2, "capsule stops at capsule contact distance");
+    g3::physics_clear();
+    let wall = g3::node_add(unit_mesh);
+    g3::node(wall).pos = float3 { 2.0, 0.0, 0.0 };
+    g3::physics_body_add(wall, float3 { 0.5, 0.5, 0.5 }, 0.0);
+    let ram = g3::node_add(unit_mesh);
+    g3::node(ram).pos = float3_0;
+    let ram_body = g3::physics_body_add_capsule(ram, 0.5, 0.5, 1.0);
+    g3::physics_body_set_velocity(ram_body, float3 { 3.0, 0.0, 0.0 });
+    for i in 40 { g3::physics_step(1.0 / 60.0); }
+    g3::physics_set_gravity(float3 { 0.0, -9.81, 0.0 });
+    testing::check(abs(g3::physics_body(ram_body).position.x - 1.0) < 0.05 &&
+                   abs(g3::physics_body(ram_body).velocity.x) < 0.2, "capsule stops at a box wall");
     g3::physics_clear();
     g3::shutdown();
     if !testing::finish() { exit(1); }
