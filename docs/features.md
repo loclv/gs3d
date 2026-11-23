@@ -106,8 +106,8 @@ and the [Three.js roadmap](threejs-roadmap.md).
   subset, not full Three.js compatibility.
 * Runnable examples: landing demo, Beacon Run and Rift Siege games, model
   viewer, instancing benchmark with a Three.js/PixiJS comparison page,
-  WebGL reference-check suite, and `samples/` scenes
-  (animations, caustic-volume, loverocks).
+  WebGL reference-check suite, and `samples/` scenes and apps
+  (animations, caustic-volume, loverocks, physics).
 * Headless verification: `./build_native.sh --test` runs 99 math + 333
   engine-pixel + game and siege checks, gates zero warnings on every
   `src/*.goose`, and compares PPMs byte-for-byte at 1/3/5/8 workers;

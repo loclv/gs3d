@@ -361,5 +361,7 @@ reuse, and published examples build and run through the supported API.
   update [assets.md](assets.md), the ABI documentation, and examples as APIs
   evolve.
 
-Physics, audio, and a full game editor can follow if needed. They are useful
+Physics exists engine-side as `g3.physics` with a RapierPhysics-style
+facade (`g3.rapier`) — translation-only box/sphere/capsule bodies; a
+`gs3d` package binding and audio can follow if needed. They are useful
 for games, but are not prerequisites for a 3D rendering library.
