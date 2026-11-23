@@ -44,8 +44,8 @@ No GL call, no window, no file I/O appears anywhere in `src/g3/`.
 | `src/g3/math.goose` | `Mat4` (column-major `m[col*4+row]`), `mat4_mul/trs/translate/scale/rotate_*/perspective/ortho/look_at/invert/transpose`, `mat4_transform_point`/`apply`/`apply_dir`, `Aabb` + `aabb_*`, `Plane`/`Frustum` + Gribb–Hartmann extraction + p-vertex `frustum_intersects` |
 | `src/g3/mesh.goose` | two grow-only arenas (`g_verts`, `g_indices`), a `Mesh` record arena, `push_vertex`/`push_triangle`/`push_grid`/`mesh_close`, and the primitives `mesh_cube`/`mesh_sphere`/`mesh_plane` |
 | `src/g3/scene.goose` | `Node` arena (handles are `i64` indices), `Camera`, parent hierarchy + `node_update_worlds`, orbit camera |
-| `src/g3/physics.goose` | gravity, forces, static/dynamic/kinematic box/sphere/capsule bodies, impulse collision response, contacts, raycasts |
-| `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics` (translation only) |
+| `src/g3/physics.goose` | rigid-body solver: oriented box/sphere/capsule colliders, rotation + angular dynamics, sleeping, contacts, raycasts |
+| `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics` |
 | `src/g3/physics_web.goose` | `g3_phys_*` wasm exports for the `gs3d/physics` package module (gs3d host only) |
 | `src/g3/collision.goose`, `src/g3/picking.goose` | swept segment/sphere tests, raycast picking |
 | `src/g3/render.goose` | per frame: view/proj, frustum, cull loop, `pack_item`/`sort_key`, sort, submit; `Stats`; lighting setters |
@@ -61,7 +61,7 @@ No GL call, no window, no file I/O appears anywhere in `src/g3/`.
 | `src/test_math.goose` | none | 99 hand-derived checks on `math.goose`; needs no surface |
 | `src/test_engine.goose` | `platform/g3_soft.c` | 333 checks on whole frames, read back with `g3::read_pixel` |
 | `src/test_game.goose` | `platform/g3_soft.c` | 4 checks on the Beacon Run rules |
-| `src/test_siege.goose` | `platform/g3_soft.c` | 61 checks on Rift Siege rules, sweeps, physics colliders, kinematics, contacts, raycasts and the `g3.rapier` facade |
+| `src/test_siege.goose` | `platform/g3_soft.c` | 73 checks on Rift Siege rules, sweeps, physics colliders, rotation/angular dynamics, kinematics, contacts, raycasts and the `g3.rapier` facade |
 | `src/benchmark_transforms.goose` | none | native transform benchmark |
 | `src/game_web.goose` | `platform/g3_web.c` | Beacon Run browser build (`--game`) |
 | `src/siege_web.goose` | `platform/g3_web.c` | Rift Siege browser build (`--siege`) |

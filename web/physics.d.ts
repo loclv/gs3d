@@ -11,6 +11,7 @@ export interface PhysicsContact {
   a: number;
   b: number;
   normal: Vec3;
+  point: Vec3;
   penetration: number;
 }
 
@@ -40,7 +41,13 @@ export declare class PhysicsWorld {
   setTranslation(body: number, position: Vec3): void;
   linvel(body: number): Vec3;
   setLinvel(body: number, velocity: Vec3): void;
+  angvel(body: number): Vec3;
+  setAngvel(body: number, angvel: Vec3): void;
+  rotation(body: number): Vec3;
+  setRotation(body: number, euler: Vec3): void;
   applyImpulse(body: number, impulse: Vec3): void;
+  applyImpulseAtPoint(body: number, impulse: Vec3, point: Vec3): void;
+  addTorque(body: number, torque: Vec3): void;
   setRestitution(body: number, value: number): void;
   setFriction(body: number, value: number): void;
 

@@ -85,13 +85,16 @@ and the [Three.js roadmap](threejs-roadmap.md).
   (LINEAR/STEP/CUBICSPLINE). A native loader covers the static subset
   plus PPM/PNG/JPEG decode with queryable `AssetError`-style failures.
 * Raycast picking (`pick_screen`, `raycast`), swept segment/sphere
-  collision (`segment_sphere_intersects`), and box/sphere/capsule physics
-  bodies — gravity, one-step forces, velocity, restitution, friction,
-  substeps, kinematic bodies, per-body removal, per-step contact queries
-  and collider raycasts. A RapierPhysics-style facade (`g3.rapier`) exposes
-  the same solver with Rapier vocabulary: cuboid/ball/capsule bodies,
-  world timestep + step, translation/linvel accessors, applyImpulse,
-  body-type/mass changes and `world.castRay`-style raycasts.
+  collision (`segment_sphere_intersects`), and oriented box/sphere/capsule
+  physics bodies — gravity, one-step forces and torques, linear and angular
+  velocity, restitution, friction, adaptive substeps, automatic sleeping,
+  kinematic bodies, per-body removal, per-step contact queries (with world
+  contact points) and collider raycasts. A RapierPhysics-style facade
+  (`g3.rapier`) exposes the same solver with Rapier vocabulary:
+  cuboid/ball/capsule bodies, world timestep + step,
+  translation/linvel/angvel/rotation accessors, applyImpulse,
+  applyImpulseAtPoint, addTorque, body-type/mass changes and
+  `world.castRay`-style raycasts.
 * Input: 512-key state with edge detection (`key_down`/`key_pressed`/
   `key_released`), mouse deltas; a typed orbit/pan/pinch/keyboard
   controls package with click selection.

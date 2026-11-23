@@ -51,6 +51,29 @@ export fn g3_phys_body_set_vel(id: i32, x: f32, y: f32, z: f32) -> bool {
 export fn g3_phys_body_apply_impulse(id: i32, x: f32, y: f32, z: f32) -> bool {
     return g3::rapier_body_apply_impulse(id, float3 { x, y, z });
 }
+export fn g3_phys_body_angvel(id: i32, out: f32[:]) -> bool {
+    guard out.len >= 3 else { return false; }
+    phys_write_vec3(out, g3::rapier_body_angvel(id));
+    return true;
+}
+export fn g3_phys_body_set_angvel(id: i32, x: f32, y: f32, z: f32) -> bool {
+    return g3::rapier_body_set_angvel(id, float3 { x, y, z });
+}
+export fn g3_phys_body_rot(id: i32, out: f32[:]) -> bool {
+    guard out.len >= 3 else { return false; }
+    phys_write_vec3(out, g3::rapier_body_rotation(id));
+    return true;
+}
+export fn g3_phys_body_set_rot(id: i32, x: f32, y: f32, z: f32) -> bool {
+    return g3::rapier_body_set_rotation(id, float3 { x, y, z });
+}
+export fn g3_phys_body_apply_torque(id: i32, x: f32, y: f32, z: f32) -> bool {
+    return g3::rapier_body_add_torque(id, float3 { x, y, z });
+}
+export fn g3_phys_body_apply_impulse_at(id: i32, jx: f32, jy: f32, jz: f32,
+                                        px: f32, py: f32, pz: f32) -> bool {
+    return g3::rapier_body_apply_impulse_at(id, float3 { jx, jy, jz }, float3 { px, py, pz });
+}
 export fn g3_phys_body_dynamic(id: i32) -> bool { return g3::rapier_body_is_dynamic(id); }
 export fn g3_phys_body_kinematic(id: i32) -> bool { return g3::rapier_body_is_kinematic(id); }
 export fn g3_phys_body_set_kinematic(id: i32, kinematic: bool) -> bool {
@@ -68,16 +91,18 @@ export fn g3_phys_body_set_friction(id: i32, friction: f32) -> bool {
     return g3::rapier_body_set_friction(id, friction);
 }
 
-// Contacts recorded during the last world.step(). Each contact writes 6
-// floats into out: [a, b, nx, ny, nz, penetration].
+// Contacts recorded during the last world.step(). Each contact writes 9
+// floats into out: [a, b, nx, ny, nz, px, py, pz, penetration] where p is
+// the world-space contact point.
 export fn g3_phys_contact_count() -> i32 { return g3::physics_contact_count() as i32; }
 export fn g3_phys_contact(id: i32, out: f32[:]) -> bool {
-    guard out.len >= 6 && id >= 0 && id < g3::physics_contact_count() else { return false; }
+    guard out.len >= 9 && id >= 0 && id < g3::physics_contact_count() else { return false; }
     let c .= g3::physics_contact(id);
     out[0] = c.a;
     out[1] = c.b;
     phys_write_vec3(out[2..5], c.normal);
-    out[5] = c.penetration;
+    phys_write_vec3(out[5..8], c.point);
+    out[8] = c.penetration;
     return true;
 }
 

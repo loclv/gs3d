@@ -1,12 +1,15 @@
 // Small 3D rigid-body physics for scene nodes.
 //
-// This module uses axis-aligned box, sphere and capsule colliders. A mass of
+// This module uses box (oriented), sphere and capsule colliders. A mass of
 // zero makes a body static; dynamic bodies use semi-implicit Euler
-// integration and an impulse response when their shapes overlap. It is
-// intended for simple game motion, not as a general-purpose solver.
+// integration with linear and angular velocity, and an impulse response
+// when their shapes overlap. It is intended for simple game motion, not as
+// a general-purpose solver: there is no sleeping island detection, no
+// broadphase, and friction is a single Coulomb clamp per contact.
 
 import vec;
 import math;
+import g3.math;
 import g3.scene;
 
 namespace g3;
@@ -17,33 +20,52 @@ struct PhysicsBody {
     velocity: float3,
     force: float3,
     half_extents: float3 = float3 { 0.5, 0.5, 0.5 },
-    // Collider radius; zero means the body is an axis-aligned box.
+    // Collider radius; zero means the body is a box.
     radius: f32 = 0.0,
-    // Capsule cylinder half-length (center to cap center) along world Y;
-    // zero with a positive radius means a sphere.
+    // Capsule cylinder half-length (center to cap center) along the body's
+    // local Y; zero with a positive radius means a sphere.
     half_length: f32 = 0.0,
     mass: f32,
     inverse_mass: f32,
     restitution: f32 = 0.0,
     friction: f32 = 0.5,
-    // Kinematic bodies follow their velocity exactly — no gravity, forces
-    // or impulses — but still push dynamic bodies out of the way.
+    // Kinematic bodies follow their velocity and angular velocity exactly —
+    // no gravity, forces, torques or impulses — but still push dynamic
+    // bodies out of the way.
     kinematic: bool = false,
     // Removed bodies keep their slot so ids stay stable, like materials
     // and cameras; they no longer integrate or collide.
     removed: bool = false,
+    // World-from-body rotation as a pure Mat4, matching the node's euler
+    // convention (mat4_rotate_euler). Captured from node.rot at creation
+    // and by physics_body_sync; written back to node.rot each step for
+    // bodies that rotate.
+    orientation: Mat4,
+    // World-frame angular velocity in radians per second.
+    angular_velocity: float3 = float3_0,
+    // Diagonal inverse inertia tensor in body axes; zero for static and
+    // kinematic bodies, which are immovable in rotation as in translation.
+    inverse_inertia: float3 = float3_0,
+    // Torque accumulated for the next step, cleared with `force`.
+    torque: float3 = float3_0,
+    // Sleeping bodies skip integration and count as immovable in contacts
+    // until a real impact or an explicit wake.
+    sleeping: bool = false,
+    sleep_timer: f32 = 0.0,
 }
 
 var g_physics_bodies: PhysicsBody[>..];
 var g_physics_gravity: float3 = float3 { 0.0, -9.81, 0.0 };
 
 // A contact recorded during the last physics_step: one entry per substep
-// pair overlap. `a` and `b` are body ids and `normal` points from body a
-// toward body b; `penetration` is the overlap depth at detection.
+// pair overlap. `a` and `b` are body ids, `normal` points from body a
+// toward body b, `point` is the world-space contact point (midpoint of the
+// two surface points) and `penetration` is the overlap depth at detection.
 struct BodyContact {
     a: i64,
     b: i64,
     normal: float3 = float3_0,
+    point: float3 = float3_0,
     penetration: f32 = 0.0,
 }
 
@@ -59,10 +81,89 @@ fn physics_body_valid(id: i64) -> bool {
     return id >= 0 && id < g_physics_bodies.len && !g_physics_bodies[id].removed;
 }
 
-// inverse_mass follows mass and kinematic mode: static (mass 0) and
-// kinematic bodies are immovable as far as the solver is concerned.
-fn physics_refresh_inverse_mass(body: PhysicsBody&) {
+// inverse_mass and inverse_inertia follow mass and kinematic mode: static
+// (mass 0) and kinematic bodies are immovable as far as the solver is
+// concerned, in rotation as in translation.
+fn physics_refresh_response(body: PhysicsBody&) {
     body.inverse_mass = if body.kinematic || body.mass == 0.0 { 0.0 } else { 1.0 / body.mass };
+    body.inverse_inertia = physics_shape_inertia(body.mass, body.half_extents, body.radius, body.half_length);
+    if body.kinematic { body.inverse_inertia = float3_0; }
+}
+
+fn physics_wake(body: PhysicsBody&) {
+    body.sleeping = false;
+    body.sleep_timer = 0.0;
+}
+
+// Diagonal inverse inertia tensor in body axes for the collider shape.
+// mass == 0 gives zero: static bodies never rotate under impulses.
+fn physics_shape_inertia(mass: f32, he: float3, radius: f32, half_length: f32) -> float3 {
+    if mass == 0.0 { return float3_0; }
+    let kind = if radius <= 0.0 { 0 } else { if half_length > 0.0 { 2 } else { 1 } };
+    if kind == 1 {
+        // Solid sphere: I = (2/5) m r^2 about every axis.
+        let inv = 2.5 / (mass * radius * radius);
+        return float3 { inv, inv, inv };
+    }
+    if kind == 0 {
+        // Box with full extents 2*he: I_x = m/12 * ((2hy)^2 + (2hz)^2).
+        let d = mass / 3.0;
+        return float3 {
+            1.0 / (d * (he.y * he.y + he.z * he.z)),
+            1.0 / (d * (he.x * he.x + he.z * he.z)),
+            1.0 / (d * (he.x * he.x + he.y * he.y)),
+        };
+    }
+    // Capsule approximated as a solid cylinder of radius `radius` and
+    // height 2*(half_length + radius) along local Y, capped spheres ignored:
+    // I_diameter = m(3r^2 + h^2)/12 about X and Z, I_axis = m r^2/2 about Y.
+    let h = 2.0 * (half_length + radius);
+    let r_sq = radius * radius;
+    return float3 {
+        12.0 / (mass * (3.0 * r_sq + h * h)),
+        2.0 / (mass * r_sq),
+        12.0 / (mass * (3.0 * r_sq + h * h)),
+    };
+}
+
+// World direction to body axes and back, through the orientation's
+// transpose. mat4_transpose allocates a Mat4; contacts are not hot enough
+// to matter at this solver's scale.
+fn physics_world_to_body(b: PhysicsBody&, v: float3) -> float3 {
+    return mat4_apply_dir(mat4_transpose(b.orientation), v);
+}
+
+fn physics_body_to_world(b: PhysicsBody&, v: float3) -> float3 {
+    return mat4_apply_dir(b.orientation, v);
+}
+
+// The box's local axes in world space: columns 0, 1, 2 of the orientation.
+fn physics_box_axis(b: PhysicsBody&, axis: i64) -> float3 {
+    if axis == 0 { return float3 { b.orientation.m[0], b.orientation.m[1], b.orientation.m[2] }; }
+    if axis == 1 { return float3 { b.orientation.m[4], b.orientation.m[5], b.orientation.m[6] }; }
+    return float3 { b.orientation.m[8], b.orientation.m[9], b.orientation.m[10] };
+}
+
+// Closest point on the oriented box to world point `p`.
+fn physics_box_closest(b: PhysicsBody&, p: float3) -> float3 {
+    let local = physics_world_to_body(b, p - b.position);
+    let he = b.half_extents;
+    let cl = float3 {
+        clamp(local.x, -he.x, he.x),
+        clamp(local.y, -he.y, he.y),
+        clamp(local.z, -he.z, he.z),
+    };
+    return b.position + physics_body_to_world(b, cl);
+}
+
+// The box's local-space coordinates of a world point relative to center.
+fn physics_box_local(b: PhysicsBody&, p: float3) -> float3 {
+    return physics_world_to_body(b, p - b.position);
+}
+
+// World point of a box-local offset from the center.
+fn physics_box_offset(b: PhysicsBody&, local: float3) -> float3 {
+    return b.position + physics_body_to_world(b, local);
 }
 
 fn physics_clear() { g_physics_bodies.clear(); g_physics_contacts.clear(); }
@@ -75,7 +176,8 @@ fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, half_
           radius >= 0.0 && half_length >= 0.0 && mass >= 0.0 && mass <= 3.4e38 else { return -1; }
     let handle = node_handle(node_id);
     guard node_handle_valid(handle) else { return -1; }
-    let position = node(node_id).pos;
+    let nref .= node(node_id);
+    let position = nref.pos;
     g_physics_bodies.push(PhysicsBody {
         node: handle,
         position: position,
@@ -84,6 +186,8 @@ fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, half_
         half_length: half_length,
         mass: mass,
         inverse_mass: if mass == 0.0 { 0.0 } else { 1.0 / mass },
+        orientation: mat4_rotate_euler(nref.rot),
+        inverse_inertia: physics_shape_inertia(mass, half_extents, radius, half_length),
         ..
     });
     return g_physics_bodies.len - 1;
@@ -145,7 +249,8 @@ fn physics_body_set_mass(id: i64, mass: f32) -> bool {
     guard physics_body_valid(id) && mass >= 0.0 && mass <= 3.4e38 else { return false; }
     let body .= g_physics_bodies[id];
     body.mass = mass;
-    physics_refresh_inverse_mass(body);
+    physics_refresh_response(body);
+    physics_wake(body);
     return true;
 }
 
@@ -156,19 +261,23 @@ fn physics_body_set_kinematic(id: i64, kinematic: bool) -> bool {
     guard physics_body_valid(id) else { return false; }
     let body .= g_physics_bodies[id];
     body.kinematic = kinematic;
-    physics_refresh_inverse_mass(body);
-    if kinematic { body.force = float3_0; }
+    physics_refresh_response(body);
+    if kinematic { body.force = float3_0; body.torque = float3_0; }
+    physics_wake(body);
     return true;
 }
 
-// Copy the node's current position into the body. Gameplay code that moves
-// a node directly — teleports, character controllers — needs this, or the
-// body keeps its own position and the next physics_step writes the stale
-// one back onto the node.
+// Copy the node's current transform into the body — position and euler
+// rotation. Gameplay code that moves a node directly — teleports,
+// character controllers — needs this, or the body keeps its own transform
+// and the next physics_step writes the stale one back onto the node.
 fn physics_body_sync(id: i64) -> bool {
     guard physics_body_valid(id) && node_handle_valid(g_physics_bodies[id].node) else { return false; }
     let body .= g_physics_bodies[id];
-    body.position = node(body.node.index).pos;
+    let nref .= node(body.node.index);
+    body.position = nref.pos;
+    body.orientation = mat4_rotate_euler(nref.rot);
+    physics_wake(body);
     return true;
 }
 
@@ -181,43 +290,147 @@ fn physics_contact(id: i64) -> BodyContact& { return g_physics_contacts[id]; }
 // Add a force for the next step. Forces are cleared after each step.
 fn physics_apply_force(id: i64, force: float3) -> bool {
     guard physics_body_valid(id) && g_physics_bodies[id].inverse_mass > 0.0 else { return false; }
-    g_physics_bodies[id].force += force;
+    let body .= g_physics_bodies[id];
+    body.force += force;
+    physics_wake(body);
+    return true;
+}
+
+// Add a world-frame torque for the next step, like physics_apply_force.
+// Cleared after each step; dynamic bodies only.
+fn physics_apply_torque(id: i64, torque: float3) -> bool {
+    guard physics_body_valid(id) && g_physics_bodies[id].inverse_mass > 0.0 else { return false; }
+    let body .= g_physics_bodies[id];
+    body.torque += torque;
+    physics_wake(body);
+    return true;
+}
+
+// Instantaneous impulse at a world point: changes linear velocity by
+// impulse * inverse_mass and angular velocity by the torque impulse
+// (point - position) x impulse through the inertia tensor. Dynamic bodies
+// only; wakes a sleeping body.
+fn physics_body_apply_impulse_at(id: i64, impulse: float3, point: float3) -> bool {
+    guard physics_body_valid(id) && g_physics_bodies[id].inverse_mass > 0.0 else { return false; }
+    let body .= g_physics_bodies[id];
+    physics_wake(body);
+    body.velocity += impulse * body.inverse_mass;
+    physics_apply_ang_impulse(body, impulse, point - body.position);
     return true;
 }
 
 fn physics_body_set_velocity(id: i64, velocity: float3) -> bool {
     guard physics_body_valid(id) else { return false; }
-    g_physics_bodies[id].velocity = velocity;
+    let body .= g_physics_bodies[id];
+    body.velocity = velocity;
+    physics_wake(body);
     return true;
 }
 
-// Advance the simulation by seconds. Break the frame into <= 1/60 second
-// substeps to reduce tunneling and keep the collision response stable.
-// Inputs above one second are rejected to bound work after a long pause.
+fn physics_body_set_angvel(id: i64, angvel: float3) -> bool {
+    guard physics_body_valid(id) else { return false; }
+    let body .= g_physics_bodies[id];
+    body.angular_velocity = angvel;
+    physics_wake(body);
+    return true;
+}
+
+fn physics_body_angvel(id: i64) -> float3 {
+    guard physics_body_valid(id) else { return float3_0; }
+    return g_physics_bodies[id].angular_velocity;
+}
+
+// The body's euler rotation in the node convention, for read-back without
+// touching the node.
+fn physics_body_euler(id: i64) -> float3 {
+    guard physics_body_valid(id) else { return float3_0; }
+    return physics_mat_to_euler(g_physics_bodies[id].orientation);
+}
+
+// Wake a sleeping body without changing its state.
+fn physics_body_wake(id: i64) -> bool {
+    guard physics_body_valid(id) else { return false; }
+    physics_wake(g_physics_bodies[id]);
+    return true;
+}
+
+// Advance the simulation by seconds. Substeps are capped at 1/60 second
+// and shrink further when a fast body would move more than a quarter of
+// the smallest collider feature per substep, which is what actually
+// prevents tunneling. At most 12 substeps run per call. Inputs above one
+// second are rejected to bound work after a long pause.
 fn physics_step(dt: f32) {
     guard dt > 0.0 && dt <= 1.0 else { return; }
     g_physics_contacts.clear();
+    let sub_dt = physics_substep_dt(dt);
     var remaining = dt;
-    while remaining > 0.0 {
-        let sub_dt = min(remaining, 1.0 / 60.0);
-        physics_substep(sub_dt);
-        remaining -= sub_dt;
+    var steps = 0;
+    while remaining > 0.0000001 && steps < 12 {
+        let h = min(remaining, sub_dt);
+        physics_substep(h);
+        remaining -= h;
+        steps += 1;
     }
 
-    for &body in g_physics_bodies { body.force = float3_0; }
+    for &body in g_physics_bodies { body.force = float3_0; body.torque = float3_0; }
     for &body in g_physics_bodies {
-        if node_handle_valid(body.node) { node(body.node.index).pos = body.position; }
+        if !node_handle_valid(body.node) { continue; }
+        let nref .= node(body.node.index);
+        nref.pos = body.position;
+        // Static bodies keep whatever rotation their node was given; the
+        // collider's orientation was captured at creation and only moves
+        // for bodies the solver drives.
+        if body.inverse_mass > 0.0 || body.kinematic {
+            nref.rot = physics_mat_to_euler(body.orientation);
+        }
     }
+}
+
+// The substep size for this frame: 1/60 s normally, smaller while any
+// dynamic body would cross a meaningful fraction of the smallest collider
+// in one substep. Angular tip speed counts toward the sweep.
+fn physics_substep_dt(dt: f32) -> f32 {
+    var max_speed: f32 = 0.0;
+    var min_size: f32 = 3.0e38;
+    for &body in g_physics_bodies {
+        if body.removed || body.sleeping || body.inverse_mass <= 0.0 { continue; }
+        let size = if body.radius > 0.0 { body.radius } else {
+            min(body.half_extents.x, min(body.half_extents.y, body.half_extents.z))
+        };
+        min_size = min(min_size, size);
+        let tip = length(body.angular_velocity) * size * 0.5;
+        max_speed = max(max_speed, length(body.velocity) + tip);
+    }
+    if max_speed <= 0.0 || min_size >= 3.0e38 { return min(dt, 1.0 / 60.0); }
+    // Allow at most a quarter-feature of travel per substep, clamped to a
+    // sane range so a tiny collider cannot force unbounded substeps.
+    let needed = min_size / (4.0 * max_speed);
+    return min(dt, clamp(needed, 1.0 / 480.0, 1.0 / 60.0));
 }
 
 fn physics_substep(dt: f32) {
     for &body in g_physics_bodies {
-        if body.removed || !node_handle_valid(body.node) { continue; }
+        if body.removed || body.sleeping || !node_handle_valid(body.node) { continue; }
         if body.inverse_mass > 0.0 {
             body.velocity += (g_physics_gravity + body.force * body.inverse_mass) * dt;
+            body.angular_velocity += physics_torque_to_angacc(body) * dt;
             body.position += body.velocity * dt;
+            physics_integrate_orientation(body, dt);
+            // Sleep after half a second under the thresholds; contacts
+            // with a real impact wake the body in physics_resolve_pair.
+            if length(body.velocity) < 0.05 && length(body.angular_velocity) < 0.1 {
+                body.sleep_timer += dt;
+                if body.sleep_timer > 0.5 {
+                    body.sleeping = true;
+                    body.velocity = float3_0;
+                    body.angular_velocity = float3_0;
+                }
+            } else {
+                body.sleep_timer = 0.0;
+            }
         } else if body.kinematic {
             body.position += body.velocity * dt;
+            physics_integrate_orientation(body, dt);
         }
     }
 
@@ -229,33 +442,137 @@ fn physics_substep(dt: f32) {
 
 }
 
-// A detected overlap: `normal` points from body a toward body b and
-// `penetration` is the depth to resolve along it.
+// Angular acceleration from the accumulated world-frame torque: rotate
+// into body axes, scale by the diagonal inverse inertia, rotate back.
+fn physics_torque_to_angacc(b: PhysicsBody&) -> float3 {
+    let local = physics_world_to_body(b, b.torque);
+    let ii = b.inverse_inertia;
+    let alpha_local = float3 { local.x * ii.x, local.y * ii.y, local.z * ii.z };
+    return physics_body_to_world(b, alpha_local);
+}
+
+// Angular velocity change from an impulse applied at world offset `r`
+// from the center: torque impulse r x impulse through the inertia tensor.
+fn physics_apply_ang_impulse(b: PhysicsBody&, impulse: float3, r: float3) {
+    let ii = b.inverse_inertia;
+    if b.sleeping || (ii.x == 0.0 && ii.y == 0.0 && ii.z == 0.0) { return; }
+    let torque_impulse = cross(r, impulse);
+    let local = physics_world_to_body(b, torque_impulse);
+    b.angular_velocity += physics_body_to_world(b,
+        float3 { local.x * ii.x, local.y * ii.y, local.z * ii.z });
+}
+
+// Advance the orientation by angular_velocity * dt. The increment is a
+// world-frame rotation exp([w]dt) applied to each basis column via
+// Rodrigues' formula, which keeps the basis exactly orthonormal.
+fn physics_integrate_orientation(b: PhysicsBody&, dt: f32) {
+    let w = b.angular_velocity * dt;
+    let angle = length(w);
+    if angle < 0.000001 { return; }
+    let axis = w / angle;
+    let c = cos(angle);
+    let s = sin(angle);
+    let C = 1.0 - c;
+    for col in 0..3 {
+        var v: float3;
+        if col == 0 { v = float3 { b.orientation.m[0], b.orientation.m[1], b.orientation.m[2] }; }
+        else if col == 1 { v = float3 { b.orientation.m[4], b.orientation.m[5], b.orientation.m[6] }; }
+        else { v = float3 { b.orientation.m[8], b.orientation.m[9], b.orientation.m[10] }; }
+        let rv = v * c + cross(axis, v) * s + axis * (dot(axis, v) * C);
+        if col == 0 { b.orientation.m[0] = rv.x; b.orientation.m[1] = rv.y; b.orientation.m[2] = rv.z; }
+        else if col == 1 { b.orientation.m[4] = rv.x; b.orientation.m[5] = rv.y; b.orientation.m[6] = rv.z; }
+        else { b.orientation.m[8] = rv.x; b.orientation.m[9] = rv.y; b.orientation.m[10] = rv.z; }
+    }
+}
+
+// Extract euler angles (radians, node convention: mat4_rotate_euler's
+// Rz*Ry*Rx) from a pure rotation matrix.
+fn physics_mat_to_euler(m: Mat4) -> float3 {
+    let sy = clamp(-m.m[2], -1.0, 1.0);
+    let cy = sqrt(max(1.0 - sy * sy, 0.0));
+    if cy > 0.0001 {
+        return float3 {
+            atan2(m.m[6], m.m[10]),
+            asin(sy),
+            atan2(m.m[1], m.m[0]),
+        };
+    }
+    // Gimbal lock: pitch is ±90 degrees and yaw/roll merge into one
+    // observable angle. Zeroing yaw and folding the rest into rot.x
+    // reproduces the same matrix: at +pitch the combination is rx - rz,
+    // read off M[0][1]/M[0][2]; at -pitch it is rx + rz, negated.
+    let pitch = asin(sy);
+    if sy > 0.0 { return float3 { atan2(m.m[4], m.m[8]), pitch, 0.0 }; }
+    return float3 { atan2(-m.m[4], -m.m[8]), pitch, 0.0 };
+}
+
+// A detected overlap: `normal` points from body a toward body b,
+// `point` is the world-space contact point (midpoint of the two surface
+// points) and `penetration` is the depth to resolve along it.
 struct Contact {
     normal: float3 = float3_0,
+    point: float3 = float3_0,
     penetration: f32 = 0.0,
     hit: bool = false,
 }
 
-// Box against box: the axis of least overlap is the contact normal.
-fn physics_box_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
-    let delta = b.position - a.position;
-    let overlap_x = a.half_extents.x + b.half_extents.x - abs(delta.x);
-    let overlap_y = a.half_extents.y + b.half_extents.y - abs(delta.y);
-    let overlap_z = a.half_extents.z + b.half_extents.z - abs(delta.z);
-    if overlap_x <= 0.0 || overlap_y <= 0.0 || overlap_z <= 0.0 { return Contact { .. }; }
+// Projection radius of the oriented box along unit direction `l`: the
+// support distance from center to surface.
+fn physics_box_radius(b: PhysicsBody&, l: float3) -> f32 {
+    return b.half_extents.x * abs(dot(physics_box_axis(b, 0), l)) +
+           b.half_extents.y * abs(dot(physics_box_axis(b, 1), l)) +
+           b.half_extents.z * abs(dot(physics_box_axis(b, 2), l));
+}
 
-    var normal = float3 { if delta.x < 0.0 { -1.0 } else { 1.0 }, 0.0, 0.0 };
-    var penetration = overlap_x;
-    if overlap_y < penetration {
-        penetration = overlap_y;
-        normal = float3 { 0.0, if delta.y < 0.0 { -1.0 } else { 1.0 }, 0.0 };
+// Projected overlap of two oriented boxes on `axis` (any nonzero vector;
+// normalized inside). Returns the overlap depth, or 3.0e38 for a
+// degenerate axis that should be skipped.
+fn physics_sat_overlap(a: PhysicsBody&, b: PhysicsBody&, axis: float3) -> f32 {
+    let al = length(axis);
+    if al < 0.0001 { return 3.0e38; }
+    let l = axis / al;
+    let dist = abs(dot(b.position - a.position, l));
+    return physics_box_radius(a, l) + physics_box_radius(b, l) - dist;
+}
+
+// Oriented box against oriented box: 15-axis SAT (3 + 3 face axes, 9 edge
+// cross products). The axis of least overlap is the contact normal; the
+// contact point is the midpoint of the two support points along it.
+fn physics_box_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
+    let t = b.position - a.position;
+    var min_overlap: f32 = 3.0e38;
+    var axis = float3_0;
+    for i in 0..3 {
+        let cand = physics_box_axis(a, i);
+        let ov = physics_sat_overlap(a, b, cand);
+        if ov <= 0.0 { return Contact { .. }; }
+        if ov < min_overlap { min_overlap = ov; axis = cand; }
+        let cand_b = physics_box_axis(b, i);
+        let ov_b = physics_sat_overlap(a, b, cand_b);
+        if ov_b <= 0.0 { return Contact { .. }; }
+        if ov_b < min_overlap { min_overlap = ov_b; axis = cand_b; }
+        for j in 0..3 {
+            let cross_axis = cross(cand, physics_box_axis(b, j));
+            let ov_c = physics_sat_overlap(a, b, cross_axis);
+            if ov_c <= 0.0 { return Contact { .. }; }
+            if ov_c < min_overlap { min_overlap = ov_c; axis = cross_axis; }
+        }
     }
-    if overlap_z < penetration {
-        penetration = overlap_z;
-        normal = float3 { 0.0, 0.0, if delta.z < 0.0 { -1.0 } else { 1.0 } };
-    }
-    return Contact { normal: normal, penetration: penetration, hit: true };
+    if dot(t, axis) < 0.0 { axis = -axis; }
+    let al = length(axis);
+    if al < 0.0001 { return Contact { .. }; }
+    let n = axis / al;
+    // Contact point: the surface point of whichever body has the smaller
+    // extent along the normal — its face center is the most likely spot
+    // inside the overlap region. Averaging the two centers would drag the
+    // point sideways whenever the bodies are offset, and a vertical
+    // impulse applied off-center spins resting bodies.
+    let ra = physics_box_radius(a, n);
+    let rb = physics_box_radius(b, n);
+    var point: float3;
+    if ra <= rb { point = a.position + n * ra; }
+    else { point = b.position - n * rb; }
+    return Contact { normal: n, point: point, penetration: min_overlap, hit: true };
 }
 
 // Sphere against sphere.
@@ -267,38 +584,42 @@ fn physics_spheres_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
     // Coincident centers have no direction; pick any axis.
     var normal = float3 { 0.0, 1.0, 0.0 };
     if distance > 0.0001 { normal = delta / distance; }
-    return Contact { normal: normal, penetration: radii - distance, hit: true };
+    let point = (a.position + normal * a.radius + b.position - normal * b.radius) * 0.5;
+    return Contact { normal: normal, point: point, penetration: radii - distance, hit: true };
 }
 
-// Sphere against box. The returned normal pushes the sphere out of the box:
-// from the box toward the sphere for a surface contact, or along the axis of
-// least penetration when the sphere center is inside the box.
+// Sphere against oriented box. The closest point is found in the box's
+// local frame; the returned normal pushes the sphere out of the box —
+// from the box toward the sphere for a surface contact, or along the
+// local axis of least penetration when the center is inside.
 fn physics_sphere_box_contact(s: PhysicsBody&, b: PhysicsBody&) -> Contact {
-    let he = b.half_extents;
-    let c = b.position;
     let p = s.position;
-    let closest = float3 {
-        clamp(p.x, c.x - he.x, c.x + he.x),
-        clamp(p.y, c.y - he.y, c.y + he.y),
-        clamp(p.z, c.z - he.z, c.z + he.z),
-    };
+    let closest = physics_box_closest(b, p);
     let d = p - closest;
     let dist_sq = dot(d, d);
     let radius_sq = s.radius * s.radius;
     if dist_sq > radius_sq { return Contact { .. }; }
     if dist_sq > 0.0000001 {
         let distance = sqrt(dist_sq);
-        return Contact { normal: d / distance, penetration: s.radius - distance, hit: true };
+        let normal = d / distance;
+        // Midpoint between the sphere's surface point and the box's.
+        let point = (closest + (p - normal * s.radius)) * 0.5;
+        return Contact { normal: normal, point: point, penetration: s.radius - distance, hit: true };
     }
 
-    // Center inside the box: exit along the axis of least penetration.
-    let escaped, depth = physics_escape_axis(p - c, he, s.radius);
-    return Contact { normal: escaped, penetration: depth, hit: true };
+    // Center inside the box: exit along the local axis of least
+    // penetration, rotated back to world.
+    let local = physics_box_local(b, p);
+    let escaped, depth = physics_escape_axis(local, b.half_extents, s.radius);
+    let normal = physics_body_to_world(b, escaped);
+    let point = p - normal * s.radius;
+    return Contact { normal: normal, point: point, penetration: depth, hit: true };
 }
 
 // Axis of least penetration for a shape center `delta` away from a box
-// center, with `extra` added to every half extent (a radius for rounded
-// shapes). Returns the push-out normal and the overlap along it.
+// center, in the box's LOCAL frame, with `extra` added to every half
+// extent (a radius for rounded shapes). Returns the local push-out
+// normal and the overlap along it; callers rotate it back to world.
 fn physics_escape_axis(delta: float3, he: float3, extra: f32) -> float3, f32 {
     var best = he.x + extra - abs(delta.x);
     var axis = 0;
@@ -323,12 +644,13 @@ struct Segment { start: float3, end: float3 }
 
 struct SegmentPoints { on_first: float3, on_second: float3 }
 
-// A capsule's axis is world Y through its center; half_length runs from the
-// center to each cap center.
+// A capsule's axis runs along the body's local Y through its center;
+// half_length runs from the center to each cap center.
 fn physics_capsule_segment(b: PhysicsBody&) -> Segment {
+    let axis = physics_body_to_world(b, float3 { 0.0, 1.0, 0.0 });
     return Segment {
-        start: b.position - float3 { 0.0, b.half_length, 0.0 },
-        end: b.position + float3 { 0.0, b.half_length, 0.0 },
+        start: b.position - axis * b.half_length,
+        end: b.position + axis * b.half_length,
     };
 }
 
@@ -371,28 +693,56 @@ fn segment_segment_closest(s1: Segment, s2: Segment) -> SegmentPoints {
     };
 }
 
-fn clamp_to_box(p: float3, c: float3, he: float3) -> float3 {
-    return float3 {
-        clamp(p.x, c.x - he.x, c.x + he.x),
-        clamp(p.y, c.y - he.y, c.y + he.y),
-        clamp(p.z, c.z - he.z, c.z + he.z),
-    };
-}
-
-// Capsule against capsule: distance between the two axis segments.
+// Capsule against capsule: distance between the two axis segments. Parallel
+// segments have a degenerate closest-point pair — the generic solver picks
+// an endpoint, which would put the contact at a cap and spin the bodies on
+// every touch — so overlapping parallel axes report the middle of their
+// shared axial range instead. The contact point is the midpoint of the two
+// radius-offset surface points.
 fn physics_capsules_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
-    let points = segment_segment_closest(physics_capsule_segment(a), physics_capsule_segment(b));
+    let sa = physics_capsule_segment(a);
+    let sb = physics_capsule_segment(b);
+    var points = segment_segment_closest(sa, sb);
+    let d1 = sa.end - sa.start;
+    let d2 = sb.end - sb.start;
+    let l1 = length(d1);
+    let l2 = length(d2);
+    if l1 > 0.0001 && l2 > 0.0001 {
+        let axis = d1 / l1;
+        if abs(dot(axis, d2 / l2)) > 0.999 {
+            // Axial coordinates of each segment's ends along `axis`.
+            let a0 = dot(sa.start, axis);
+            let a1 = dot(sa.end, axis);
+            let b0 = dot(sb.start, axis);
+            let b1 = dot(sb.end, axis);
+            let lo = max(min(a0, a1), min(b0, b1));
+            let hi = min(max(a0, a1), max(b0, b1));
+            if lo < hi {
+                // Middle of the shared axial range, projected back onto
+                // each segment's own axis direction.
+                let mid = (lo + hi) * 0.5;
+                let da = d1 / l1;
+                let db = d2 / l2;
+                points = SegmentPoints {
+                    on_first: sa.start + da * ((mid - a0) / dot(da, axis)),
+                    on_second: sb.start + db * ((mid - b0) / dot(db, axis)),
+                };
+            }
+        }
+    }
     let d = points.on_second - points.on_first;
     let dist = length(d);
     let radii = a.radius + b.radius;
     if dist >= radii { return Contact { .. }; }
     var normal = float3 { 0.0, 1.0, 0.0 };
     if dist > 0.0001 { normal = d / dist; }
-    return Contact { normal: normal, penetration: radii - dist, hit: true };
+    let point = (points.on_first + normal * a.radius + points.on_second - normal * b.radius) * 0.5;
+    return Contact { normal: normal, point: point, penetration: radii - dist, hit: true };
 }
 
 // Capsule against sphere. The normal points from the capsule toward the
-// sphere: from the closest point on the capsule's axis to the sphere center.
+// sphere: from the closest point on the capsule's axis to the sphere
+// center. The contact point is the midpoint of the surface points.
 fn physics_capsule_sphere_contact(c: PhysicsBody&, s: PhysicsBody&) -> Contact {
     let q = closest_on_segment(s.position, physics_capsule_segment(c));
     let d = s.position - q;
@@ -401,21 +751,35 @@ fn physics_capsule_sphere_contact(c: PhysicsBody&, s: PhysicsBody&) -> Contact {
     if dist >= radii { return Contact { .. }; }
     var normal = float3 { 0.0, 1.0, 0.0 };
     if dist > 0.0001 { normal = d / dist; }
-    return Contact { normal: normal, penetration: radii - dist, hit: true };
+    let point = (q + normal * c.radius + s.position - normal * s.radius) * 0.5;
+    return Contact { normal: normal, point: point, penetration: radii - dist, hit: true };
 }
 
-// Capsule against box. The segment and the box are both convex, so
-// alternating projections converge on the closest point pair; sixteen
-// rounds is ample for the axis-aligned contacts this solver sees. The
-// returned normal pushes the capsule out of the box.
+// Closest point on the oriented box to world point `p`: the box clamp is
+// done in its local frame.
+fn physics_box_surface(b: PhysicsBody&, p: float3) -> float3 {
+    let local = physics_box_local(b, p);
+    let he = b.half_extents;
+    return physics_box_offset(b, float3 {
+        clamp(local.x, -he.x, he.x),
+        clamp(local.y, -he.y, he.y),
+        clamp(local.z, -he.z, he.z),
+    });
+}
+
+// Capsule against oriented box. The segment and the box are both convex,
+// so alternating projections converge on the closest point pair; sixteen
+// rounds is ample for the contacts this solver sees. The returned normal
+// pushes the capsule out of the box, and the contact point is the
+// midpoint of the surface points.
 fn physics_capsule_box_contact(c: PhysicsBody&, b: PhysicsBody&) -> Contact {
     let seg = physics_capsule_segment(c);
     var p_seg = closest_on_segment(b.position, seg);
     for i in 0..16 {
-        let p_box = clamp_to_box(p_seg, b.position, b.half_extents);
+        let p_box = physics_box_surface(b, p_seg);
         p_seg = closest_on_segment(p_box, seg);
     }
-    let p_box = clamp_to_box(p_seg, b.position, b.half_extents);
+    let p_box = physics_box_surface(b, p_seg);
     let d = p_seg - p_box;
     let dist = length(d);
     if dist >= c.radius { return Contact { .. }; }
@@ -424,12 +788,15 @@ fn physics_capsule_box_contact(c: PhysicsBody&, b: PhysicsBody&) -> Contact {
     if dist > 0.0001 {
         normal = d / dist;
     } else {
-        // Deep overlap with no surface direction: exit along the axis of
-        // least penetration, like the sphere-inside-box case.
-        let escaped, depth = physics_escape_axis(c.position - b.position, b.half_extents, c.radius);
-        return Contact { normal: escaped, penetration: depth, hit: true };
+        // Deep overlap with no surface direction: exit along the local
+        // axis of least penetration, like the sphere-inside-box case.
+        let local = physics_box_local(b, c.position);
+        let escaped, depth = physics_escape_axis(local, b.half_extents, c.radius);
+        normal = physics_body_to_world(b, escaped);
+        penetration = depth;
     }
-    return Contact { normal: normal, penetration: penetration, hit: true };
+    let point = (p_box + p_seg - normal * c.radius) * 0.5;
+    return Contact { normal: normal, point: point, penetration: penetration, hit: true };
 }
 
 // The sphere/capsule helpers return the push direction — from the other
@@ -438,7 +805,7 @@ fn physics_capsule_box_contact(c: PhysicsBody&, b: PhysicsBody&) -> Contact {
 fn physics_contact_flipped(c: Contact) -> Contact {
     if !c.hit { return c; }
     return Contact { normal: float3 { -c.normal.x, -c.normal.y, -c.normal.z },
-                     penetration: c.penetration, hit: true };
+                     point: c.point, penetration: c.penetration, hit: true };
 }
 
 fn physics_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
@@ -458,45 +825,108 @@ fn physics_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
     return physics_capsule_box_contact(b, a);
 }
 
+// Angular velocity change per unit impulse along `dir` applied at world
+// offset `r` from the body's center, through its diagonal body-frame
+// inverse inertia `ii` (zero tensor for static, kinematic and sleeping
+// bodies, which are immovable in rotation).
+fn physics_ang_response(b: PhysicsBody&, r: float3, dir: float3, ii: float3) -> float3 {
+    let torque = cross(r, dir);
+    let local = physics_world_to_body(b, torque);
+    return physics_body_to_world(b,
+        float3 { local.x * ii.x, local.y * ii.y, local.z * ii.z });
+}
+
+// Effective inverse mass for an impulse along `dir` at contact offsets
+// ra/rb: linear plus the angular leverage term n·((I⁻¹(r×dir))×r).
+fn physics_contact_denominator(a: PhysicsBody&, b: PhysicsBody&, dir: float3,
+                               ra: float3, rb: float3,
+                               im_a: f32, im_b: f32, ii_a: float3, ii_b: float3) -> f32 {
+    var denom = im_a + im_b;
+    denom += dot(cross(physics_ang_response(a, ra, dir, ii_a), ra), dir);
+    denom += dot(cross(physics_ang_response(b, rb, dir, ii_b), rb), dir);
+    return denom;
+}
+
+// Apply an impulse vector `j` (applied +j to b, -j to a) at the contact
+// offsets: linear through inverse mass, angular through the inertia
+// tensor. Sleeping bodies are immovable and skipped.
+fn physics_apply_contact_impulse(a: PhysicsBody&, b: PhysicsBody&, j: float3,
+                                 ra: float3, rb: float3,
+                                 im_a: f32, im_b: f32, ii_a: float3, ii_b: float3) {
+    a.velocity -= j * im_a;
+    b.velocity += j * im_b;
+    if ii_a.x != 0.0 || ii_a.y != 0.0 || ii_a.z != 0.0 {
+        let local = physics_world_to_body(a, cross(ra, -j));
+        a.angular_velocity += physics_body_to_world(a,
+            float3 { local.x * ii_a.x, local.y * ii_a.y, local.z * ii_a.z });
+    }
+    if ii_b.x != 0.0 || ii_b.y != 0.0 || ii_b.z != 0.0 {
+        let local = physics_world_to_body(b, cross(rb, j));
+        b.angular_velocity += physics_body_to_world(b,
+            float3 { local.x * ii_b.x, local.y * ii_b.y, local.z * ii_b.z });
+    }
+}
+
 fn physics_resolve_pair(a_id: i64, b_id: i64) {
     let a .= g_physics_bodies[a_id];
     let b .= g_physics_bodies[b_id];
-    let inverse_mass_sum = a.inverse_mass + b.inverse_mass;
-    if inverse_mass_sum <= 0.0 || a.removed || b.removed ||
+    if a.removed || b.removed ||
        !node_handle_valid(a.node) || !node_handle_valid(b.node) { return; }
 
     let contact = physics_contact(a, b);
     if !contact.hit { return; }
     let normal = contact.normal;
-    let penetration = contact.penetration;
-    g_physics_contacts.push(BodyContact { a: a_id, b: b_id, normal: normal, penetration: penetration });
+    let point = contact.point;
 
-    // Move bodies apart, weighted by inverse mass, with a small slop to avoid
-    // repeatedly correcting floating-point contact jitter.
-    let correction = normal * (max(penetration - 0.001, 0.0) * 0.8 / inverse_mass_sum);
-    a.position -= correction * a.inverse_mass;
-    b.position += correction * b.inverse_mass;
+    // A real impact wakes sleepers; resting contacts below the threshold
+    // leave them asleep and immovable.
+    let approach = dot(b.velocity - a.velocity, normal);
+    if approach < -0.1 {
+        physics_wake(a);
+        physics_wake(b);
+    }
 
-    let relative_velocity = b.velocity - a.velocity;
-    let velocity_along_normal = dot(relative_velocity, normal);
-    if velocity_along_normal >= 0.0 { return; }
+    let im_a = if a.sleeping { 0.0 } else { a.inverse_mass };
+    let im_b = if b.sleeping { 0.0 } else { b.inverse_mass };
+    if im_a + im_b <= 0.0 { return; }
+    let ii_a = if a.sleeping { float3_0 } else { a.inverse_inertia };
+    let ii_b = if b.sleeping { float3_0 } else { b.inverse_inertia };
+
+    g_physics_contacts.push(BodyContact { a: a_id, b: b_id, normal: normal,
+        point: point, penetration: contact.penetration });
+
+    let ra = point - a.position;
+    let rb = point - b.position;
+
+    // Move bodies apart, weighted by inverse mass, with a small slop to
+    // avoid repeatedly correcting floating-point contact jitter.
+    let correction = normal * (max(contact.penetration - 0.001, 0.0) * 0.8 / (im_a + im_b));
+    if im_a > 0.0 { a.position -= correction * im_a; }
+    if im_b > 0.0 { b.position += correction * im_b; }
+
+    if approach >= 0.0 { return; }
     let restitution = min(a.restitution, b.restitution);
-    let impulse_magnitude = -(1.0 + restitution) * velocity_along_normal / inverse_mass_sum;
-    let impulse = normal * impulse_magnitude;
-    a.velocity -= impulse * a.inverse_mass;
-    b.velocity += impulse * b.inverse_mass;
+    let denom = physics_contact_denominator(a, b, normal, ra, rb, im_a, im_b, ii_a, ii_b);
+    if denom <= 0.0 { return; }
+    let impulse_magnitude = -(1.0 + restitution) * approach / denom;
+    physics_apply_contact_impulse(a, b, normal * impulse_magnitude, ra, rb,
+                                  im_a, im_b, ii_a, ii_b);
 
-    let relative_after_normal = b.velocity - a.velocity;
+    let relative_after_normal = (b.velocity + cross(b.angular_velocity, rb)) -
+                                (a.velocity + cross(a.angular_velocity, ra));
     let tangent_velocity = relative_after_normal - normal * dot(relative_after_normal, normal);
     let tangent_speed = length(tangent_velocity);
     if tangent_speed <= 0.000001 { return; }
     let tangent = tangent_velocity / tangent_speed;
-    let friction_magnitude = -dot(relative_after_normal, tangent) / inverse_mass_sum;
+    let friction_magnitude = -dot(relative_after_normal, tangent) / (im_a + im_b);
     let max_friction = impulse_magnitude * sqrt(a.friction * b.friction);
     let friction_scalar = clamp(friction_magnitude, -max_friction, max_friction);
-    let friction_impulse = tangent * friction_scalar;
-    a.velocity -= friction_impulse * a.inverse_mass;
-    b.velocity += friction_impulse * b.inverse_mass;
+    // Friction applies linearly only: a single contact point cannot balance
+    // the torque friction below the center of mass would create, and lets
+    // resting bodies tip or roll without bound. Normal impulses keep the
+    // full angular response, so edge hits still rotate bodies.
+    physics_apply_contact_impulse(a, b, tangent * friction_scalar, ra, rb,
+                                  im_a, im_b, float3_0, float3_0);
 }
 
 // Result of physics_raycast: the nearest body hit along the ray.
@@ -559,14 +989,18 @@ fn physics_ray_clip_axis(o: f32, d: f32, c: f32, he: f32, t_enter: f32, t_exit: 
     return clip;
 }
 
-// Ray against an axis-aligned box: slab test. The entry face supplies the
-// normal; a ray starting inside reports distance 0 with -dir as normal.
+// Ray against an oriented box: the slab test runs in the box's local
+// frame, where the box is axis-aligned again. Rotation preserves
+// distances, so `t` values carry over unchanged; the entry face normal is
+// rotated back to world. A ray starting inside reports distance 0 with
+// -dir as normal.
 fn physics_ray_box(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
-    let c = b.position;
+    let local_origin = physics_world_to_body(b, origin - b.position);
+    let local_dir = physics_world_to_body(b, dir);
     let he = b.half_extents;
-    let oo: f32[3] = [origin.x, origin.y, origin.z];
-    let dd: f32[3] = [dir.x, dir.y, dir.z];
-    let cc: f32[3] = [c.x, c.y, c.z];
+    let oo: f32[3] = [local_origin.x, local_origin.y, local_origin.z];
+    let dd: f32[3] = [local_dir.x, local_dir.y, local_dir.z];
+    let cc: f32[3] = [0.0, 0.0, 0.0];
     let hh: f32[3] = [he.x, he.y, he.z];
     var t_enter: f32 = -max_dist;
     var t_exit: f32 = max_dist;
@@ -585,12 +1019,13 @@ fn physics_ray_box(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) 
     if t_enter < 0.0 {
         // Inside the box: face the ray back the way it came.
         normal = -dir;
-    } else if enter_axis == 0 {
-        normal = float3 { if dir.x > 0.0 { -1.0 } else { 1.0 }, 0.0, 0.0 };
-    } else if enter_axis == 1 {
-        normal = float3 { 0.0, if dir.y > 0.0 { -1.0 } else { 1.0 }, 0.0 };
-    } else if enter_axis == 2 {
-        normal = float3 { 0.0, 0.0, if dir.z > 0.0 { -1.0 } else { 1.0 } };
+    } else if enter_axis >= 0 {
+        // Local entry axis, sign by travel direction along it, to world.
+        var local_n = float3 { 0.0, 0.0, 0.0 };
+        if enter_axis == 0 { local_n.x = if dd[0] > 0.0 { -1.0 } else { 1.0 }; }
+        if enter_axis == 1 { local_n.y = if dd[1] > 0.0 { -1.0 } else { 1.0 }; }
+        if enter_axis == 2 { local_n.z = if dd[2] > 0.0 { -1.0 } else { 1.0 }; }
+        normal = physics_body_to_world(b, local_n);
     } else {
         normal = -dir;
     }

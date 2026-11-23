@@ -64,35 +64,40 @@ calls them (`src/app_web.goose` is 30 lines long).
 
 What the API gives you:
 
-* Physics — `import g3.physics`, attach an axis-aligned box to a node with
+* Physics — `import g3.physics`, attach an oriented box to a node with
   `physics_body_add(node, half_extents, mass)`, a sphere with
-  `physics_body_add_sphere(node, radius, mass)`, or a capsule (a Y-axis
-  cylinder of `half_length` capped by `radius` spheres) with
-  `physics_body_add_capsule(node, radius, half_length, mass)`; call
-  `physics_step(dt)` before `frame(dt)`. Mass zero makes a static collider.
-  Gravity defaults to `(0, -9.81, 0)` and can be changed with
-  `physics_set_gravity`; apply forces for one step with `physics_apply_force`,
-  set velocity directly, and tune restitution and friction from 0 to 1.
-  Pairwise overlap uses substeps, positional correction, and normal and
-  friction impulses; spheres and capsules resolve against every shape.
-  Bodies have no angular motion. `physics_body_remove(id)` tombstones a body
-  without renumbering the others, `physics_body_set_mass` and
-  `physics_body_set_kinematic` change it after creation — kinematic bodies
-  follow their velocity exactly and push dynamic bodies without being pushed
-  back — and `physics_body_sync(id)` adopts a node position that gameplay
+  `physics_body_add_sphere(node, radius, mass)`, or a capsule (a
+  `half_length` cylinder capped by `radius` spheres, along the body's local
+  Y) with `physics_body_add_capsule(node, radius, half_length, mass)`; call
+  `physics_step(dt)` before `frame(dt)`. Colliders rotate with their body:
+  the box uses a 15-axis SAT test, capsules follow the body's orientation,
+  and `physics_step` writes both `pos` and `rot` back onto nodes. Mass zero
+  makes a static collider. Gravity defaults to `(0, -9.81, 0)` and can be
+  changed with `physics_set_gravity`; apply forces and torques for one step
+  with `physics_apply_force`/`physics_apply_torque`, set velocities
+  directly, and tune restitution and friction from 0 to 1. Pairwise overlap
+  uses adaptive substeps (capped at 1/60 s, shrinking for fast bodies),
+  positional correction, and normal impulses with full angular response;
+  friction applies linearly. Bodies sleep automatically after resting
+  briefly. `physics_body_remove(id)` tombstones a body without renumbering
+  the others, `physics_body_set_mass` and `physics_body_set_kinematic`
+  change it after creation — kinematic bodies follow their velocity and
+  angular velocity exactly and push dynamic bodies without being pushed
+  back — and `physics_body_sync(id)` adopts a node transform that gameplay
   code moved directly. `physics_contact_count()`/`physics_contact(i)` list
-  the overlaps detected during the last step, and `physics_raycast(origin,
-  dir, max_dist)` returns the nearest `PhysicsRayHit` (body, distance,
-  point, normal) against every live collider. `physics_clear()` removes all
-  bodies.
+  the overlaps detected during the last step (ids, normal, world contact
+  point, penetration), and `physics_raycast(origin, dir, max_dist)` returns
+  the nearest `PhysicsRayHit` (body, distance, point, normal) against every
+  live collider. `physics_clear()` removes all bodies.
   `import g3.rapier` offers the same solver in RapierPhysics vocabulary —
   `rapier_body_add_cuboid/ball/capsule`, `rapier_set_timestep` +
-  `rapier_world_step`, `rapier_body_translation/linvel/set_linvel`,
-  `rapier_body_apply_impulse`, `rapier_body_set_translation` (teleports and
-  zeroes velocity), `rapier_body_is_dynamic` (mass > 0),
-  `rapier_body_set_kinematic`, `rapier_body_set_mass`, `rapier_body_remove`,
-  `rapier_body_sync` and `rapier_world_raycast`. Rotation and
-  angular velocity are not simulated; there is one collider per body.
+  `rapier_world_step`, `rapier_body_translation/linvel/angvel` accessors,
+  `rapier_body_rotation`/`set_rotation` (euler, node convention),
+  `rapier_body_apply_impulse`/`apply_impulse_at`, `rapier_body_add_torque`,
+  `rapier_body_set_translation` (teleports and zeroes velocity),
+  `rapier_body_is_dynamic` (mass > 0), `rapier_body_set_kinematic`,
+  `rapier_body_set_mass`, `rapier_body_remove`, `rapier_body_sync` and
+  `rapier_world_raycast`. There is one collider per body.
 * Meshes — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
   for your own geometry. Pushes stage one mesh and `mesh_close(fv, fi)` closes

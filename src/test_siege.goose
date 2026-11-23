@@ -2,6 +2,7 @@ import std;
 import vec;
 import math;
 import g3.engine;
+import g3.math;
 import g3.scene;
 import g3.mesh;
 import g3.physics;
@@ -251,11 +252,13 @@ fn main() {
     testing::check(!g3::physics_apply_force(platform, float3 { 0.0, 1.0, 0.0 }),
                    "kinematic bodies ignore forces");
     let rider_node = g3::node_add(unit_mesh);
-    g3::node(rider_node).pos = float3 { 0.0, 0.7, 0.0 };
-    let rider = g3::physics_body_add_sphere(rider_node, 0.25, 1.0);
+    g3::node(rider_node).pos = float3 { 0.0, 0.75, 0.0 };
+    // A box rider: a sphere would roll without slipping and its center
+    // legitimately trails the platform while it spins up.
+    let rider = g3::physics_body_add(rider_node, float3 { 0.25, 0.25, 0.25 }, 1.0);
     for i in 60 { g3::physics_step(1.0 / 60.0); }
-    // The platform's top face is y=0.5, so the r=0.25 ball rests at y=0.75 while
-    // friction drags it along with the platform's 1 u/s for the full second.
+    // The platform's top face is y=0.5, so the 0.5-wide box rests at
+    // y=0.75 while friction drags it along at the platform's 1 u/s.
     testing::check(abs(g3::physics_body(platform).position.x - 1.0) < 0.001 &&
                    g3::physics_body(platform).position.y == 0.0 &&
                    g3::physics_body(platform).velocity.y == 0.0,
@@ -326,8 +329,9 @@ fn main() {
     let ct = g3::physics_contact(0);
     testing::check(ct.a == ca_id && ct.b == cb_id &&
                    abs(ct.penetration - 0.1) < 0.0001 &&
-                   abs(ct.normal.x - 1.0) < 0.0001 && abs(ct.normal.y) < 0.0001,
-                   "contact reports ids, normal and penetration");
+                   abs(ct.normal.x - 1.0) < 0.0001 && abs(ct.normal.y) < 0.0001 &&
+                   abs(ct.point.x) < 0.0001 && abs(ct.point.y) < 0.0001 && abs(ct.point.z) < 0.0001,
+                   "contact reports ids, normal, point and penetration");
 
     // Raycast: sphere, box and capsule hits plus misses, against a
     // hand-derived layout.
@@ -368,6 +372,106 @@ fn main() {
     testing::check(chit.hit && chit.body == rc_id &&
                    abs(chit.distance - 1.5) < 0.001 && abs(chit.normal.x - 1.0) < 0.001,
                    "raycast hits a capsule cap");
+
+    // Rotation and angular dynamics. Euler angles round-trip through the
+    // node convention, including the gimbal-lock case where yaw and roll
+    // merge — what matters is that the rebuilt matrix matches.
+    g3::physics_clear();
+    g3::physics_set_gravity(float3_0);
+    let rnode = g3::node_add(unit_mesh);
+    g3::node(rnode).pos = float3_0;
+    g3::node(rnode).rot = float3 { 0.3, 0.7, -0.2 };
+    let euler_body = g3::physics_body_add_sphere(rnode, 0.5, 1.0);
+    let e = g3::physics_body_euler(euler_body);
+    testing::check(abs(e.x - 0.3) < 0.0001 && abs(e.y - 0.7) < 0.0001 && abs(e.z + 0.2) < 0.0001,
+                   "body euler matches the node's rotation");
+    g3::node(rnode).rot = float3 { 0.4, 1.5707963, 0.9 };
+    g3::physics_body_sync(euler_body);
+    let eg = g3::physics_body_euler(euler_body);
+    let m_want = g3::mat4_rotate_euler(float3 { 0.4, 1.5707963, 0.9 });
+    let m_got = g3::mat4_rotate_euler(eg);
+    var m_close = true;
+    for i in 16 { if abs(m_want.m[i] - m_got.m[i]) > 0.0001 { m_close = false; } }
+    testing::check(m_close, "euler extraction survives gimbal lock");
+
+    // Torque integrates into angular velocity; for a sphere I = 2/5 m r^2
+    // so the inverse inertia is 2.5/(1*0.25) = 10 about every axis.
+    // torque (0,0,0.2) for one 1/60 step gives w.z = 0.2*10/60 = 1/30.
+    let tnode = g3::node_add(unit_mesh);
+    g3::node(tnode).pos = float3_0;
+    let tbody = g3::physics_body_add_sphere(tnode, 0.5, 1.0);
+    testing::check(g3::physics_apply_torque(tbody, float3 { 0.0, 0.0, 0.2 }),
+                   "apply_torque accepts a dynamic body");
+    g3::physics_step(1.0 / 60.0);
+    let w = g3::physics_body_angvel(tbody);
+    testing::check(abs(w.z - 1.0 / 30.0) < 0.0001 && abs(w.x) < 0.0001,
+                   "torque produces angular velocity through the inertia tensor");
+    // The orientation advanced by w*dt = 1/1800 rad about z, and the
+    // node's euler rotation was written back.
+    testing::check(abs(g3::physics_body_euler(tbody).z - 1.0 / 1800.0) < 0.0001 &&
+                   abs(g3::node(tnode).rot.z - 1.0 / 1800.0) < 0.0001,
+                   "angular velocity integrates orientation and writes node.rot");
+
+    // An off-center impulse spins the body: J=(0,0,1) at r=(1,0,0) gives
+    // dv=(0,0,1) and torque impulse r x J = (0,-1,0), so dw = (0,-10,0).
+    testing::check(g3::physics_body_apply_impulse_at(tbody, float3 { 0.0, 0.0, 1.0 }, float3 { 1.0, 0.0, 0.0 }),
+                   "impulse at a point applies to dynamic bodies");
+    let w2 = g3::physics_body_angvel(tbody);
+    testing::check(abs(w2.y + 10.0) < 0.0001 && abs(w2.z - 1.0 / 30.0) < 0.0001 &&
+                   abs(g3::physics_body(tbody).velocity.z - 1.0) < 0.0001,
+                   "off-center impulse adds angular velocity about the lever arm");
+    testing::check(!g3::physics_body_apply_impulse_at(-1, float3_1, float3_0) &&
+                   !g3::physics_apply_torque(-1, float3_1),
+                   "torque and point impulse reject bad body ids");
+
+    // Kinematic bodies rotate too: angvel integrates the orientation and
+    // the node's euler rotation follows, with no torque or gravity.
+    let knode = g3::node_add(unit_mesh);
+    g3::node(knode).pos = float3_0;
+    let kbody = g3::physics_body_add_sphere(knode, 0.5, 1.0);
+    g3::physics_body_set_kinematic(kbody, true);
+    g3::physics_body_set_angvel(kbody, float3 { 0.0, 1.0, 0.0 });
+    g3::physics_step(1.0 / 60.0);
+    testing::check(abs(g3::physics_body_angvel(kbody).y - 1.0) < 0.0001 &&
+                   abs(g3::node(knode).rot.y - 1.0 / 60.0) < 0.0001,
+                   "kinematic angvel rotates the node");
+
+    // Rotated colliders: a box yawed 90 degrees swaps its x/z extents.
+    // A sphere at x=0.9 overlaps the unrotated box (half x = 1) but misses
+    // the rotated one (world x extent becomes half z = 0.5, and the box
+    // end at local z = 0.5 + radius 0.3 = 0.8 < 0.9).
+    g3::physics_clear();
+    g3::physics_set_gravity(float3_0);
+    let obox_node = g3::node_add(unit_mesh);
+    g3::node(obox_node).pos = float3_0;
+    g3::physics_body_add(obox_node, float3 { 1.0, 0.5, 0.5 }, 0.0);
+    let os_node = g3::node_add(unit_mesh);
+    g3::node(os_node).pos = float3 { 0.9, 0.0, 0.0 };
+    g3::physics_body_add_sphere(os_node, 0.3, 1.0);
+    g3::physics_step(1.0 / 60.0);
+    testing::check(g3::physics_contact_count() >= 1 &&
+                   g3::physics_body(1).position.x > 1.0,
+                   "sphere inside an axis-aligned box is pushed out");
+    g3::physics_clear();
+    g3::node(obox_node).rot = float3 { 0.0, 1.5707963, 0.0 };
+    g3::node(os_node).pos = float3 { 0.9, 0.0, 0.0 };
+    g3::physics_body_add(obox_node, float3 { 1.0, 0.5, 0.5 }, 0.0);
+    g3::physics_body_add_sphere(os_node, 0.3, 1.0);
+    g3::physics_step(1.0 / 60.0);
+    testing::check(g3::physics_contact_count() == 0 &&
+                   g3::physics_body(1).position.x == 0.9,
+                   "sphere misses a box rotated 90 degrees about Y");
+
+    // Rotated box raycast: the same yawed box presents half extent 1.0
+    // along world z (local x maps to world z), so a ray down -z enters
+    // at z=1.0 — distance 2.0 — instead of the unrotated 2.5.
+    g3::physics_clear();
+    g3::node(obox_node).rot = float3 { 0.0, 1.5707963, 0.0 };
+    g3::physics_body_add(obox_node, float3 { 1.0, 0.5, 0.5 }, 0.0);
+    let rhit2 = g3::physics_raycast(float3 { 0.0, 0.0, 3.0 }, float3 { 0.0, 0.0, -1.0 }, 10.0);
+    testing::check(rhit2.hit && abs(rhit2.distance - 2.0) < 0.0001 &&
+                   abs(rhit2.normal.z - 1.0) < 0.0001,
+                   "raycast respects the rotated box's world extents");
 
     g3::rapier_set_timestep(1.0 / 60.0);
     g3::physics_clear();

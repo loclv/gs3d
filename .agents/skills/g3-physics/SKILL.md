@@ -1,12 +1,12 @@
 ---
 name: g3-physics
-description: Use when working with goose-3d physics — the g3.physics solver (box/sphere/capsule bodies, kinematic mode, contacts, raycasts), the g3.rapier RapierPhysics-style facade, the g3_phys_* wasm exports, or the gs3d/physics JS PhysicsWorld.
+description: Use when working with goose-3d physics — the g3.physics rigid-body solver (oriented box/sphere/capsule bodies, rotation and angular dynamics, kinematic mode, sleeping, contacts, raycasts), the g3.rapier RapierPhysics-style facade, the g3_phys_* wasm exports, or the gs3d/physics JS PhysicsWorld.
 ---
 
 # Physics in goose-3d
 
-Three layers over one solver, all translation-only (no rotation, angular
-velocity or torque; one collider per body):
+Three layers over one rigid-body solver, with full rotation and angular
+dynamics (one collider per body):
 
 | Layer | Where | Audience |
 |---|---|---|
@@ -17,75 +17,113 @@ velocity or torque; one collider per body):
 ## Core model
 
 - Bodies attach to **scene node indices**. The collider center is the node's
-  `pos`; `physics_step(dt)` writes body positions back onto nodes at the end
-  of the step. Step physics *before* `frame(dt)`.
-- Shapes: axis-aligned **box** (`physics_body_add`), **sphere**
-  (`physics_body_add_sphere`), **capsule** (`physics_body_add_capsule`,
-  Y-axis, `radius` + `half_length`).
-- `mass == 0` → static (immovable). `mass > 0` → dynamic: semi-implicit
-  Euler, gravity `(0,-9.81,0)` default (`physics_set_gravity`), one-step
-  forces (`physics_apply_force`, cleared each step), restitution and
-  friction in `[0,1]` (pair values combine as min / geometric mean).
-- `physics_step(dt)` accepts `(0, 1]` seconds and internally substeps at
-  ≤ 1/60 s. `dt <= 0` or `> 1` is silently ignored.
+  `pos`; `physics_step(dt)` writes body `pos` **and** `rot` back onto nodes
+  at the end of the step (static bodies keep their node rotation). Step
+  physics *before* `frame(dt)`.
+- Orientation is a `Mat4` rotation internally, exposed as **euler radians
+  in the node convention** (`mat4_rotate_euler`: Z then Y then X — same as
+  `Node.rot`). `physics_body_euler(id)` reads it back;
+  `physics_body_sync(id)` re-captures it from `node.rot`.
+- Shapes: oriented **box** (15-axis SAT), **sphere**, **capsule** — the
+  capsule axis is the body's **local Y** (`physics_body_add_capsule(node,
+  radius, half_length, mass)`).
+- `mass == 0` → static. `mass > 0` → dynamic: semi-implicit Euler with
+  gravity `(0,-9.81,0)` default, per-step `force`/`torque` (cleared each
+  step), restitution and friction in `[0,1]` (min / geometric mean).
+- Angular state: `angular_velocity` (world frame, rad/s), diagonal
+  inverse inertia in body axes (`physics_shape_inertia`), torque →
+  angular acceleration through `R * diag(ii) * Rᵀ`, orientation integrated
+  by Rodrigues rotation of the basis columns.
+- `physics_step(dt)` accepts `(0, 1]` s; substeps are ≤ 1/60 s and shrink
+  when a fast body would cross a quarter of the smallest collider feature
+  per substep (max 12 substeps). `dt <= 0` or `> 1` is ignored.
+- **Sleeping**: dynamic bodies sleep after ~0.5 s under
+  `|v| < 0.05`, `|ω| < 0.1`; contacts with approach speed > 0.1 wake
+  them, as do `set_velocity`/`set_angvel`/impulses/torque/forces.
+  Sleeping bodies are immovable in contacts.
 
 ## Body lifecycle
 
-- `physics_body_add*` returns a body **id** (an index into
-  `g_physics_bodies`), or `-1` on bad arguments.
-- `physics_body_remove(id)` **tombstones** the slot — the id stays valid for
-  lookups but the body no longer integrates, collides or answers queries.
-  Ids are never renumbered; `physics_clear()` frees every slot. Same
-  convention as `material_remove`/`camera_remove`.
+- `physics_body_add*` returns a body **id** (arena index) or `-1`.
+- `physics_body_remove(id)` **tombstones** the slot — ids stay valid for
+  lookups but the body stops integrating/colliding. `physics_clear()`
+  frees every slot.
 - `physics_body_count()` counts slots **including** tombstones.
-- `physics_body_set_mass(id, mass)` re-derives inverse mass; `0` makes the
-  body static again.
-- `physics_body_sync(id)` copies the node's current `pos` into the body.
-  **Call it after moving a node directly** — otherwise the body keeps its
-  own position and the next `physics_step` writes the stale one back over
-  the node.
+- `physics_body_set_mass(id, mass)` re-derives inverse mass **and**
+  inverse inertia; `0` makes the body static again.
+- `physics_body_sync(id)` copies the node's `pos` **and** `rot` into the
+  body. **Call it after moving/rotating a node directly** — otherwise the
+  next `physics_step` writes the stale transform back.
 
 ## Kinematic bodies
 
-`physics_body_set_kinematic(id, true)` (Rapier: `rapier_body_set_kinematic`)
-makes a body follow `velocity` exactly — no gravity, forces or impulses —
-but it still pushes dynamic bodies through contacts and friction. Use for
-moving platforms, elevators, character controllers. Its `mass` is kept for
-when kinematic mode is switched off. `physics_apply_force` and
-`rapier_body_apply_impulse` reject kinematic bodies.
+`physics_body_set_kinematic(id, true)` makes a body follow `velocity`
+and `angular_velocity` exactly — no gravity, forces, torques or impulses —
+but it still pushes dynamic bodies. Use for moving platforms, spinning
+obstacles, character controllers.
+
+## Angular API
+
+- `physics_apply_torque(id, torque)` — world-frame, one step.
+- `physics_body_apply_impulse_at(id, impulse, point)` — linear + angular
+  impulse (`r × J` through the inertia tensor).
+- `physics_body_set_angvel(id, w)` / `physics_body_angvel(id)`.
+- `physics_body_set_kinematic` also gates `inverse_inertia` — kinematic
+  and static bodies never rotate under impulses.
 
 ## Queries
 
 - **Contacts**: `physics_contact_count()` / `physics_contact(i)` →
-  `BodyContact { a, b, normal, penetration }`, one entry per substep pair
-  overlap during the last `physics_step`, cleared at the start of each
-  step. `normal` points from body `a` toward body `b`.
+  `BodyContact { a, b, normal, point, penetration }` — one entry per
+  substep pair overlap, cleared each step. `point` is the world-space
+  contact point used for angular response.
 - **Raycast**: `physics_raycast(origin, dir, max_dist)` → `PhysicsRayHit
-  { hit, body, point, normal, distance }`, nearest hit across all live
-  bodies. `dir` need not be normalized. Exact for spheres and boxes; the
-  capsule path uses closest-approach and is approximate for grazing rays.
-  Rays starting inside a collider report `distance == 0`.
+  { hit, body, point, normal, distance }`, nearest hit, `dir` need not be
+  normalized. Box rays run in the box's local frame; capsule rays reuse
+  segment closest-point and are approximate for grazing angles. Rays
+  starting inside report `distance == 0`.
+
+## Solver notes / limitations
+
+- Single contact point per pair. **Friction is applied linearly only** —
+  a lone contact point cannot balance the torque friction below the center
+  of mass would create, so friction-induced tipping/rolling is suppressed
+  on purpose. Normal impulses keep full angular response, so edge hits
+  still rotate bodies.
+- Box-box contact points anchor at the smaller-extent body's face center;
+  edge/vertex contacts are approximations, not reference-face clipping.
+- Capsule inertia approximates the shape as a solid cylinder (caps
+  ignored); box/sphere inertia is exact for the collider shape.
+- Euler write-back can hit gimbal lock at pitch ≈ ±90° — extraction
+  returns an equivalent rotation (yaw zeroed), so the *matrix* is
+  preserved even when the angles differ.
+- Still no broadphase (O(n²) pairs per substep), no collider lists, no
+  joints/constraints. Fine for dozens of bodies.
 
 ## Rapier facade (`g3.rapier`)
 
-Same solver, RapierPhysics vocabulary: `rapier_set_timestep` +
-`rapier_world_step`, `rapier_body_add_cuboid/ball/capsule`,
-`rapier_body_translation/linvel/set_linvel/set_translation` (teleports and
-zeroes velocity), `rapier_body_apply_impulse`, `rapier_body_is_dynamic`,
-`rapier_body_set_kinematic/is_kinematic`, `rapier_body_set_mass`,
-`rapier_body_remove`, `rapier_body_sync`, `rapier_world_raycast`,
-`rapier_body_set_restitution/set_friction`, `rapier_set_gravity`,
-`rapier_world_clear`.
+RapierPhysics vocabulary: `rapier_set_timestep` + `rapier_world_step`,
+`rapier_body_add_cuboid/ball/capsule`, `rapier_body_translation/linvel/
+angvel/rotation` accessors, `rapier_body_set_translation` (teleports,
+zeroes velocity), `rapier_body_set_rotation` (euler teleport, zeroes
+angvel), `rapier_body_apply_impulse`, `rapier_body_apply_impulse_at`,
+`rapier_body_add_torque`, `rapier_body_set_linvel/set_angvel`,
+`rapier_body_is_dynamic`, `rapier_body_set_kinematic/is_kinematic`,
+`rapier_body_set_mass`, `rapier_body_remove`, `rapier_body_sync`,
+`rapier_world_raycast`, `rapier_body_set_restitution/set_friction`,
+`rapier_set_gravity`, `rapier_world_clear`.
 
 ## JS side (`gs3d/physics`)
 
 `PhysicsWorld` wraps the `g3_phys_*` wasm exports (gs3d host build only —
 `./build_web.sh --gs3d`): `addCuboid/addBall/addCapsule`, `step()`,
-`translation/setTranslation`, `linvel/setLinvel`, `applyImpulse`,
-`setRestitution/setFriction`, `setKinematic/isKinematic`, `setMass`,
-`removeBody`, `syncFromNode`, `contacts()`, `raycast(origin, dir,
-maxDist?)` → `{body, distance, point, normal} | null`. Bodies are engine
-node indices, not `Object3D`s — copy `translation()` back yourself.
+`translation/setTranslation`, `linvel/setLinvel`, `angvel/setAngvel`,
+`rotation/setRotation`, `applyImpulse`, `applyImpulseAtPoint`,
+`addTorque`, `setRestitution/setFriction`, `setKinematic/isKinematic`,
+`setMass`, `removeBody`, `syncFromNode`, `contacts()` →
+`{a, b, normal, point, penetration}`, `raycast(origin, dir, maxDist?)` →
+`{body, distance, point, normal} | null`. Bodies are engine node indices —
+copy `translation()`/`rotation()` back to your objects yourself.
 
 ## Gotchas
 
@@ -94,14 +132,17 @@ node indices, not `Object3D`s — copy `translation()` back yourself.
 - `PhysicsBody` fields `mass`/`inverse_mass` have no defaults — literals
   must set them (only `physics_body_add_shape` constructs bodies).
 - `pad` is a reserved word in Goose — don't use it as an identifier.
-- The solver is intentionally simple: no sleeping, no broadphase (O(n²)
-  pairs per substep), no angular motion. Fine for dozens of bodies.
+- `if` expressions need parens inside arithmetic: `he.x * (if c {..} else
+  {..})`.
+- `physics_contact` writes **9** floats on the wasm side
+  (`[a, b, nx, ny, nz, px, py, pz, penetration]`) — keep `SCRATCH_FLOATS`
+  ≥ 9 in JS.
 
 ## Verify
 
 - `goose check src/test_siege.goose` — typechecks the module graph.
 - `./build_native.sh --test` — builds and runs all roots; `test_siege`
-  holds the hand-derived physics checks (currently 61).
+  holds the hand-derived physics checks (currently 73).
 - `./build_web.sh --gs3d` — rebuilds `web/gs3d/app.js`/`app.wasm`; new
   `g3_phys_*` exports must also be added to the `phys_exports` list in
   `build_web.sh` or they won't be callable from JS.

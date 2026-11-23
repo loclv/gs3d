@@ -9,17 +9,22 @@
 // after step() and write it back to your scene objects yourself, the same
 // way RapierPhysics copies body.translation() onto mesh.position.
 //
-// Scope matches g3.rapier: translation only — no rotation, angular velocity
-// or torque; one collider per body. Mass 0 is fixed, mass > 0 is dynamic,
-// and setKinematic makes a body velocity-driven: it ignores gravity, forces
+// Bodies rotate: rotation() returns euler angles in the node convention
+// (radians, applied Z then Y then X — same as Node.rot / Object3D.rotation
+// ordering is NOT assumed; write it back to your object's rotation field
+// however your scene stores it). Capsules run along the body's local Y.
+// One collider per body. Mass 0 is fixed, mass > 0 is dynamic, and
+// setKinematic makes a body velocity-driven: it ignores gravity, forces
 // and impulses but still pushes dynamic bodies. removeBody tombstones a
 // body without renumbering the others; clear() resets the world. Contacts
-// detected during the last step() are available through contacts(), and
-// raycast() casts against every live collider.
+// detected during the last step() are available through contacts() (with
+// world-space contact points), and raycast() casts against every live
+// collider. Bodies sleep automatically after ~0.5 s under the velocity
+// thresholds; impulses and impacts wake them.
 
 import { AssetError } from './assets.js';
 
-const SCRATCH_FLOATS = 8;
+const SCRATCH_FLOATS = 12;
 
 function requirePhysics(engine) {
   if (!engine || typeof engine._g3_phys_world_step !== 'function') {
@@ -75,7 +80,7 @@ export class PhysicsWorld {
     return id;
   }
 
-  // ColliderDesc.capsule(halfLength, radius) — world-Y aligned.
+  // ColliderDesc.capsule(halfLength, radius) — along the body's local Y.
   addCapsule(node, halfLength, radius, mass = 0) {
     const id = this.engine._g3_phys_body_capsule(node, halfLength, radius, mass);
     if (id < 0) throw new AssetError('INVALID', 'Could not create capsule body');
@@ -124,6 +129,61 @@ export class PhysicsWorld {
     }
   }
 
+  // body.applyImpulseAtPoint(impulse, point) — linear plus angular impulse.
+  applyImpulseAtPoint(body, impulse, point) {
+    requireExport(this.engine, '_g3_phys_body_apply_impulse_at');
+    const [jx, jy, jz] = impulse;
+    const [px, py, pz] = point;
+    if (!this.engine._g3_phys_body_apply_impulse_at(body, jx, jy, jz, px, py, pz)) {
+      throw new AssetError('INVALID', `Cannot impulse body ${body} (unknown or fixed)`);
+    }
+  }
+
+  // body.addTorque() — world-frame torque accumulated for the next step.
+  addTorque(body, torque) {
+    requireExport(this.engine, '_g3_phys_body_apply_torque');
+    const [x, y, z] = torque;
+    if (!this.engine._g3_phys_body_apply_torque(body, x, y, z)) {
+      throw new AssetError('INVALID', `Cannot torque body ${body} (unknown or fixed)`);
+    }
+  }
+
+  // body.angvel() -> [x, y, z] world-frame rad/s.
+  angvel(body) {
+    requireExport(this.engine, '_g3_phys_body_angvel');
+    if (!this.engine._g3_phys_body_angvel(body, this._scratch, SCRATCH_FLOATS)) {
+      throw new AssetError('INVALID', `Unknown physics body ${body}`);
+    }
+    return [this._vec[0], this._vec[1], this._vec[2]];
+  }
+
+  setAngvel(body, angvel) {
+    requireExport(this.engine, '_g3_phys_body_set_angvel');
+    const [x, y, z] = angvel;
+    if (!this.engine._g3_phys_body_set_angvel(body, x, y, z)) {
+      throw new AssetError('INVALID', `Unknown physics body ${body}`);
+    }
+  }
+
+  // body.rotation() -> [x, y, z] euler radians, node convention.
+  rotation(body) {
+    requireExport(this.engine, '_g3_phys_body_rot');
+    if (!this.engine._g3_phys_body_rot(body, this._scratch, SCRATCH_FLOATS)) {
+      throw new AssetError('INVALID', `Unknown physics body ${body}`);
+    }
+    return [this._vec[0], this._vec[1], this._vec[2]];
+  }
+
+  // body.setRotation(euler) — teleports orientation, zeroes angvel,
+  // keeps linvel, and updates the node immediately.
+  setRotation(body, euler) {
+    requireExport(this.engine, '_g3_phys_body_set_rot');
+    const [x, y, z] = euler;
+    if (!this.engine._g3_phys_body_set_rot(body, x, y, z)) {
+      throw new AssetError('INVALID', `Unknown physics body ${body}`);
+    }
+  }
+
   setRestitution(body, value) {
     if (!this.engine._g3_phys_body_set_restitution(body, value)) {
       throw new AssetError('INVALID', `Unknown physics body ${body} or restitution outside [0, 1]`);
@@ -166,8 +226,9 @@ export class PhysicsWorld {
     }
   }
 
-  // Copy the node's current position into the body — call after moving the
-  // node directly, or the next step() writes the body's stale position back.
+  // Copy the node's current position and rotation into the body — call
+  // after moving the node directly, or the next step() writes the body's
+  // stale transform back.
   syncFromNode(body) {
     requireExport(this.engine, '_g3_phys_body_sync');
     if (!this.engine._g3_phys_body_sync(body)) {
@@ -175,7 +236,8 @@ export class PhysicsWorld {
     }
   }
 
-  // Contacts detected during the last step(): [{a, b, normal, penetration}].
+  // Contacts detected during the last step():
+  // [{a, b, normal, point, penetration}] — point is world-space.
   contacts() {
     requireExport(this.engine, '_g3_phys_contact_count');
     const count = this.engine._g3_phys_contact_count();
@@ -186,7 +248,8 @@ export class PhysicsWorld {
         a: this._vec[0],
         b: this._vec[1],
         normal: [this._vec[2], this._vec[3], this._vec[4]],
-        penetration: this._vec[5],
+        point: [this._vec[5], this._vec[6], this._vec[7]],
+        penetration: this._vec[8],
       });
     }
     return out;

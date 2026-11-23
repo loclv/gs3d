@@ -6,14 +6,16 @@
 // and applyImpulse — so Rapier-flavoured game code maps onto the engine's
 // solver with minimal renaming.
 //
-// Scope: translation only. Bodies do not rotate, so there is no angular
-// velocity, no rotation accessor and no torque; a body's node keeps whatever
-// rotation it was given. Bodies have exactly one collider, so there is no
-// collider list and no per-body removal — physics_clear() resets the world.
-// Fixed bodies are mass == 0, dynamic bodies mass > 0, as in Rapier's
-// RigidBodyDesc.fixed()/dynamic().
+// Bodies rotate: orientation is stored as a rotation matrix internally and
+// exposed as euler angles in the node convention (radians, Z then Y then X,
+// matching Node.rot). Capsules run along the body's local Y, so a rotated
+// capsule lies on its side. There is no collider list — bodies have exactly
+// one collider — and no sleeping control beyond the solver's automatic
+// thresholds. Fixed bodies are mass == 0, dynamic bodies mass > 0, as in
+// Rapier's RigidBodyDesc.fixed()/dynamic().
 
 import vec;
+import g3.math;
 import g3.physics;
 import g3.scene;
 
@@ -92,12 +94,47 @@ fn rapier_body_set_linvel(id: i64, velocity: float3) -> bool {
     return physics_body_set_velocity(id, velocity);
 }
 
+// body.angvel() — world-frame angular velocity in radians per second.
+fn rapier_body_angvel(id: i64) -> float3 { return physics_body_angvel(id); }
+
+// body.setAngvel()
+fn rapier_body_set_angvel(id: i64, angvel: float3) -> bool {
+    return physics_body_set_angvel(id, angvel);
+}
+
+// body.rotation() as euler angles in the node convention.
+fn rapier_body_rotation(id: i64) -> float3 { return physics_body_euler(id); }
+
+// body.setRotation(euler): teleports the orientation, zeroes angular
+// velocity and updates the node's rotation immediately, like
+// setTranslation does for position. Linear velocity is kept.
+fn rapier_body_set_rotation(id: i64, euler: float3) -> bool {
+    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return false; }
+    let body .= physics_body(id);
+    body.orientation = mat4_rotate_euler(euler);
+    body.angular_velocity = float3_0;
+    physics_wake(body);
+    if node_handle_valid(body.node) { node(body.node.index).rot = euler; }
+    return true;
+}
+
+// body.addTorque(): accumulated world-frame torque for the next step.
+fn rapier_body_add_torque(id: i64, torque: float3) -> bool {
+    return physics_apply_torque(id, torque);
+}
+
+// body.applyImpulseAtPoint(): linear plus angular impulse at a world point.
+fn rapier_body_apply_impulse_at(id: i64, impulse: float3, point: float3) -> bool {
+    return physics_body_apply_impulse_at(id, impulse, point);
+}
+
 // body.applyImpulse(): an instantaneous velocity change of impulse *
-// inverse_mass. Dynamic bodies only.
+// inverse_mass. Dynamic bodies only; wakes a sleeping body.
 fn rapier_body_apply_impulse(id: i64, impulse: float3) -> bool {
     guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return false; }
     let body .= physics_body(id);
     if body.inverse_mass <= 0.0 { return false; }
+    physics_wake(body);
     body.velocity += impulse * body.inverse_mass;
     return true;
 }
@@ -127,8 +164,8 @@ fn rapier_body_is_kinematic(id: i64) -> bool { return physics_body_is_kinematic(
 // fixed, positive is dynamic, and the collider shape is unchanged.
 fn rapier_body_set_mass(id: i64, mass: f32) -> bool { return physics_body_set_mass(id, mass); }
 
-// Copy the node's position into the body — for gameplay code that moved
-// the node directly instead of through setTranslation.
+// Copy the node's position and rotation into the body — for gameplay code
+// that moved the node directly instead of through the body accessors.
 fn rapier_body_sync(id: i64) -> bool { return physics_body_sync(id); }
 
 // world.castRay: nearest hit along origin + direction * t, `max_dist` in

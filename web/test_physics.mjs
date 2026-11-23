@@ -40,6 +40,30 @@ function mockEngine() {
     _g3_phys_body_apply_impulse: (id, x, y, z) => { calls.push(['impulse', id, x, y, z]); return id > 0; },
     _g3_phys_body_set_restitution: (id, v) => id >= 0 && v >= 0 && v <= 1,
     _g3_phys_body_set_friction: (id, v) => id >= 0 && v >= 0 && v <= 1,
+    _g3_phys_body_angvel: (id, ptr, len) => {
+      heap[ptr / 4] = 0.1; heap[ptr / 4 + 1] = 0.2; heap[ptr / 4 + 2] = 0.3;
+      return id >= 0;
+    },
+    _g3_phys_body_set_angvel: (id, x, y, z) => { calls.push(['setAngvel', id, x, y, z]); return id >= 0; },
+    _g3_phys_body_rot: (id, ptr, len) => {
+      heap[ptr / 4] = 0.4; heap[ptr / 4 + 1] = 0.5; heap[ptr / 4 + 2] = 0.6;
+      return id >= 0;
+    },
+    _g3_phys_body_set_rot: (id, x, y, z) => { calls.push(['setRot', id, x, y, z]); return id >= 0; },
+    _g3_phys_body_apply_torque: (id, x, y, z) => { calls.push(['torque', id, x, y, z]); return id > 0; },
+    _g3_phys_body_apply_impulse_at: (id, jx, jy, jz, px, py, pz) => {
+      calls.push(['impulseAt', id, jx, jy, jz, px, py, pz]);
+      return id > 0;
+    },
+    _g3_phys_contact_count: () => 1,
+    _g3_phys_contact: (id, ptr, len) => {
+      assert.ok(len >= 9, 'contact read-back slice holds 9 floats');
+      heap[ptr / 4] = 1; heap[ptr / 4 + 1] = 2;
+      heap[ptr / 4 + 2] = 0; heap[ptr / 4 + 3] = 1; heap[ptr / 4 + 4] = 0;
+      heap[ptr / 4 + 5] = 0.1; heap[ptr / 4 + 6] = 0.2; heap[ptr / 4 + 7] = 0.3;
+      heap[ptr / 4 + 8] = 0.05;
+      return true;
+    },
   };
   return engine;
 }
@@ -94,6 +118,26 @@ assert.throws(() => world.setTranslation(-1, [0, 0, 0]), AssetError);
 assert.throws(() => world.setLinvel(-1, [0, 0, 0]), AssetError);
 assert.throws(() => world.setRestitution(-1, 0.5), AssetError);
 assert.throws(() => world.setFriction(-1, 0.5), AssetError);
+
+const near = (a, b) => a.map((v, i) => assert.ok(Math.abs(v - b[i]) < 1e-6, `${v} ≈ ${b[i]}`));
+near(world.angvel(ball), [0.1, 0.2, 0.3]);
+world.setAngvel(ball, [0, 1, 0]);
+assert.deepEqual(world.engine.calls.find(c => c[0] === 'setAngvel'), ['setAngvel', 8, 0, 1, 0]);
+near(world.rotation(ball), [0.4, 0.5, 0.6]);
+world.setRotation(ball, [0.1, 0.2, 0.3]);
+assert.deepEqual(world.engine.calls.find(c => c[0] === 'setRot'), ['setRot', 8, 0.1, 0.2, 0.3]);
+world.addTorque(ball, [0, 0, 1]);
+assert.deepEqual(world.engine.calls.find(c => c[0] === 'torque'), ['torque', 8, 0, 0, 1]);
+world.applyImpulseAtPoint(ball, [0, 0, 1], [1, 0, 0]);
+assert.deepEqual(world.engine.calls.find(c => c[0] === 'impulseAt'),
+  ['impulseAt', 8, 0, 0, 1, 1, 0, 0]);
+assert.throws(() => world.addTorque(0, [1, 0, 0]), AssetError); // fixed/unknown
+const [contact] = world.contacts();
+assert.equal(contact.a, 1);
+assert.equal(contact.b, 2);
+near(contact.normal, [0, 1, 0]);
+near(contact.point, [0.1, 0.2, 0.3]);
+assert.ok(Math.abs(contact.penetration - 0.05) < 1e-6);
 world.dispose();
 world.dispose(); // idempotent
 assert.ok(world.engine.calls.filter(c => c[0] === 'free').length === 1);
