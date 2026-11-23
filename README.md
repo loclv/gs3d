@@ -48,6 +48,7 @@ See the [Three.js roadmap](docs/threejs-roadmap.md) and
 - [Backend ABI](docs/abi.md) — packed structures, drawing rules, and backend integration.
 - [Performance](docs/performance.md) — profiling and benchmark methods.
 - [Assets](docs/assets.md) and [model authoring](docs/model-authoring.md) — loading and creating models.
+- [Features](docs/features.md) — what the engine can do today.
 - [Project ideals](docs/ideals.md) and [Three.js roadmap](docs/threejs-roadmap.md) — principles and planned work.
 
 Repository-specific agent guides live in [.agents/skills](.agents/skills/).
