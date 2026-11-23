@@ -3,6 +3,8 @@ import vec;
 import math;
 import g3.engine;
 import g3.scene;
+import g3.mesh;
+import g3.physics;
 import g3.collision;
 import game.siege;
 import testing;
@@ -62,6 +64,56 @@ fn main() {
     testing::check(g3::node_count() == nodes && siege::state == 0 && siege::score == 0, "restarts reuse every node and restore state");
     siege::update(0.0); g3::frame(0.0);
     testing::check(g3::save_frame("build/siege.ppm"), "CPU renderer saves playable scene");
+
+    // Sphere colliders. Every expected value below is derived by hand.
+    testing::check(g3::physics_body_add_sphere(g3::node_count() + 100, 0.5, 1.0) < 0 &&
+                   g3::physics_body_add_sphere(0, 0.0, 1.0) < 0, "sphere bodies reject bad nodes and radii");
+    g3::physics_clear();
+    let unit_mesh = g3::mesh_cube(0.5);
+    // A static box floor: center y=-0.5, half height 0.5, so its top face is y=0.
+    let floor_node = g3::node_add(unit_mesh);
+    g3::node(floor_node).pos = float3 { 0.0, -0.5, 0.0 };
+    g3::physics_body_add(floor_node, float3 { 5.0, 0.5, 5.0 }, 0.0);
+    let ball_node = g3::node_add(unit_mesh);
+    g3::node(ball_node).pos = float3 { 0.0, 2.0, 0.0 };
+    let ball = g3::physics_body_add_sphere(ball_node, 0.5, 1.0);
+    for i in 240 { g3::physics_step(1.0 / 60.0); }
+    // Rest contact puts the sphere center one radius above the top face: y = 0.5.
+    testing::check(abs(g3::physics_body(ball).position.y - 0.5) < 0.02, "sphere settles one radius above the box floor");
+
+    g3::physics_clear();
+    g3::physics_set_gravity(float3_0);
+    let hunter_node = g3::node_add(unit_mesh);
+    g3::node(hunter_node).pos = float3 { -2.0, 0.0, 0.0 };
+    let target_node = g3::node_add(unit_mesh);
+    g3::node(target_node).pos = float3 { 0.0, 0.0, 0.0 };
+    let hunter = g3::physics_body_add_sphere(hunter_node, 0.5, 1.0);
+    g3::physics_body_add_sphere(target_node, 0.5, 0.0);
+    g3::physics_body_set_velocity(hunter, float3 { 3.0, 0.0, 0.0 });
+    for i in 40 { g3::physics_step(1.0 / 60.0); }
+    g3::physics_set_gravity(float3 { 0.0, -9.81, 0.0 });
+    // Two r=0.5 spheres touch at center distance 1.0, so the mover stops at
+    // x = -1.0; with restitution 0 it keeps no normal velocity.
+    testing::check(abs(g3::physics_body(hunter).position.x + 1.0) < 0.05 &&
+                   abs(g3::physics_body(hunter).velocity.x) < 0.2, "sphere stops at contact distance");
+
+    g3::physics_clear();
+    let bounce_floor = g3::node_add(unit_mesh);
+    g3::node(bounce_floor).pos = float3 { 0.0, -0.5, 0.0 };
+    let floor_handle = g3::physics_body_add(bounce_floor, float3 { 5.0, 0.5, 5.0 }, 0.0);
+    // Pair restitution is the minimum of the two bodies', so both need 1.0.
+    g3::physics_body_set_restitution(floor_handle, 1.0);
+    let bounce_ball = g3::node_add(unit_mesh);
+    g3::node(bounce_ball).pos = float3 { 0.0, 0.5, 0.0 };
+    let bounce = g3::physics_body_add_sphere(bounce_ball, 0.5, 1.0);
+    g3::physics_body_set_restitution(bounce, 1.0);
+    g3::physics_body_set_velocity(bounce, float3 { 0.0, -1.0, 0.0 });
+    g3::physics_step(1.0 / 60.0);
+    // One substep: gravity makes v.y = -1 - 9.81/60 = -1.1635 and the fall
+    // gives penetration 0.0194; restitution 1 mirrors the normal velocity,
+    // so v.y ends near +1.16.
+    testing::check(g3::physics_body(bounce).velocity.y > 0.5, "restitution bounces a sphere off a box");
+    g3::physics_clear();
     g3::shutdown();
     if !testing::finish() { exit(1); }
 }

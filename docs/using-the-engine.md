@@ -65,14 +65,15 @@ calls them (`src/app_web.goose` is 30 lines long).
 What the API gives you:
 
 * Physics — `import g3.physics`, attach an axis-aligned box to a node with
-  `physics_body_add(node, half_extents, mass)`, and call `physics_step(dt)`
+  `physics_body_add(node, half_extents, mass)` or a sphere with
+  `physics_body_add_sphere(node, radius, mass)`, and call `physics_step(dt)`
   before `frame(dt)`. Mass zero makes a static collider. Gravity defaults to
   `(0, -9.81, 0)` and can be changed with `physics_set_gravity`; apply forces
   for one step with `physics_apply_force`, set velocity directly, and tune
-  restitution and friction from 0 to 1. Pairwise AABB overlap uses substeps,
-  positional correction, and normal and friction impulses. Bodies have no
-  angular motion or capsule/sphere colliders; `physics_clear()` removes all
-  bodies.
+  restitution and friction from 0 to 1. Pairwise overlap uses substeps,
+  positional correction, and normal and friction impulses; sphere colliders
+  resolve against spheres and boxes. Bodies have no angular motion or
+  capsule colliders; `physics_clear()` removes all bodies.
 * Meshes — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
   for your own geometry. Pushes stage one mesh and `mesh_close(fv, fi)` closes

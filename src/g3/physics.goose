@@ -1,9 +1,9 @@
 // Small 3D rigid-body physics for scene nodes.
 //
-// This module uses axis-aligned box colliders. A mass of zero makes a body
-// static; dynamic bodies use semi-implicit Euler integration and an impulse
-// response when their boxes overlap. It is intended for simple game motion,
-// not as a general-purpose simulation solver.
+// This module uses axis-aligned box and sphere colliders. A mass of zero
+// makes a body static; dynamic bodies use semi-implicit Euler integration
+// and an impulse response when their shapes overlap. It is intended for
+// simple game motion, not as a general-purpose simulation solver.
 
 import vec;
 import math;
@@ -17,6 +17,8 @@ struct PhysicsBody {
     velocity: float3,
     force: float3,
     half_extents: float3 = float3 { 0.5, 0.5, 0.5 },
+    // Collider radius; zero means the body is an axis-aligned box.
+    radius: f32 = 0.0,
     inverse_mass: f32,
     restitution: f32 = 0.0,
     friction: f32 = 0.5,
@@ -33,12 +35,10 @@ fn physics_clear() { g_physics_bodies.clear(); }
 
 fn physics_set_gravity(gravity: float3) { g_physics_gravity = gravity; }
 
-// Attach a box body to a scene node. The node's position is the collider
-// center. `mass == 0` creates an immovable body.
-fn physics_body_add(node_id: i64, half_extents: float3, mass: f32) -> i64 {
+fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, mass: f32) -> i64 {
     guard node_id >= 0 && node_id < node_count() &&
           half_extents.x > 0.0 && half_extents.y > 0.0 && half_extents.z > 0.0 &&
-          mass >= 0.0 && mass <= 3.4e38 else { return -1; }
+          radius >= 0.0 && mass >= 0.0 && mass <= 3.4e38 else { return -1; }
     let handle = node_handle(node_id);
     guard node_handle_valid(handle) else { return -1; }
     let position = node(node_id).pos;
@@ -47,10 +47,24 @@ fn physics_body_add(node_id: i64, half_extents: float3, mass: f32) -> i64 {
         node: handle,
         position: position,
         half_extents: half_extents,
+        radius: radius,
         inverse_mass: inverse_mass,
         ..
     });
     return g_physics_bodies.len - 1;
+}
+
+// Attach a box body to a scene node. The node's position is the collider
+// center. `mass == 0` creates an immovable body.
+fn physics_body_add(node_id: i64, half_extents: float3, mass: f32) -> i64 {
+    return physics_body_add_shape(node_id, half_extents, 0.0, mass);
+}
+
+// Attach a sphere body to a scene node. `radius` is the collider radius in
+// world units; the node's position is the sphere center.
+fn physics_body_add_sphere(node_id: i64, radius: f32, mass: f32) -> i64 {
+    guard radius > 0.0 && radius <= 3.4e38 else { return -1; }
+    return physics_body_add_shape(node_id, float3 { radius, radius, radius }, radius, mass);
 }
 
 fn physics_body_set_restitution(id: i64, restitution: f32) -> bool {
@@ -113,17 +127,21 @@ fn physics_substep(dt: f32) {
 
 }
 
-fn physics_resolve_pair(a_id: i64, b_id: i64) {
-    let a .= g_physics_bodies[a_id];
-    let b .= g_physics_bodies[b_id];
-    let inverse_mass_sum = a.inverse_mass + b.inverse_mass;
-    if inverse_mass_sum <= 0.0 || !node_handle_valid(a.node) || !node_handle_valid(b.node) { return; }
+// A detected overlap: `normal` points from body a toward body b and
+// `penetration` is the depth to resolve along it.
+struct Contact {
+    normal: float3 = float3_0,
+    penetration: f32 = 0.0,
+    hit: bool = false,
+}
 
+// Box against box: the axis of least overlap is the contact normal.
+fn physics_box_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
     let delta = b.position - a.position;
     let overlap_x = a.half_extents.x + b.half_extents.x - abs(delta.x);
     let overlap_y = a.half_extents.y + b.half_extents.y - abs(delta.y);
     let overlap_z = a.half_extents.z + b.half_extents.z - abs(delta.z);
-    if overlap_x <= 0.0 || overlap_y <= 0.0 || overlap_z <= 0.0 { return; }
+    if overlap_x <= 0.0 || overlap_y <= 0.0 || overlap_z <= 0.0 { return Contact { .. }; }
 
     var normal = float3 { if delta.x < 0.0 { -1.0 } else { 1.0 }, 0.0, 0.0 };
     var penetration = overlap_x;
@@ -135,6 +153,83 @@ fn physics_resolve_pair(a_id: i64, b_id: i64) {
         penetration = overlap_z;
         normal = float3 { 0.0, 0.0, if delta.z < 0.0 { -1.0 } else { 1.0 } };
     }
+    return Contact { normal: normal, penetration: penetration, hit: true };
+}
+
+// Sphere against sphere.
+fn physics_spheres_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
+    let delta = b.position - a.position;
+    let distance = length(delta);
+    let radii = a.radius + b.radius;
+    if distance >= radii { return Contact { .. }; }
+    // Coincident centers have no direction; pick any axis.
+    var normal = float3 { 0.0, 1.0, 0.0 };
+    if distance > 0.0001 { normal = delta / distance; }
+    return Contact { normal: normal, penetration: radii - distance, hit: true };
+}
+
+// Sphere against box. The returned normal pushes the sphere out of the box:
+// from the box toward the sphere for a surface contact, or along the axis of
+// least penetration when the sphere center is inside the box.
+fn physics_sphere_box_contact(s: PhysicsBody&, b: PhysicsBody&) -> Contact {
+    let he = b.half_extents;
+    let c = b.position;
+    let p = s.position;
+    let closest = float3 {
+        clamp(p.x, c.x - he.x, c.x + he.x),
+        clamp(p.y, c.y - he.y, c.y + he.y),
+        clamp(p.z, c.z - he.z, c.z + he.z),
+    };
+    let d = p - closest;
+    let dist_sq = dot(d, d);
+    let radius_sq = s.radius * s.radius;
+    if dist_sq > radius_sq { return Contact { .. }; }
+    if dist_sq > 0.0000001 {
+        let distance = sqrt(dist_sq);
+        return Contact { normal: d / distance, penetration: s.radius - distance, hit: true };
+    }
+
+    // Center inside the box: exit along the axis where the sphere pokes out
+    // least far past the face plus its own radius.
+    let delta = p - c;
+    var best = he.x + s.radius - abs(delta.x);
+    var axis = 0;
+    let overlap_y = he.y + s.radius - abs(delta.y);
+    if overlap_y < best { best = overlap_y; axis = 1; }
+    let overlap_z = he.z + s.radius - abs(delta.z);
+    if overlap_z < best { best = overlap_z; axis = 2; }
+    var normal = float3 { if delta.x < 0.0 { -1.0 } else { 1.0 }, 0.0, 0.0 };
+    if axis == 1 { normal = float3 { 0.0, if delta.y < 0.0 { -1.0 } else { 1.0 }, 0.0 }; }
+    if axis == 2 { normal = float3 { 0.0, 0.0, if delta.z < 0.0 { -1.0 } else { 1.0 } }; }
+    return Contact { normal: normal, penetration: best, hit: true };
+}
+
+fn physics_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
+    if a.radius > 0.0 && b.radius > 0.0 { return physics_spheres_contact(a, b); }
+    if a.radius > 0.0 {
+        let c = physics_sphere_box_contact(a, b);
+        if !c.hit { return c; }
+        return Contact { normal: float3 { -c.normal.x, -c.normal.y, -c.normal.z },
+                         penetration: c.penetration, hit: true };
+    }
+    if b.radius > 0.0 {
+        let c = physics_sphere_box_contact(b, a);
+        if !c.hit { return c; }
+        return Contact { normal: c.normal, penetration: c.penetration, hit: true };
+    }
+    return physics_box_contact(a, b);
+}
+
+fn physics_resolve_pair(a_id: i64, b_id: i64) {
+    let a .= g_physics_bodies[a_id];
+    let b .= g_physics_bodies[b_id];
+    let inverse_mass_sum = a.inverse_mass + b.inverse_mass;
+    if inverse_mass_sum <= 0.0 || !node_handle_valid(a.node) || !node_handle_valid(b.node) { return; }
+
+    let contact = physics_contact(a, b);
+    if !contact.hit { return; }
+    let normal = contact.normal;
+    let penetration = contact.penetration;
 
     // Move bodies apart, weighted by inverse mass, with a small slop to avoid
     // repeatedly correcting floating-point contact jitter.

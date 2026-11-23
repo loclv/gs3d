@@ -85,7 +85,7 @@ and the [Three.js roadmap](threejs-roadmap.md).
   (LINEAR/STEP/CUBICSPLINE). A native loader covers the static subset
   plus PPM/PNG/JPEG decode with queryable `AssetError`-style failures.
 * Raycast picking (`pick_screen`, `raycast`), swept segment/sphere
-  collision (`segment_sphere_intersects`), and AABB physics bodies —
+  collision (`segment_sphere_intersects`), and box/sphere physics bodies —
   gravity, one-step forces, velocity, restitution, friction, substeps.
 * Input: 512-key state with edge detection (`key_down`/`key_pressed`/
   `key_released`), mouse deltas; a typed orbit/pan/pinch/keyboard

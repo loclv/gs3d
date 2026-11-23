@@ -59,8 +59,8 @@ Four roots, all exiting non-zero on a failure:
   arena compaction and mesh reuse.
 * `test_game` — 4 checks on the Beacon Run sample rules: scoring, win and
   lose states, reset.
-* `test_siege` — 19 checks on Rift Siege: segment/sphere sweeps, movement
-  speed, dash cooldown, and cover blocking shots.
+* `test_siege` — 23 checks on Rift Siege: segment/sphere sweeps, movement
+  speed, dash cooldown, cover blocking shots, and sphere physics colliders.
 
 Every expected value is derived by hand in the comment above it rather than
 copied out of the engine, so a failure means the thing changed — not that two
