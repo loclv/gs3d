@@ -45,17 +45,22 @@ wrote frame.ppm: true
 ./build_native.sh --test
 ```
 
-Two roots, both exiting non-zero on a failure:
+Four roots, all exiting non-zero on a failure:
 
-* `test_math` — 98 checks on the math module alone: `I * I`, the order of
+* `test_math` — 99 checks on the math module alone: `I * I`, the order of
   composition, right-handed 90° rotations, the Z-then-Y-then-X Euler order, GL
   clip space (near → −1, far → +1, `d tan(fov/2)` at the edge), `look_at`, the
   full cofactor inverse both ways (clipping back to eye space, and an affine
   TRS * M⁻¹ = I to 1e-6), `transpose`, bounding boxes, and frustum planes for
   a turned camera and for an orthographic projection. No backend is linked and
   no surface is needed — it is pure arithmetic, so a failure names one function.
-* `test_engine` — 19 checks on whole frames, read back through the ABI:
-  silhouette size, exact blending, depth order, hierarchy, culling, winding.
+* `test_engine` — 333 checks on whole frames, read back through the ABI:
+  silhouette size, exact blending, depth order, hierarchy, culling, winding,
+  arena compaction and mesh reuse.
+* `test_game` — 4 checks on the Beacon Run sample rules: scoring, win and
+  lose states, reset.
+* `test_siege` — 19 checks on Rift Siege: segment/sphere sweeps, movement
+  speed, dash cooldown, and cover blocking shots.
 
 Every expected value is derived by hand in the comment above it rather than
 copied out of the engine, so a failure means the thing changed — not that two
@@ -71,8 +76,8 @@ g3 math self-test
   ok    the midpoint of near and far is at z = 0.980
   ok    M * inverse(M) is the identity
   ok    turning a cube widens the box around it to 2.164
-98 of 98 checks passed
+99 of 99 checks passed
 g3 engine self-test, 400x400
   ok    the right edge falls where 1 / (4 * tan(fov/2)) puts it
-19 of 19 checks passed
+333 of 333 checks passed
 ```

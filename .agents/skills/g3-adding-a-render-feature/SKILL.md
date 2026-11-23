@@ -130,7 +130,7 @@ it, so a large object straddling the near plane pops. To fix it properly:
 - [ ] Sorting still puts blended items last and far-to-near.
 - [ ] A hand-derived check exists in `test_math` (if it is arithmetic) or
     `test_engine` (if it is pixels), with the derivation in the comment.
-- [ ] `goose check` on all four roots: zero warnings.
+- [ ] `goose check` on every `src/*.goose`: zero warnings.
 - [ ] `./build_native.sh --test` passes; any neutral change still renders
     byte-identical PPMs (same `--frames` and same size).
 - [ ] Browser build boots and reports the same scene stats as before the change

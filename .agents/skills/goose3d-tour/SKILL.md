@@ -1,6 +1,6 @@
 ---
 name: goose3d-tour
-description: Use when starting work in the goose-3d repository — a map of the engine, the four entry points, the build and verify loop, and the invariants a change must not break.
+description: Use when starting work in the goose-3d repository — a map of the engine, its entry points, the build and verify loop, and the invariants a change must not break.
 ---
 
 # A tour of the goose-3d engine
@@ -52,13 +52,22 @@ No GL call, no window, no file I/O appears anywhere in `src/g3/`.
 
 | root | backend | purpose |
 |---|---|---|
-| `src/app_web.goose` | `platform/g3_web.c` | browser build; no `main` — exports `g3_app_init/g3_app_frame/...`, page drives frames |
+| `src/app_web.goose` | `platform/g3_web.c` + `g3_webgpu.c` | default browser build; no `main` — exports `g3_app_init/g3_app_frame/...`, page drives frames; WebGPU preferred, WebGL2 fallback |
 | `src/app_native.goose` | `platform/g3_soft.c` | headless; renders N frames, prints stats, writes a PPM; `--frames/--width/--height/--out` |
-| `src/test_math.goose` | none | 98 hand-derived checks on `math.goose`; needs no surface |
-| `src/test_engine.goose` | `platform/g3_soft.c` | 19 checks on whole frames, read back with `g3::read_pixel` |
+| `src/test_math.goose` | none | 99 hand-derived checks on `math.goose`; needs no surface |
+| `src/test_engine.goose` | `platform/g3_soft.c` | 333 checks on whole frames, read back with `g3::read_pixel` |
+| `src/test_game.goose` | `platform/g3_soft.c` | 4 checks on the Beacon Run rules |
+| `src/test_siege.goose` | `platform/g3_soft.c` | 19 checks on Rift Siege rules and sweeps |
+| `src/benchmark_transforms.goose` | none | native transform benchmark |
+| `src/game_web.goose` | `platform/g3_web.c` | Beacon Run browser build (`--game`) |
+| `src/siege_web.goose` | `platform/g3_web.c` | Rift Siege browser build (`--siege`) |
+| `src/viewer_web.goose` | `platform/g3_web.c` | model viewer (`--viewer`) and animation benchmark (`--animation-benchmark`) |
+| `src/gs3d_web.goose` | `platform/g3_web.c` | `gs3d` package facade build (`--gs3d`) |
+| `src/benchmark_web.goose` | `platform/g3_web.c` + `g3_webgpu.c` | draw-call benchmark (`--benchmark`) |
+| `src/reference_web.goose` | `platform/g3_web.c` | WebGL API reference checks (`--reference-checks`) |
 
-`src/demo/scene.goose` is the shared scene both app roots build.
-`src/testing.goose` is the `check`/`finish` harness both test roots use.
+`src/demo/scene.goose` is the shared scene the two `app_*` roots build.
+`src/testing.goose` is the `check`/`finish` harness the test roots use.
 
 ### Platform (C, behind the ABI)
 
@@ -78,7 +87,7 @@ pointer capture), `web/hud.js` (status line + stats line).
 ## Build and verify
 
 ```bash
-./build_native.sh --test # builds app_native + both tests, runs both
+./build_native.sh --test # builds app_native + the test roots, runs them all
 ./build/app_native --frames 8 --width 960 --height 600 --out f.ppm
 ./build_web.sh # web/app.js + app.wasm
 ./build_web.sh --serve # ... and serve on :8080
@@ -89,7 +98,7 @@ Verification ladder, cheapest first — use the lowest rung that proves the chan
 
 1. `goose check <root>` — must print zero warnings. The repo has none; a new
    warning is a defect, not noise.
-2. `./build_native.sh --test` — 98 math + 19 frame checks, exit non-zero on failure.
+2. `./build_native.sh --test` — 99 math + 333 frame + game and siege checks, exit non-zero on failure.
 3. Byte-identical frames. Any change that is meant to be behaviour-preserving
    must render the same bytes as before: keep a PPM from the old build and `cmp`
    it. Pitfall: the demo scene animates, so compare renders with the **same

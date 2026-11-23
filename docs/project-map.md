@@ -18,7 +18,16 @@
 | `src/app_native.goose` | the headless entry point: builds, renders N frames, writes a PPM |
 | `src/test_math.goose` | known-answer transforms, matrices and frustum planes, no backend |
 | `src/test_engine.goose` | known-answer frames, checked by reading pixels back |
-| `src/testing.goose` | the `check`/`finish` harness both test roots report through |
+| `src/test_game.goose` | Beacon Run rules: scoring, win/lose, reset |
+| `src/test_siege.goose` | Rift Siege rules: sweeps, movement, dash, cover |
+| `src/benchmark_transforms.goose` | native transform benchmark |
+| `src/game_web.goose` | Beacon Run browser entry point (`--game`) |
+| `src/siege_web.goose` | Rift Siege browser entry point (`--siege`) |
+| `src/viewer_web.goose` | model viewer and animation benchmark entry point |
+| `src/gs3d_web.goose` | `gs3d` package facade entry point (`--gs3d`) |
+| `src/benchmark_web.goose` | draw-call benchmark entry point (`--benchmark`) |
+| `src/reference_web.goose` | WebGL API reference-checks entry point |
+| `src/testing.goose` | the `check`/`finish` harness the test roots report through |
 | `platform/g3_abi.h` | the C side of the contract, with static asserts on the layout |
 | `platform/g3_input.{h,c}` | the key and mouse queue both backends share; each supplies only `g3_backend_resize` |
 | `platform/g3_web.c` | the WebGL2 backend (Emscripten), scene and shadow shaders, opaque instancing, GPU skin and morph deformation |

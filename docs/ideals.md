@@ -19,10 +19,11 @@ per frame, `g3p_draw_frame`, over packed flat structs.
 Why. A wasm boundary crossing per item would dominate the frame; a backend
 that re-derives a camera matrix would silently diverge from the engine.
 
-Enforced by. `src/g3/platform.goose` declares only `Vertex`, `DrawItem`,
-`ViewState` and eleven `extern fn g3p_*`. `src/g3/render.goose`'s `pack_item()`
-is the single place a `DrawItem` is built, and it multiplies out
-`view_proj * world` there so no backend ever touches a camera matrix.
+Enforced by. `src/g3/platform.goose` declares only the packed structs
+(`Vertex`, `UvTransform`, `DrawItem`, `Light`, `ViewState`) and the `g3p_*`
+entry points. `src/g3/render.goose`'s `pack_item()` is the single place a
+`DrawItem` is built, and it multiplies out `view_proj * world` there so no
+backend ever touches a camera matrix.
 
 Check. The WebGL2 and CPU backends render matching reference frames; the
 CPU one is the reference tests read from. The WebGPU default path has a browser
@@ -32,6 +33,8 @@ smoke check.
 
 Claim. Depth `LESS`, back faces culled, CCW front faces, and the fragment
 maths term for term — identical in `platform/g3_web.c` and `platform/g3_soft.c`.
+The WebGPU demo shader in `web/webgpu.js` spells the same simple shading path;
+it is a reduced renderer for the built-in demo, not a reference backend.
 
 Why. The CPU rasterizer is the test oracle. If its `shade()` differs from
 the GLSL, a "passing" pixel test passes the wrong thing.
@@ -166,7 +169,7 @@ contains no `g3p_*` symbol.
 
 ## 11. Zero warnings
 
-Claim. `goose check` on all four roots reports zero warnings. The `typechecked
+Claim. `goose check` on every root reports zero warnings. The `typechecked
 ok` and `bce` lines are the only output.
 
 Why. A warning that is tolerated becomes a bug that is tolerated; the roots
@@ -198,7 +201,7 @@ Why. A test that needs a browser is a test that does not run.
 Enforced by. `platform/g3_soft.c` implements every `g3p_*` including
 `g3p_read_pixel` and `g3p_save_frame` (PPM).
 
-Check. `./build_native.sh --test` runs both roots with no display server.
+Check. `./build_native.sh --test` runs the test roots with no display server.
 
 ## 14. Fail loud, not silent
 
@@ -266,23 +269,24 @@ Check. Backgrounding the tab stops frames (visible in the HUD fps counter).
 
 ## 19. No commits without authorization
 
-Claim. The repository has no commits yet and none are created, staged,
-pushed or deployed unless the user asks. Destructive or hard-to-undo actions
-are not taken on a coding request alone.
+Claim. `AGENTS.md` is the standing authorization: it directs a commit after
+changed code. Pushes, deploys and destructive or hard-to-undo actions still
+need an explicit request; a coding request alone is not a release request.
 
-Why. A coding request is not a release request.
+Why. Unrequested pushes and history rewrites cannot be taken back.
 
 Enforced by. Git discipline; this document.
 
-Check. `git log` is empty until the user says otherwise.
+Check. `git status` is clean once the `AGENTS.md` commit lands; nothing is
+pushed without an explicit request.
 
 ## Automated gates
 
 Two of the ideals above are now enforced by `./build_native.sh --test`, so a
 regression fails the build instead of a review:
 
-- Ideal 11 (zero warnings). `goose check` runs on all four roots; any line
-  containing `warning` fails the gate.
+- Ideal 11 (zero warnings). `goose check` runs on every `src/*.goose`; any
+  line containing `warning` fails the gate.
 - Ideal 7 (determinism). The demo is rendered at 320×240 for 2 frames at
   1, 3, 5 and 8 workers; the four PPMs must be byte-identical.
 

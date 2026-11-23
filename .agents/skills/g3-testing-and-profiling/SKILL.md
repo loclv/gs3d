@@ -11,7 +11,7 @@ worried about.
 
 ## 1. The harness
 
-`src/testing.goose` is shared by both test roots:
+`src/testing.goose` is shared by the test roots:
 
 ```goose
 testing::check(ok: bool, what: const u8[:]);   // prints "  ok    ..." or "  FAIL  ..."
@@ -21,7 +21,7 @@ if !testing::finish() { exit(1); }             // prints "N of M checks passed",
 A root prints a heading per group, then the tally. Exit code 1 on any failure —
 that is what `build_native.sh --test` relies on.
 
-## 2. Hand-derived checks (`src/test_math.goose`, 98 checks)
+## 2. Hand-derived checks (`src/test_math.goose`, 99 checks)
 
 **The discipline: the expected value is derived from the definition, in the
 comment above the check, never copied from a debug print of the engine.** Three
@@ -71,7 +71,7 @@ fn case_trs() {
   come out parallel, so a per-plane sign error in the two x and two y rows
   cannot hide behind a cone.
 
-## 3. Pixel checks (`src/test_engine.goose`, 19 checks)
+## 3. Pixel checks (`src/test_engine.goose`, 333 checks)
 
 Renders whole frames through the CPU backend and reads pixels back with
 `g3::read_pixel(x, y)`, which returns `0xRRGGBB`.

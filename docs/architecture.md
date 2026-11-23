@@ -89,8 +89,9 @@ frame(dt)
 
 ## The seam
 
-`src/g3/platform.goose` declares `Vertex`, `DrawItem`, `ViewState` and eleven
-`extern fn g3p_*`. `platform/g3_abi.h` mirrors them with `#pragma pack(1)` and
+`src/g3/platform.goose` declares the packed structs — `Vertex`, `UvTransform`,
+`DrawItem`, `Light`, `ViewState` — and the `g3p_*` entry points.
+`platform/g3_abi.h` mirrors them with `#pragma pack(1)` and
 static asserts. See [`abi.md`](abi.md) for offsets and field semantics.
 
 The engine never calls GL, never opens a file, never reads a key from the OS.

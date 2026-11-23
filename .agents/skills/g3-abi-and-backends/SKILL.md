@@ -142,7 +142,7 @@ image.
    are built).
 4. Both backends — read it where they need it. If a backend can ignore it, say
    so in a comment rather than leaving it unmentioned.
-5. `README.md` — update the byte size in "One seam, two backends".
+5. `docs/abi.md` — update the byte size and offset table for the changed struct.
 6. Verify: `goose check` all roots, `./build_native.sh --test` (the static
    asserts fire at compile time if the layouts drifted), and a PPM `cmp` for
    anything meant to be neutral.
