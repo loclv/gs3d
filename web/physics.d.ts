@@ -7,6 +7,20 @@ export { AssetError };
 
 export type Vec3 = [number, number, number];
 
+export interface PhysicsContact {
+  a: number;
+  b: number;
+  normal: Vec3;
+  penetration: number;
+}
+
+export interface PhysicsRayHit {
+  body: number;
+  distance: number;
+  point: Vec3;
+  normal: Vec3;
+}
+
 export declare class PhysicsWorld {
   constructor(engine: any);
   dispose(): void;
@@ -29,4 +43,12 @@ export declare class PhysicsWorld {
   applyImpulse(body: number, impulse: Vec3): void;
   setRestitution(body: number, value: number): void;
   setFriction(body: number, value: number): void;
+
+  removeBody(body: number): void;
+  setKinematic(body: number, kinematic: boolean): void;
+  isKinematic(body: number): boolean;
+  setMass(body: number, mass: number): void;
+  syncFromNode(body: number): void;
+  contacts(): PhysicsContact[];
+  raycast(origin: Vec3, direction: Vec3, maxDist?: number): PhysicsRayHit | null;
 }

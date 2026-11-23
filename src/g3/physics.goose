@@ -22,19 +22,50 @@ struct PhysicsBody {
     // Capsule cylinder half-length (center to cap center) along world Y;
     // zero with a positive radius means a sphere.
     half_length: f32 = 0.0,
+    mass: f32,
     inverse_mass: f32,
     restitution: f32 = 0.0,
     friction: f32 = 0.5,
+    // Kinematic bodies follow their velocity exactly — no gravity, forces
+    // or impulses — but still push dynamic bodies out of the way.
+    kinematic: bool = false,
+    // Removed bodies keep their slot so ids stay stable, like materials
+    // and cameras; they no longer integrate or collide.
+    removed: bool = false,
 }
 
 var g_physics_bodies: PhysicsBody[>..];
 var g_physics_gravity: float3 = float3 { 0.0, -9.81, 0.0 };
 
+// A contact recorded during the last physics_step: one entry per substep
+// pair overlap. `a` and `b` are body ids and `normal` points from body a
+// toward body b; `penetration` is the overlap depth at detection.
+struct BodyContact {
+    a: i64,
+    b: i64,
+    normal: float3 = float3_0,
+    penetration: f32 = 0.0,
+}
+
+var g_physics_contacts: BodyContact[>..];
+
 fn physics_body_count() -> i64 { return g_physics_bodies.len; }
 
 fn physics_body(id: i64) -> PhysicsBody& { return g_physics_bodies[id] }
 
-fn physics_clear() { g_physics_bodies.clear(); }
+// Live-body check shared by every public accessor: in range and not a
+// removal tombstone.
+fn physics_body_valid(id: i64) -> bool {
+    return id >= 0 && id < g_physics_bodies.len && !g_physics_bodies[id].removed;
+}
+
+// inverse_mass follows mass and kinematic mode: static (mass 0) and
+// kinematic bodies are immovable as far as the solver is concerned.
+fn physics_refresh_inverse_mass(body: PhysicsBody&) {
+    body.inverse_mass = if body.kinematic || body.mass == 0.0 { 0.0 } else { 1.0 / body.mass };
+}
+
+fn physics_clear() { g_physics_bodies.clear(); g_physics_contacts.clear(); }
 
 fn physics_set_gravity(gravity: float3) { g_physics_gravity = gravity; }
 
@@ -45,14 +76,14 @@ fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, half_
     let handle = node_handle(node_id);
     guard node_handle_valid(handle) else { return -1; }
     let position = node(node_id).pos;
-    let inverse_mass = if mass == 0.0 { 0.0 } else { 1.0 / mass };
     g_physics_bodies.push(PhysicsBody {
         node: handle,
         position: position,
         half_extents: half_extents,
         radius: radius,
         half_length: half_length,
-        inverse_mass: inverse_mass,
+        mass: mass,
+        inverse_mass: if mass == 0.0 { 0.0 } else { 1.0 / mass },
         ..
     });
     return g_physics_bodies.len - 1;
@@ -80,26 +111,82 @@ fn physics_body_add_capsule(node_id: i64, radius: f32, half_length: f32, mass: f
 }
 
 fn physics_body_set_restitution(id: i64, restitution: f32) -> bool {
-    guard id >= 0 && id < g_physics_bodies.len && restitution >= 0.0 && restitution <= 1.0 else { return false; }
+    guard physics_body_valid(id) && restitution >= 0.0 && restitution <= 1.0 else { return false; }
     g_physics_bodies[id].restitution = restitution;
     return true;
 }
 
 fn physics_body_set_friction(id: i64, friction: f32) -> bool {
-    guard id >= 0 && id < g_physics_bodies.len && friction >= 0.0 && friction <= 1.0 else { return false; }
+    guard physics_body_valid(id) && friction >= 0.0 && friction <= 1.0 else { return false; }
     g_physics_bodies[id].friction = friction;
     return true;
 }
 
+// Remove a body. The slot stays as a tombstone so every other id remains
+// valid, matching material_remove/camera_remove; physics_clear() frees the
+// slots. Removed bodies no longer integrate, collide or answer queries.
+fn physics_body_remove(id: i64) -> bool {
+    guard physics_body_valid(id) else { return false; }
+    let body .= g_physics_bodies[id];
+    body.removed = true;
+    body.velocity = float3_0;
+    body.force = float3_0;
+    return true;
+}
+
+fn physics_body_is_kinematic(id: i64) -> bool {
+    guard physics_body_valid(id) else { return false; }
+    return g_physics_bodies[id].kinematic;
+}
+
+// Change a body's mass after creation; mass == 0 makes it static. A
+// kinematic body keeps its mass for when kinematic mode is switched off.
+fn physics_body_set_mass(id: i64, mass: f32) -> bool {
+    guard physics_body_valid(id) && mass >= 0.0 && mass <= 3.4e38 else { return false; }
+    let body .= g_physics_bodies[id];
+    body.mass = mass;
+    physics_refresh_inverse_mass(body);
+    return true;
+}
+
+// Kinematic bodies follow their velocity exactly — no gravity, forces or
+// impulses — but still push dynamic bodies out of the way. This is the
+// Rapier RigidBodyType.KinematicPositionBased analogue.
+fn physics_body_set_kinematic(id: i64, kinematic: bool) -> bool {
+    guard physics_body_valid(id) else { return false; }
+    let body .= g_physics_bodies[id];
+    body.kinematic = kinematic;
+    physics_refresh_inverse_mass(body);
+    if kinematic { body.force = float3_0; }
+    return true;
+}
+
+// Copy the node's current position into the body. Gameplay code that moves
+// a node directly — teleports, character controllers — needs this, or the
+// body keeps its own position and the next physics_step writes the stale
+// one back onto the node.
+fn physics_body_sync(id: i64) -> bool {
+    guard physics_body_valid(id) && node_handle_valid(g_physics_bodies[id].node) else { return false; }
+    let body .= g_physics_bodies[id];
+    body.position = node(body.node.index).pos;
+    return true;
+}
+
+// Contacts detected during the last physics_step, one entry per substep
+// pair overlap, in pair order.
+fn physics_contact_count() -> i64 { return g_physics_contacts.len; }
+
+fn physics_contact(id: i64) -> BodyContact& { return g_physics_contacts[id]; }
+
 // Add a force for the next step. Forces are cleared after each step.
 fn physics_apply_force(id: i64, force: float3) -> bool {
-    guard id >= 0 && id < g_physics_bodies.len && g_physics_bodies[id].inverse_mass > 0.0 else { return false; }
+    guard physics_body_valid(id) && g_physics_bodies[id].inverse_mass > 0.0 else { return false; }
     g_physics_bodies[id].force += force;
     return true;
 }
 
 fn physics_body_set_velocity(id: i64, velocity: float3) -> bool {
-    guard id >= 0 && id < g_physics_bodies.len else { return false; }
+    guard physics_body_valid(id) else { return false; }
     g_physics_bodies[id].velocity = velocity;
     return true;
 }
@@ -109,6 +196,7 @@ fn physics_body_set_velocity(id: i64, velocity: float3) -> bool {
 // Inputs above one second are rejected to bound work after a long pause.
 fn physics_step(dt: f32) {
     guard dt > 0.0 && dt <= 1.0 else { return; }
+    g_physics_contacts.clear();
     var remaining = dt;
     while remaining > 0.0 {
         let sub_dt = min(remaining, 1.0 / 60.0);
@@ -124,9 +212,11 @@ fn physics_step(dt: f32) {
 
 fn physics_substep(dt: f32) {
     for &body in g_physics_bodies {
-        if !node_handle_valid(body.node) { continue; }
+        if body.removed || !node_handle_valid(body.node) { continue; }
         if body.inverse_mass > 0.0 {
             body.velocity += (g_physics_gravity + body.force * body.inverse_mass) * dt;
+            body.position += body.velocity * dt;
+        } else if body.kinematic {
             body.position += body.velocity * dt;
         }
     }
@@ -390,12 +480,14 @@ fn physics_resolve_pair(a_id: i64, b_id: i64) {
     let a .= g_physics_bodies[a_id];
     let b .= g_physics_bodies[b_id];
     let inverse_mass_sum = a.inverse_mass + b.inverse_mass;
-    if inverse_mass_sum <= 0.0 || !node_handle_valid(a.node) || !node_handle_valid(b.node) { return; }
+    if inverse_mass_sum <= 0.0 || a.removed || b.removed ||
+       !node_handle_valid(a.node) || !node_handle_valid(b.node) { return; }
 
     let contact = physics_contact(a, b);
     if !contact.hit { return; }
     let normal = contact.normal;
     let penetration = contact.penetration;
+    g_physics_contacts.push(BodyContact { a: a_id, b: b_id, normal: normal, penetration: penetration });
 
     // Move bodies apart, weighted by inverse mass, with a small slop to avoid
     // repeatedly correcting floating-point contact jitter.
@@ -419,12 +511,147 @@ fn physics_resolve_pair(a_id: i64, b_id: i64) {
     let tangent = tangent_velocity / tangent_speed;
     let friction_magnitude = -dot(relative_after_normal, tangent) / inverse_mass_sum;
     let max_friction = impulse_magnitude * sqrt(a.friction * b.friction);
-    let friction_scalar = if abs(friction_magnitude) < max_friction {
-        friction_magnitude
-    } else {
-        -max_friction
-    };
+    let friction_scalar = clamp(friction_magnitude, -max_friction, max_friction);
     let friction_impulse = tangent * friction_scalar;
     a.velocity -= friction_impulse * a.inverse_mass;
     b.velocity += friction_impulse * b.inverse_mass;
+}
+
+// Result of physics_raycast: the nearest body hit along the ray.
+// `normal` is the surface normal facing the ray origin.
+struct PhysicsRayHit {
+    hit: bool = false,
+    body: i64 = -1,
+    point: float3 = float3_0,
+    normal: float3 = float3_0,
+    distance: f32 = 0.0,
+}
+
+// Ray against a sphere: exact quadratic. A ray starting inside reports a
+// hit at distance 0 with the normal pointing from the center to the origin.
+fn physics_ray_sphere(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
+    let oc = origin - b.position;
+    let half_b = dot(dir, oc);
+    let c = dot(oc, oc) - b.radius * b.radius;
+    let disc = half_b * half_b - c;
+    if disc < 0.0 { return PhysicsRayHit { .. }; }
+    var t = -half_b - sqrt(disc);
+    let inside = t < 0.0;
+    if inside { t = 0.0; }
+    if t > max_dist { return PhysicsRayHit { .. }; }
+    let point = origin + dir * t;
+    var normal: float3;
+    if inside {
+        let off = point - b.position;
+        let off_len = length(off);
+        normal = if off_len > 0.0001 { off / off_len } else { -dir };
+    } else {
+        normal = (point - b.position) / b.radius;
+    }
+    return PhysicsRayHit { hit: true, point: point, normal: normal, distance: t, .. };
+}
+
+// Ray against an axis-aligned box: slab test. The entry face supplies the
+// normal; a ray starting inside reports distance 0 with -dir as normal.
+fn physics_ray_box(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
+    let c = b.position;
+    let he = b.half_extents;
+    var t_enter: f32 = -max_dist;
+    var t_exit: f32 = max_dist;
+    var enter_axis = -1;
+
+    if abs(dir.x) < 0.0000001 {
+        if origin.x < c.x - he.x || origin.x > c.x + he.x { return PhysicsRayHit { .. }; }
+    } else {
+        var t1 = (c.x - he.x - origin.x) / dir.x;
+        var t2 = (c.x + he.x - origin.x) / dir.x;
+        if t1 > t2 { let tmp = t1; t1 = t2; t2 = tmp; }
+        if t1 > t_enter { t_enter = t1; enter_axis = 0; }
+        if t2 < t_exit { t_exit = t2; }
+    }
+    if abs(dir.y) < 0.0000001 {
+        if origin.y < c.y - he.y || origin.y > c.y + he.y { return PhysicsRayHit { .. }; }
+    } else {
+        var t1 = (c.y - he.y - origin.y) / dir.y;
+        var t2 = (c.y + he.y - origin.y) / dir.y;
+        if t1 > t2 { let tmp = t1; t1 = t2; t2 = tmp; }
+        if t1 > t_enter { t_enter = t1; enter_axis = 1; }
+        if t2 < t_exit { t_exit = t2; }
+    }
+    if abs(dir.z) < 0.0000001 {
+        if origin.z < c.z - he.z || origin.z > c.z + he.z { return PhysicsRayHit { .. }; }
+    } else {
+        var t1 = (c.z - he.z - origin.z) / dir.z;
+        var t2 = (c.z + he.z - origin.z) / dir.z;
+        if t1 > t2 { let tmp = t1; t1 = t2; t2 = tmp; }
+        if t1 > t_enter { t_enter = t1; enter_axis = 2; }
+        if t2 < t_exit { t_exit = t2; }
+    }
+
+    if t_exit < t_enter || t_exit < 0.0 { return PhysicsRayHit { .. }; }
+    let distance = max(t_enter, 0.0);
+    var normal: float3;
+    if t_enter < 0.0 {
+        // Inside the box: face the ray back the way it came.
+        normal = -dir;
+    } else if enter_axis == 0 {
+        normal = float3 { if dir.x > 0.0 { -1.0 } else { 1.0 }, 0.0, 0.0 };
+    } else if enter_axis == 1 {
+        normal = float3 { 0.0, if dir.y > 0.0 { -1.0 } else { 1.0 }, 0.0 };
+    } else if enter_axis == 2 {
+        normal = float3 { 0.0, 0.0, if dir.z > 0.0 { -1.0 } else { 1.0 } };
+    } else {
+        normal = -dir;
+    }
+    return PhysicsRayHit { hit: true, point: origin + dir * distance, normal: normal, distance: distance, .. };
+}
+
+// Ray against a capsule: a ray hits the capsule exactly when its distance
+// to the axis segment is under the radius, so reuse the segment-segment
+// closest-point routine with the ray as one segment. The reported distance
+// backs off from the closest approach by the surface clearance along the
+// ray; for grazing angles this is a good approximation, not exact.
+fn physics_ray_capsule(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
+    let ray_seg = Segment { start: origin, end: origin + dir * max_dist };
+    let points = segment_segment_closest(ray_seg, physics_capsule_segment(b));
+    let d = points.on_first - points.on_second;
+    let dist = length(d);
+    if dist >= b.radius { return PhysicsRayHit { .. }; }
+    let along = dot(points.on_first - origin, dir);
+    if along < 0.0 || along > max_dist { return PhysicsRayHit { .. }; }
+    var normal: float3;
+    if dist > 0.0001 {
+        normal = d / dist;
+    } else {
+        // The ray passes through the axis: any perpendicular works, so
+        // face back along the ray.
+        normal = -dir;
+    }
+    let clearance = sqrt(max(b.radius * b.radius - dist * dist, 0.0));
+    let distance = max(along - clearance, 0.0);
+    return PhysicsRayHit { hit: true, point: origin + dir * distance, normal: normal, distance: distance, .. };
+}
+
+// Cast a ray against every live body and return the nearest hit. `dir`
+// need not be normalized; `max_dist` is measured in world units along it.
+// Removed bodies and bodies whose node is gone are skipped.
+fn physics_raycast(origin: float3, direction: float3, max_dist: f32) -> PhysicsRayHit {
+    let dir_len = length(direction);
+    guard dir_len > 0.0001 && max_dist > 0.0 else { return PhysicsRayHit { .. }; }
+    let dir = direction / dir_len;
+    var best = PhysicsRayHit { .. };
+    for i in 0..g_physics_bodies.len {
+        let body .= g_physics_bodies[i];
+        if body.removed || !node_handle_valid(body.node) { continue; }
+        var hit = PhysicsRayHit { .. };
+        let kind = physics_kind(body);
+        if kind == 0 { hit = physics_ray_box(origin, dir, body, max_dist); }
+        else if kind == 1 { hit = physics_ray_sphere(origin, dir, body, max_dist); }
+        else { hit = physics_ray_capsule(origin, dir, body, max_dist); }
+        if hit.hit && (!best.hit || hit.distance < best.distance) {
+            best = hit;
+            best.body = i;
+        }
+    }
+    return best;
 }

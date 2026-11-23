@@ -10,15 +10,26 @@
 // way RapierPhysics copies body.translation() onto mesh.position.
 //
 // Scope matches g3.rapier: translation only — no rotation, angular velocity
-// or torque; one collider per body; mass 0 is fixed, mass > 0 is dynamic.
+// or torque; one collider per body. Mass 0 is fixed, mass > 0 is dynamic,
+// and setKinematic makes a body velocity-driven: it ignores gravity, forces
+// and impulses but still pushes dynamic bodies. removeBody tombstones a
+// body without renumbering the others; clear() resets the world. Contacts
+// detected during the last step() are available through contacts(), and
+// raycast() casts against every live collider.
 
 import { AssetError } from './assets.js';
 
-const SCRATCH_FLOATS = 4;
+const SCRATCH_FLOATS = 8;
 
 function requirePhysics(engine) {
   if (!engine || typeof engine._g3_phys_world_step !== 'function') {
     throw new AssetError('UNSUPPORTED', 'This engine build does not export physics; use the gs3d package host (gs3d/app.js).');
+  }
+}
+
+function requireExport(engine, name) {
+  if (typeof engine[name] !== 'function') {
+    throw new AssetError('UNSUPPORTED', `This engine build does not export ${name}; rebuild the gs3d wasm.`);
   }
 }
 
@@ -123,5 +134,78 @@ export class PhysicsWorld {
     if (!this.engine._g3_phys_body_set_friction(body, value)) {
       throw new AssetError('INVALID', `Unknown physics body ${body} or friction outside [0, 1]`);
     }
+  }
+
+  // world.removeRigidBody — tombstones the body; other ids stay valid.
+  removeBody(body) {
+    requireExport(this.engine, '_g3_phys_body_remove');
+    if (!this.engine._g3_phys_body_remove(body)) {
+      throw new AssetError('INVALID', `Unknown physics body ${body}`);
+    }
+  }
+
+  // RigidBodyDesc.setBodyType — kinematic bodies follow linvel exactly and
+  // push dynamic bodies without being pushed back.
+  setKinematic(body, kinematic) {
+    requireExport(this.engine, '_g3_phys_body_set_kinematic');
+    if (!this.engine._g3_phys_body_set_kinematic(body, !!kinematic)) {
+      throw new AssetError('INVALID', `Unknown physics body ${body}`);
+    }
+  }
+
+  isKinematic(body) {
+    requireExport(this.engine, '_g3_phys_body_kinematic');
+    return !!this.engine._g3_phys_body_kinematic(body);
+  }
+
+  // Change mass after creation; 0 makes the body fixed.
+  setMass(body, mass) {
+    requireExport(this.engine, '_g3_phys_body_set_mass');
+    if (!this.engine._g3_phys_body_set_mass(body, mass)) {
+      throw new AssetError('INVALID', `Unknown physics body ${body} or mass out of range`);
+    }
+  }
+
+  // Copy the node's current position into the body — call after moving the
+  // node directly, or the next step() writes the body's stale position back.
+  syncFromNode(body) {
+    requireExport(this.engine, '_g3_phys_body_sync');
+    if (!this.engine._g3_phys_body_sync(body)) {
+      throw new AssetError('INVALID', `Unknown physics body ${body}`);
+    }
+  }
+
+  // Contacts detected during the last step(): [{a, b, normal, penetration}].
+  contacts() {
+    requireExport(this.engine, '_g3_phys_contact_count');
+    const count = this.engine._g3_phys_contact_count();
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      if (!this.engine._g3_phys_contact(i, this._scratch, SCRATCH_FLOATS)) break;
+      out.push({
+        a: this._vec[0],
+        b: this._vec[1],
+        normal: [this._vec[2], this._vec[3], this._vec[4]],
+        penetration: this._vec[5],
+      });
+    }
+    return out;
+  }
+
+  // world.castRay — nearest hit along origin + direction * t. `direction`
+  // need not be normalized. Returns {body, distance, point, normal} or null.
+  raycast(origin, direction, maxDist = 1000) {
+    requireExport(this.engine, '_g3_phys_raycast');
+    const [ox, oy, oz] = origin;
+    const [dx, dy, dz] = direction;
+    if (!this.engine._g3_phys_raycast(ox, oy, oz, dx, dy, dz, maxDist, this._scratch, SCRATCH_FLOATS)) {
+      return null;
+    }
+    return {
+      body: this._vec[0],
+      distance: this._vec[1],
+      point: [this._vec[2], this._vec[3], this._vec[4]],
+      normal: [this._vec[5], this._vec[6], this._vec[7]],
+    };
   }
 }

@@ -75,14 +75,24 @@ What the API gives you:
   set velocity directly, and tune restitution and friction from 0 to 1.
   Pairwise overlap uses substeps, positional correction, and normal and
   friction impulses; spheres and capsules resolve against every shape.
-  Bodies have no angular motion; `physics_clear()` removes all bodies.
+  Bodies have no angular motion. `physics_body_remove(id)` tombstones a body
+  without renumbering the others, `physics_body_set_mass` and
+  `physics_body_set_kinematic` change it after creation — kinematic bodies
+  follow their velocity exactly and push dynamic bodies without being pushed
+  back — and `physics_body_sync(id)` adopts a node position that gameplay
+  code moved directly. `physics_contact_count()`/`physics_contact(i)` list
+  the overlaps detected during the last step, and `physics_raycast(origin,
+  dir, max_dist)` returns the nearest `PhysicsRayHit` (body, distance,
+  point, normal) against every live collider. `physics_clear()` removes all
+  bodies.
   `import g3.rapier` offers the same solver in RapierPhysics vocabulary —
   `rapier_body_add_cuboid/ball/capsule`, `rapier_set_timestep` +
   `rapier_world_step`, `rapier_body_translation/linvel/set_linvel`,
   `rapier_body_apply_impulse`, `rapier_body_set_translation` (teleports and
-  zeroes velocity) and `rapier_body_is_dynamic` (mass > 0). Rotation and
-  angular velocity are not simulated; there is one collider per body and no
-  per-body removal.
+  zeroes velocity), `rapier_body_is_dynamic` (mass > 0),
+  `rapier_body_set_kinematic`, `rapier_body_set_mass`, `rapier_body_remove`,
+  `rapier_body_sync` and `rapier_world_raycast`. Rotation and
+  angular velocity are not simulated; there is one collider per body.
 * Meshes — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
   for your own geometry. Pushes stage one mesh and `mesh_close(fv, fi)` closes

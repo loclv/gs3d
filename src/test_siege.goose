@@ -237,6 +237,138 @@ fn main() {
     for i in 300 { g3::rapier_world_step(); }
     testing::check(abs(g3::rapier_body_translation(rcap).y - 1.0) < 0.02,
                    "rapier capsule settles on a box floor");
+
+    // Kinematic bodies: velocity-driven, untouched by gravity, forces or
+    // impulses, but they still carry dynamic bodies through friction.
+    g3::physics_clear();
+    g3::physics_set_gravity(float3 { 0.0, -9.81, 0.0 });
+    let pad_node = g3::node_add(unit_mesh);
+    g3::node(pad_node).pos = float3_0;
+    let platform = g3::physics_body_add(pad_node, float3 { 2.0, 0.5, 2.0 }, 1.0);
+    testing::check(g3::physics_body_set_kinematic(platform, true) &&
+                   g3::physics_body_is_kinematic(platform), "kinematic flag sets and reads back");
+    g3::physics_body_set_velocity(platform, float3 { 1.0, 0.0, 0.0 });
+    testing::check(!g3::physics_apply_force(platform, float3 { 0.0, 1.0, 0.0 }),
+                   "kinematic bodies ignore forces");
+    let rider_node = g3::node_add(unit_mesh);
+    g3::node(rider_node).pos = float3 { 0.0, 0.7, 0.0 };
+    let rider = g3::physics_body_add_sphere(rider_node, 0.25, 1.0);
+    for i in 60 { g3::physics_step(1.0 / 60.0); }
+    // The platform's top face is y=0.5, so the r=0.25 ball rests at y=0.75 while
+    // friction drags it along with the platform's 1 u/s for the full second.
+    testing::check(abs(g3::physics_body(platform).position.x - 1.0) < 0.001 &&
+                   g3::physics_body(platform).position.y == 0.0 &&
+                   g3::physics_body(platform).velocity.y == 0.0,
+                   "kinematic body moves at its velocity only, gravity aside");
+    testing::check(g3::physics_body(rider).position.x > 0.7 &&
+                   abs(g3::physics_body(rider).position.y - 0.75) < 0.05,
+                   "kinematic platform carries a resting dynamic body");
+
+    // Removal tombstones the slot: ids stay valid for lookups, the body
+    // stops simulating, and the count still includes the dead slot.
+    testing::check(g3::physics_body_remove(platform), "remove accepts a live body");
+    testing::check(!g3::physics_body_remove(platform) && !g3::physics_body_remove(999) &&
+                   !g3::physics_body_set_mass(platform, 2.0) &&
+                   !g3::physics_body_set_velocity(platform, float3_1) &&
+                   !g3::physics_body_set_kinematic(platform, false),
+                   "removed bodies reject state changes and re-removal");
+    testing::check(g3::physics_body_count() == 2, "removal keeps the slot as a tombstone");
+    for i in 30 { g3::physics_step(1.0 / 60.0); }
+    // With the platform gone the rider falls under gravity from y=0.75.
+    testing::check(g3::physics_body(rider).position.y < 0.6,
+                   "removed kinematic body no longer supports its rider");
+
+    // set_mass re-derives inverse mass, and kinematic mode round-trips it.
+    g3::physics_clear();
+    g3::physics_set_gravity(float3_0);
+    let mnode = g3::node_add(unit_mesh);
+    g3::node(mnode).pos = float3_0;
+    let mb = g3::physics_body_add_sphere(mnode, 0.5, 1.0);
+    testing::check(g3::physics_body_set_mass(mb, 4.0) &&
+                   g3::physics_body_set_kinematic(mb, true) &&
+                   !g3::physics_apply_force(mb, float3 { 0.0, 0.0, 1.0 }) &&
+                   g3::physics_body_set_kinematic(mb, false),
+                   "mass and kinematic changes guard and restore correctly");
+    g3::physics_apply_force(mb, float3 { 0.0, 0.0, 1.0 });
+    g3::physics_step(1.0 / 60.0);
+    // One substep: dv = F/m * dt = 1/4 * 1/60 = 1/240.
+    testing::check(abs(g3::physics_body(mb).velocity.z - 1.0 / 240.0) < 0.0001,
+                   "set_mass rescales force response");
+    testing::check(g3::physics_body_set_mass(mb, 0.0) && !g3::physics_apply_force(mb, float3_1),
+                   "zero mass makes a body static again");
+
+    // sync adopts an externally moved node position; without it the body
+    // writes its own stale position back over the node on the next step.
+    g3::physics_clear();
+    let snode = g3::node_add(unit_mesh);
+    g3::node(snode).pos = float3_0;
+    let sb = g3::physics_body_add_sphere(snode, 0.5, 1.0);
+    g3::node(snode).pos = float3 { 5.0, 0.0, 0.0 };
+    g3::physics_step(1.0 / 60.0);
+    testing::check(g3::node(snode).pos.x == 0.0, "unsynced node move is overwritten by the body");
+    g3::node(snode).pos = float3 { 5.0, 0.0, 0.0 };
+    testing::check(g3::physics_body_sync(sb) && g3::physics_body(sb).position.x == 5.0,
+                   "sync adopts the node's position");
+    g3::physics_step(1.0 / 60.0);
+    testing::check(g3::node(snode).pos.x == 5.0, "synced body keeps the node in place");
+
+    // Contact query: two r=0.5 spheres with centers 0.9 apart overlap by
+    // 0.1; the normal points from the first body toward the second.
+    g3::physics_clear();
+    let ca_node = g3::node_add(unit_mesh);
+    g3::node(ca_node).pos = float3 { -0.45, 0.0, 0.0 };
+    let ca_id = g3::physics_body_add_sphere(ca_node, 0.5, 1.0);
+    let cb_node = g3::node_add(unit_mesh);
+    g3::node(cb_node).pos = float3 { 0.45, 0.0, 0.0 };
+    let cb_id = g3::physics_body_add_sphere(cb_node, 0.5, 0.0);
+    g3::physics_step(1.0 / 60.0);
+    testing::check(g3::physics_contact_count() == 1, "overlapping spheres record one contact");
+    let ct = g3::physics_contact(0);
+    testing::check(ct.a == ca_id && ct.b == cb_id &&
+                   abs(ct.penetration - 0.1) < 0.0001 &&
+                   abs(ct.normal.x - 1.0) < 0.0001 && abs(ct.normal.y) < 0.0001,
+                   "contact reports ids, normal and penetration");
+
+    // Raycast: sphere, box and capsule hits plus misses, against a
+    // hand-derived layout.
+    g3::physics_clear();
+    let rs_node = g3::node_add(unit_mesh);
+    g3::node(rs_node).pos = float3_0;
+    let rs_id = g3::physics_body_add_sphere(rs_node, 0.5, 0.0);
+    let rhit = g3::physics_raycast(float3 { 0.0, 0.0, 3.0 }, float3 { 0.0, 0.0, -1.0 }, 10.0);
+    testing::check(rhit.hit && rhit.body == rs_id &&
+                   abs(rhit.distance - 2.5) < 0.0001 &&
+                   abs(rhit.point.z - 0.5) < 0.0001 && abs(rhit.normal.z - 1.0) < 0.0001,
+                   "raycast hits a sphere with distance, point and normal");
+    testing::check(!g3::physics_raycast(float3 { 0.0, 5.0, 3.0 }, float3 { 0.0, 0.0, -1.0 }, 10.0).hit &&
+                   !g3::physics_raycast(float3_0, float3_0, 10.0).hit,
+                   "raycast reports misses and rejects a zero direction");
+    testing::check(g3::physics_body_remove(rs_id) &&
+                   !g3::physics_raycast(float3 { 0.0, 0.0, 3.0 }, float3 { 0.0, 0.0, -1.0 }, 10.0).hit,
+                   "raycast skips removed bodies");
+    g3::physics_clear();
+    let rb_node = g3::node_add(unit_mesh);
+    g3::node(rb_node).pos = float3_0;
+    let rb_id = g3::physics_body_add(rb_node, float3 { 0.5, 0.5, 0.5 }, 0.0);
+    let bhit = g3::physics_raycast(float3 { 0.0, 3.0, 0.0 }, float3 { 0.0, -1.0, 0.0 }, 10.0);
+    testing::check(bhit.hit && bhit.body == rb_id &&
+                   abs(bhit.distance - 2.5) < 0.0001 && abs(bhit.point.y - 0.5) < 0.0001 &&
+                   abs(bhit.normal.y - 1.0) < 0.0001,
+                   "raycast enters a box through its top face");
+    let inside = g3::physics_raycast(float3_0, float3 { 0.0, 1.0, 0.0 }, 10.0);
+    testing::check(inside.hit && inside.body == rb_id && inside.distance == 0.0,
+                   "ray starting inside a box hits at distance zero");
+    g3::physics_clear();
+    let rc_node = g3::node_add(unit_mesh);
+    g3::node(rc_node).pos = float3_0;
+    let rc_id = g3::physics_body_add_capsule(rc_node, 0.5, 0.5, 0.0);
+    // The capsule axis is the y segment [-0.5, 0.5]; a ray along -x at
+    // y=z=0 reaches the +x cap surface at x=0.5 after traveling 1.5.
+    let chit = g3::physics_raycast(float3 { 2.0, 0.0, 0.0 }, float3 { -1.0, 0.0, 0.0 }, 10.0);
+    testing::check(chit.hit && chit.body == rc_id &&
+                   abs(chit.distance - 1.5) < 0.001 && abs(chit.normal.x - 1.0) < 0.001,
+                   "raycast hits a capsule cap");
+
     g3::rapier_set_timestep(1.0 / 60.0);
     g3::physics_clear();
     g3::shutdown();

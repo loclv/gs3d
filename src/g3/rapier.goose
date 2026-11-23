@@ -59,13 +59,13 @@ fn rapier_body_add_capsule(node_id: i64, half_length: f32, radius: f32, mass: f3
 
 // RigidBodyDesc.dynamic() check: mass > 0 bodies integrate and collide.
 fn rapier_body_is_dynamic(id: i64) -> bool {
-    guard id >= 0 && id < physics_body_count() else { return false; }
+    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return false; }
     return physics_body(id).inverse_mass > 0.0;
 }
 
 // body.translation()
 fn rapier_body_translation(id: i64) -> float3 {
-    guard id >= 0 && id < physics_body_count() else { return float3_0; }
+    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return float3_0; }
     return physics_body(id).position;
 }
 
@@ -73,7 +73,7 @@ fn rapier_body_translation(id: i64) -> float3 {
 // RapierPhysics.setMeshPosition. The node's position is updated immediately
 // so the next frame renders the new spot even before world.step().
 fn rapier_body_set_translation(id: i64, position: float3) -> bool {
-    guard id >= 0 && id < physics_body_count() else { return false; }
+    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return false; }
     let body .= physics_body(id);
     body.position = position;
     body.velocity = float3_0;
@@ -83,7 +83,7 @@ fn rapier_body_set_translation(id: i64, position: float3) -> bool {
 
 // body.linvel()
 fn rapier_body_linvel(id: i64) -> float3 {
-    guard id >= 0 && id < physics_body_count() else { return float3_0; }
+    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return float3_0; }
     return physics_body(id).velocity;
 }
 
@@ -95,7 +95,7 @@ fn rapier_body_set_linvel(id: i64, velocity: float3) -> bool {
 // body.applyImpulse(): an instantaneous velocity change of impulse *
 // inverse_mass. Dynamic bodies only.
 fn rapier_body_apply_impulse(id: i64, impulse: float3) -> bool {
-    guard id >= 0 && id < physics_body_count() else { return false; }
+    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return false; }
     let body .= physics_body(id);
     if body.inverse_mass <= 0.0 { return false; }
     body.velocity += impulse * body.inverse_mass;
@@ -109,4 +109,31 @@ fn rapier_body_set_restitution(id: i64, restitution: f32) -> bool {
 
 fn rapier_body_set_friction(id: i64, friction: f32) -> bool {
     return physics_body_set_friction(id, friction);
+}
+
+// world.removeRigidBody. The slot stays as a tombstone so other ids remain
+// valid; rapier_world_clear() frees every slot.
+fn rapier_body_remove(id: i64) -> bool { return physics_body_remove(id); }
+
+// RigidBodyDesc.setBodyType: kinematic bodies follow linvel exactly — no
+// gravity, forces or impulses — and push dynamic bodies out of the way.
+fn rapier_body_set_kinematic(id: i64, kinematic: bool) -> bool {
+    return physics_body_set_kinematic(id, kinematic);
+}
+
+fn rapier_body_is_kinematic(id: i64) -> bool { return physics_body_is_kinematic(id); }
+
+// RigidBodyDesc.setAdditionalMassProperties-style mass change; mass 0 is
+// fixed, positive is dynamic, and the collider shape is unchanged.
+fn rapier_body_set_mass(id: i64, mass: f32) -> bool { return physics_body_set_mass(id, mass); }
+
+// Copy the node's position into the body — for gameplay code that moved
+// the node directly instead of through setTranslation.
+fn rapier_body_sync(id: i64) -> bool { return physics_body_sync(id); }
+
+// world.castRay: nearest hit along origin + direction * t, `max_dist` in
+// world units. `direction` need not be normalized. Misses return a hit
+// struct with hit == false and body == -1.
+fn rapier_world_raycast(origin: float3, direction: float3, max_dist: f32) -> PhysicsRayHit {
+    return physics_raycast(origin, direction, max_dist);
 }

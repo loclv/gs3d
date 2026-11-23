@@ -95,7 +95,7 @@ exports="${exports%]},${asset_exports}]"
 
 # Physics exports exist only in the gs3d host, which imports g3.physics_web.
 if [ "${1:-}" = "--gs3d" ]; then
-  phys_exports='"_g3_phys_set_gravity","_g3_phys_clear","_g3_phys_set_timestep","_g3_phys_world_step","_g3_phys_body_cuboid","_g3_phys_body_ball","_g3_phys_body_capsule","_g3_phys_body_pos","_g3_phys_body_vel","_g3_phys_body_set_pos","_g3_phys_body_set_vel","_g3_phys_body_apply_impulse","_g3_phys_body_dynamic","_g3_phys_body_set_restitution","_g3_phys_body_set_friction"'
+  phys_exports='"_g3_phys_set_gravity","_g3_phys_clear","_g3_phys_set_timestep","_g3_phys_world_step","_g3_phys_body_cuboid","_g3_phys_body_ball","_g3_phys_body_capsule","_g3_phys_body_pos","_g3_phys_body_vel","_g3_phys_body_set_pos","_g3_phys_body_set_vel","_g3_phys_body_apply_impulse","_g3_phys_body_dynamic","_g3_phys_body_kinematic","_g3_phys_body_set_kinematic","_g3_phys_body_set_mass","_g3_phys_body_remove","_g3_phys_body_sync","_g3_phys_body_set_restitution","_g3_phys_body_set_friction","_g3_phys_contact_count","_g3_phys_contact","_g3_phys_raycast"'
   exports="${exports%]},${phys_exports}]"
 fi
 

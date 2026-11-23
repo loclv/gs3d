@@ -51,9 +51,45 @@ export fn g3_phys_body_apply_impulse(id: i32, x: f32, y: f32, z: f32) -> bool {
     return g3::rapier_body_apply_impulse(id, float3 { x, y, z });
 }
 export fn g3_phys_body_dynamic(id: i32) -> bool { return g3::rapier_body_is_dynamic(id); }
+export fn g3_phys_body_kinematic(id: i32) -> bool { return g3::rapier_body_is_kinematic(id); }
+export fn g3_phys_body_set_kinematic(id: i32, kinematic: bool) -> bool {
+    return g3::rapier_body_set_kinematic(id, kinematic);
+}
+export fn g3_phys_body_set_mass(id: i32, mass: f32) -> bool {
+    return g3::rapier_body_set_mass(id, mass);
+}
+export fn g3_phys_body_remove(id: i32) -> bool { return g3::rapier_body_remove(id); }
+export fn g3_phys_body_sync(id: i32) -> bool { return g3::rapier_body_sync(id); }
 export fn g3_phys_body_set_restitution(id: i32, restitution: f32) -> bool {
     return g3::rapier_body_set_restitution(id, restitution);
 }
 export fn g3_phys_body_set_friction(id: i32, friction: f32) -> bool {
     return g3::rapier_body_set_friction(id, friction);
+}
+
+// Contacts recorded during the last world.step(). Each contact writes 6
+// floats into out: [a, b, nx, ny, nz, penetration].
+export fn g3_phys_contact_count() -> i32 { return g3::physics_contact_count() as i32; }
+export fn g3_phys_contact(id: i32, out: f32[:]) -> bool {
+    guard out.len >= 6 && id >= 0 && id < g3::physics_contact_count() else { return false; }
+    let c .= g3::physics_contact(id);
+    out[0] = c.a;
+    out[1] = c.b;
+    out[2] = c.normal.x; out[3] = c.normal.y; out[4] = c.normal.z;
+    out[5] = c.penetration;
+    return true;
+}
+
+// world.castRay. `out` must hold at least 8 floats and receives
+// [body, distance, px, py, pz, nx, ny, nz]. Returns false on a miss or bad
+// arguments and leaves out untouched.
+export fn g3_phys_raycast(ox: f32, oy: f32, oz: f32, dx: f32, dy: f32, dz: f32, max_dist: f32, out: f32[:]) -> bool {
+    guard out.len >= 8 else { return false; }
+    let hit = g3::rapier_world_raycast(float3 { ox, oy, oz }, float3 { dx, dy, dz }, max_dist);
+    guard hit.hit else { return false; }
+    out[0] = hit.body;
+    out[1] = hit.distance;
+    out[2] = hit.point.x; out[3] = hit.point.y; out[4] = hit.point.z;
+    out[5] = hit.normal.x; out[6] = hit.normal.y; out[7] = hit.normal.z;
+    return true;
 }
