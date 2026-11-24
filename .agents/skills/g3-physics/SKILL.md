@@ -82,9 +82,11 @@ obstacles, character controllers.
 
 - **Contacts**: `physics_contact_count()` / `physics_contact(i)` →
   `BodyContact { a, b, normal, point, penetration }` — one entry per
-  substep pair overlap, cleared each step. Manifold pairs report their
-  deepest point; `point` is the world-space contact point used for
-  angular response.
+  body pair per step (deduped across substeps, freshest record wins),
+  cleared each step. Pairs keep reporting while both sides sleep, so
+  resting contacts don't flicker; static-vs-static pairs are never
+  recorded. Manifold pairs report their deepest point; `point` is the
+  world-space contact point used for angular response.
 - **Raycast**: `physics_raycast(origin, dir, max_dist)` → `PhysicsRayHit
   { hit, body, point, normal, distance }`, nearest hit, `dir` need not be
   normalized. Box rays run in the box's local frame; capsule rays reuse

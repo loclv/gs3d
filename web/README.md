@@ -206,19 +206,30 @@ const [x, y, z] = world.translation(body);    // copy back to your scene
 Bodies are created from cuboid, ball and capsule descriptors and expose
 `translation`/`setTranslation`, `linvel`/`setLinvel`, `angvel`/`setAngvel`,
 `rotation`/`setRotation` (euler radians in the node convention),
-`applyImpulse`, `applyImpulseAtPoint`, `addTorque`,
+`applyImpulse`, `applyImpulseAtPoint`, `addTorque`, `addForce`,
+`resetForces`/`resetTorques`, `mass`/`setMass`, `setBodyType`,
+`setNextKinematicTranslation`, `isSleeping`/`sleep`/`wakeUp`,
 `setRestitution`/`setFriction`, matching Rapier's RigidBody/Collider
-vocabulary. Mass 0 is fixed and mass > 0 is dynamic; `setKinematic` makes a
+vocabulary. `world.addBody({ node, collider, body })` accepts
+`ColliderDesc`/`RigidBodyDesc` builders (`RigidBodyDesc.dynamic()`,
+`.fixed()`, `.kinematicVelocityBased()`, `.kinematicPositionBased()`;
+`BodyType` for `setBodyType`) and returns a `PhysicsBody` handle. Mass 0 is fixed and mass > 0 is dynamic; `setKinematic` makes a
 body velocity-driven — it ignores gravity, forces and impulses but still
 pushes dynamic bodies — and `setMass` changes mass after creation.
 `removeBody` tombstones a body without renumbering the others, and
 `syncFromNode` adopts a node transform that your code moved directly.
 `contacts()` returns the overlaps detected during the last `step()`
-(`{a, b, normal, point, penetration}` — `point` is world-space), and
+(`{a, b, normal, point, penetration}` — `point` is world-space, one
+record per pair including pairs where both bodies sleep), and
 `raycast(origin, direction, maxDist)` returns the nearest
-`{body, distance, point, normal}` or `null`. Colliders rotate with their
-body (capsules run along local Y), bodies sleep automatically when they
-come to rest, and there is one collider per body. Bodies attach to engine
+`{body, distance, point, normal}` or `null`; `raycast` also accepts
+`{ maxDist, exclude }` to skip a body for self-hits. Colliders rotate
+with their body (capsules run along local Y), bodies sleep automatically
+when they come to rest — `isSleeping()`/`sleep()`/`wakeUp()` give
+explicit control, and `step(new CollisionEventQueue())` reports
+Rapier-style `collisionStarted`/`collisionStopped` pairs through
+`queue.drainCollisionEvents(handler)`. There is one collider per body.
+Bodies attach to engine
 node indices, not facade `Object3D`s; read `translation()` and
 `rotation()` after `step()` and write them back to your objects yourself.
 With the `gs3d/three` facade, `engineNodeIndex(object)` (exported from

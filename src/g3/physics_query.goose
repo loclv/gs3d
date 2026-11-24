@@ -11,22 +11,29 @@ import g3.physics;
 
 namespace g3;
 
-// A contact recorded during the last physics_step: one entry per substep
-// pair overlap. `a` and `b` are body ids, `normal` points from body a
-// toward body b, `point` is the world-space contact point (midpoint of the
-// two surface points) and `penetration` is the overlap depth at detection.
+// A contact recorded during the last physics_step: one entry per body
+// pair per step — pairs overlapping across several substeps keep only
+// their freshest record (see the dedupe pass at the end of
+// physics_step). `a` and `b` are body ids in detection order, `normal`
+// points from body a toward body b, `point` is the world-space contact
+// point (midpoint of the two surface points) and `penetration` is the
+// overlap depth at detection. `pkey`/`ord` are internal dedupe keys.
 struct BodyContact {
     a: i64,
     b: i64,
     normal: float3 = float3_0,
     point: float3 = float3_0,
     penetration: f32 = 0.0,
+    // Canonical unordered-pair key and push order, used only by the
+    // per-step dedupe in physics_step.
+    pkey: i64 = 0,
+    ord: i64 = 0,
 }
 
 var g_physics_contacts: BodyContact[>..];
 
-// Contacts detected during the last physics_step, one entry per substep
-// pair overlap, in pair order.
+// Contacts detected during the last physics_step, one entry per body
+// pair, in pair order.
 fn physics_contact_count() -> i64 { return g_physics_contacts.len; }
 
 fn physics_contact(id: i64) -> BodyContact& { return g_physics_contacts[id]; }

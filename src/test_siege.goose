@@ -531,6 +531,22 @@ fn main() {
     testing::check(abs(g3::physics_body(stack).position.y - 1.5) < 0.03 &&
                    abs(g3::physics_body(drop).position.y - 0.5) < 0.03,
                    "two-box stack rests at contact heights");
+    // Sleeping contacts persist: both resting pairs still report their
+    // overlap once the bodies sleep, one record per pair — records from
+    // earlier substeps must not duplicate within the step.
+    var pairs: i64[>..] = [];
+    for i in 0..g3::physics_contact_count() {
+        let c = g3::physics_contact(i);
+        pairs.push(min(c.a, c.b) * 65536 + max(c.a, c.b));
+    }
+    var unique_pairs: i64 = 0;
+    for i in 0..pairs.len {
+        var seen = false;
+        for j in 0..i { if pairs[j] == pairs[i] { seen = true; } }
+        if !seen { unique_pairs += 1; }
+    }
+    testing::check(g3::physics_contact_count() == 2 && unique_pairs == 2,
+                   "sleeping contacts persist without duplicates");
     g3::physics_clear();
 
     g3::rapier_set_timestep(1.0 / 60.0);

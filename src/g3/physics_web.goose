@@ -52,7 +52,7 @@ export fn g3_phys_body_apply_impulse(id: i32, x: f32, y: f32, z: f32) -> bool {
     return g3::rapier_body_apply_impulse(id, float3 { x, y, z });
 }
 export fn g3_phys_body_angvel(id: i32, out: f32[:]) -> bool {
-    guard out.len >= 3 else { return false; }
+    guard out.len >= 3 && g3::physics_body_valid(id) else { return false; }
     phys_write_vec3(out, g3::rapier_body_angvel(id));
     return true;
 }
@@ -60,7 +60,7 @@ export fn g3_phys_body_set_angvel(id: i32, x: f32, y: f32, z: f32) -> bool {
     return g3::rapier_body_set_angvel(id, float3 { x, y, z });
 }
 export fn g3_phys_body_rot(id: i32, out: f32[:]) -> bool {
-    guard out.len >= 3 else { return false; }
+    guard out.len >= 3 && g3::physics_body_valid(id) else { return false; }
     phys_write_vec3(out, g3::rapier_body_rotation(id));
     return true;
 }

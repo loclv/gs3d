@@ -61,37 +61,47 @@ var g_physics_manifold = ContactManifold { .. };
 // O(1) as manifold contacts multiply the solver list. Rebuilt from the
 // solver list at the end of every substep, so pairs that stop touching
 // drop out on their own. key == 0 marks an empty slot.
+// WarmSlot.lambda_t is deliberately absent: friction is not seeded —
+// its tangent is recomputed each substep and a stale lambda_t would
+// apply along the wrong direction whenever the tangential velocity
+// reverses.
 struct WarmSlot {
     key: i64 = 0,
     lambda_n: f32 = 0.0,
-    lambda_t: f32 = 0.0,
 }
 
 var g_warm_tab: WarmSlot[>..];
 var g_warm_mask: i64 = 0;
 
+// Keys canonicalize the pair order: the sweep visits pairs in AABB
+// order, which can flip between substeps, and a flipped visit must still
+// find the same accumulated impulse.
 fn physics_warm_key(a: i64, b: i64, slot: i64) -> i64 {
-    return a * 68719476736 + b * 16 + slot + 1;
+    let lo = min(a, b);
+    let hi = max(a, b);
+    return lo * 68719476736 + hi * 16 + slot + 1;
 }
 
 fn physics_warm_slot(a: i64, b: i64, slot: i64, cap: i64) -> i64 {
-    var h = (a * 31 + b) * 31 + slot;
+    let lo = min(a, b);
+    let hi = max(a, b);
+    var h = (lo * 31 + hi) * 31 + slot;
     h = (h * 2654435761) % cap;
     return h;
 }
 
-fn physics_warm_lookup(a: i64, b: i64, slot: i64) -> f32, f32 {
-    if g_warm_mask <= 0 { return 0.0, 0.0; }
+fn physics_warm_lookup(a: i64, b: i64, slot: i64) -> f32 {
+    if g_warm_mask <= 0 { return 0.0; }
     let cap = g_warm_mask + 1;
     let key = physics_warm_key(a, b, slot);
     var idx = physics_warm_slot(a, b, slot, cap);
     for _ in 0..cap {
         let w = g_warm_tab[idx];
-        if w.key == 0 { return 0.0, 0.0; }
-        if w.key == key { return w.lambda_n, w.lambda_t; }
+        if w.key == 0 { return 0.0; }
+        if w.key == key { return w.lambda_n; }
         idx = (idx + 1) % cap;
     }
-    return 0.0, 0.0;
+    return 0.0;
 }
 
 // Velocity iterations per substep. Each pass re-solves every contact
@@ -115,6 +125,27 @@ fn physics_step(dt: f32) {
         physics_substep(h);
         remaining -= h;
         steps += 1;
+    }
+
+    // Contact records accumulate once per substep; keep only the freshest
+    // record per pair so contacts() reports each overlap once per step.
+    // pkey is the canonical unordered pair key, ord the push order —
+    // the last record of each pkey group is the freshest.
+    if g_physics_contacts.len > 1 {
+        sort(g_physics_contacts) { x, y =>
+            x.pkey < y.pkey || (x.pkey == y.pkey && x.ord < y.ord)
+        };
+        var w: i64 = 0;
+        var i: i64 = 0;
+        while i < g_physics_contacts.len {
+            var j = i + 1;
+            while j < g_physics_contacts.len &&
+                  g_physics_contacts[j].pkey == g_physics_contacts[i].pkey { j += 1; }
+            g_physics_contacts[w] = g_physics_contacts[j - 1];
+            w += 1;
+            i = j;
+        }
+        while g_physics_contacts.len > w { g_physics_contacts.pop(); }
     }
 
     for &body in g_physics_bodies { body.force = float3_0; body.torque = float3_0; }
@@ -342,16 +373,15 @@ fn physics_detect_pair(a_id: i64, b_id: i64) {
        abs(d.y) > a.bounds.y + b.bounds.y ||
        abs(d.z) > a.bounds.z + b.bounds.z { return; }
 
-    // Pairs where neither side can move — static, kinematic and sleeping
-    // bodies all contribute zero effective inverse mass — can never need
-    // resolution, and never produced a contact record anyway. The one
-    // exception is a moving kinematic body: it must still reach a sleeping
-    // partner so the impact can wake it.
-    let im_a0 = if a.sleeping { 0.0 } else { a.inverse_mass };
-    let im_b0 = if b.sleeping { 0.0 } else { b.inverse_mass };
-    if im_a0 + im_b0 <= 0.0 &&
-       !(a.kinematic && length(a.velocity) > 0.0001) &&
-       !(b.kinematic && length(b.velocity) > 0.0001) { return; }
+    // Cheap reject: a pair where neither side is a dynamic body — awake
+    // or asleep; sleeping keeps inverse_mass — and no kinematic body is
+    // moving can never produce an observable contact. Sleeping pairs and
+    // bodies resting on static or kinematic geometry still get through:
+    // their overlap is recorded for contact queries even though the
+    // solver cannot move either side.
+    let kin_a = a.kinematic && length(a.velocity) > 0.0001;
+    let kin_b = b.kinematic && length(b.velocity) > 0.0001;
+    if a.inverse_mass <= 0.0 && b.inverse_mass <= 0.0 && !kin_a && !kin_b { return; }
 
     physics_contact_manifold(a, b, g_physics_manifold);
     if g_physics_manifold.count == 0 { return; }
@@ -372,18 +402,27 @@ fn physics_detect_pair(a_id: i64, b_id: i64) {
 
     let im_a = if a.sleeping { 0.0 } else { a.inverse_mass };
     let im_b = if b.sleeping { 0.0 } else { b.inverse_mass };
-    if im_a + im_b <= 0.0 { return; }
 
-    // Contact query reports the deepest manifold point.
+    // Contact query reports the deepest manifold point. The record is
+    // kept even when neither side can move this substep — asleep pairs
+    // and bodies at rest on static or kinematic geometry still touch —
+    // so contacts() does not flicker and collision events do not report
+    // spurious stops for pairs that are still overlapping.
     var deepest = 0;
     for k in 1..g_physics_manifold.count {
         if g_physics_manifold.penetrations[k] > g_physics_manifold.penetrations[deepest] {
             deepest = k;
         }
     }
+    let lo = min(a_id, b_id);
+    let hi = max(a_id, b_id);
     g_physics_contacts.push(BodyContact { a: a_id, b: b_id, normal: normal,
         point: g_physics_manifold.points[deepest],
-        penetration: g_physics_manifold.penetrations[deepest] });
+        penetration: g_physics_manifold.penetrations[deepest],
+        pkey: lo * 68719476736 + hi + 1,
+        ord: g_physics_contacts.len });
+
+    if im_a + im_b <= 0.0 { return; }
 
     let e = min(a.restitution, b.restitution);
     for k in 0..g_physics_manifold.count {
@@ -420,7 +459,7 @@ fn physics_detect_pair(a_id: i64, b_id: i64) {
         // is not seeded — its tangent is recomputed each substep and a
         // stale lambda_t would apply along the wrong direction whenever
         // the tangential velocity reverses.
-        let seed_n, _ = physics_warm_lookup(a_id, b_id, k);
+        let seed_n = physics_warm_lookup(a_id, b_id, k);
 
         g_physics_solver.push(SolverContact {
             a: a_id, b: b_id,
@@ -535,7 +574,6 @@ fn physics_solve_contacts() {
         while g_warm_tab[idx].key != 0 { idx = (idx + 1) % cap; }
         g_warm_tab[idx].key = key;
         g_warm_tab[idx].lambda_n = c.lambda_n;
-        g_warm_tab[idx].lambda_t = c.lambda_t;
     }
     g_physics_solver.clear();
 }
