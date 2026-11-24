@@ -98,7 +98,7 @@ obstacles, character controllers.
   substep are applied once up front (normal impulse only, keyed by
   `(a, b, slot)` in an open-addressed hash — friction seeds are skipped
   because the tangent is recomputed each substep), then
-  `PHYSICS_SOLVER_ITERATIONS` (16) Gauss-Seidel passes accumulate the
+  `PHYSICS_SOLVER_ITERATIONS` (12) Gauss-Seidel passes accumulate the
   normal impulse (clamped ≥ 0, biased toward the restitution target only
   for impacts faster than 1 m/s) and a friction impulse clamped to
   `mu * lambda_n`, with an early-out once deltas converge. One
@@ -122,6 +122,11 @@ obstacles, character controllers.
 - Euler write-back can hit gimbal lock at pitch ≈ ±90° — extraction
   returns an equivalent rotation (yaw zeroed), so the *matrix* is
   preserved even when the angles differ.
+- Angular response runs against a cached **world-space inverse inertia
+  tensor** (`inv_inertia_world` = R·diag(ii)·Rᵀ), refreshed once per substep
+  after integration — one mat-vec per impulse instead of two basis
+  transforms. Bounds refresh and the tensor refresh share one fused
+  O(n) pass after integration; sleeping bodies are skipped in both.
 - Broadphase is a per-substep **sweep-and-prune along x**: live bodies are
   sorted by AABB min-x (`bounds` is refreshed every substep) and only
   x-overlapping pairs reach `physics_detect_pair`, which still rejects on
