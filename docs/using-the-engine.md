@@ -77,8 +77,9 @@ What the API gives you:
   with `physics_apply_force`/`physics_apply_torque`, set velocities
   directly, and tune restitution and friction from 0 to 1. Pairwise overlap
   uses adaptive substeps (capped at 1/60 s, shrinking for fast bodies),
-  positional correction, and normal impulses with full angular response;
-  friction applies linearly. Bodies sleep automatically after resting
+  sequential-impulse iterations over the detected contacts, and one
+  positional-correction pass; normal impulses keep full angular response
+  and friction applies linearly. Bodies sleep automatically after resting
   briefly. `physics_body_remove(id)` tombstones a body without renumbering
   the others, `physics_body_set_mass` and `physics_body_set_kinematic`
   change it after creation — kinematic bodies follow their velocity and

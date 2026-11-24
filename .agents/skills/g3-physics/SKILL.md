@@ -90,7 +90,13 @@ obstacles, character controllers.
 
 ## Solver notes / limitations
 
-- Single contact point per pair. **Friction is applied linearly only** —
+- Contacts solve with **sequential impulses**: detection runs once per
+  substep into `g_physics_solver`, then `PHYSICS_SOLVER_ITERATIONS` (8)
+  Gauss-Seidel passes accumulate the normal impulse (clamped ≥ 0, biased
+  toward the restitution target only for impacts faster than 1 m/s) and a
+  friction impulse clamped to `mu * lambda_n`. One positional-correction
+  pass runs afterward. Single contact point per pair — no manifolds.
+- **Friction is applied linearly only** —
   a lone contact point cannot balance the torque friction below the center
   of mass would create, so friction-induced tipping/rolling is suppressed
   on purpose. Normal impulses keep full angular response, so edge hits
@@ -104,7 +110,7 @@ obstacles, character controllers.
   preserved even when the angles differ.
 - Broadphase is a per-substep **sweep-and-prune along x**: live bodies are
   sorted by AABB min-x (`bounds` is refreshed every substep) and only
-  x-overlapping pairs reach `physics_resolve_pair`, which still rejects on
+  x-overlapping pairs reach `physics_detect_pair`, which still rejects on
   y/z bounds and skips pairs where neither side can move. Pairs are no
   longer visited in id order — contact resolution order follows the
   sorted sweep, which is deterministic but not id-ordered.
@@ -172,7 +178,7 @@ the solver), and write rotation back as `object.rotation.set(x, y, z,
 
 - `goose check src/test_siege.goose` — typechecks the module graph.
 - `./build_native.sh --test` — builds and runs all roots; `test_siege`
-  holds the hand-derived physics checks (currently 75).
+  holds the hand-derived physics checks (currently 77).
 - `./build_web.sh --gs3d` — rebuilds `web/gs3d/app.js`/`app.wasm`; new
   `g3_phys_*` exports must also be added to the `phys_exports` list in
   `build_web.sh` or they won't be callable from JS.

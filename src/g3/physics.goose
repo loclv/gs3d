@@ -5,8 +5,11 @@
 // integration with linear and angular velocity, and an impulse response
 // when their shapes overlap. It is intended for simple game motion, not as
 // a general-purpose solver: broadphase is a per-substep sweep-and-prune
-// along x, sleeping is per-body rather than island-based, and friction is
-// a single Coulomb clamp per contact.
+// along x, contacts are single-point rather than manifolds, sleeping is
+// per-body rather than island-based, and friction is applied linearly only
+// (a single contact point cannot balance friction torque). Contacts are
+// solved with sequential impulses — a fixed number of accumulated-impulse
+// iterations per substep plus one positional-correction pass.
 
 import std;
 import vec;
@@ -79,6 +82,40 @@ struct BodyContact {
 }
 
 var g_physics_contacts: BodyContact[>..];
+
+// A contact kept for the iterative solve. Detection runs once per substep;
+// then a fixed number of Gauss-Seidel passes refine the impulses. lambda_n
+// accumulates the normal impulse (clamped >= 0 — the non-penetration
+// constraint) and lambda_t accumulates friction along the tangent captured
+// at detection, clamped to mu * lambda_n. bias is the restitution target
+// separating speed along the normal.
+struct SolverContact {
+    a: i64,
+    b: i64,
+    normal: float3,
+    tangent: float3,
+    point: float3,
+    ra: float3,
+    rb: float3,
+    penetration: f32,
+    im_a: f32,
+    im_b: f32,
+    ii_a: float3,
+    ii_b: float3,
+    bias: f32,
+    denom_n: f32,
+    denom_t: f32,
+    mu: f32,
+    lambda_n: f32 = 0.0,
+    lambda_t: f32 = 0.0,
+}
+
+var g_physics_solver: SolverContact[>..];
+
+// Velocity iterations per substep. Each pass re-solves every contact
+// against the velocities the previous pass produced, which is what makes
+// stacked bodies share load instead of popping in pair order.
+const PHYSICS_SOLVER_ITERATIONS: i32 = 8;
 
 fn physics_body_count() -> i64 { return g_physics_bodies.len; }
 
@@ -580,11 +617,11 @@ fn physics_substep(dt: f32) {
         while jj < g_physics_order.len {
             let j = g_physics_order[jj];
             if g_physics_bodies[j].position.x - g_physics_bodies[j].bounds.x > xmax { break; }
-            physics_resolve_pair(i, j);
+            physics_detect_pair(i, j);
             jj += 1;
         }
     }
-
+    physics_solve_contacts();
 }
 
 // Angular acceleration from the accumulated world-frame torque: rotate
@@ -1012,7 +1049,16 @@ fn physics_apply_contact_impulse(a: PhysicsBody&, b: PhysicsBody&, j: float3,
     }
 }
 
-fn physics_resolve_pair(a_id: i64, b_id: i64) {
+// Velocity of a point fixed to the body at world offset `r` from its
+// center: linear plus omega x r.
+fn physics_point_velocity(b: PhysicsBody&, r: float3) -> float3 {
+    return b.velocity + cross(b.angular_velocity, r);
+}
+
+// Broadphase and contact detection for one candidate pair. Records the
+// contact for queries and, when the pair can actually move, appends a
+// SolverContact for the iterative pass that runs after the sweep.
+fn physics_detect_pair(a_id: i64, b_id: i64) {
     let a .= g_physics_bodies[a_id];
     let b .= g_physics_bodies[b_id];
     if a.removed || b.removed ||
@@ -1040,9 +1086,13 @@ fn physics_resolve_pair(a_id: i64, b_id: i64) {
     let normal = contact.normal;
     let point = contact.point;
 
+    let ra = point - a.position;
+    let rb = point - b.position;
+    let vrel = physics_point_velocity(b, rb) - physics_point_velocity(a, ra);
+
     // A real impact wakes sleepers; resting contacts below the threshold
     // leave them asleep and immovable.
-    let approach = dot(b.velocity - a.velocity, normal);
+    let approach = dot(vrel, normal);
     if approach < -0.1 {
         physics_wake(a);
         physics_wake(b);
@@ -1057,38 +1107,94 @@ fn physics_resolve_pair(a_id: i64, b_id: i64) {
     g_physics_contacts.push(BodyContact { a: a_id, b: b_id, normal: normal,
         point: point, penetration: contact.penetration });
 
-    let ra = point - a.position;
-    let rb = point - b.position;
+    let denom_n = physics_contact_denominator(a, b, normal, ra, rb, im_a, im_b, ii_a, ii_b);
+    if denom_n <= 0.0 { return; }
 
-    // Move bodies apart, weighted by inverse mass, with a small slop to
-    // avoid repeatedly correcting floating-point contact jitter.
-    let correction = normal * (max(contact.penetration - 0.001, 0.0) * 0.8 / (im_a + im_b));
-    if im_a > 0.0 { a.position -= correction * im_a; }
-    if im_b > 0.0 { b.position += correction * im_b; }
+    // Restitution bias: the target separating speed along the normal,
+    // applied only to impacts fast enough to bounce — resting and slow
+    // contacts solve toward zero approach instead.
+    let e = min(a.restitution, b.restitution);
+    let bias = if approach < -1.0 { -e * approach } else { 0.0 };
 
-    if approach >= 0.0 { return; }
-    let restitution = min(a.restitution, b.restitution);
-    let denom = physics_contact_denominator(a, b, normal, ra, rb, im_a, im_b, ii_a, ii_b);
-    if denom <= 0.0 { return; }
-    let impulse_magnitude = -(1.0 + restitution) * approach / denom;
-    physics_apply_contact_impulse(a, b, normal * impulse_magnitude, ra, rb,
-                                  im_a, im_b, ii_a, ii_b);
+    // Friction direction is the tangential part of the relative surface
+    // velocity at the contact point, fixed for the whole solve.
+    let vt = vrel - normal * dot(vrel, normal);
+    var tangent = float3_0;
+    var denom_t: f32 = 0.0;
+    let vt_len = length(vt);
+    if vt_len > 0.001 {
+        tangent = vt / vt_len;
+        denom_t = physics_contact_denominator(a, b, tangent, ra, rb, im_a, im_b, ii_a, ii_b);
+    }
 
-    let relative_after_normal = (b.velocity + cross(b.angular_velocity, rb)) -
-                                (a.velocity + cross(a.angular_velocity, ra));
-    let tangent_velocity = relative_after_normal - normal * dot(relative_after_normal, normal);
-    let tangent_speed = length(tangent_velocity);
-    if tangent_speed <= 0.000001 { return; }
-    let tangent = tangent_velocity / tangent_speed;
-    let friction_magnitude = -dot(relative_after_normal, tangent) / (im_a + im_b);
-    let max_friction = impulse_magnitude * sqrt(a.friction * b.friction);
-    let friction_scalar = clamp(friction_magnitude, -max_friction, max_friction);
-    // Friction applies linearly only: a single contact point cannot balance
-    // the torque friction below the center of mass would create, and lets
-    // resting bodies tip or roll without bound. Normal impulses keep the
-    // full angular response, so edge hits still rotate bodies.
-    physics_apply_contact_impulse(a, b, tangent * friction_scalar, ra, rb,
-                                  im_a, im_b, float3_0, float3_0);
+    g_physics_solver.push(SolverContact {
+        a: a_id, b: b_id,
+        normal: normal, tangent: tangent, point: point,
+        ra: ra, rb: rb, penetration: contact.penetration,
+        im_a: im_a, im_b: im_b, ii_a: ii_a, ii_b: ii_b,
+        bias: bias, denom_n: denom_n, denom_t: denom_t,
+        mu: sqrt(a.friction * b.friction),
+        lambda_n: 0.0, lambda_t: 0.0,
+    });
+}
+
+// Sequential-impulse solve over the contacts detected this substep.
+// lambda_n accumulates the normal impulse clamped at zero — contacts can
+// push bodies apart but never pull them together — and lambda_t accumulates
+// friction bounded by mu * lambda_n, so the tangential force a contact can
+// apply scales with the load pressing it together.
+fn physics_solve_contacts() {
+    for _ in 0..PHYSICS_SOLVER_ITERATIONS {
+        for i in 0..g_physics_solver.len {
+            let c .= g_physics_solver[i];
+            let a .= g_physics_bodies[c.a];
+            let b .= g_physics_bodies[c.b];
+
+            // Normal: drive the approach speed toward the restitution bias.
+            let vrel = physics_point_velocity(b, c.rb) - physics_point_velocity(a, c.ra);
+            let vn = dot(vrel, c.normal);
+            let dl = (c.bias - vn) / c.denom_n;
+            let new_n = max(c.lambda_n + dl, 0.0);
+            let delta_n = new_n - c.lambda_n;
+            if delta_n != 0.0 {
+                physics_apply_contact_impulse(a, b, c.normal * delta_n, c.ra, c.rb,
+                                              c.im_a, c.im_b, c.ii_a, c.ii_b);
+                c.lambda_n = new_n;
+            }
+
+            // Friction along the stored tangent, bounded by the accumulated
+            // normal impulse. Applied linearly only: a single contact point
+            // cannot balance the torque friction below the center of mass
+            // would create, and lets resting bodies tip or roll without
+            // bound. Normal impulses keep the full angular response, so
+            // edge hits still rotate bodies.
+            if c.denom_t > 0.0 {
+                let vrel2 = physics_point_velocity(b, c.rb) - physics_point_velocity(a, c.ra);
+                let dl_t = -dot(vrel2, c.tangent) / c.denom_t;
+                let max_t = c.mu * c.lambda_n;
+                let new_t = clamp(c.lambda_t + dl_t, -max_t, max_t);
+                let delta_t = new_t - c.lambda_t;
+                if delta_t != 0.0 {
+                    physics_apply_contact_impulse(a, b, c.tangent * delta_t, c.ra, c.rb,
+                                                  c.im_a, c.im_b, float3_0, float3_0);
+                    c.lambda_t = new_t;
+                }
+            }
+        }
+    }
+
+    // Positional correction once, after the velocity solve: move bodies
+    // apart along the normal weighted by inverse mass, with a small slop
+    // to avoid repeatedly correcting floating-point contact jitter.
+    for i in 0..g_physics_solver.len {
+        let c .= g_physics_solver[i];
+        let denom = c.im_a + c.im_b;
+        if denom <= 0.0 { continue; }
+        let push = c.normal * (max(c.penetration - 0.001, 0.0) * 0.8 / denom);
+        if c.im_a > 0.0 { g_physics_bodies[c.a].position -= push * c.im_a; }
+        if c.im_b > 0.0 { g_physics_bodies[c.b].position += push * c.im_b; }
+    }
+    g_physics_solver.clear();
 }
 
 // Result of physics_raycast: the nearest body hit along the ray.

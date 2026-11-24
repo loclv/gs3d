@@ -505,6 +505,32 @@ fn main() {
     // 0.5 rad about Y: column 2 picks up sin(0.5) ~= 0.479 in m[8].
     testing::check(abs(g3::node(kspin_node).local_matrix.m[8] - 0.4794) < 0.01,
                    "kinematic angvel rotates a matrix-driven node");
+
+    // Iterative solve: a box dropped on a static slab settles onto it and
+    // stays — no sink, no bounce, and it falls asleep. A two-box stack
+    // keeps both boxes resting at their contact heights.
+    g3::physics_clear();
+    g3::physics_set_gravity(float3 { 0.0, -9.81, 0.0 });
+    let sfloor_node = g3::node_add(unit_mesh);
+    g3::node(sfloor_node).pos = float3 { 0.0, -0.5, 0.0 };
+    g3::physics_body_add(sfloor_node, float3 { 5.0, 0.5, 5.0 }, 0.0);
+    let drop_node = g3::node_add(unit_mesh);
+    g3::node(drop_node).pos = float3 { 0.0, 3.0, 0.0 };
+    let drop = g3::physics_body_add(drop_node, float3 { 0.5, 0.5, 0.5 }, 1.0);
+    for i in 300 { g3::physics_step(1.0 / 60.0); }
+    let settled = g3::physics_body(drop);
+    testing::check(abs(settled.position.y - 0.5) < 0.02 &&
+                   abs(settled.position.x) < 0.05 && abs(settled.position.z) < 0.05 &&
+                   length(settled.velocity) < 0.05,
+                   "dropped box settles on the slab and sleeps");
+    // Stack a second box on the first: both rest at y = 0.5 and 1.5.
+    let stack_node = g3::node_add(unit_mesh);
+    g3::node(stack_node).pos = float3 { 0.0, 4.0, 0.0 };
+    let stack = g3::physics_body_add(stack_node, float3 { 0.5, 0.5, 0.5 }, 1.0);
+    for i in 300 { g3::physics_step(1.0 / 60.0); }
+    testing::check(abs(g3::physics_body(stack).position.y - 1.5) < 0.03 &&
+                   abs(g3::physics_body(drop).position.y - 0.5) < 0.03,
+                   "two-box stack rests at contact heights");
     g3::physics_clear();
 
     g3::rapier_set_timestep(1.0 / 60.0);
