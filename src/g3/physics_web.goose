@@ -12,6 +12,9 @@ import g3.rapier;
 // World controls.
 export fn g3_phys_set_gravity(x: f32, y: f32, z: f32) { g3::rapier_set_gravity(float3 { x, y, z }); }
 export fn g3_phys_clear() { g3::rapier_world_clear(); }
+export fn g3_phys_set_water_level(y: f32) { g3::rapier_set_water_level(y); }
+export fn g3_phys_water_level() -> f32 { return g3::rapier_water_level(); }
+export fn g3_phys_clear_water() { g3::rapier_clear_water(); }
 export fn g3_phys_set_timestep(seconds: f32) -> bool { return g3::rapier_set_timestep(seconds); }
 export fn g3_phys_world_step() { g3::rapier_world_step(); }
 

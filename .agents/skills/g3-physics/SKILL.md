@@ -135,6 +135,18 @@ obstacles, character controllers.
   y/z bounds and skips pairs where neither side can move. Pairs are no
   longer visited in id order — contact resolution order follows the
   sorted sweep, which is deterministic but not id-ordered.
+- `physics_set_water_level(y)` puts a water surface at height `y` on world
+  Y (`physics_water_level()` reads it, `physics_clear_water()` disables;
+  the `-1e30` default is off). Awake dynamic bodies below it get
+  **buoyancy** — `-gravity × (1000 × volume / mass) × submerged_fraction`
+  at the center of mass — plus linear drag on velocity and spin
+  (`PHYSICS_WATER_DRAG`/`_ANG_DRAG` per second at full submersion).
+  Submerged fraction is exact for spheres (spherical cap) and linear in
+  world-Y extent for boxes/capsules, so effective density is
+  `mass / volume`: floaters want mass ≈ volume × a few hundred, sinkers
+  mass ≈ volume × >1000. `PhysicsBody.volume` is set at creation from the
+  collider shape; there is no fluid sim, no waves, and buoyancy applies no
+  torque (angular drag is what settles rotation).
 - Still no sleeping islands, no joints/constraints, no collider lists,
   and only one friction direction per contact. Very slender stacks can
   still topple — treat tall perfect towers as beyond the stable envelope.
@@ -153,7 +165,8 @@ angvel), `rapier_body_apply_impulse`, `rapier_body_apply_impulse_at`,
 `rapier_body_is_dynamic`, `rapier_body_set_kinematic/is_kinematic`,
 `rapier_body_set_mass`, `rapier_body_remove`, `rapier_body_sync`,
 `rapier_world_raycast`, `rapier_body_set_restitution/set_friction`,
-`rapier_set_gravity`, `rapier_world_clear`.
+`rapier_set_gravity`, `rapier_set_water_level`/`rapier_water_level`/
+`rapier_clear_water`, `rapier_world_clear`.
 
 ## JS side (`gs3d/physics`)
 
@@ -164,7 +177,9 @@ angvel), `rapier_body_apply_impulse`, `rapier_body_apply_impulse_at`,
 `addTorque`, `setRestitution/setFriction`, `setKinematic/isKinematic`,
 `setMass`, `removeBody`, `syncFromNode`, `contacts()` →
 `{a, b, normal, point, penetration}`, `raycast(origin, dir, maxDist?)` →
-`{body, distance, point, normal} | null`. Bodies are engine node indices —
+`{body, distance, point, normal} | null`, `setWaterLevel(y)` /
+`waterLevel` property / `clearWater()` for the water surface. Bodies are
+engine node indices —
 copy `translation()`/`rotation()` back to your objects yourself.
 
 With the `gs3d/three` facade, `engineNodeIndex(object)` (exported from
@@ -202,7 +217,7 @@ the solver), and write rotation back as `object.rotation.set(x, y, z,
 
 - `goose check src/test_siege.goose` — typechecks the module graph.
 - `./build_native.sh --test` — builds and runs all roots; `test_siege`
-  holds the hand-derived physics checks (currently 77).
+  holds the hand-derived physics checks (currently 83).
 - `./build_web.sh --gs3d` — rebuilds `web/gs3d/app.js`/`app.wasm`; new
   `g3_phys_*` exports must also be added to the `phys_exports` list in
   `build_web.sh` or they won't be callable from JS.

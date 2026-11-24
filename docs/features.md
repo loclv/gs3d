@@ -90,7 +90,9 @@ and the [Three.js roadmap](threejs-roadmap.md).
   velocity, restitution, friction, adaptive substeps, sweep-and-prune
   broadphase, warm-started sequential-impulse solver, automatic sleeping,
   kinematic bodies, per-body removal, box-box contact manifolds, per-step
-  contact queries (with world contact points) and collider raycasts. A RapierPhysics-style facade
+  contact queries (with world contact points) and collider raycasts, plus
+  water physics — a water-level plane gives submerged bodies displaced-water
+  buoyancy and hydrodynamic drag. A RapierPhysics-style facade
   (`g3.rapier`) exposes the same solver with Rapier vocabulary:
   cuboid/ball/capsule bodies, world timestep + step,
   translation/linvel/angvel/rotation accessors, applyImpulse,
@@ -114,7 +116,7 @@ and the [Three.js roadmap](threejs-roadmap.md).
 * Runnable examples: landing demo, Beacon Run and Rift Siege games, model
   viewer, instancing benchmark with a Three.js/PixiJS comparison page,
   WebGL reference-check suite, and `samples/` scenes and apps
-  (animations, caustic-volume, loverocks, physics).
+  (animations, caustic-volume, loverocks, physics, water).
 * Headless verification: `./build_native.sh --test` runs 99 math + 333
   engine-pixel + game and siege checks, gates zero warnings on every
   `src/*.goose`, and compares PPMs byte-for-byte at 1/3/5/8 workers;

@@ -132,8 +132,13 @@ export declare class PhysicsWorld {
   dispose(): void;
   timestep: number;
   gravity: Vec3;
+  /** Water surface height on world Y, or null when disabled. */
+  waterLevel: number | null;
 
   setGravity(x: number, y: number, z: number): void;
+  /** Set the water surface height on world Y; null disables water. */
+  setWaterLevel(y: number | null): void;
+  clearWater(): void;
   clear(): void;
   setTimestep(seconds: number): void;
   step(eventQueue?: CollisionEventQueue): void;

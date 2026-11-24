@@ -549,6 +549,49 @@ fn main() {
                    "sleeping contacts persist without duplicates");
     g3::physics_clear();
 
+    // Water: a box at half water density floats with its center near the
+    // surface; a denser-than-water box sinks to the floor. A sphere gets
+    // the exact submerged-cap fraction. Water disabled by default is
+    // covered by every test above.
+    g3::physics_set_gravity(float3 { 0.0, -9.81, 0.0 });
+    g3::physics_set_water_level(0.0);
+    let wfloor_node = g3::node_add(unit_mesh);
+    g3::node(wfloor_node).pos = float3 { 0.0, -2.5, 0.0 };
+    g3::physics_body_add(wfloor_node, float3 { 5.0, 0.5, 5.0 }, 0.0);
+    // Unit box: volume 1, mass 500 -> density 500, equilibrium frac 0.5,
+    // center at the surface.
+    let wfloat_node = g3::node_add(unit_mesh);
+    g3::node(wfloat_node).pos = float3 { -2.0, 4.0, 0.0 };
+    let wfloat = g3::physics_body_add(wfloat_node, float3 { 0.5, 0.5, 0.5 }, 500.0);
+    // Same box at density 2000: sinks onto the floor top (y = -2).
+    let wsink_node = g3::node_add(unit_mesh);
+    g3::node(wsink_node).pos = float3 { 2.0, 4.0, 0.0 };
+    let wsink = g3::physics_body_add(wsink_node, float3 { 0.5, 0.5, 0.5 }, 2000.0);
+    // Sphere radius 0.5: volume ~0.5236, mass ~262 -> density ~500.
+    let wball_node = g3::node_add(unit_mesh);
+    g3::node(wball_node).pos = float3 { 0.0, 4.0, -2.0 };
+    let wball = g3::physics_body_add_sphere(wball_node, 0.5, 261.8);
+    // Water drag caps sink speed near 1 u/s, so the dense box needs the
+    // longer run to reach the floor.
+    for i in 1500 { g3::physics_step(1.0 / 60.0); }
+    let fb = g3::physics_body(wfloat);
+    let sb = g3::physics_body(wsink);
+    let bb = g3::physics_body(wball);
+    testing::check(abs(fb.position.y) < 0.2 && abs(fb.position.x + 2.0) < 0.3 &&
+                   length(fb.velocity) < 0.2,
+                   "half-density box floats at the surface and settles");
+    // The dense box can come to rest tilted on an edge, so its center
+    // sits above the flat-rest height — what matters is that it sank
+    // through the water column onto the floor (top at y = -2).
+    testing::check(sb.position.y < -1.0 && sb.position.y > -1.8,
+                   "dense box sinks to the floor under water");
+    testing::check(abs(bb.position.y) < 0.3 && length(bb.velocity) < 0.3,
+                   "sphere floats with exact cap buoyancy");
+    testing::check(g3::physics_water_level() == 0.0, "water level reports");
+    g3::physics_clear_water();
+    testing::check(g3::physics_water_level() < -1.0e29, "clear_water disables");
+    g3::physics_clear();
+
     g3::rapier_set_timestep(1.0 / 60.0);
     g3::physics_clear();
     g3::shutdown();

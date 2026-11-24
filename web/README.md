@@ -197,6 +197,7 @@ import { PhysicsWorld } from 'gs3d/physics';
 const world = new PhysicsWorld(engine); // the gs3d host module
 world.setGravity(0, -9.81, 0);
 world.setTimestep(1 / 60);
+world.setWaterLevel(0); // optional: water surface on world Y
 
 const body = world.addBall(nodeIndex, 0.5, 1); // mass 0 is fixed
 world.step();
@@ -228,7 +229,13 @@ with their body (capsules run along local Y), bodies sleep automatically
 when they come to rest — `isSleeping()`/`sleep()`/`wakeUp()` give
 explicit control, and `step(new CollisionEventQueue())` reports
 Rapier-style `collisionStarted`/`collisionStopped` pairs through
-`queue.drainCollisionEvents(handler)`. There is one collider per body.
+`queue.drainCollisionEvents(handler)`. `setWaterLevel(y)` (or the
+`waterLevel` property; `null` disables) puts a water surface at height `y`
+on world Y: submerged dynamic bodies get displaced-water buoyancy
+(`-gravity × 1000 × volume / mass × submerged fraction` — sphere-exact,
+linear for boxes/capsules) and linear drag on velocity and spin, so
+effective density is `mass / collider volume` and floaters want
+`mass ≈ volume × a few hundred`. There is one collider per body.
 Bodies attach to engine
 node indices, not facade `Object3D`s; read `translation()` and
 `rotation()` after `step()` and write them back to your objects yourself.

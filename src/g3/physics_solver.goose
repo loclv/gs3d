@@ -200,6 +200,7 @@ fn physics_substep(dt: f32) {
         if body.inverse_mass > 0.0 {
             body.velocity += (g_physics_gravity + body.force * body.inverse_mass) * dt;
             body.angular_velocity += physics_torque_to_angacc(body) * dt;
+            if g_physics_water_y > -1.0e29 { physics_apply_water(body, dt); }
             body.position += body.velocity * dt;
             physics_integrate_orientation(body, dt);
         } else if body.kinematic {

@@ -104,6 +104,14 @@ What the API gives you:
   `rapier_body_is_dynamic` (mass > 0), `rapier_body_set_kinematic`,
   `rapier_body_set_mass`, `rapier_body_remove`, `rapier_body_sync` and
   `rapier_world_raycast`. There is one collider per body.
+  `physics_set_water_level(y)` puts a water surface at height `y` on world
+  Y (the `-1e30` default disables it; `physics_water_level()` reads it back
+  and `physics_clear_water()` disables). Awake dynamic bodies below the
+  surface get displaced-water buoyancy — `-gravity × (1000 × volume / mass)
+  × submerged_fraction`, sphere-exact, box/capsule linear in world-Y — plus
+  linear drag on velocity and spin, so effective density is `mass / volume`
+  and floaters want mass ≈ volume × a few hundred. `samples/water` is a
+  runnable demo.
 * Meshes — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,
   `mesh_plane(size, tiles)`, plus `push_vertex`/`push_triangle`/`mesh_close`
   for your own geometry. Pushes stage one mesh and `mesh_close(fv, fi)` closes

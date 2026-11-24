@@ -37,6 +37,9 @@ function mockEngine() {
     _g3_phys_world_step: () => calls.push(['step']),
     _g3_phys_set_gravity: (x, y, z) => calls.push(['gravity', x, y, z]),
     _g3_phys_clear: () => calls.push(['clear']),
+    _g3_phys_set_water_level: y => calls.push(['water', y]),
+    _g3_phys_water_level: () => 0,
+    _g3_phys_clear_water: () => calls.push(['clearWater']),
     _g3_phys_set_timestep: s => calls.push(['timestep', s]),
     _g3_phys_body_cuboid: (node, hx, hy, hz, mass) => {
       calls.push(['cuboid', node, hx, hy, hz, mass]);
@@ -149,6 +152,19 @@ world.step();
 world.clear();
 assert.ok(world.engine.calls.some(c => c[0] === 'step'));
 assert.deepEqual(world.engine.calls.find(c => c[0] === 'gravity'), ['gravity', 0, -9.81, 0]);
+
+// Water level: number sets, null clears, invalid values throw.
+assert.equal(world.waterLevel, null);
+world.setWaterLevel(0);
+assert.equal(world.waterLevel, 0);
+assert.deepEqual(world.engine.calls.filter(c => c[0] === 'water').at(-1), ['water', 0]);
+world.waterLevel = -0.5;
+assert.equal(world.waterLevel, -0.5);
+world.setWaterLevel(null);
+assert.equal(world.waterLevel, null);
+assert.ok(world.engine.calls.some(c => c[0] === 'clearWater'));
+assert.throws(() => world.setWaterLevel('x'), AssetError);
+assert.throws(() => world.setWaterLevel(NaN), AssetError);
 
 const ball = world.addBall(4, 0.5, 1);
 assert.equal(ball, 8);

@@ -254,6 +254,8 @@ export class PhysicsWorld {
     if (!this._sliceHeader) throw new AssetError('MEMORY', 'Could not allocate physics slice header');
     this._timestep = 1 / 60;
     this._gravity = [0, -9.81, 0];
+    // Water surface height on world Y, or null when disabled.
+    this._waterLevel = null;
     // body-id pair keys -> [a, b] seen during the previous step, for
     // collision started/stopped events.
     this._contactPairs = new Map();
@@ -270,6 +272,10 @@ export class PhysicsWorld {
   // world.gravity — acceleration applied to dynamic bodies each step.
   get gravity() { return this._gravity.slice(); }
   set gravity(g) { this.setGravity(...vec3(g, 'gravity')); }
+
+  // Water surface height on world Y, or null when water is disabled.
+  get waterLevel() { return this._waterLevel; }
+  set waterLevel(y) { this.setWaterLevel(y); }
 
   dispose() {
     if (this._sliceHeader) { this.engine._free(this._sliceHeader); this._sliceHeader = 0; }
@@ -339,6 +345,28 @@ export class PhysicsWorld {
     this.engine._g3_phys_set_gravity(x, y, z);
     this._gravity = [x, y, z];
   }
+
+  // Water surface height on world Y. Dynamic bodies below it get
+  // displaced-water buoyancy (-gravity × rho_water/rho_body × submerged
+  // fraction, rho_water = 1000) plus linear drag on velocity and spin.
+  // Effective body density is mass / collider volume, so for realistic
+  // floating keep mass ≈ volume × desired density (water ≈ 1000). Pass
+  // null to disable.
+  setWaterLevel(y) {
+    if (y === null || y === undefined) {
+      requireExport(this.engine, '_g3_phys_clear_water');
+      this.engine._g3_phys_clear_water();
+      this._waterLevel = null;
+      return;
+    }
+    const h = Number(y);
+    if (!Number.isFinite(h)) throw new AssetError('INVALID', 'water level must be a finite number or null');
+    requireExport(this.engine, '_g3_phys_set_water_level');
+    this.engine._g3_phys_set_water_level(h);
+    this._waterLevel = h;
+  }
+
+  clearWater() { this.setWaterLevel(null); }
 
   clear() {
     this.engine._g3_phys_clear();

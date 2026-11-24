@@ -43,6 +43,10 @@ struct PhysicsBody {
     half_length: f32 = 0.0,
     mass: f32,
     inverse_mass: f32,
+    // Collider volume in cubic units — drives buoyancy when a water
+    // level is set. Mass stays user-chosen, so the effective density is
+    // mass / volume.
+    volume: f32 = 0.0,
     restitution: f32 = 0.0,
     friction: f32 = 0.5,
     // Kinematic bodies follow their velocity and angular velocity exactly —
@@ -81,6 +85,14 @@ struct PhysicsBody {
 
 var g_physics_bodies: PhysicsBody[>..];
 var g_physics_gravity: float3 = float3 { 0.0, -9.81, 0.0 };
+// Water surface height on world Y; bodies below it get buoyancy and
+// drag. The -1e30 sentinel disables water entirely.
+var g_physics_water_y: f32 = -1.0e30;
+// Density of the water in kg/m^3-equivalent units, and linear drag
+// rates (per second at full submersion) applied to velocity and spin.
+const PHYSICS_WATER_DENSITY: f32 = 1000.0;
+const PHYSICS_WATER_DRAG: f32 = 6.0;
+const PHYSICS_WATER_ANG_DRAG: f32 = 8.0;
 
 fn physics_body_count() -> i64 { return g_physics_bodies.len; }
 
@@ -325,6 +337,73 @@ fn physics_clear() {
     g_warm_mask = 0;
 }
 
+// Collider volume for buoyancy: box 8·hx·hy·hz, sphere 4/3·π·r³, capsule
+// cylinder plus two caps — same decomposition physics_shape_inertia uses.
+fn physics_shape_volume(he: float3, radius: f32, half_length: f32) -> f32 {
+    let kind = if radius <= 0.0 { 0 } else { if half_length > 0.0 { 2 } else { 1 } };
+    if kind == 0 { return 8.0 * he.x * he.y * he.z; }
+    if kind == 1 { return 4.188790205 * radius * radius * radius; }
+    return 6.283185307 * radius * radius * half_length +
+           4.188790205 * radius * radius * radius;
+}
+
+// World-space half-height of the collider along Y, from the orientation —
+// same column-of-|R| math physics_update_bounds uses, computed on demand
+// so it is valid before the first bounds refresh.
+fn physics_world_half_height(b: PhysicsBody&) -> f32 {
+    let kind = physics_kind(b);
+    if kind == 1 { return b.radius; }
+    let m = b.orientation.m;
+    if kind == 2 { return b.radius + abs(m[5]) * b.half_length; }
+    let he = b.half_extents;
+    return he.x * abs(m[1]) + he.y * abs(m[5]) + he.z * abs(m[9]);
+}
+
+// Fraction of the collider's volume below the water surface. Spheres get
+// the exact submerged-cap fraction; boxes and capsules use a linear
+// approximation across their world-Y extent (uniform density assumed).
+fn physics_submerged_fraction(b: PhysicsBody&) -> f32 {
+    let wy = g_physics_water_y;
+    if physics_kind(b) == 1 {
+        // h = submerged cap height measured up from the sphere's bottom.
+        let h = clamp(wy - (b.position.y - b.radius), 0.0, 2.0 * b.radius);
+        let r = b.radius;
+        return h * h * (3.0 * r - h) / (4.0 * r * r * r);
+    }
+    let hh = physics_world_half_height(b);
+    if hh <= 0.0001 { return 0.0; }
+    let t = clamp(wy - (b.position.y - hh), 0.0, 2.0 * hh);
+    return t / (2.0 * hh);
+}
+
+// Buoyancy and hydrodynamic drag for one dynamic body this substep.
+// Buoyancy is the weight of displaced water as an acceleration —
+// -gravity * (rho_water / rho_body) * submerged_fraction — applied at the
+// center of mass (no righting torque; angular drag is what settles
+// rotation). Drag is linear in velocity and spin, scaled by submersion.
+fn physics_apply_water(b: PhysicsBody&, dt: f32) {
+    let frac = physics_submerged_fraction(b);
+    if frac <= 0.0 { return; }
+    let gmag = length(g_physics_gravity);
+    if gmag > 0.0001 && b.mass > 0.0 {
+        // rho_body = mass / volume, so rho_w / rho_body = rho_w * volume / mass.
+        let buoy = PHYSICS_WATER_DENSITY * b.volume / b.mass * frac * gmag;
+        b.velocity += (-g_physics_gravity / gmag) * buoy * dt;
+    }
+    let kd = PHYSICS_WATER_DRAG * frac * dt;
+    let ka = PHYSICS_WATER_ANG_DRAG * frac * dt;
+    if kd > 0.0 { b.velocity *= max(1.0 - kd, 0.0); }
+    if ka > 0.0 { b.angular_velocity *= max(1.0 - ka, 0.0); }
+}
+
+// Water surface height on world Y; -1e30 disables. Physics_apply_water
+// runs per substep for awake dynamic bodies.
+fn physics_set_water_level(y: f32) { g_physics_water_y = y; }
+
+fn physics_water_level() -> f32 { return g_physics_water_y; }
+
+fn physics_clear_water() { g_physics_water_y = -1.0e30; }
+
 fn physics_set_gravity(gravity: float3) { g_physics_gravity = gravity; }
 
 fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, half_length: f32, mass: f32) -> i64 {
@@ -343,6 +422,7 @@ fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, half_
         half_length: half_length,
         mass: mass,
         inverse_mass: if mass == 0.0 { 0.0 } else { 1.0 / mass },
+        volume: physics_shape_volume(half_extents, radius, half_length),
         orientation: pose.orientation,
         inverse_inertia: physics_shape_inertia(mass, half_extents, radius, half_length),
         ..

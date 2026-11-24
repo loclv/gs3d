@@ -36,6 +36,14 @@ fn rapier_timestep() -> f32 { return g_rapier_timestep; }
 // world.gravity — the acceleration applied to every dynamic body each step.
 fn rapier_set_gravity(gravity: float3) { physics_set_gravity(gravity); }
 
+// Water surface height on world Y. Bodies below it get displaced-water
+// buoyancy and hydrodynamic drag; y = -inf-equivalent disables water.
+// Buoyancy scales with collider volume / mass, so effective density is
+// mass / volume — keep mass ≈ volume × desired density (water = 1000).
+fn rapier_set_water_level(y: f32) { physics_set_water_level(y); }
+fn rapier_water_level() -> f32 { return physics_water_level(); }
+fn rapier_clear_water() { physics_clear_water(); }
+
 // Remove every body, like constructing a fresh Rapier world.
 fn rapier_world_clear() { physics_clear(); }
 
