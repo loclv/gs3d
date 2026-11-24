@@ -390,3 +390,70 @@ animation weight uploads and command submission; it does not measure GPU
 completion. Use browser/GPU-specific measurements for comparison, and check
 that the device accepts the GPU morph target textures before interpreting the
 frame results.
+
+## Physics solver benchmarks
+
+The rigid-body solver (`g3.physics`) ships three headless benchmarks under
+`src/benchmark_physics*.goose`. Build and run them natively:
+
+```bash
+goose build --cc tools/native_cc.sh -o build/benchmark_physics src/benchmark_physics.goose && ./build/benchmark_physics
+goose build --cc tools/native_cc.sh -o build/benchmark_physics_stack src/benchmark_physics_stack.goose && ./build/benchmark_physics_stack
+goose build --cc tools/native_cc.sh -o build/benchmark_physics_rain src/benchmark_physics_rain.goose && ./build/benchmark_physics_rain
+```
+
+Scenes, all stepped 600 times at 1/60 s:
+
+* `benchmark_physics` — 20×20 grid of dynamic spheres (r = 0.4) spaced 2
+  units apart plus 10 distant static boxes, gravity off: a broadphase
+  stress test with almost no contacts.
+* `benchmark_physics_stack` — static floor plus 100 unit-density boxes in
+  a 10×10 footprint stacked 10 high: hundreds of contact-manifold points
+  per substep while the pile is active. The slender towers topple under
+  this solver (physical collapse, not energy injection — verified by
+  energy audit), which keeps every body awake and the benchmark in the
+  expensive regime on purpose.
+* `benchmark_physics_rain` — one box spawned per step above a floor,
+  removed once landed and slow: ~100 live bodies in the active-contact
+  regime without a pile ever settling, so nothing sleeps.
+
+Measured on the same machine as the raster numbers above (Apple M-series,
+`-O2`), best of several runs:
+
+| scene | gs3d | Rapier 0.21 (`@dimforge/rapier3d-compat`, wasm) |
+|---|---|---|
+| 410 separated bodies | **13 ms** | 32 ms |
+| rain, ~100 live bodies | **16–34 ms** | 65–73 ms |
+| 101-body pile, default settings | 211–254 ms | **9.6 ms** |
+| 101-body pile, Rapier `canSleep=false` | ~230 ms | 144 ms |
+
+Rapier numbers come from a Bun script driving the JS-compat build with
+identical body layouts, gravity, timestep and step counts; Rapier's own
+sleeping was left at its default (enabled) for the first pile row and
+disabled via `RigidBodyDesc.setCanSleep(false)` for the second.
+
+Read the pile rows carefully before quoting them:
+
+* Rapier's solver is stable enough that the 10-high towers *stand*, so
+  100/101 bodies sleep and the 9.6 ms is mostly per-body sleep
+  bookkeeping — not solver throughput. gs3d's pile physically topples,
+  so all 101 bodies stay awake at high speed. The workloads are not
+  equivalent.
+* With Rapier sleeping disabled, its standing-but-awake pile costs
+  144 ms against gs3d's toppling pile at ~230 ms — Rapier's solver is
+  ~1.6× faster on dense, permanently active contacts. Rapier
+  (`rapier3d-compat` is wasm, not native) still has architectural leads:
+  island-based sleeping, contact manifolds persisted across frames, and
+  more solver iterations with better convergence.
+* On broadphase-dominated and moderate-contact scenes gs3d is ~2–3×
+  faster: the per-substep sweep-and-prune along x plus immovable-pair
+  early-out make separated bodies nearly free, and there is no
+  per-body island bookkeeping.
+
+Solver structure for reference: sweep-and-prune broadphase on per-body
+world AABBs, box-box contact manifolds (Sutherland–Hodgman clipping, up
+to 8 points per face contact), 12 sequential-impulse iterations with
+per-substep warm starting of accumulated normal impulses, one shared
+positional-correction pass, per-body sleeping after ~0.5 s under speed
+and spin thresholds, and a cached world-space inverse inertia tensor so
+angular response is one mat-vec per impulse.

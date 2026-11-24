@@ -87,7 +87,8 @@ and the [Three.js roadmap](threejs-roadmap.md).
 * Raycast picking (`pick_screen`, `raycast`), swept segment/sphere
   collision (`segment_sphere_intersects`), and oriented box/sphere/capsule
   physics bodies — gravity, one-step forces and torques, linear and angular
-  velocity, restitution, friction, adaptive substeps, automatic sleeping,
+  velocity, restitution, friction, adaptive substeps, sweep-and-prune
+  broadphase, warm-started sequential-impulse solver, automatic sleeping,
   kinematic bodies, per-body removal, box-box contact manifolds, per-step
   contact queries (with world contact points) and collider raycasts. A RapierPhysics-style facade
   (`g3.rapier`) exposes the same solver with Rapier vocabulary:

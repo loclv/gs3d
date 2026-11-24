@@ -78,8 +78,9 @@ What the API gives you:
   directly, and tune restitution and friction from 0 to 1. Pairwise overlap
   uses adaptive substeps (capped at 1/60 s, shrinking for fast bodies),
   sequential-impulse iterations over the detected contacts — box-box
-  face contacts produce multi-point manifolds so stacks resist tipping —
-  and one positional-correction pass; normal impulses keep full angular
+  face contacts produce multi-point manifolds so stacks resist tipping,
+  and accumulated impulses warm-start the next substep — followed by one
+  positional-correction pass; normal impulses keep full angular
   response and friction applies linearly. Bodies sleep automatically after
   resting briefly. `physics_body_remove(id)` tombstones a body without renumbering
   the others, `physics_body_set_mass` and `physics_body_set_kinematic`
