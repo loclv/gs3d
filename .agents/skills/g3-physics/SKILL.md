@@ -43,8 +43,10 @@ dynamics (one collider per body):
   when a fast body would cross a quarter of the smallest collider feature
   per substep (max 12 substeps). `dt <= 0` or `> 1` is ignored.
 - **Sleeping**: dynamic bodies sleep after ~0.5 s under
-  `|v| < 0.05`, `|ω| < 0.1`; contacts with approach speed > 0.1 wake
-  them, as do `set_velocity`/`set_angvel`/impulses/torque/forces.
+  `|v| < 0.1`, `|ω| < 0.2` — evaluated **after** the contact solve on
+  post-impulse velocities (checking earlier always sees the gravity added
+  that substep and nothing ever sleeps). Contacts with approach speed
+  > 0.1 wake them, as do `set_velocity`/`set_angvel`/impulses/torque/forces.
   Sleeping bodies are immovable in contacts.
 
 ## Body lifecycle
@@ -80,8 +82,9 @@ obstacles, character controllers.
 
 - **Contacts**: `physics_contact_count()` / `physics_contact(i)` →
   `BodyContact { a, b, normal, point, penetration }` — one entry per
-  substep pair overlap, cleared each step. `point` is the world-space
-  contact point used for angular response.
+  substep pair overlap, cleared each step. Manifold pairs report their
+  deepest point; `point` is the world-space contact point used for
+  angular response.
 - **Raycast**: `physics_raycast(origin, dir, max_dist)` → `PhysicsRayHit
   { hit, body, point, normal, distance }`, nearest hit, `dir` need not be
   normalized. Box rays run in the box's local frame; capsule rays reuse
@@ -91,18 +94,29 @@ obstacles, character controllers.
 ## Solver notes / limitations
 
 - Contacts solve with **sequential impulses**: detection runs once per
-  substep into `g_physics_solver`, then `PHYSICS_SOLVER_ITERATIONS` (8)
-  Gauss-Seidel passes accumulate the normal impulse (clamped ≥ 0, biased
-  toward the restitution target only for impacts faster than 1 m/s) and a
-  friction impulse clamped to `mu * lambda_n`. One positional-correction
-  pass runs afterward. Single contact point per pair — no manifolds.
+  substep into `g_physics_solver`, warm-started impulses from the previous
+  substep are applied once up front (normal impulse only, keyed by
+  `(a, b, slot)` in an open-addressed hash — friction seeds are skipped
+  because the tangent is recomputed each substep), then
+  `PHYSICS_SOLVER_ITERATIONS` (16) Gauss-Seidel passes accumulate the
+  normal impulse (clamped ≥ 0, biased toward the restitution target only
+  for impacts faster than 1 m/s) and a friction impulse clamped to
+  `mu * lambda_n`, with an early-out once deltas converge. One
+  positional-correction pass runs afterward; each manifold point carries
+  an equal share (`penetration / count`) so multi-point contacts don't
+  over-separate.
+- **Box-box contacts are manifolds**: when the least-penetration SAT axis
+  is a face axis, the incident box's contact face is clipped against the
+  reference face rectangle (Sutherland–Hodgman, up to 8 points) and every
+  clipped point becomes its own solver contact — this is what lets stacks
+  resist tipping. Edge/vertex SAT winners and all non-box pairs keep a
+  single point. Manifold points are sorted by reference-face coordinates
+  so the same physical corner keeps the same warm-start slot.
 - **Friction is applied linearly only** —
   a lone contact point cannot balance the torque friction below the center
   of mass would create, so friction-induced tipping/rolling is suppressed
   on purpose. Normal impulses keep full angular response, so edge hits
   still rotate bodies.
-- Box-box contact points anchor at the smaller-extent body's face center;
-  edge/vertex contacts are approximations, not reference-face clipping.
 - Capsule inertia approximates the shape as a solid cylinder (caps
   ignored); box/sphere inertia is exact for the collider shape.
 - Euler write-back can hit gimbal lock at pitch ≈ ±90° — extraction
@@ -114,9 +128,12 @@ obstacles, character controllers.
   y/z bounds and skips pairs where neither side can move. Pairs are no
   longer visited in id order — contact resolution order follows the
   sorted sweep, which is deterministic but not id-ordered.
-- Still no sleeping islands, no joints/constraints, no collider lists.
-  Fine for dozens-to-hundreds of bodies; `src/benchmark_physics.goose`
-  measures the solver headlessly.
+- Still no sleeping islands, no joints/constraints, no collider lists,
+  and only one friction direction per contact. Very slender stacks can
+  still topple — treat tall perfect towers as beyond the stable envelope.
+  `src/benchmark_physics.goose` (separated bodies, broadphase) and
+  `src/benchmark_physics_stack.goose` (active contact pile) measure the
+  solver headlessly.
 
 ## Rapier facade (`g3.rapier`)
 

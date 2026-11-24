@@ -63,6 +63,7 @@ No GL call, no window, no file I/O appears anywhere in `src/g3/`.
 | `src/test_game.goose` | `platform/g3_soft.c` | 4 checks on the Beacon Run rules |
 | `src/test_siege.goose` | `platform/g3_soft.c` | 77 checks on Rift Siege rules, sweeps, physics colliders, rotation/angular dynamics, kinematics, contacts, raycasts and the `g3.rapier` facade |
 | `src/benchmark_transforms.goose` | none | native transform benchmark |
+| `src/benchmark_physics.goose`, `src/benchmark_physics_stack.goose` | none | headless solver benchmarks |
 | `src/game_web.goose` | `platform/g3_web.c` | Beacon Run browser build (`--game`) |
 | `src/siege_web.goose` | `platform/g3_web.c` | Rift Siege browser build (`--siege`) |
 | `src/viewer_web.goose` | `platform/g3_web.c` | model viewer (`--viewer`) and animation benchmark (`--animation-benchmark`) |

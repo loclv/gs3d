@@ -5,11 +5,12 @@
 // integration with linear and angular velocity, and an impulse response
 // when their shapes overlap. It is intended for simple game motion, not as
 // a general-purpose solver: broadphase is a per-substep sweep-and-prune
-// along x, contacts are single-point rather than manifolds, sleeping is
-// per-body rather than island-based, and friction is applied linearly only
-// (a single contact point cannot balance friction torque). Contacts are
-// solved with sequential impulses — a fixed number of accumulated-impulse
-// iterations per substep plus one positional-correction pass.
+// along x, box-box face contacts clip into multi-point manifolds while
+// other pairs stay single-point, sleeping is per-body rather than
+// island-based, and friction is applied linearly only (it cannot balance
+// friction torque). Contacts are solved with sequential impulses —
+// warm-started accumulated-impulse iterations per substep plus one
+// positional-correction pass.
 
 import std;
 import vec;
@@ -100,22 +101,59 @@ struct SolverContact {
     penetration: f32,
     im_a: f32,
     im_b: f32,
-    ii_a: float3,
-    ii_b: float3,
     bias: f32,
     denom_n: f32,
+    // Friction denominator: im_a + im_b, since friction impulses apply
+    // linearly only. Zero disables friction for this contact.
     denom_t: f32,
     mu: f32,
     lambda_n: f32 = 0.0,
     lambda_t: f32 = 0.0,
+    // Manifold point index within the pair's contact set — part of the
+    // warm-start key so each point keeps its own accumulated impulse.
+    slot: i64 = 0,
 }
 
 var g_physics_solver: SolverContact[>..];
 
+// Warm-start table: last substep's accumulated impulses per
+// (a, b, slot) contact point, in an open-addressed hash so lookups stay
+// O(1) as manifold contacts multiply the solver list. Rebuilt from the
+// solver list at the end of every substep, so pairs that stop touching
+// drop out on their own. g_warm_keys stores key+1; 0 marks an empty slot.
+var g_warm_keys: i64[>..];
+var g_warm_ln: f32[>..];
+var g_warm_lt: f32[>..];
+var g_warm_mask: i64 = 0;
+
+fn physics_warm_key(a: i64, b: i64, slot: i64) -> i64 {
+    return a * 68719476736 + b * 16 + slot + 1;
+}
+
+fn physics_warm_slot(a: i64, b: i64, slot: i64, cap: i64) -> i64 {
+    var h = (a * 31 + b) * 31 + slot;
+    h = (h * 2654435761) % cap;
+    return h;
+}
+
+fn physics_warm_lookup(a: i64, b: i64, slot: i64) -> f32, f32 {
+    if g_warm_mask <= 0 { return 0.0, 0.0; }
+    let cap = g_warm_mask + 1;
+    let key = physics_warm_key(a, b, slot);
+    var idx = physics_warm_slot(a, b, slot, cap);
+    for _ in 0..cap {
+        let k = g_warm_keys[idx];
+        if k == 0 { return 0.0, 0.0; }
+        if k == key { return g_warm_ln[idx], g_warm_lt[idx]; }
+        idx = (idx + 1) % cap;
+    }
+    return 0.0, 0.0;
+}
+
 // Velocity iterations per substep. Each pass re-solves every contact
 // against the velocities the previous pass produced, which is what makes
 // stacked bodies share load instead of popping in pair order.
-const PHYSICS_SOLVER_ITERATIONS: i32 = 8;
+const PHYSICS_SOLVER_ITERATIONS: i32 = 16;
 
 fn physics_body_count() -> i64 { return g_physics_bodies.len; }
 
@@ -315,7 +353,16 @@ fn physics_box_offset(b: PhysicsBody&, local: float3) -> float3 {
     return b.position + physics_body_to_world(b, local);
 }
 
-fn physics_clear() { g_physics_bodies.clear(); g_physics_contacts.clear(); g_physics_order.clear(); }
+fn physics_clear() {
+    g_physics_bodies.clear();
+    g_physics_contacts.clear();
+    g_physics_order.clear();
+    g_physics_solver.clear();
+    g_warm_keys.clear();
+    g_warm_ln.clear();
+    g_warm_lt.clear();
+    g_warm_mask = 0;
+}
 
 fn physics_set_gravity(gravity: float3) { g_physics_gravity = gravity; }
 
@@ -580,18 +627,6 @@ fn physics_substep(dt: f32) {
             body.angular_velocity += physics_torque_to_angacc(body) * dt;
             body.position += body.velocity * dt;
             physics_integrate_orientation(body, dt);
-            // Sleep after half a second under the thresholds; contacts
-            // with a real impact wake the body in physics_resolve_pair.
-            if length(body.velocity) < 0.05 && length(body.angular_velocity) < 0.1 {
-                body.sleep_timer += dt;
-                if body.sleep_timer > 0.5 {
-                    body.sleeping = true;
-                    body.velocity = float3_0;
-                    body.angular_velocity = float3_0;
-                }
-            } else {
-                body.sleep_timer = 0.0;
-            }
         } else if body.kinematic {
             body.position += body.velocity * dt;
             physics_integrate_orientation(body, dt);
@@ -622,6 +657,23 @@ fn physics_substep(dt: f32) {
         }
     }
     physics_solve_contacts();
+
+    // Sleep evaluation runs after the solve, on post-impulse velocities —
+    // checking before contacts would always see the gravity added this
+    // substep and nothing would ever fall asleep.
+    for &body in g_physics_bodies {
+        if body.removed || body.sleeping || body.inverse_mass <= 0.0 { continue; }
+        if length(body.velocity) < 0.1 && length(body.angular_velocity) < 0.2 {
+            body.sleep_timer += dt;
+            if body.sleep_timer > 0.5 {
+                body.sleeping = true;
+                body.velocity = float3_0;
+                body.angular_velocity = float3_0;
+            }
+        } else {
+            body.sleep_timer = 0.0;
+        }
+    }
 }
 
 // Angular acceleration from the accumulated world-frame torque: rotate
@@ -706,55 +758,301 @@ fn physics_box_radius(b: PhysicsBody&, l: float3) -> f32 {
            b.half_extents.z * abs(dot(physics_box_axis(b, 2), l));
 }
 
+// The three world-space axes of an oriented box, extracted once per contact
+// test — the SAT loop below reuses them for all 15 candidate axes instead
+// of re-reading the orientation columns on every projection.
+struct BoxAxes { x: float3, y: float3, z: float3 }
+
+fn physics_box_axes(b: PhysicsBody&) -> BoxAxes {
+    return BoxAxes {
+        x: physics_box_axis(b, 0),
+        y: physics_box_axis(b, 1),
+        z: physics_box_axis(b, 2),
+    };
+}
+
+// Projected radius of a box on `l` from precomputed axes.
+fn physics_box_radius_axes(he: float3, axes: BoxAxes, l: float3) -> f32 {
+    return he.x * abs(dot(axes.x, l)) +
+           he.y * abs(dot(axes.y, l)) +
+           he.z * abs(dot(axes.z, l));
+}
+
 // Projected overlap of two oriented boxes on `axis` (any nonzero vector;
-// normalized inside). Returns the overlap depth, or 3.0e38 for a
-// degenerate axis that should be skipped.
-fn physics_sat_overlap(a: PhysicsBody&, b: PhysicsBody&, axis: float3) -> f32 {
+// normalized inside) using caller-cached axes — the hot path inside
+// physics_box_contact, which evaluates 15 axes per pair. Returns the
+// overlap depth, or 3.0e38 for a degenerate axis that should be skipped.
+fn physics_sat_overlap_axes(a: PhysicsBody&, b: PhysicsBody&, axis: float3,
+                            aa: BoxAxes, ba: BoxAxes) -> f32 {
     let al = length(axis);
     if al < 0.0001 { return 3.0e38; }
     let l = axis / al;
     let dist = abs(dot(b.position - a.position, l));
-    return physics_box_radius(a, l) + physics_box_radius(b, l) - dist;
+    return physics_box_radius_axes(a.half_extents, aa, l) +
+           physics_box_radius_axes(b.half_extents, ba, l) - dist;
 }
 
-// Oriented box against oriented box: 15-axis SAT (3 + 3 face axes, 9 edge
-// cross products). The axis of least overlap is the contact normal; the
-// contact point is the midpoint of the two support points along it.
-fn physics_box_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
-    let t = b.position - a.position;
-    var min_overlap: f32 = 3.0e38;
-    var axis = float3_0;
+// Result of the 15-axis SAT for an oriented box pair. `kind` says which
+// candidate produced the least overlap: 0 = one of a's face axes, 1 = one
+// of b's, 2 = an edge cross product. `axis_index` is the winning box axis
+// for face kinds, -1 for edge kinds. `overlap <= 0` means separated.
+struct BoxSat {
+    axis: float3 = float3_0,
+    overlap: f32 = 0.0,
+    kind: i64 = 2,
+    axis_index: i64 = -1,
+}
+
+fn physics_box_axis_at(axes: BoxAxes, i: i64) -> float3 {
+    return if i == 0 { axes.x } else { if i == 1 { axes.y } else { axes.z } };
+}
+
+fn physics_box_he_at(he: float3, i: i64) -> f32 {
+    return if i == 0 { he.x } else { if i == 1 { he.y } else { he.z } };
+}
+
+// 15-axis SAT (3 + 3 face axes, 9 edge cross products) over caller-cached
+// axes. The axis of least overlap becomes the contact normal direction.
+fn physics_box_sat(a: PhysicsBody&, b: PhysicsBody&, aa: BoxAxes, ba: BoxAxes) -> BoxSat {
+    var best = BoxSat { overlap: 3.0e38 };
     for i in 0..3 {
-        let cand = physics_box_axis(a, i);
-        let ov = physics_sat_overlap(a, b, cand);
-        if ov <= 0.0 { return Contact { .. }; }
-        if ov < min_overlap { min_overlap = ov; axis = cand; }
-        let cand_b = physics_box_axis(b, i);
-        let ov_b = physics_sat_overlap(a, b, cand_b);
-        if ov_b <= 0.0 { return Contact { .. }; }
-        if ov_b < min_overlap { min_overlap = ov_b; axis = cand_b; }
+        let ai = physics_box_axis_at(aa, i);
+        let bi = physics_box_axis_at(ba, i);
+        let ov = physics_sat_overlap_axes(a, b, ai, aa, ba);
+        if ov <= 0.0 { return BoxSat { overlap: ov }; }
+        if ov < best.overlap {
+            best.overlap = ov; best.axis = ai; best.kind = 0; best.axis_index = i;
+        }
+        let ov_b = physics_sat_overlap_axes(a, b, bi, aa, ba);
+        if ov_b <= 0.0 { return BoxSat { overlap: ov_b }; }
+        if ov_b < best.overlap {
+            best.overlap = ov_b; best.axis = bi; best.kind = 1; best.axis_index = i;
+        }
         for j in 0..3 {
-            let cross_axis = cross(cand, physics_box_axis(b, j));
-            let ov_c = physics_sat_overlap(a, b, cross_axis);
-            if ov_c <= 0.0 { return Contact { .. }; }
-            if ov_c < min_overlap { min_overlap = ov_c; axis = cross_axis; }
+            let bj = physics_box_axis_at(ba, j);
+            let cross_axis = cross(ai, bj);
+            let ov_c = physics_sat_overlap_axes(a, b, cross_axis, aa, ba);
+            if ov_c <= 0.0 { return BoxSat { overlap: ov_c }; }
+            if ov_c < best.overlap {
+                best.overlap = ov_c; best.axis = cross_axis;
+                best.kind = 2; best.axis_index = -1;
+            }
         }
     }
+    return best;
+}
+
+// Single-point fallback for box contacts that are not clean face contacts
+// (edge/vertex hits): the surface point of whichever body has the smaller
+// extent along the normal — its face center is the most likely spot inside
+// the overlap region.
+fn physics_box_single_point(a: PhysicsBody&, b: PhysicsBody&, n: float3,
+                            aa: BoxAxes, ba: BoxAxes) -> float3 {
+    let ra = physics_box_radius_axes(a.half_extents, aa, n);
+    let rb = physics_box_radius_axes(b.half_extents, ba, n);
+    if ra <= rb { return a.position + n * ra; }
+    return b.position - n * rb;
+}
+
+// Up to 8 world-space contact points for one box-box overlap, plus the
+// shared contact normal (a toward b) and per-point penetration depths.
+// Face contacts clip the incident face against the reference face's side
+// planes (Sutherland–Hodgman) so a resting box is held by a small manifold
+// instead of one point — single points cannot resist tipping torque.
+struct ContactManifold {
+    count: i32 = 0,
+    normal: float3 = float3_0,
+    points: float3[8],
+    penetrations: f32[8],
+}
+
+// Convex polygon clip: keep the part of `poly` with
+// dot(p - plane_point, plane_normal) <= 0. `poly` is mutated in place.
+struct ClipPoly { v: float3[8], count: i32 }
+
+fn physics_clip_plane(poly: ClipPoly, pp: float3, pn: float3) {
+    var out_v: float3[8];
+    var out_count: i32 = 0;
+    if poly.count <= 0 { return; }
+    var prev = poly.v[poly.count - 1];
+    var prev_d = dot(prev - pp, pn);
+    var prev_in = prev_d <= 0.0;
+    for i in 0..poly.count {
+        let cur = poly.v[i];
+        let cur_d = dot(cur - pp, pn);
+        let cur_in = cur_d <= 0.0;
+        if cur_in != prev_in {
+            let t = prev_d / (prev_d - cur_d);
+            if out_count < 8 {
+                out_v[out_count] = prev + (cur - prev) * t;
+                out_count += 1;
+            }
+        }
+        if cur_in && out_count < 8 {
+            out_v[out_count] = cur;
+            out_count += 1;
+        }
+        prev = cur; prev_d = cur_d; prev_in = cur_in;
+    }
+    for i in 0..8 { poly.v[i] = out_v[i]; }
+    poly.count = out_count;
+}
+
+// Box-box manifold: run the SAT, and when the least-penetration axis is a
+// face axis, clip the incident box's contact face by the reference box's
+// face rectangle. Edge/vertex winners fall back to one point.
+fn physics_box_manifold(a: PhysicsBody&, b: PhysicsBody&) -> ContactManifold {
+    var m = ContactManifold { .. };
+    let aa = physics_box_axes(a);
+    let ba = physics_box_axes(b);
+    let sat = physics_box_sat(a, b, aa, ba);
+    if sat.overlap <= 0.0 { return m; }
+    var axis = sat.axis;
+    let t = b.position - a.position;
     if dot(t, axis) < 0.0 { axis = -axis; }
     let al = length(axis);
-    if al < 0.0001 { return Contact { .. }; }
+    if al < 0.0001 { return m; }
     let n = axis / al;
-    // Contact point: the surface point of whichever body has the smaller
-    // extent along the normal — its face center is the most likely spot
-    // inside the overlap region. Averaging the two centers would drag the
-    // point sideways whenever the bodies are offset, and a vertical
-    // impulse applied off-center spins resting bodies.
-    let ra = physics_box_radius(a, n);
-    let rb = physics_box_radius(b, n);
-    var point: float3;
-    if ra <= rb { point = a.position + n * ra; }
-    else { point = b.position - n * rb; }
-    return Contact { normal: n, point: point, penetration: min_overlap, hit: true };
+    m.normal = n;
+
+    if sat.kind == 2 {
+        m.points[0] = physics_box_single_point(a, b, n, aa, ba);
+        m.penetrations[0] = sat.overlap;
+        m.count = 1;
+        return m;
+    }
+
+    // Reference box owns the SAT face axis; its outward normal toward the
+    // incident box is +n when a is the reference, -n when b is.
+    let ref_is_a = sat.kind == 0;
+    let rpos = if ref_is_a { a.position } else { b.position };
+    let raxes = if ref_is_a { aa } else { ba };
+    let rhe = if ref_is_a { a.half_extents } else { b.half_extents };
+    let ipos = if ref_is_a { b.position } else { a.position };
+    let iaxes = if ref_is_a { ba } else { aa };
+    let ihe = if ref_is_a { b.half_extents } else { a.half_extents };
+    let m_face = if ref_is_a { n } else { float3 { -n.x, -n.y, -n.z } };
+
+    let ri = sat.axis_index;
+    let ru = (ri + 1) % 3;
+    let rv = (ri + 2) % 3;
+    let u = physics_box_axis_at(raxes, ru);
+    let v = physics_box_axis_at(raxes, rv);
+    let hu = physics_box_he_at(rhe, ru);
+    let hv = physics_box_he_at(rhe, rv);
+    let fc = rpos + m_face * physics_box_he_at(rhe, ri);
+
+    // Incident face: the incident axis most aligned with m_face — box
+    // axes are unsigned, so take max |dot| and pick the sign that puts
+    // the face on the -m_face side, facing the reference box.
+    var best_abs: f32 = -1.0;
+    var ii: i64 = 0;
+    var face_sign: f32 = 1.0;
+    for k in 0..3 {
+        let ax = physics_box_axis_at(iaxes, k);
+        let d = dot(ax, m_face);
+        if abs(d) > best_abs {
+            best_abs = abs(d); ii = k;
+            face_sign = if d < 0.0 { 1.0 } else { -1.0 };
+        }
+    }
+    if best_abs < 0.5 {
+        // Not a clean face-on-face hit after all; single point.
+        m.points[0] = physics_box_single_point(a, b, n, aa, ba);
+        m.penetrations[0] = sat.overlap;
+        m.count = 1;
+        return m;
+    }
+    let iu = (ii + 1) % 3;
+    let iv = (ii + 2) % 3;
+    let iu_axis = physics_box_axis_at(iaxes, iu);
+    let iv_axis = physics_box_axis_at(iaxes, iv);
+    let ic = ipos + physics_box_axis_at(iaxes, ii) * face_sign * physics_box_he_at(ihe, ii);
+    let hu_i = physics_box_he_at(ihe, iu);
+    let hv_i = physics_box_he_at(ihe, iv);
+
+    // Incident face quad.
+    var poly = ClipPoly { v: [float3_0; 8], count: 4 };
+    poly.v[0] = ic + iu_axis * hu_i + iv_axis * hv_i;
+    poly.v[1] = ic - iu_axis * hu_i + iv_axis * hv_i;
+    poly.v[2] = ic - iu_axis * hu_i - iv_axis * hv_i;
+    poly.v[3] = ic + iu_axis * hu_i - iv_axis * hv_i;
+
+    // Clip by the reference face rectangle (4 side planes, small margin
+    // for float error) then by the face plane itself with a small
+    // speculative margin so near-contacts still constrain approach.
+    physics_clip_plane(poly, fc + u * (hu + 0.001), u);
+    physics_clip_plane(poly, fc - u * (hu + 0.001), float3 { -u.x, -u.y, -u.z });
+    physics_clip_plane(poly, fc + v * (hv + 0.001), v);
+    physics_clip_plane(poly, fc - v * (hv + 0.001), float3 { -v.x, -v.y, -v.z });
+    physics_clip_plane(poly, fc + m_face * 0.05, m_face);
+
+    for i in 0..poly.count {
+        if m.count >= 8 { break; }
+        m.points[m.count] = poly.v[i];
+        m.penetrations[m.count] = -dot(poly.v[i] - fc, m_face);
+        m.count += 1;
+    }
+    if m.count == 0 {
+        // Clipping ate the whole face (deep edge case); keep one point.
+        m.points[0] = physics_box_single_point(a, b, n, aa, ba);
+        m.penetrations[0] = sat.overlap;
+        m.count = 1;
+        return m;
+    }
+
+    // Stable ordering: sort by the points' coordinates on the reference
+    // face so the same physical corner keeps the same manifold slot —
+    // and therefore the same warm-start impulse — across substeps.
+    for i in 1..m.count {
+        let p = m.points[i];
+        let d = m.penetrations[i];
+        let pu = dot(p - fc, u);
+        let pv = dot(p - fc, v);
+        var j = i;
+        while j > 0 {
+            let q = m.points[j - 1];
+            let qu = dot(q - fc, u);
+            let qv = dot(q - fc, v);
+            if qu < pu || (qu == pu && qv <= pv) { break; }
+            m.points[j] = q;
+            m.penetrations[j] = m.penetrations[j - 1];
+            j -= 1;
+        }
+        m.points[j] = p;
+        m.penetrations[j] = d;
+    }
+    return m;
+}
+
+// Contact points for any body pair: box-box pairs produce a manifold,
+// everything else wraps the single-point Contact.
+fn physics_contact_manifold(a: PhysicsBody&, b: PhysicsBody&) -> ContactManifold {
+    var m = ContactManifold { .. };
+    if physics_kind(a) == 0 && physics_kind(b) == 0 {
+        return physics_box_manifold(a, b);
+    }
+    let c = physics_contact(a, b);
+    if !c.hit { return m; }
+    m.normal = c.normal;
+    m.points[0] = c.point;
+    m.penetrations[0] = c.penetration;
+    m.count = 1;
+    return m;
+}
+
+// Oriented box against oriented box: delegates to the manifold path; kept
+// for the single-point Contact API used by non-solver callers.
+fn physics_box_contact(a: PhysicsBody&, b: PhysicsBody&) -> Contact {
+    let m = physics_box_manifold(a, b);
+    if m.count == 0 { return Contact { .. }; }
+    // Report the deepest point.
+    var best = 0;
+    for i in 1..m.count {
+        if m.penetrations[i] > m.penetrations[best] { best = i; }
+    }
+    return Contact { normal: m.normal, point: m.points[best],
+                     penetration: m.penetrations[best], hit: true };
 }
 
 // Sphere against sphere.
@@ -1029,24 +1327,21 @@ fn physics_contact_denominator(a: PhysicsBody&, b: PhysicsBody&, dir: float3,
     return denom;
 }
 
-// Apply an impulse vector `j` (applied +j to b, -j to a) at the contact
-// offsets: linear through inverse mass, angular through the inertia
-// tensor. Sleeping bodies are immovable and skipped.
-fn physics_apply_contact_impulse(a: PhysicsBody&, b: PhysicsBody&, j: float3,
-                                 ra: float3, rb: float3,
-                                 im_a: f32, im_b: f32, ii_a: float3, ii_b: float3) {
+// Linear part of a contact impulse: -j on a, +j on b through inverse mass.
+fn physics_apply_linear_impulse(a: PhysicsBody&, b: PhysicsBody&, j: float3,
+                                im_a: f32, im_b: f32) {
     a.velocity -= j * im_a;
     b.velocity += j * im_b;
-    if ii_a.x != 0.0 || ii_a.y != 0.0 || ii_a.z != 0.0 {
-        let local = physics_world_to_body(a, cross(ra, -j));
-        a.angular_velocity += physics_body_to_world(a,
-            float3 { local.x * ii_a.x, local.y * ii_a.y, local.z * ii_a.z });
-    }
-    if ii_b.x != 0.0 || ii_b.y != 0.0 || ii_b.z != 0.0 {
-        let local = physics_world_to_body(b, cross(rb, j));
-        b.angular_velocity += physics_body_to_world(b,
-            float3 { local.x * ii_b.x, local.y * ii_b.y, local.z * ii_b.z });
-    }
+}
+
+// Normal contact impulse: linear through inverse mass plus angular through
+// the inertia tensor via r x j. Sleeping and immovable bodies are skipped
+// inside physics_apply_ang_impulse, matching their zero inverse mass.
+fn physics_apply_normal_impulse(a: PhysicsBody&, b: PhysicsBody&, j: float3,
+                                ra: float3, rb: float3, im_a: f32, im_b: f32) {
+    physics_apply_linear_impulse(a, b, j, im_a, im_b);
+    physics_apply_ang_impulse(a, float3 { -j.x, -j.y, -j.z }, ra);
+    physics_apply_ang_impulse(b, j, rb);
 }
 
 // Velocity of a point fixed to the body at world offset `r` from its
@@ -1081,21 +1376,21 @@ fn physics_detect_pair(a_id: i64, b_id: i64) {
        !(a.kinematic && length(a.velocity) > 0.0001) &&
        !(b.kinematic && length(b.velocity) > 0.0001) { return; }
 
-    let contact = physics_contact(a, b);
-    if !contact.hit { return; }
-    let normal = contact.normal;
-    let point = contact.point;
+    let manifold = physics_contact_manifold(a, b);
+    if manifold.count == 0 { return; }
+    let normal = manifold.normal;
 
-    let ra = point - a.position;
-    let rb = point - b.position;
-    let vrel = physics_point_velocity(b, rb) - physics_point_velocity(a, ra);
-
-    // A real impact wakes sleepers; resting contacts below the threshold
-    // leave them asleep and immovable.
-    let approach = dot(vrel, normal);
-    if approach < -0.1 {
-        physics_wake(a);
-        physics_wake(b);
+    // A real impact at any manifold point wakes sleepers; resting contacts
+    // below the threshold leave them asleep and immovable.
+    for k in 0..manifold.count {
+        let p = manifold.points[k];
+        let ra = p - a.position;
+        let rb = p - b.position;
+        let vrel = physics_point_velocity(b, rb) - physics_point_velocity(a, ra);
+        if dot(vrel, normal) < -0.1 {
+            physics_wake(a);
+            physics_wake(b);
+        }
     }
 
     let im_a = if a.sleeping { 0.0 } else { a.inverse_mass };
@@ -1104,38 +1399,68 @@ fn physics_detect_pair(a_id: i64, b_id: i64) {
     let ii_a = if a.sleeping { float3_0 } else { a.inverse_inertia };
     let ii_b = if b.sleeping { float3_0 } else { b.inverse_inertia };
 
-    g_physics_contacts.push(BodyContact { a: a_id, b: b_id, normal: normal,
-        point: point, penetration: contact.penetration });
-
-    let denom_n = physics_contact_denominator(a, b, normal, ra, rb, im_a, im_b, ii_a, ii_b);
-    if denom_n <= 0.0 { return; }
-
-    // Restitution bias: the target separating speed along the normal,
-    // applied only to impacts fast enough to bounce — resting and slow
-    // contacts solve toward zero approach instead.
-    let e = min(a.restitution, b.restitution);
-    let bias = if approach < -1.0 { -e * approach } else { 0.0 };
-
-    // Friction direction is the tangential part of the relative surface
-    // velocity at the contact point, fixed for the whole solve.
-    let vt = vrel - normal * dot(vrel, normal);
-    var tangent = float3_0;
-    var denom_t: f32 = 0.0;
-    let vt_len = length(vt);
-    if vt_len > 0.001 {
-        tangent = vt / vt_len;
-        denom_t = physics_contact_denominator(a, b, tangent, ra, rb, im_a, im_b, ii_a, ii_b);
+    // Contact query reports the deepest manifold point.
+    var deepest = 0;
+    for k in 1..manifold.count {
+        if manifold.penetrations[k] > manifold.penetrations[deepest] {
+            deepest = k;
+        }
     }
+    g_physics_contacts.push(BodyContact { a: a_id, b: b_id, normal: normal,
+        point: manifold.points[deepest],
+        penetration: manifold.penetrations[deepest] });
 
-    g_physics_solver.push(SolverContact {
-        a: a_id, b: b_id,
-        normal: normal, tangent: tangent, point: point,
-        ra: ra, rb: rb, penetration: contact.penetration,
-        im_a: im_a, im_b: im_b, ii_a: ii_a, ii_b: ii_b,
-        bias: bias, denom_n: denom_n, denom_t: denom_t,
-        mu: sqrt(a.friction * b.friction),
-        lambda_n: 0.0, lambda_t: 0.0,
-    });
+    let e = min(a.restitution, b.restitution);
+    for k in 0..manifold.count {
+        let point = manifold.points[k];
+        let ra = point - a.position;
+        let rb = point - b.position;
+        let vrel = physics_point_velocity(b, rb) - physics_point_velocity(a, ra);
+        let vn = dot(vrel, normal);
+
+        let denom_n = physics_contact_denominator(a, b, normal, ra, rb,
+                                                  im_a, im_b, ii_a, ii_b);
+        if denom_n <= 0.0 { continue; }
+
+        // Restitution bias: the target separating speed along the normal,
+        // applied only to impacts fast enough to bounce — resting and slow
+        // contacts solve toward zero approach instead.
+        let bias = if vn < -1.0 { -e * vn } else { 0.0 };
+
+        // Friction direction is the tangential part of the relative surface
+        // velocity at this point, fixed for the whole solve. Its
+        // denominator is the linear effective mass only — friction impulses
+        // apply without angular response.
+        let vt = vrel - normal * vn;
+        var tangent = float3_0;
+        var denom_t: f32 = 0.0;
+        let vt_len = length(vt);
+        if vt_len > 0.001 {
+            tangent = vt / vt_len;
+            denom_t = im_a + im_b;
+        }
+
+        // Warm start: seed the accumulated normal impulse from the
+        // previous substep's solve for the same contact point. Friction
+        // is not seeded — its tangent is recomputed each substep and a
+        // stale lambda_t would apply along the wrong direction whenever
+        // the tangential velocity reverses.
+        let seed_n, _ = physics_warm_lookup(a_id, b_id, k);
+
+        g_physics_solver.push(SolverContact {
+            a: a_id, b: b_id,
+            normal: normal, tangent: tangent, point: point,
+            ra: ra, rb: rb,
+            // Each manifold point carries an equal share of the positional
+            // correction — summing full-depth pushes per point would
+            // over-separate the pair every substep.
+            penetration: manifold.penetrations[k] / manifold.count,
+            im_a: im_a, im_b: im_b,
+            bias: bias, denom_n: denom_n, denom_t: denom_t,
+            mu: sqrt(a.friction * b.friction),
+            lambda_n: seed_n, lambda_t: 0.0, slot: k,
+        });
+    }
 }
 
 // Sequential-impulse solve over the contacts detected this substep.
@@ -1144,7 +1469,25 @@ fn physics_detect_pair(a_id: i64, b_id: i64) {
 // friction bounded by mu * lambda_n, so the tangential force a contact can
 // apply scales with the load pressing it together.
 fn physics_solve_contacts() {
+    // Warm start: lambda_n/lambda_t were seeded from last substep's solve;
+    // apply them once up front so the iterations refine a consistent
+    // velocity field instead of rebuilding contact load from zero.
+    for i in 0..g_physics_solver.len {
+        let c = g_physics_solver[i];
+        if c.lambda_n == 0.0 && c.lambda_t == 0.0 { continue; }
+        let a .= g_physics_bodies[c.a];
+        let b .= g_physics_bodies[c.b];
+        if c.lambda_n != 0.0 {
+            physics_apply_normal_impulse(a, b, c.normal * c.lambda_n,
+                                         c.ra, c.rb, c.im_a, c.im_b);
+        }
+
+    }
+
     for _ in 0..PHYSICS_SOLVER_ITERATIONS {
+        // Converged scenes — resting stacks, settled piles — stop early
+        // once no impulse changes by a meaningful amount.
+        var max_delta: f32 = 0.0;
         for i in 0..g_physics_solver.len {
             let c .= g_physics_solver[i];
             let a .= g_physics_bodies[c.a];
@@ -1157,30 +1500,38 @@ fn physics_solve_contacts() {
             let new_n = max(c.lambda_n + dl, 0.0);
             let delta_n = new_n - c.lambda_n;
             if delta_n != 0.0 {
-                physics_apply_contact_impulse(a, b, c.normal * delta_n, c.ra, c.rb,
-                                              c.im_a, c.im_b, c.ii_a, c.ii_b);
+                physics_apply_normal_impulse(a, b, c.normal * delta_n, c.ra, c.rb,
+                                             c.im_a, c.im_b);
                 c.lambda_n = new_n;
+                max_delta = max(max_delta, abs(delta_n));
             }
 
             // Friction along the stored tangent, bounded by the accumulated
-            // normal impulse. Applied linearly only: a single contact point
-            // cannot balance the torque friction below the center of mass
-            // would create, and lets resting bodies tip or roll without
-            // bound. Normal impulses keep the full angular response, so
-            // edge hits still rotate bodies.
+            // normal impulse — unloaded contacts cannot grip. Applied
+            // linearly only: a single contact point cannot balance the
+            // torque friction below the center of mass would create, and
+            // lets resting bodies tip or roll without bound. Normal
+            // impulses keep the full angular response, so edge hits still
+            // rotate bodies.
             if c.denom_t > 0.0 {
-                let vrel2 = physics_point_velocity(b, c.rb) - physics_point_velocity(a, c.ra);
+                // Reuse vrel when the normal solve changed nothing; only a
+                // real normal impulse alters the point velocities.
+                let vrel2 = if delta_n != 0.0 {
+                    physics_point_velocity(b, c.rb) - physics_point_velocity(a, c.ra)
+                } else { vrel };
                 let dl_t = -dot(vrel2, c.tangent) / c.denom_t;
                 let max_t = c.mu * c.lambda_n;
                 let new_t = clamp(c.lambda_t + dl_t, -max_t, max_t);
                 let delta_t = new_t - c.lambda_t;
                 if delta_t != 0.0 {
-                    physics_apply_contact_impulse(a, b, c.tangent * delta_t, c.ra, c.rb,
-                                                  c.im_a, c.im_b, float3_0, float3_0);
+                    physics_apply_linear_impulse(a, b, c.tangent * delta_t,
+                                                 c.im_a, c.im_b);
                     c.lambda_t = new_t;
+                    max_delta = max(max_delta, abs(delta_t));
                 }
             }
         }
+        if max_delta < 0.001 { break; }
     }
 
     // Positional correction once, after the velocity solve: move bodies
@@ -1193,6 +1544,29 @@ fn physics_solve_contacts() {
         let push = c.normal * (max(c.penetration - 0.001, 0.0) * 0.8 / denom);
         if c.im_a > 0.0 { g_physics_bodies[c.a].position -= push * c.im_a; }
         if c.im_b > 0.0 { g_physics_bodies[c.b].position += push * c.im_b; }
+    }
+
+    // Carry the converged impulses into the next substep's warm start, in
+    // an open-addressed table keyed by (a, b, slot) for O(1) lookups.
+    g_warm_keys.clear();
+    g_warm_ln.clear();
+    g_warm_lt.clear();
+    var cap: i64 = 16;
+    while cap < g_physics_solver.len * 2 { cap *= 2; }
+    for _ in 0..cap {
+        g_warm_keys.push(0);
+        g_warm_ln.push(0.0);
+        g_warm_lt.push(0.0);
+    }
+    g_warm_mask = cap - 1;
+    for i in 0..g_physics_solver.len {
+        let c = g_physics_solver[i];
+        let key = physics_warm_key(c.a, c.b, c.slot);
+        var idx = physics_warm_slot(c.a, c.b, c.slot, cap);
+        while g_warm_keys[idx] != 0 { idx = (idx + 1) % cap; }
+        g_warm_keys[idx] = key;
+        g_warm_ln[idx] = c.lambda_n;
+        g_warm_lt[idx] = c.lambda_t;
     }
     g_physics_solver.clear();
 }

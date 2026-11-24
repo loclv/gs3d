@@ -23,6 +23,7 @@
 | `src/test_game.goose` | Beacon Run rules: scoring, win/lose, reset |
 | `src/test_siege.goose` | Rift Siege rules: sweeps, movement, dash, cover |
 | `src/benchmark_transforms.goose` | native transform benchmark |
+| `src/benchmark_physics*.goose` | headless solver benchmarks |
 | `src/game_web.goose` | Beacon Run browser entry point (`--game`) |
 | `src/siege_web.goose` | Rift Siege browser entry point (`--siege`) |
 | `src/viewer_web.goose` | model viewer and animation benchmark entry point |

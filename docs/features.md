@@ -88,8 +88,8 @@ and the [Three.js roadmap](threejs-roadmap.md).
   collision (`segment_sphere_intersects`), and oriented box/sphere/capsule
   physics bodies — gravity, one-step forces and torques, linear and angular
   velocity, restitution, friction, adaptive substeps, automatic sleeping,
-  kinematic bodies, per-body removal, per-step contact queries (with world
-  contact points) and collider raycasts. A RapierPhysics-style facade
+  kinematic bodies, per-body removal, box-box contact manifolds, per-step
+  contact queries (with world contact points) and collider raycasts. A RapierPhysics-style facade
   (`g3.rapier`) exposes the same solver with Rapier vocabulary:
   cuboid/ball/capsule bodies, world timestep + step,
   translation/linvel/angvel/rotation accessors, applyImpulse,
