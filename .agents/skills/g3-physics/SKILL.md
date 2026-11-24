@@ -40,7 +40,7 @@ dynamics (one collider per body):
   angular acceleration through `R * diag(ii) * Rᵀ`, orientation integrated
   by Rodrigues rotation of the basis columns.
 - `physics_step(dt)` accepts `(0, 1]` s; substeps are ≤ 1/60 s and shrink
-  when a fast body would cross a quarter of the smallest collider feature
+  when a fast body would cross half of the smallest collider feature
   per substep (max 12 substeps). `dt <= 0` or `> 1` is ignored.
 - **Sleeping**: dynamic bodies sleep after ~0.5 s under
   `|v| < 0.1`, `|ω| < 0.2` — evaluated **after** the contact solve on

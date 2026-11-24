@@ -11,32 +11,146 @@ import g3.physics;
 
 namespace g3;
 
-// A contact recorded during the last physics_step: one entry per body
-// pair per step — pairs overlapping across several substeps keep only
-// their freshest record (see the dedupe pass at the end of
-// physics_step). `a` and `b` are body ids in detection order, `normal`
-// points from body a toward body b, `point` is the world-space contact
-// point (midpoint of the two surface points) and `penetration` is the
-// overlap depth at detection. `pkey`/`ord` are internal dedupe keys.
+// A contact recorded by the solver: one entry per body pair, kept across
+// steps so resting and sleeping overlaps persist instead of being
+// re-detected every substep. `a` and `b` are body ids in detection
+// order, `normal` points from body a toward body b, `point` is the
+// world-space contact point (midpoint of the two surface points) and
+// `penetration` is the overlap depth at detection. `pkey` is the
+// canonical unordered-pair key used by the contact hash.
 struct BodyContact {
     a: i64,
     b: i64,
     normal: float3 = float3_0,
     point: float3 = float3_0,
     penetration: f32 = 0.0,
-    // Canonical unordered-pair key and push order, used only by the
-    // per-step dedupe in physics_step.
     pkey: i64 = 0,
-    ord: i64 = 0,
 }
 
 var g_physics_contacts: BodyContact[>..];
 
-// Contacts detected during the last physics_step, one entry per body
-// pair, in pair order.
+// Contacts detected by the solver, one entry per body pair whose
+// colliders overlap — including pairs where both bodies sleep, whose
+// frozen poses keep the record valid without re-detection.
 fn physics_contact_count() -> i64 { return g_physics_contacts.len; }
 
 fn physics_contact(id: i64) -> BodyContact& { return g_physics_contacts[id]; }
+
+// Open-addressed pair-key -> contact-index table backing the persistent
+// contact store. key == 0 is empty, key == -1 a tombstone left by
+// physics_contact_forget; entries are rehashed (dropping tombstones)
+// when the table passes ~70% load.
+struct ContactSlot {
+    key: i64 = 0,
+    index: i64 = -1,
+}
+
+var g_contact_tab: ContactSlot[>..];
+var g_contact_mask: i64 = 0;
+var g_contact_used: i64 = 0;
+var g_contact_dead: i64 = 0;
+
+fn physics_contact_hash(key: i64, cap: i64) -> i64 {
+    // Fold the 2^36-spaced key into a machine-word mix before taking the
+    // low bits — key % cap alone would only see `hi`.
+    var h = (key / 68719476736) * 31 + key % 68719476736;
+    h = (h * 31 + key / 1099511627776) % cap;
+    return h;
+}
+
+fn physics_contact_slot_find(key: i64) -> i64 {
+    if g_contact_mask <= 0 { return -1; }
+    let cap = g_contact_mask + 1;
+    var idx = physics_contact_hash(key, cap);
+    for _ in 0..cap {
+        let s = g_contact_tab[idx];
+        if s.key == 0 { return -1; }
+        if s.key == key { return idx; }
+        idx = (idx + 1) % cap;
+    }
+    return -1;
+}
+
+fn physics_contact_tab_insert(key: i64, index: i64) {
+    let cap = g_contact_mask + 1;
+    var idx = physics_contact_hash(key, cap);
+    for _ in 0..cap {
+        if g_contact_tab[idx].key == 0 {
+            g_contact_tab[idx].key = key;
+            g_contact_tab[idx].index = index;
+            g_contact_used += 1;
+            return;
+        }
+        idx = (idx + 1) % cap;
+    }
+}
+
+// Double the table and reinsert every live contact — also the only way
+// tombstones are reclaimed.
+fn physics_contact_tab_grow() {
+    let cap = if g_contact_mask <= 0 { 64 } else { (g_contact_mask + 1) * 2 };
+    g_contact_tab.clear();
+    for _ in 0..cap { g_contact_tab.push(ContactSlot { .. }); }
+    g_contact_mask = cap - 1;
+    g_contact_used = 0;
+    g_contact_dead = 0;
+    for i in 0..g_physics_contacts.len {
+        physics_contact_tab_insert(g_physics_contacts[i].pkey, i);
+    }
+}
+
+fn physics_contact_tab_maybe_grow() {
+    if g_contact_mask <= 0 ||
+       (g_contact_used + g_contact_dead + 1) * 10 > (g_contact_mask + 1) * 7 {
+        physics_contact_tab_grow();
+    }
+}
+
+// Drop the contact record for a pair whose colliders no longer overlap
+// (or can no longer be observed). Swap-with-last keeps the array dense;
+// the moved record's hash slot is repointed at its new index.
+fn physics_contact_forget(key: i64) {
+    let slot = physics_contact_slot_find(key);
+    if slot < 0 { return; }
+    let ci = g_contact_tab[slot].index;
+    let last = g_physics_contacts.len - 1;
+    if ci != last {
+        g_physics_contacts[ci] = g_physics_contacts[last];
+        let midx = physics_contact_slot_find(g_physics_contacts[ci].pkey);
+        if midx >= 0 { g_contact_tab[midx].index = ci; }
+    }
+    g_physics_contacts.pop();
+    g_contact_tab[slot].key = -1;
+    g_contact_tab[slot].index = -1;
+    g_contact_used -= 1;
+    g_contact_dead += 1;
+}
+
+// Record (or refresh) the contact for a pair. Called once per detected
+// overlap per substep; sleeping pairs skip detection entirely while
+// their record exists, so this runs for awake and newly-sleeping pairs.
+fn physics_contact_record(key: i64, c: BodyContact) {
+    let slot = physics_contact_slot_find(key);
+    if slot >= 0 {
+        g_physics_contacts[g_contact_tab[slot].index] = c;
+        return;
+    }
+    physics_contact_tab_maybe_grow();
+    g_physics_contacts.push(c);
+    physics_contact_tab_insert(key, g_physics_contacts.len - 1);
+}
+
+// Remove every contact involving a body — called when the body is
+// tombstoned, since removed bodies leave the broadphase sweep and their
+// pairs would never be re-detected to trigger physics_contact_forget.
+fn physics_contacts_forget_body(id: i64) {
+    var i: i64 = 0;
+    while i < g_physics_contacts.len {
+        let c = g_physics_contacts[i];
+        if c.a == id || c.b == id { physics_contact_forget(c.pkey); }
+        else { i += 1; }
+    }
+}
 
 // Result of physics_raycast: the nearest body hit along the ray.
 // `normal` is the surface normal facing the ray origin.

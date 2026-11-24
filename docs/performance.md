@@ -422,10 +422,10 @@ Measured on the same machine as the raster numbers above (Apple M-series,
 
 | scene | gs3d | Rapier 0.21 (`@dimforge/rapier3d-compat`, wasm) |
 |---|---|---|
-| 410 separated bodies | **13 ms** | 32 ms |
-| rain, ~100 live bodies | **16–34 ms** | 65–73 ms |
-| 101-body pile, default settings | 211–254 ms | **9.6 ms** |
-| 101-body pile, Rapier `canSleep=false` | ~230 ms | 144 ms |
+| 410 separated bodies | **~15 ms** | 32 ms |
+| rain, ~100 live bodies | **~12 ms** | 65–73 ms |
+| 101-body pile, default settings | ~170–195 ms | **9.6 ms** |
+| 101-body pile, Rapier `canSleep=false` | ~170–195 ms | 144 ms |
 
 Rapier numbers come from a Bun script driving the JS-compat build with
 identical body layouts, gravity, timestep and step counts; Rapier's own
@@ -453,7 +453,11 @@ Read the pile rows carefully before quoting them:
 Solver structure for reference: sweep-and-prune broadphase on per-body
 world AABBs, box-box contact manifolds (Sutherland–Hodgman clipping, up
 to 8 points per face contact), 12 sequential-impulse iterations with
-per-substep warm starting of accumulated normal impulses, one shared
-positional-correction pass, per-body sleeping after ~0.5 s under speed
-and spin thresholds, and a cached world-space inverse inertia tensor so
-angular response is one mat-vec per impulse.
+per-substep warm starting of accumulated normal impulses and an early
+exit once impulse deltas converge, one shared positional-correction
+pass, per-body sleeping after ~0.5 s under speed and spin thresholds, a
+cached world-space inverse inertia tensor so angular response is one
+mat-vec per impulse, adaptive substeps allowing half a collider feature
+of travel each, and a persistent contact store — contact records live
+across steps in a pair-keyed hash, so resting and sleeping overlaps are
+reported without re-running detection every substep.

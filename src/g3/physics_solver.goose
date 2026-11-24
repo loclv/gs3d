@@ -116,7 +116,6 @@ const PHYSICS_SOLVER_ITERATIONS: i32 = 12;
 // second are rejected to bound work after a long pause.
 fn physics_step(dt: f32) {
     guard dt > 0.0 && dt <= 1.0 else { return; }
-    g_physics_contacts.clear();
     let sub_dt = physics_substep_dt(dt);
     var remaining = dt;
     var steps = 0;
@@ -127,25 +126,27 @@ fn physics_step(dt: f32) {
         steps += 1;
     }
 
-    // Contact records accumulate once per substep; keep only the freshest
-    // record per pair so contacts() reports each overlap once per step.
-    // pkey is the canonical unordered pair key, ord the push order —
-    // the last record of each pkey group is the freshest.
-    if g_physics_contacts.len > 1 {
-        sort(g_physics_contacts) { x, y =>
-            x.pkey < y.pkey || (x.pkey == y.pkey && x.ord < y.ord)
-        };
-        var w: i64 = 0;
-        var i: i64 = 0;
-        while i < g_physics_contacts.len {
-            var j = i + 1;
-            while j < g_physics_contacts.len &&
-                  g_physics_contacts[j].pkey == g_physics_contacts[i].pkey { j += 1; }
-            g_physics_contacts[w] = g_physics_contacts[j - 1];
-            w += 1;
-            i = j;
+    // Drop contact records whose pair no longer overlaps. Pairs that
+    // separated during the step were skipped by the broadphase before
+    // any detection ran, so their records would otherwise linger —
+    // contacts() must only report pairs touching at the end of the step.
+    // O(#contacts) once per step, versus a hash probe per rejected pair
+    // per substep.
+    var pi: i64 = 0;
+    while pi < g_physics_contacts.len {
+        let c = g_physics_contacts[pi];
+        let ba .= g_physics_bodies[c.a];
+        let bb .= g_physics_bodies[c.b];
+        var stale = ba.removed || bb.removed ||
+            !node_handle_valid(ba.node) || !node_handle_valid(bb.node);
+        if !stale {
+            let dd = bb.position - ba.position;
+            stale = abs(dd.x) > ba.bounds.x + bb.bounds.x ||
+                    abs(dd.y) > ba.bounds.y + bb.bounds.y ||
+                    abs(dd.z) > ba.bounds.z + bb.bounds.z;
         }
-        while g_physics_contacts.len > w { g_physics_contacts.pop(); }
+        if stale { physics_contact_forget(c.pkey); }
+        else { pi += 1; }
     }
 
     for &body in g_physics_bodies { body.force = float3_0; body.torque = float3_0; }
@@ -185,9 +186,11 @@ fn physics_substep_dt(dt: f32) -> f32 {
         max_speed = max(max_speed, length(body.velocity) + tip);
     }
     if max_speed <= 0.0 || min_size >= 3.0e38 { return min(dt, 1.0 / 60.0); }
-    // Allow at most a quarter-feature of travel per substep, clamped to a
-    // sane range so a tiny collider cannot force unbounded substeps.
-    let needed = min_size / (4.0 * max_speed);
+    // Allow at most half a feature of travel per substep — still under
+    // the smallest collider's full width, so nothing can tunnel —
+    // clamped to a sane range so a tiny collider cannot force unbounded
+    // substeps.
+    let needed = min_size / (2.0 * max_speed);
     return min(dt, clamp(needed, 1.0 / 480.0, 1.0 / 60.0));
 }
 
@@ -364,10 +367,19 @@ fn physics_point_velocity(b: PhysicsBody&, r: float3) -> float3 {
 fn physics_detect_pair(a_id: i64, b_id: i64) {
     let a .= g_physics_bodies[a_id];
     let b .= g_physics_bodies[b_id];
-    if a.removed || b.removed ||
-       !node_handle_valid(a.node) || !node_handle_valid(b.node) { return; }
+    // Canonical unordered-pair key for the persistent contact store.
+    let lo = min(a_id, b_id);
+    let hi = max(a_id, b_id);
+    let pkey = lo * 68719476736 + hi + 1;
+    if a.removed || b.removed { return; }
+    if !node_handle_valid(a.node) || !node_handle_valid(b.node) {
+        physics_contact_forget(pkey);
+        return;
+    }
 
-    // Broadphase: world-AABB reject before any contact math.
+    // Broadphase: world-AABB reject before any contact math. No forget
+    // here — separated pairs are cheap to skip, and any stale record is
+    // dropped by the once-per-step purge at the end of physics_step.
     let d = b.position - a.position;
     if abs(d.x) > a.bounds.x + b.bounds.x ||
        abs(d.y) > a.bounds.y + b.bounds.y ||
@@ -375,16 +387,23 @@ fn physics_detect_pair(a_id: i64, b_id: i64) {
 
     // Cheap reject: a pair where neither side is a dynamic body — awake
     // or asleep; sleeping keeps inverse_mass — and no kinematic body is
-    // moving can never produce an observable contact. Sleeping pairs and
-    // bodies resting on static or kinematic geometry still get through:
-    // their overlap is recorded for contact queries even though the
-    // solver cannot move either side.
+    // moving can never produce an observable contact, and can never have
+    // produced a record.
     let kin_a = a.kinematic && length(a.velocity) > 0.0001;
     let kin_b = b.kinematic && length(b.velocity) > 0.0001;
     if a.inverse_mass <= 0.0 && b.inverse_mass <= 0.0 && !kin_a && !kin_b { return; }
 
+    // Both asleep: their poses are frozen, so an existing contact record
+    // is still exact — skip detection entirely. This is what keeps fully
+    // settled scenes at sleep-fast-path speed while contacts() still
+    // reports their resting overlaps.
+    if a.sleeping && b.sleeping && physics_contact_slot_find(pkey) >= 0 { return; }
+
     physics_contact_manifold(a, b, g_physics_manifold);
-    if g_physics_manifold.count == 0 { return; }
+    if g_physics_manifold.count == 0 {
+        physics_contact_forget(pkey);
+        return;
+    }
     let normal = g_physics_manifold.normal;
 
     // A real impact at any manifold point wakes sleepers; resting contacts
@@ -414,13 +433,10 @@ fn physics_detect_pair(a_id: i64, b_id: i64) {
             deepest = k;
         }
     }
-    let lo = min(a_id, b_id);
-    let hi = max(a_id, b_id);
-    g_physics_contacts.push(BodyContact { a: a_id, b: b_id, normal: normal,
+    physics_contact_record(pkey, BodyContact { a: a_id, b: b_id, normal: normal,
         point: g_physics_manifold.points[deepest],
         penetration: g_physics_manifold.penetrations[deepest],
-        pkey: lo * 68719476736 + hi + 1,
-        ord: g_physics_contacts.len });
+        pkey: pkey });
 
     if im_a + im_b <= 0.0 { return; }
 
@@ -545,7 +561,7 @@ fn physics_solve_contacts() {
                 }
             }
         }
-        if max_delta < 0.001 { break; }
+        if max_delta < 0.01 { break; }
     }
 
     // Positional correction once, after the velocity solve: move bodies

@@ -315,6 +315,10 @@ fn physics_box_offset(b: PhysicsBody&, local: float3) -> float3 {
 fn physics_clear() {
     g_physics_bodies.clear();
     g_physics_contacts.clear();
+    g_contact_tab.clear();
+    g_contact_mask = 0;
+    g_contact_used = 0;
+    g_contact_dead = 0;
     g_physics_order.clear();
     g_physics_solver.clear();
     g_warm_tab.clear();
@@ -389,6 +393,7 @@ fn physics_body_remove(id: i64) -> bool {
     body.removed = true;
     body.velocity = float3_0;
     body.force = float3_0;
+    physics_contacts_forget_body(id);
     return true;
 }
 
