@@ -33,12 +33,12 @@ fn phys_write_vec3(out: f32[:], v: float3) { out[0] = v.x; out[1] = v.y; out[2] 
 // Body state. `out` must hold at least 3 floats; functions return false on
 // a bad id or short slice and leave it untouched.
 export fn g3_phys_body_pos(id: i32, out: f32[:]) -> bool {
-    guard out.len >= 3 && id >= 0 && id < g3::physics_body_count() else { return false; }
+    guard out.len >= 3 && g3::physics_body_valid(id) else { return false; }
     phys_write_vec3(out, g3::rapier_body_translation(id));
     return true;
 }
 export fn g3_phys_body_vel(id: i32, out: f32[:]) -> bool {
-    guard out.len >= 3 && id >= 0 && id < g3::physics_body_count() else { return false; }
+    guard out.len >= 3 && g3::physics_body_valid(id) else { return false; }
     phys_write_vec3(out, g3::rapier_body_linvel(id));
     return true;
 }

@@ -61,13 +61,13 @@ fn rapier_body_add_capsule(node_id: i64, half_length: f32, radius: f32, mass: f3
 
 // RigidBodyDesc.dynamic() check: mass > 0 bodies integrate and collide.
 fn rapier_body_is_dynamic(id: i64) -> bool {
-    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return false; }
+    guard physics_body_valid(id) else { return false; }
     return physics_body(id).inverse_mass > 0.0;
 }
 
 // body.translation()
 fn rapier_body_translation(id: i64) -> float3 {
-    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return float3_0; }
+    guard physics_body_valid(id) else { return float3_0; }
     return physics_body(id).position;
 }
 
@@ -75,7 +75,7 @@ fn rapier_body_translation(id: i64) -> float3 {
 // RapierPhysics.setMeshPosition. The node's position is updated immediately
 // so the next frame renders the new spot even before world.step().
 fn rapier_body_set_translation(id: i64, position: float3) -> bool {
-    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return false; }
+    guard physics_body_valid(id) else { return false; }
     let body .= physics_body(id);
     body.position = position;
     body.velocity = float3_0;
@@ -85,7 +85,7 @@ fn rapier_body_set_translation(id: i64, position: float3) -> bool {
 
 // body.linvel()
 fn rapier_body_linvel(id: i64) -> float3 {
-    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return float3_0; }
+    guard physics_body_valid(id) else { return float3_0; }
     return physics_body(id).velocity;
 }
 
@@ -109,7 +109,7 @@ fn rapier_body_rotation(id: i64) -> float3 { return physics_body_euler(id); }
 // velocity and updates the node's rotation immediately, like
 // setTranslation does for position. Linear velocity is kept.
 fn rapier_body_set_rotation(id: i64, euler: float3) -> bool {
-    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return false; }
+    guard physics_body_valid(id) else { return false; }
     let body .= physics_body(id);
     body.orientation = mat4_rotate_euler(euler);
     body.angular_velocity = float3_0;
@@ -131,7 +131,7 @@ fn rapier_body_apply_impulse_at(id: i64, impulse: float3, point: float3) -> bool
 // body.applyImpulse(): an instantaneous velocity change of impulse *
 // inverse_mass. Dynamic bodies only; wakes a sleeping body.
 fn rapier_body_apply_impulse(id: i64, impulse: float3) -> bool {
-    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return false; }
+    guard physics_body_valid(id) else { return false; }
     let body .= physics_body(id);
     if body.inverse_mass <= 0.0 { return false; }
     physics_wake(body);
@@ -177,7 +177,7 @@ fn rapier_world_raycast(origin: float3, direction: float3, max_dist: f32) -> Phy
 
 // body.mass() — the scalar mass the body was created or last set with.
 fn rapier_body_mass(id: i64) -> f32 {
-    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return 0.0; }
+    guard physics_body_valid(id) else { return 0.0; }
     return physics_body(id).mass;
 }
 
