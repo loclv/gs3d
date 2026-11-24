@@ -441,6 +441,8 @@ export class Object3D {
   parent: Object3D | null;
   visible: boolean;
   layers: Layers;
+  castShadow: boolean;
+  receiveShadow: boolean;
   matrixAutoUpdate: boolean;
   matrix: Matrix4;
   matrixWorld: Matrix4;
@@ -685,6 +687,12 @@ export class OrbitControls {
   update(): boolean;
   dispose(): void;
 }
+
+/* --- engine bridge -------------------------------------------------------------- */
+
+// The engine node index an Object3D synced to during render() — the handle
+// gs3d/physics bodies attach to. -1 until the object has rendered once.
+export function engineNodeIndex(object: Object3D): number;
 
 /* --- renderer ----------------------------------------------------------------- */
 

@@ -1,7 +1,8 @@
 # Typescript + Rsbuild sample for "gs3d" package — physics
 
-Procedural physics on a `gs3d/three` `Object3D` rig. No mixer/skeleton
-in the facade; clips live in `src/clips.ts`, sampling in `src/animation.ts`.
+Animation clips plus a `gs3d/physics` sandbox on a `gs3d/three` `Object3D`
+rig. No mixer/skeleton in the facade; clips live in `src/clips.ts`, sampling
+in `src/animation.ts`, the physics sandbox in `src/physics.ts`.
 
 ## Commands
 

@@ -149,6 +149,7 @@ export {
 
 export { Raycaster } from './raycaster';
 export { OrbitControls } from './controls';
+export { engineNodeIndex } from './bridge';
 
 export {
   NoColorSpace,

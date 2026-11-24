@@ -17,9 +17,14 @@ dynamics (one collider per body):
 ## Core model
 
 - Bodies attach to **scene node indices**. The collider center is the node's
-  `pos`; `physics_step(dt)` writes body `pos` **and** `rot` back onto nodes
-  at the end of the step (static bodies keep their node rotation). Step
-  physics *before* `frame(dt)`.
+  position; `physics_step(dt)` writes body `pos` **and** `rot` back onto
+  nodes at the end of the step (static bodies keep their node rotation).
+  Step physics *before* `frame(dt)`.
+- Nodes flagged `use_local_matrix` (asset/facade/glTF imports) have no
+  meaningful `pos`/`rot` — `physics_node_pose` decomposes `local_matrix`
+  into position/rotation/scale instead, and the step writes a rebuilt
+  affine matrix back with scale preserved. This is what makes
+  `gs3d/physics` work on `gs3d/three` objects at all.
 - Orientation is a `Mat4` rotation internally, exposed as **euler radians
   in the node convention** (`mat4_rotate_euler`: Z then Y then X — same as
   `Node.rot`). `physics_body_euler(id)` reads it back;
@@ -132,6 +137,15 @@ angvel), `rapier_body_apply_impulse`, `rapier_body_apply_impulse_at`,
 `{body, distance, point, normal} | null`. Bodies are engine node indices —
 copy `translation()`/`rotation()` back to your objects yourself.
 
+With the `gs3d/three` facade, `engineNodeIndex(object)` (exported from
+`gs3d/three`) returns the node index an object synced to during `render()`
+(-1 until the first render, and -1 for lights/cameras). Nodes exist only
+after render, so defer `addBall`/`addCuboid`/`addCapsule` by a frame, keep
+physics objects as direct scene children (parent transforms are not part of
+the solver), and write rotation back as `object.rotation.set(x, y, z,
+'ZYX')` — engine euler (Z then Y then X) matches three's 'ZYX' order.
+`samples/physics/src/physics.ts` is the reference wiring.
+
 ## Gotchas
 
 - The `let c = g3::camera()` copy trap applies here too: `physics_body(id)`
@@ -144,12 +158,21 @@ copy `translation()`/`rotation()` back to your objects yourself.
 - `physics_contact` writes **9** floats on the wasm side
   (`[a, b, nx, ny, nz, px, py, pz, penetration]`) — keep `SCRATCH_FLOATS`
   ≥ 9 in JS.
+- **Slice ABI**: a Goose `f32[:]` parameter lowers to a pointer to a
+  16-byte `sl_f32` header in wasm memory — `{ float* data @0, i64 len @8 }`
+  — passed as ONE i32 argument, not `(ptr, len)`. `PhysicsWorld._sliceArg()`
+  writes that header before every read-back call (`pos`, `vel`, `angvel`,
+  `rot`, `contact`, `raycast`). Passing the data pointer and length as
+  separate JS args reads `data`/`len` out of the scratch buffer itself and
+  crashes with `memory access out of bounds`. Same trap applies to every
+  other slice export (`g3_asset_*`, `g3_host_*` shader/texture uploads) if
+  you ever call them from JS.
 
 ## Verify
 
 - `goose check src/test_siege.goose` — typechecks the module graph.
 - `./build_native.sh --test` — builds and runs all roots; `test_siege`
-  holds the hand-derived physics checks (currently 73).
+  holds the hand-derived physics checks (currently 75).
 - `./build_web.sh --gs3d` — rebuilds `web/gs3d/app.js`/`app.wasm`; new
   `g3_phys_*` exports must also be added to the `phys_exports` list in
   `build_web.sh` or they won't be callable from JS.

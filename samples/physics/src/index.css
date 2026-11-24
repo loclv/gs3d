@@ -112,3 +112,11 @@ footer a span { padding-left: 4px; }
 
 .probe { display: grid; gap: 10px; }
 .joint-values { min-height: 34px; padding: 9px 11px; border: 1px solid #2b3342; border-radius: 6px; color: #aebadb; background: #0d1117; font: 10px/1.6 'DM Mono', monospace; }
+
+.sandbox-title { margin-top: 22px; }
+.sandbox { display: grid; gap: 9px; margin-bottom: 4px; }
+.sandbox-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.sandbox-row button { flex: 1 1 auto; padding: 8px 6px; border: 1px solid #2b3342; border-radius: 6px; color: #c6cfdd; background: #10151f; font-size: 11px; white-space: nowrap; transition: border-color .15s, background .15s; }
+.sandbox-row button:hover { border-color: #5d6f9e; }
+.sandbox-row button[aria-pressed="true"] { border-color: #8ca6ff; background: #182036; color: #eef2ff; }
+.sandbox-count { color: #6d7c96; font: 10px 'DM Mono', monospace; text-align: right; }

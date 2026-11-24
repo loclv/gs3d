@@ -6,11 +6,21 @@ import { AssetError } from './assets.js';
 
 function mockEngine() {
   const calls = [];
-  const heap = new Float32Array(1024);
+  const buffer = new ArrayBuffer(4096);
+  const heap = new Float32Array(buffer);
+  const bytes = new Uint8Array(buffer);
+  let nextPtr = 256;
+  // Decode the sl_f32 header the way the wasm export does: data ptr at
+  // offset 0, i64 length at offset 8.
+  const sliceTarget = header => {
+    const dv = new DataView(buffer, header, 16);
+    return { ptr: dv.getUint32(0, true), len: Number(dv.getBigUint64(8, true)) };
+  };
   const engine = {
     calls,
     HEAPF32: heap,
-    _malloc: size => { calls.push(['malloc', size]); return 256; },
+    HEAPU8: bytes,
+    _malloc: size => { calls.push(['malloc', size]); const p = nextPtr; nextPtr += (size + 15) & ~15; return p; },
     _free: ptr => calls.push(['free', ptr]),
     _g3_phys_world_step: () => calls.push(['step']),
     _g3_phys_set_gravity: (x, y, z) => calls.push(['gravity', x, y, z]),
@@ -26,12 +36,14 @@ function mockEngine() {
       return halfLength >= 0 && radius > 0 ? 9 : -1;
     },
     _g3_phys_body_dynamic: id => id !== 3,
-    _g3_phys_body_pos: (id, ptr, len) => {
+    _g3_phys_body_pos: (id, header) => {
+      const { ptr, len } = sliceTarget(header);
       assert.ok(len >= 3, 'pos read-back slice is large enough');
       heap[ptr / 4] = 1; heap[ptr / 4 + 1] = 2; heap[ptr / 4 + 2] = 3;
       return id >= 0;
     },
-    _g3_phys_body_vel: (id, ptr, len) => {
+    _g3_phys_body_vel: (id, header) => {
+      const { ptr } = sliceTarget(header);
       heap[ptr / 4] = 4; heap[ptr / 4 + 1] = 5; heap[ptr / 4 + 2] = 6;
       return id >= 0;
     },
@@ -40,12 +52,14 @@ function mockEngine() {
     _g3_phys_body_apply_impulse: (id, x, y, z) => { calls.push(['impulse', id, x, y, z]); return id > 0; },
     _g3_phys_body_set_restitution: (id, v) => id >= 0 && v >= 0 && v <= 1,
     _g3_phys_body_set_friction: (id, v) => id >= 0 && v >= 0 && v <= 1,
-    _g3_phys_body_angvel: (id, ptr, len) => {
+    _g3_phys_body_angvel: (id, header) => {
+      const { ptr } = sliceTarget(header);
       heap[ptr / 4] = 0.1; heap[ptr / 4 + 1] = 0.2; heap[ptr / 4 + 2] = 0.3;
       return id >= 0;
     },
     _g3_phys_body_set_angvel: (id, x, y, z) => { calls.push(['setAngvel', id, x, y, z]); return id >= 0; },
-    _g3_phys_body_rot: (id, ptr, len) => {
+    _g3_phys_body_rot: (id, header) => {
+      const { ptr } = sliceTarget(header);
       heap[ptr / 4] = 0.4; heap[ptr / 4 + 1] = 0.5; heap[ptr / 4 + 2] = 0.6;
       return id >= 0;
     },
@@ -56,7 +70,8 @@ function mockEngine() {
       return id > 0;
     },
     _g3_phys_contact_count: () => 1,
-    _g3_phys_contact: (id, ptr, len) => {
+    _g3_phys_contact: (id, header) => {
+      const { ptr, len } = sliceTarget(header);
       assert.ok(len >= 9, 'contact read-back slice holds 9 floats');
       heap[ptr / 4] = 1; heap[ptr / 4 + 1] = 2;
       heap[ptr / 4 + 2] = 0; heap[ptr / 4 + 3] = 1; heap[ptr / 4 + 4] = 0;
@@ -140,7 +155,7 @@ near(contact.point, [0.1, 0.2, 0.3]);
 assert.ok(Math.abs(contact.penetration - 0.05) < 1e-6);
 world.dispose();
 world.dispose(); // idempotent
-assert.ok(world.engine.calls.filter(c => c[0] === 'free').length === 1);
+assert.ok(world.engine.calls.filter(c => c[0] === 'free').length === 2); // scratch + slice header
 assert.throws(() => new PhysicsWorld({}), AssetError);
 
 console.log('physics package checks passed');

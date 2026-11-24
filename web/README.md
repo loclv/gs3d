@@ -221,6 +221,12 @@ body (capsules run along local Y), bodies sleep automatically when they
 come to rest, and there is one collider per body. Bodies attach to engine
 node indices, not facade `Object3D`s; read `translation()` and
 `rotation()` after `step()` and write them back to your objects yourself.
+With the `gs3d/three` facade, `engineNodeIndex(object)` (exported from
+`gs3d/three`) returns the node index an object synced to during `render()`
+(-1 until then), which is what you pass to `addBall`/`addCuboid`/`addCapsule`.
+Physics also understands matrix-driven nodes (`use_local_matrix`, which is
+what the facade and glTF imports produce): it decomposes the affine matrix
+into position/rotation/scale and writes the simulated TRS back into it.
 This module needs the gs3d host build (`./build_web.sh --gs3d`); other
 browser builds do not export the physics entry points.
 

@@ -39,9 +39,9 @@ struct PhysicsBody {
     // and cameras; they no longer integrate or collide.
     removed: bool = false,
     // World-from-body rotation as a pure Mat4, matching the node's euler
-    // convention (mat4_rotate_euler). Captured from node.rot at creation
-    // and by physics_body_sync; written back to node.rot each step for
-    // bodies that rotate.
+    // convention (mat4_rotate_euler). Captured from the node's pose at
+    // creation and by physics_body_sync; written back each step — to
+    // node.rot for TRS nodes, into local_matrix for matrix-driven nodes.
     orientation: Mat4,
     // World-frame angular velocity in radians per second.
     angular_velocity: float3 = float3_0,
@@ -135,6 +135,75 @@ fn physics_shape_inertia(mass: f32, he: float3, radius: f32, half_length: f32) -
     };
 }
 
+// A node's position, orientation and scale as the solver sees them. Plain
+// nodes carry TRS fields; nodes flagged use_local_matrix (asset imports,
+// the gs3d/three facade) keep an affine local_matrix instead, so TRS is
+// decomposed from it. Scale is signed: a negative determinant mirrors one
+// axis, which the rotation columns absorb so `orientation` stays proper.
+struct PhysicsPose {
+    position: float3,
+    orientation: Mat4,
+    scale: float3,
+}
+
+fn physics_node_pose(nref: Node&) -> PhysicsPose {
+    if !nref.use_local_matrix {
+        return PhysicsPose {
+            position: nref.pos,
+            orientation: mat4_rotate_euler(nref.rot),
+            scale: nref.scale,
+        };
+    }
+    let m = nref.local_matrix.m;
+    let sx = sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+    let sy = sqrt(m[4] * m[4] + m[5] * m[5] + m[6] * m[6]);
+    let sz = sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
+    // Signed scale: normalize the columns into a proper rotation, flipping
+    // the third axis when the matrix mirrors.
+    var rx = if sx > 0.0000001 { m[0] / sx } else { 1.0 };
+    var ry = if sx > 0.0000001 { m[1] / sx } else { 0.0 };
+    var rz = if sx > 0.0000001 { m[2] / sx } else { 0.0 };
+    var ux = if sy > 0.0000001 { m[4] / sy } else { 0.0 };
+    var uy = if sy > 0.0000001 { m[5] / sy } else { 1.0 };
+    var uz = if sy > 0.0000001 { m[6] / sy } else { 0.0 };
+    var vx = if sz > 0.0000001 { m[8] / sz } else { 0.0 };
+    var vy = if sz > 0.0000001 { m[9] / sz } else { 0.0 };
+    var vz = if sz > 0.0000001 { m[10] / sz } else { 1.0 };
+    // det of the normalized columns; negative means a reflection.
+    let det = rx * (uy * vz - uz * vy) - ux * (ry * vz - rz * vy) + vx * (ry * uz - rz * uy);
+    var scale_z = sz;
+    if det < 0.0 {
+        vx = -vx; vy = -vy; vz = -vz;
+        scale_z = -sz;
+    }
+    var orientation = mat4_zero();
+    orientation.m[0] = rx; orientation.m[1] = ry; orientation.m[2] = rz;
+    orientation.m[4] = ux; orientation.m[5] = uy; orientation.m[6] = uz;
+    orientation.m[8] = vx; orientation.m[9] = vy; orientation.m[10] = vz;
+    orientation.m[15] = 1.0;
+    return PhysicsPose {
+        position: float3 { m[12], m[13], m[14] },
+        orientation: orientation,
+        scale: float3 {
+            if sx > 0.0000001 { sx } else { 1.0 },
+            if sy > 0.0000001 { sy } else { 1.0 },
+            if scale_z != 0.0 { scale_z } else { 1.0 },
+        },
+    };
+}
+
+// Rebuild a use_local_matrix node's affine transform from solver state,
+// preserving the scale the pose read found.
+fn physics_write_local_matrix(nref: Node&, position: float3, orientation: Mat4, scale: float3) {
+    var out = mat4_zero();
+    out.m[0] = orientation.m[0] * scale.x; out.m[1] = orientation.m[1] * scale.x; out.m[2] = orientation.m[2] * scale.x;
+    out.m[4] = orientation.m[4] * scale.y; out.m[5] = orientation.m[5] * scale.y; out.m[6] = orientation.m[6] * scale.y;
+    out.m[8] = orientation.m[8] * scale.z; out.m[9] = orientation.m[9] * scale.z; out.m[10] = orientation.m[10] * scale.z;
+    out.m[12] = position.x; out.m[13] = position.y; out.m[14] = position.z;
+    out.m[15] = 1.0;
+    nref.local_matrix = out;
+}
+
 // World direction to body axes: R^T v, which is just the orientation's
 // columns dotted with v — no transpose allocation in the contact hot path.
 fn physics_world_to_body(b: PhysicsBody&, v: float3) -> float3 {
@@ -220,16 +289,16 @@ fn physics_body_add_shape(node_id: i64, half_extents: float3, radius: f32, half_
     let handle = node_handle(node_id);
     guard node_handle_valid(handle) else { return -1; }
     let nref .= node(node_id);
-    let position = nref.pos;
+    let pose = physics_node_pose(nref);
     g_physics_bodies.push(PhysicsBody {
         node: handle,
-        position: position,
+        position: pose.position,
         half_extents: half_extents,
         radius: radius,
         half_length: half_length,
         mass: mass,
         inverse_mass: if mass == 0.0 { 0.0 } else { 1.0 / mass },
-        orientation: mat4_rotate_euler(nref.rot),
+        orientation: pose.orientation,
         inverse_inertia: physics_shape_inertia(mass, half_extents, radius, half_length),
         ..
     });
@@ -318,8 +387,9 @@ fn physics_body_sync(id: i64) -> bool {
     guard physics_body_valid(id) && node_handle_valid(g_physics_bodies[id].node) else { return false; }
     let body .= g_physics_bodies[id];
     let nref .= node(body.node.index);
-    body.position = nref.pos;
-    body.orientation = mat4_rotate_euler(nref.rot);
+    let pose = physics_node_pose(nref);
+    body.position = pose.position;
+    body.orientation = pose.orientation;
     physics_wake(body);
     return true;
 }
@@ -419,6 +489,13 @@ fn physics_step(dt: f32) {
     for &body in g_physics_bodies {
         if !node_handle_valid(body.node) { continue; }
         let nref .= node(body.node.index);
+        if nref.use_local_matrix {
+            // Matrix-driven nodes (asset/facade imports) get a rebuilt
+            // affine transform; scale is preserved from the current matrix.
+            let pose = physics_node_pose(nref);
+            physics_write_local_matrix(nref, body.position, body.orientation, pose.scale);
+            continue;
+        }
         nref.pos = body.position;
         // Static bodies keep whatever rotation their node was given; the
         // collider's orientation was captured at creation and only moves

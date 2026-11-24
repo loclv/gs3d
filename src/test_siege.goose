@@ -473,6 +473,40 @@ fn main() {
                    abs(rhit2.normal.z - 1.0) < 0.0001,
                    "raycast respects the rotated box's world extents");
 
+    // Matrix-driven nodes (use_local_matrix, as produced by asset/facade
+    // imports): the solver reads TRS out of local_matrix and writes the
+    // simulated transform back into it, scale preserved.
+    g3::physics_clear();
+    g3::physics_set_gravity(float3 { 0.0, -9.81, 0.0 });
+    let mfloor_node = g3::node_add(unit_mesh);
+    g3::node(mfloor_node).use_local_matrix = true;
+    g3::node(mfloor_node).local_matrix = g3::mat4_trs(float3 { 0.0, -0.5, 0.0 }, float3_0, float3_1);
+    g3::physics_body_add(mfloor_node, float3 { 5.0, 0.5, 5.0 }, 0.0);
+    let mball_node = g3::node_add(unit_mesh);
+    g3::node(mball_node).use_local_matrix = true;
+    g3::node(mball_node).local_matrix = g3::mat4_trs(float3 { 0.0, 2.0, 0.0 }, float3 { 0.0, 0.0, 0.4 }, float3 { 2.0, 2.0, 2.0 });
+    let mball = g3::physics_body_add_sphere(mball_node, 0.5, 1.0);
+    for i in 240 { g3::physics_step(1.0 / 60.0); }
+    // Rest contact puts the sphere center at y = 0.5, written into
+    // local_matrix's translation column; scale stays 2.0.
+    let mmm = g3::node(mball_node).local_matrix.m;
+    testing::check(abs(g3::physics_body(mball).position.y - 0.5) < 0.02 &&
+                   abs(mmm[13] - 0.5) < 0.02 &&
+                   abs(sqrt(mmm[0] * mmm[0] + mmm[1] * mmm[1] + mmm[2] * mmm[2]) - 2.0) < 0.01,
+                   "matrix node sphere settles and writes back local_matrix");
+    // A kinematic spin on a matrix node rotates the matrix columns.
+    let kspin_node = g3::node_add(unit_mesh);
+    g3::node(kspin_node).use_local_matrix = true;
+    g3::node(kspin_node).local_matrix = g3::mat4_trs(float3_0, float3_0, float3_1);
+    let kspin = g3::physics_body_add(kspin_node, float3 { 0.5, 0.5, 0.5 }, 1.0);
+    g3::physics_body_set_kinematic(kspin, true);
+    g3::physics_body_set_angvel(kspin, float3 { 0.0, 1.0, 0.0 });
+    for i in 30 { g3::physics_step(1.0 / 60.0); }
+    // 0.5 rad about Y: column 2 picks up sin(0.5) ~= 0.479 in m[8].
+    testing::check(abs(g3::node(kspin_node).local_matrix.m[8] - 0.4794) < 0.01,
+                   "kinematic angvel rotates a matrix-driven node");
+    g3::physics_clear();
+
     g3::rapier_set_timestep(1.0 / 60.0);
     g3::physics_clear();
     g3::shutdown();

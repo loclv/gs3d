@@ -26,6 +26,12 @@ import { AssetError } from './assets.js';
 
 const SCRATCH_FLOATS = 12;
 
+// Goose slice parameters lower to a pointer to a 16-byte header in wasm
+// memory: { float* data @0, i64 len @8 } (sl_f32 in the generated C). The
+// wasm export takes the header address as a single i32 — passing
+// (ptr, len) as separate arguments reads garbage and crashes.
+const SLICE_HEADER_BYTES = 16;
+
 function requirePhysics(engine) {
   if (!engine || typeof engine._g3_phys_world_step !== 'function') {
     throw new AssetError('UNSUPPORTED', 'This engine build does not export physics; use the gs3d package host (gs3d/app.js).');
@@ -44,12 +50,27 @@ export class PhysicsWorld {
     this.engine = engine;
     this._scratch = engine._malloc(SCRATCH_FLOATS * 4);
     if (!this._scratch) throw new AssetError('MEMORY', 'Could not allocate physics scratch buffer');
-    this._vec = new Float32Array(engine.HEAPF32.buffer, this._scratch, SCRATCH_FLOATS);
+    this._sliceHeader = engine._malloc(SLICE_HEADER_BYTES);
+    if (!this._sliceHeader) throw new AssetError('MEMORY', 'Could not allocate physics slice header');
     this.timestep = 1 / 60;
   }
 
   dispose() {
+    if (this._sliceHeader) { this.engine._free(this._sliceHeader); this._sliceHeader = 0; }
     if (this._scratch) { this.engine._free(this._scratch); this._scratch = 0; }
+  }
+
+  // Pass `out` slices to wasm exports: writes the {data, len} header fresh
+  // each call so memory growth (which detaches HEAP views) cannot stale it.
+  _sliceArg() {
+    const header = new DataView(this.engine.HEAPU8.buffer, this._sliceHeader, SLICE_HEADER_BYTES);
+    header.setUint32(0, this._scratch, true);
+    header.setBigUint64(8, BigInt(SCRATCH_FLOATS), true);
+    return this._sliceHeader;
+  }
+
+  _vec3(offset = 0) {
+    return new Float32Array(this.engine.HEAPF32.buffer, this._scratch + offset * 4, 3);
   }
 
   setGravity(x, y, z) { this.engine._g3_phys_set_gravity(x, y, z); }
@@ -91,10 +112,11 @@ export class PhysicsWorld {
 
   // body.translation() -> [x, y, z]
   translation(body) {
-    if (!this.engine._g3_phys_body_pos(body, this._scratch, SCRATCH_FLOATS)) {
+    if (!this.engine._g3_phys_body_pos(body, this._sliceArg())) {
       throw new AssetError('INVALID', `Unknown physics body ${body}`);
     }
-    return [this._vec[0], this._vec[1], this._vec[2]];
+    const v = this._vec3();
+    return [v[0], v[1], v[2]];
   }
 
   // body.setTranslation() — teleports and zeroes velocity.
@@ -107,10 +129,11 @@ export class PhysicsWorld {
 
   // body.linvel() -> [x, y, z]
   linvel(body) {
-    if (!this.engine._g3_phys_body_vel(body, this._scratch, SCRATCH_FLOATS)) {
+    if (!this.engine._g3_phys_body_vel(body, this._sliceArg())) {
       throw new AssetError('INVALID', `Unknown physics body ${body}`);
     }
-    return [this._vec[0], this._vec[1], this._vec[2]];
+    const v = this._vec3();
+    return [v[0], v[1], v[2]];
   }
 
   // body.setLinvel()
@@ -151,10 +174,11 @@ export class PhysicsWorld {
   // body.angvel() -> [x, y, z] world-frame rad/s.
   angvel(body) {
     requireExport(this.engine, '_g3_phys_body_angvel');
-    if (!this.engine._g3_phys_body_angvel(body, this._scratch, SCRATCH_FLOATS)) {
+    if (!this.engine._g3_phys_body_angvel(body, this._sliceArg())) {
       throw new AssetError('INVALID', `Unknown physics body ${body}`);
     }
-    return [this._vec[0], this._vec[1], this._vec[2]];
+    const v = this._vec3();
+    return [v[0], v[1], v[2]];
   }
 
   setAngvel(body, angvel) {
@@ -168,10 +192,11 @@ export class PhysicsWorld {
   // body.rotation() -> [x, y, z] euler radians, node convention.
   rotation(body) {
     requireExport(this.engine, '_g3_phys_body_rot');
-    if (!this.engine._g3_phys_body_rot(body, this._scratch, SCRATCH_FLOATS)) {
+    if (!this.engine._g3_phys_body_rot(body, this._sliceArg())) {
       throw new AssetError('INVALID', `Unknown physics body ${body}`);
     }
-    return [this._vec[0], this._vec[1], this._vec[2]];
+    const v = this._vec3();
+    return [v[0], v[1], v[2]];
   }
 
   // body.setRotation(euler) — teleports orientation, zeroes angvel,
@@ -243,13 +268,14 @@ export class PhysicsWorld {
     const count = this.engine._g3_phys_contact_count();
     const out = [];
     for (let i = 0; i < count; i++) {
-      if (!this.engine._g3_phys_contact(i, this._scratch, SCRATCH_FLOATS)) break;
+      if (!this.engine._g3_phys_contact(i, this._sliceArg())) break;
+      const v = new Float32Array(this.engine.HEAPF32.buffer, this._scratch, 9);
       out.push({
-        a: this._vec[0],
-        b: this._vec[1],
-        normal: [this._vec[2], this._vec[3], this._vec[4]],
-        point: [this._vec[5], this._vec[6], this._vec[7]],
-        penetration: this._vec[8],
+        a: v[0],
+        b: v[1],
+        normal: [v[2], v[3], v[4]],
+        point: [v[5], v[6], v[7]],
+        penetration: v[8],
       });
     }
     return out;
@@ -261,14 +287,15 @@ export class PhysicsWorld {
     requireExport(this.engine, '_g3_phys_raycast');
     const [ox, oy, oz] = origin;
     const [dx, dy, dz] = direction;
-    if (!this.engine._g3_phys_raycast(ox, oy, oz, dx, dy, dz, maxDist, this._scratch, SCRATCH_FLOATS)) {
+    if (!this.engine._g3_phys_raycast(ox, oy, oz, dx, dy, dz, maxDist, this._sliceArg())) {
       return null;
     }
+    const v = new Float32Array(this.engine.HEAPF32.buffer, this._scratch, 8);
     return {
-      body: this._vec[0],
-      distance: this._vec[1],
-      point: [this._vec[2], this._vec[3], this._vec[4]],
-      normal: [this._vec[5], this._vec[6], this._vec[7]],
+      body: v[0],
+      distance: v[1],
+      point: [v[2], v[3], v[4]],
+      normal: [v[5], v[6], v[7]],
     };
   }
 }

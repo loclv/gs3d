@@ -3,6 +3,7 @@ import * as THREE from 'gs3d/three';
 import { buildCharacter, JOINT_NAMES } from './character';
 import { CLIPS } from './clips';
 import { sampleClip, type Clip, type ClipPose, type Vec3 } from './animation';
+import { createPhysicsSandbox, type PhysicsSandbox, type SpawnKind } from './physics';
 
 const root = document.querySelector<HTMLDivElement>('#root');
 if (!root) throw new Error('Missing #root app mount');
@@ -54,6 +55,17 @@ root.innerHTML = `
           <output id="joint-values" class="joint-values">—</output>
         </div>
         <div class="spec-note"><span class="code-dot"></span><code>sampleClip(clip, t)</code><span>· euler ° · pos Δ</span></div>
+        <div class="section-title sandbox-title"><span>04</span> Sandbox <code>gs3d/physics</code></div>
+        <div class="sandbox">
+          <div class="sandbox-row" role="group" aria-label="Spawn physics bodies">
+            <button type="button" data-spawn="ball">Sphere</button>
+            <button type="button" data-spawn="box">Box</button>
+            <button type="button" data-spawn="capsule">Capsule</button>
+            <button type="button" id="spinner-toggle" aria-pressed="true">Spinner</button>
+            <button type="button" id="phys-clear">Clear</button>
+          </div>
+          <div class="sandbox-count"><span id="phys-count">0</span> bodies · click the floor to drop</div>
+        </div>
         <div id="status" class="status" role="status" aria-live="polite"></div>
       </aside>
       <div class="preview-wrap">
@@ -84,6 +96,8 @@ const jointSelect = $<HTMLSelectElement>('#joint');
 const jointValues = $<HTMLOutputElement>('#joint-values');
 const clipLabel = $<HTMLSpanElement>('#clip-label');
 const sceneStats = $<HTMLSpanElement>('#scene-stats');
+const physCount = $<HTMLSpanElement>('#phys-count');
+const spinnerToggle = $<HTMLButtonElement>('#spinner-toggle');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0c0f15);
@@ -98,10 +112,6 @@ const rimLight = new THREE.DirectionalLight(0x8ca6ff, 1.4);
 rimLight.position.set(3, 2, -4);
 scene.add(rimLight);
 
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x141a26, roughness: 0.9, metalness: 0.05 });
-const ground = new THREE.Mesh(new THREE.CircleGeometry(6, 48), groundMat);
-ground.rotation.x = -Math.PI / 2;
-scene.add(ground);
 const ringMat = new THREE.MeshStandardMaterial({ color: 0x1b2740, roughness: 0.6, metalness: 0.3, emissive: 0x2a3d66, emissiveIntensity: 0.5 });
 const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.012, 8, 96), ringMat);
 ring.rotation.x = Math.PI / 2;
@@ -118,6 +128,11 @@ let speed = 1;
 let loop = true;
 let lastNow = 0;
 let pose: ClipPose = {};
+let sandbox: PhysicsSandbox | null = null;
+
+function updatePhysCount(): void {
+  physCount.textContent = String(sandbox?.bodyCount ?? 0);
+}
 
 const jointSelectOptions = JOINT_NAMES.map(name => `<option value="${name}">${name}</option>`).join('');
 jointSelect.innerHTML = jointSelectOptions;
@@ -176,6 +191,22 @@ scrub.addEventListener('input', () => {
 speedSelect.addEventListener('change', () => { speed = Number(speedSelect.value); });
 loopToggle.addEventListener('change', () => { loop = loopToggle.checked; });
 
+for (const button of root!.querySelectorAll<HTMLButtonElement>('[data-spawn]')) {
+  button.addEventListener('click', () => {
+    sandbox?.spawn(button.dataset.spawn as SpawnKind);
+    updatePhysCount();
+  });
+}
+spinnerToggle.addEventListener('click', () => {
+  const on = spinnerToggle.getAttribute('aria-pressed') !== 'true';
+  spinnerToggle.setAttribute('aria-pressed', String(on));
+  sandbox?.setSpinner(on);
+});
+$<HTMLButtonElement>('#phys-clear').addEventListener('click', () => {
+  sandbox?.clear();
+  updatePhysCount();
+});
+
 function updateProbe(): void {
   const name = jointSelect.value as (typeof JOINT_NAMES)[number];
   const joint = rig.joints[name];
@@ -202,6 +233,8 @@ function render(now: number): void {
   }
   pose = sampleClip(clip, time, loop);
   applyPose(pose);
+  sandbox?.step();
+  updatePhysCount();
   scrub.value = String(Math.round((time / clip.duration) * 1000));
   timeReadout.textContent = `${time.toFixed(2)} / ${clip.duration.toFixed(1)}s`;
   updateProbe();
@@ -231,11 +264,37 @@ controls.maxDistance = 9;
 controls.minPolarAngle = 0.15;
 controls.maxPolarAngle = Math.PI * 0.55;
 
+// Click (not drag) on the canvas raycasts into the physics world and drops
+// a sphere on the hit surface.
+const pickRaycaster = new THREE.Raycaster();
+let downX = 0;
+let downY = 0;
+let downId = -1;
+canvas.addEventListener('pointerdown', event => {
+  downX = event.clientX;
+  downY = event.clientY;
+  downId = event.pointerId;
+});
+canvas.addEventListener('pointerup', event => {
+  if (!sandbox || event.pointerId !== downId) return;
+  if (Math.hypot(event.clientX - downX, event.clientY - downY) > 6) return;
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  pickRaycaster.setFromCamera(ndc, camera);
+  const o = pickRaycaster.ray.origin;
+  const d = pickRaycaster.ray.direction;
+  if (sandbox.pickDrop([o.x, o.y, o.z], [d.x, d.y, d.z])) updatePhysCount();
+});
+
 selectClip(0);
 
 async function startRenderer(): Promise<void> {
   try {
-    await renderer.init();
+    const engine = await renderer.init();
+    sandbox = createPhysicsSandbox(scene, engine);
     resizeCanvas();
     new ResizeObserver(resizeCanvas).observe(canvas);
     const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2';

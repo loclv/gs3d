@@ -88,7 +88,10 @@ What the API gives you:
   the overlaps detected during the last step (ids, normal, world contact
   point, penetration), and `physics_raycast(origin, dir, max_dist)` returns
   the nearest `PhysicsRayHit` (body, distance, point, normal) against every
-  live collider. `physics_clear()` removes all bodies.
+  live collider. `physics_clear()` removes all bodies. Nodes flagged
+  `use_local_matrix` (asset and facade imports) work too: the solver
+  decomposes the affine matrix into position/rotation/scale and writes the
+  simulated transform back into it, preserving scale.
   `import g3.rapier` offers the same solver in RapierPhysics vocabulary —
   `rapier_body_add_cuboid/ball/capsule`, `rapier_set_timestep` +
   `rapier_world_step`, `rapier_body_translation/linvel/angvel` accessors,

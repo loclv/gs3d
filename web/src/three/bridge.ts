@@ -27,6 +27,13 @@ let engineCanvasSeq = 0;
 // the previous scene's nodes into the frame.
 export const syncedObjects = new Set<any>();
 
+// The engine node index an Object3D synced to during render() — the handle
+// gs3d/physics bodies attach to. -1 until the object has rendered at least
+// once, or for objects that own no node (lights, cameras).
+export function engineNodeIndex(object) {
+  return nodeStates.get(object)?.index ?? -1;
+}
+
 export function releaseNodeRecord(record) {
   if (!record || !sharedEngine) return;
   sharedEngine._g3_asset_node_release(record.index, record.generation, record.epoch);
