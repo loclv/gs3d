@@ -194,9 +194,9 @@ export class PhysicsBody {
   isKinematic() { return this.world.isKinematic(this.id); }
   setKinematic(kinematic) { this._check(); this.world.setKinematic(this.id, kinematic); }
   isFixed() { return !this.isDynamic() && !this.isKinematic(); }
-  isSleeping() { this._check(); requireExport(this.world.engine, '_g3_phys_body_is_sleeping'); return this.world.isSleeping(this.id); }
-  sleep() { this._check(); requireExport(this.world.engine, '_g3_phys_body_sleep'); this.world.sleep(this.id); }
-  wakeUp() { this._check(); requireExport(this.world.engine, '_g3_phys_body_wake'); this.world.wakeUp(this.id); }
+  isSleeping() { this._check(); return this.world.isSleeping(this.id); }
+  sleep() { this._check(); this.world.sleep(this.id); }
+  wakeUp() { this._check(); this.world.wakeUp(this.id); }
 
   // RigidBodyDesc.setBodyType. FIXED stores the current mass so a later
   // switch back to DYNAMIC restores it, like Rapier's mass properties.
@@ -231,10 +231,10 @@ export class PhysicsBody {
 
   applyImpulse(impulse) { this._check(); this.world.applyImpulse(this.id, vec3(impulse, 'impulse')); }
   applyImpulseAtPoint(impulse, point) { this._check(); this.world.applyImpulseAtPoint(this.id, vec3(impulse, 'impulse'), vec3(point, 'point')); }
-  addForce(force) { this._check(); requireExport(this.world.engine, '_g3_phys_body_add_force'); this.world.addForce(this.id, vec3(force, 'force')); }
+  addForce(force) { this._check(); this.world.addForce(this.id, vec3(force, 'force')); }
   addTorque(torque) { this._check(); this.world.addTorque(this.id, vec3(torque, 'torque')); }
-  resetForces() { this._check(); requireExport(this.world.engine, '_g3_phys_body_reset_force'); this.world.resetForce(this.id); }
-  resetTorques() { this._check(); requireExport(this.world.engine, '_g3_phys_body_reset_torque'); this.world.resetTorque(this.id); }
+  resetForces() { this._check(); this.world.resetForce(this.id); }
+  resetTorques() { this._check(); this.world.resetTorque(this.id); }
 
   // Collider friction/restitution live on the body (one collider each).
   setFriction(friction) { this._check(); this.world.setFriction(this.id, friction); }
@@ -289,6 +289,52 @@ export class PhysicsWorld {
     return new Float32Array(this.engine.HEAPF32.buffer, this._scratch + offset * 4, 3);
   }
 
+  _scratchView(n) {
+    return new Float32Array(this.engine.HEAPF32.buffer, this._scratch, n);
+  }
+
+  // Shared vec3 read-back: the export writes into the scratch buffer via
+  // the slice header; a false return means unknown/stale body.
+  _readVec3(exportName, body) {
+    requireExport(this.engine, exportName);
+    return this._vec3OrThrow(this.engine[exportName](body, this._sliceArg()), body);
+  }
+
+  _vec3OrThrow(ok, body) {
+    if (!ok) throw new AssetError('INVALID', `Unknown physics body ${body}`);
+    return [...this._vec3()];
+  }
+
+  // Shared body.setX(vec) path: validate the vector, call the export and
+  // translate a false return into AssetError.
+  _setVec3(exportName, body, value, argName, error) {
+    requireExport(this.engine, exportName);
+    const [x, y, z] = vec3(value, argName);
+    if (!this.engine[exportName](body, x, y, z)) throw new AssetError('INVALID', error);
+  }
+
+  // Shared body.setX(bool) path for exports returning success/failure;
+  // extra args (e.g. the value for setMass/setKinematic/setRestitution)
+  // are forwarded after the body id.
+  _callBody(exportName, body, error, ...args) {
+    requireExport(this.engine, exportName);
+    if (!this.engine[exportName](body, ...args)) throw new AssetError('INVALID', error);
+  }
+
+  // Shared getter path for scalar/vector body exports.
+  _getBody(exportName, body) {
+    requireExport(this.engine, exportName);
+    return this.engine[exportName](body);
+  }
+
+  // Shared add*Body path for the shape exports, which return -1 on
+  // invalid arguments.
+  _addBody(exportName, args, label) {
+    const id = this.engine[exportName](...args);
+    if (id < 0) throw new AssetError('INVALID', `Could not create ${label} body`);
+    return id;
+  }
+
   setGravity(x, y, z) {
     this.engine._g3_phys_set_gravity(x, y, z);
     this._gravity = [x, y, z];
@@ -317,23 +363,17 @@ export class PhysicsWorld {
   // mass > 0 is dynamic. Returns a body id.
   addCuboid(node, halfExtents, mass = 0) {
     const [hx, hy, hz] = vec3(halfExtents, 'halfExtents');
-    const id = this.engine._g3_phys_body_cuboid(node, hx, hy, hz, mass);
-    if (id < 0) throw new AssetError('INVALID', 'Could not create cuboid body');
-    return id;
+    return this._addBody('_g3_phys_body_cuboid', [node, hx, hy, hz, mass], 'cuboid');
   }
 
   // ColliderDesc.ball(radius).
   addBall(node, radius, mass = 0) {
-    const id = this.engine._g3_phys_body_ball(node, radius, mass);
-    if (id < 0) throw new AssetError('INVALID', 'Could not create ball body');
-    return id;
+    return this._addBody('_g3_phys_body_ball', [node, radius, mass], 'ball');
   }
 
   // ColliderDesc.capsule(halfLength, radius) — along the body's local Y.
   addCapsule(node, halfLength, radius, mass = 0) {
-    const id = this.engine._g3_phys_body_capsule(node, halfLength, radius, mass);
-    if (id < 0) throw new AssetError('INVALID', 'Could not create capsule body');
-    return id;
+    return this._addBody('_g3_phys_body_capsule', [node, halfLength, radius, mass], 'capsule');
   }
 
   // world.addBody — Rapier's createRigidBody + createCollider combined
@@ -427,91 +467,42 @@ export class PhysicsWorld {
   }
 
   isDynamic(body) { return !!this.engine._g3_phys_body_dynamic(body); }
-  mass(body) {
-    requireExport(this.engine, '_g3_phys_body_mass');
-    return this.engine._g3_phys_body_mass(body);
-  }
-  isSleeping(body) {
-    requireExport(this.engine, '_g3_phys_body_is_sleeping');
-    return !!this.engine._g3_phys_body_is_sleeping(body);
-  }
-  sleep(body) {
-    requireExport(this.engine, '_g3_phys_body_sleep');
-    if (!this.engine._g3_phys_body_sleep(body)) {
-      throw new AssetError('INVALID', `Cannot sleep body ${body} (unknown, fixed or kinematic)`);
-    }
-  }
-  wakeUp(body) {
-    requireExport(this.engine, '_g3_phys_body_wake');
-    if (!this.engine._g3_phys_body_wake(body)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
-  }
+  mass(body) { return this._getBody('_g3_phys_body_mass', body); }
+  isSleeping(body) { return !!this._getBody('_g3_phys_body_is_sleeping', body); }
+  isKinematic(body) { return !!this._getBody('_g3_phys_body_kinematic', body); }
+
+  sleep(body) { this._callBody('_g3_phys_body_sleep', body, `Cannot sleep body ${body} (unknown, fixed or kinematic)`); }
+  wakeUp(body) { this._callBody('_g3_phys_body_wake', body, `Unknown physics body ${body}`); }
+  resetForce(body) { this._callBody('_g3_phys_body_reset_force', body, `Unknown physics body ${body}`); }
+  resetTorque(body) { this._callBody('_g3_phys_body_reset_torque', body, `Unknown physics body ${body}`); }
+
   addForce(body, force) {
-    requireExport(this.engine, '_g3_phys_body_add_force');
-    const [x, y, z] = vec3(force, 'force');
-    if (!this.engine._g3_phys_body_add_force(body, x, y, z)) {
-      throw new AssetError('INVALID', `Cannot force body ${body} (unknown or fixed)`);
-    }
-  }
-  resetForce(body) {
-    requireExport(this.engine, '_g3_phys_body_reset_force');
-    if (!this.engine._g3_phys_body_reset_force(body)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
-  }
-  resetTorque(body) {
-    requireExport(this.engine, '_g3_phys_body_reset_torque');
-    if (!this.engine._g3_phys_body_reset_torque(body)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
+    this._setVec3('_g3_phys_body_add_force', body, force, 'force', `Cannot force body ${body} (unknown or fixed)`);
   }
 
   // body.translation() -> [x, y, z]
-  translation(body) {
-    if (!this.engine._g3_phys_body_pos(body, this._sliceArg())) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
-    const v = this._vec3();
-    return [v[0], v[1], v[2]];
-  }
+  translation(body) { return this._readVec3('_g3_phys_body_pos', body); }
 
   // body.setTranslation() — teleports and zeroes velocity.
   setTranslation(body, position) {
-    const [x, y, z] = vec3(position, 'position');
-    if (!this.engine._g3_phys_body_set_pos(body, x, y, z)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
+    this._setVec3('_g3_phys_body_set_pos', body, position, 'position', `Unknown physics body ${body}`);
   }
 
   // body.linvel() -> [x, y, z]
-  linvel(body) {
-    if (!this.engine._g3_phys_body_vel(body, this._sliceArg())) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
-    const v = this._vec3();
-    return [v[0], v[1], v[2]];
-  }
+  linvel(body) { return this._readVec3('_g3_phys_body_vel', body); }
 
   // body.setLinvel()
   setLinvel(body, velocity) {
-    const [x, y, z] = vec3(velocity, 'velocity');
-    if (!this.engine._g3_phys_body_set_vel(body, x, y, z)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
+    this._setVec3('_g3_phys_body_set_vel', body, velocity, 'velocity', `Unknown physics body ${body}`);
   }
 
   // body.applyImpulse() — instantaneous velocity change; dynamic bodies only.
   applyImpulse(body, impulse) {
-    const [x, y, z] = vec3(impulse, 'impulse');
-    if (!this.engine._g3_phys_body_apply_impulse(body, x, y, z)) {
-      throw new AssetError('INVALID', `Cannot impulse body ${body} (unknown or fixed)`);
-    }
+    this._setVec3('_g3_phys_body_apply_impulse', body, impulse, 'impulse', `Cannot impulse body ${body} (unknown or fixed)`);
   }
 
   // body.applyImpulseAtPoint(impulse, point) — linear plus angular impulse.
   applyImpulseAtPoint(body, impulse, point) {
-    requireExport(this.engine, '_g3_phys_body_apply_impulse_at');
     const [jx, jy, jz] = vec3(impulse, 'impulse');
     const [px, py, pz] = vec3(point, 'point');
     if (!this.engine._g3_phys_body_apply_impulse_at(body, jx, jy, jz, px, py, pz)) {
@@ -519,97 +510,54 @@ export class PhysicsWorld {
     }
   }
 
-  // body.addForce() — accumulated world-frame force for the next step,
-  // cleared when the step finishes. Dynamic bodies only.
-  // body.addTorque() — same for world-frame torque.
+  // body.addTorque() — accumulated world-frame torque for the next step.
   addTorque(body, torque) {
-    requireExport(this.engine, '_g3_phys_body_apply_torque');
-    const [x, y, z] = vec3(torque, 'torque');
-    if (!this.engine._g3_phys_body_apply_torque(body, x, y, z)) {
-      throw new AssetError('INVALID', `Cannot torque body ${body} (unknown or fixed)`);
-    }
+    this._setVec3('_g3_phys_body_apply_torque', body, torque, 'torque', `Cannot torque body ${body} (unknown or fixed)`);
   }
 
   // body.angvel() -> [x, y, z] world-frame rad/s.
-  angvel(body) {
-    requireExport(this.engine, '_g3_phys_body_angvel');
-    if (!this.engine._g3_phys_body_angvel(body, this._sliceArg())) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
-    const v = this._vec3();
-    return [v[0], v[1], v[2]];
-  }
+  angvel(body) { return this._readVec3('_g3_phys_body_angvel', body); }
 
   setAngvel(body, angvel) {
-    requireExport(this.engine, '_g3_phys_body_set_angvel');
-    const [x, y, z] = vec3(angvel, 'angvel');
-    if (!this.engine._g3_phys_body_set_angvel(body, x, y, z)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
+    this._setVec3('_g3_phys_body_set_angvel', body, angvel, 'angvel', `Unknown physics body ${body}`);
   }
 
   // body.rotation() -> [x, y, z] euler radians, node convention.
-  rotation(body) {
-    requireExport(this.engine, '_g3_phys_body_rot');
-    if (!this.engine._g3_phys_body_rot(body, this._sliceArg())) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
-    const v = this._vec3();
-    return [v[0], v[1], v[2]];
-  }
+  rotation(body) { return this._readVec3('_g3_phys_body_rot', body); }
 
   // body.setRotation(euler) — teleports orientation, zeroes angvel,
   // keeps linvel, and updates the node immediately.
   setRotation(body, euler) {
-    requireExport(this.engine, '_g3_phys_body_set_rot');
-    const [x, y, z] = vec3(euler, 'euler');
-    if (!this.engine._g3_phys_body_set_rot(body, x, y, z)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
+    this._setVec3('_g3_phys_body_set_rot', body, euler, 'euler', `Unknown physics body ${body}`);
   }
 
   setRestitution(body, value) {
-    if (!this.engine._g3_phys_body_set_restitution(body, value)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body} or restitution outside [0, 1]`);
-    }
+    this._callBody('_g3_phys_body_set_restitution', body,
+      `Unknown physics body ${body} or restitution outside [0, 1]`, value);
   }
 
   setFriction(body, value) {
-    if (!this.engine._g3_phys_body_set_friction(body, value)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body} or friction outside [0, 1]`);
-    }
+    this._callBody('_g3_phys_body_set_friction', body,
+      `Unknown physics body ${body} or friction outside [0, 1]`, value);
   }
 
   // RigidBodyDesc.setBodyType — kinematic bodies follow linvel exactly and
   // push dynamic bodies without being pushed back.
   setKinematic(body, kinematic) {
-    requireExport(this.engine, '_g3_phys_body_set_kinematic');
-    if (!this.engine._g3_phys_body_set_kinematic(body, !!kinematic)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
-  }
-
-  isKinematic(body) {
-    requireExport(this.engine, '_g3_phys_body_kinematic');
-    return !!this.engine._g3_phys_body_kinematic(body);
+    this._callBody('_g3_phys_body_set_kinematic', body, `Unknown physics body ${body}`, !!kinematic);
   }
 
   // Change mass after creation; 0 makes the body fixed.
   setMass(body, mass) {
-    requireExport(this.engine, '_g3_phys_body_set_mass');
-    if (!this.engine._g3_phys_body_set_mass(body, mass)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body} or mass out of range`);
-    }
+    this._callBody('_g3_phys_body_set_mass', body,
+      `Unknown physics body ${body} or mass out of range`, mass);
   }
 
   // Copy the node's current position and rotation into the body — call
   // after moving the node directly, or the next step() writes the body's
   // stale transform back.
   syncFromNode(body) {
-    requireExport(this.engine, '_g3_phys_body_sync');
-    if (!this.engine._g3_phys_body_sync(body)) {
-      throw new AssetError('INVALID', `Unknown physics body ${body}`);
-    }
+    this._callBody('_g3_phys_body_sync', body, `Unknown physics body ${body}`);
   }
 
   // Contacts detected during the last step():
@@ -620,7 +568,7 @@ export class PhysicsWorld {
     const out = [];
     for (let i = 0; i < count; i++) {
       if (!this.engine._g3_phys_contact(i, this._sliceArg())) break;
-      const v = new Float32Array(this.engine.HEAPF32.buffer, this._scratch, 9);
+      const v = this._scratchView(9);
       out.push({
         a: v[0],
         b: v[1],
@@ -652,7 +600,7 @@ export class PhysicsWorld {
       ok = this.engine._g3_phys_raycast(ox, oy, oz, dx, dy, dz, maxDist, this._sliceArg());
     }
     if (!ok) return null;
-    const v = new Float32Array(this.engine.HEAPF32.buffer, this._scratch, 8);
+    const v = this._scratchView(8);
     return {
       body: v[0],
       distance: v[1],

@@ -10,7 +10,7 @@ dynamics (one collider per body):
 
 | Layer | Where | Audience |
 |---|---|---|
-| `g3.physics` | `src/g3/physics.goose` | native Goose code |
+| `g3.physics` | `src/g3/physics{,_solver,_contacts,_query}.goose` | native Goose code |
 | `g3.rapier` | `src/g3/rapier.goose` | RapierPhysics-flavoured Goose code |
 | `gs3d/physics` | `web/physics.js` + `physics_web.goose` exports | browser JS / `gs3d` package |
 

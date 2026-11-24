@@ -7,7 +7,10 @@
 | `src/g3/math.goose` | column-major `Mat4`, transforms, perspective, AABB, frustum planes |
 | `src/g3/mesh.goose` | the geometry arena and its primitives: cube, sphere, plane |
 | `src/g3/scene.goose` | nodes, the parent hierarchy, the camera and its orbit controls |
-| `src/g3/physics.goose` | rigid-body solver: oriented box (SAT), sphere and capsule colliders, gravity, forces/torques, linear and angular dynamics, sleeping, contacts, raycasts |
+| `src/g3/physics.goose` | rigid-body core: `PhysicsBody` + arenas, body lifecycle and property API, node↔body pose bridge, transforms/bounds |
+| `src/g3/physics_solver.goose` | `physics_step`/substeps, integration, sweep-and-prune broadphase, warm-start, sequential-impulse solve |
+| `src/g3/physics_contacts.goose` | `Contact` + SAT/manifold narrowphase for box/sphere/capsule pairs |
+| `src/g3/physics_query.goose` | contact store/accessors and raycasts |
 | `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics`: timestep/step, cuboid/ball/capsule bodies, linvel/angvel/rotation and impulse accessors, body-type/mass/removal, raycast |
 | `src/g3/physics_web.goose` | `g3_phys_*` wasm exports of the rapier facade plus contacts and raycast for the `gs3d/physics` package module |
 | `src/g3/render.goose` | per frame: transforms, frustum cull, draw-list pack, sort, submit |
