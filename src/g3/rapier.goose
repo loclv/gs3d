@@ -174,3 +174,31 @@ fn rapier_body_sync(id: i64) -> bool { return physics_body_sync(id); }
 fn rapier_world_raycast(origin: float3, direction: float3, max_dist: f32) -> PhysicsRayHit {
     return physics_raycast(origin, direction, max_dist);
 }
+
+// body.mass() — the scalar mass the body was created or last set with.
+fn rapier_body_mass(id: i64) -> f32 {
+    guard id >= 0 && id < physics_body_count() && !physics_body(id).removed else { return 0.0; }
+    return physics_body(id).mass;
+}
+
+// body.addForce(): accumulated world-frame force for the next step,
+// cleared when the step finishes — Rapier's addForce.
+fn rapier_body_add_force(id: i64, force: float3) -> bool {
+    return physics_apply_force(id, force);
+}
+
+// body.resetForces() / resetTorques(): drop the accumulated force or
+// torque without stepping.
+fn rapier_body_reset_force(id: i64) -> bool { return physics_body_reset_force(id); }
+fn rapier_body_reset_torque(id: i64) -> bool { return physics_body_reset_torque(id); }
+
+// body.isSleeping() / sleep() / wakeUp().
+fn rapier_body_is_sleeping(id: i64) -> bool { return physics_body_is_sleeping(id); }
+fn rapier_body_sleep(id: i64) -> bool { return physics_body_sleep(id); }
+fn rapier_body_wake(id: i64) -> bool { return physics_body_wake(id); }
+
+// world.castRay with one body excluded — Rapier's QueryFilter
+// excludeCollider analogue for self-hits. `exclude` is a body id or -1.
+fn rapier_world_raycast_filtered(origin: float3, direction: float3, max_dist: f32, exclude: i64) -> PhysicsRayHit {
+    return physics_raycast_filtered(origin, direction, max_dist, exclude);
+}

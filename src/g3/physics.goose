@@ -596,6 +596,41 @@ fn physics_body_wake(id: i64) -> bool {
     return true;
 }
 
+// True while the body is asleep: integration and contact response skip
+// it until a wake, an impact, or an explicit physics_body_wake.
+fn physics_body_is_sleeping(id: i64) -> bool {
+    guard physics_body_valid(id) else { return false; }
+    return g_physics_bodies[id].sleeping;
+}
+
+// Force a dynamic body to sleep immediately, like cannon-es Body.sleep().
+// Velocities are zeroed the same way the automatic sleep path does them;
+// contacts with approach speed and explicit wakes revive the body.
+fn physics_body_sleep(id: i64) -> bool {
+    guard physics_body_valid(id) && g_physics_bodies[id].inverse_mass > 0.0 else { return false; }
+    let body .= g_physics_bodies[id];
+    body.sleeping = true;
+    body.sleep_timer = 0.0;
+    body.velocity = float3_0;
+    body.angular_velocity = float3_0;
+    return true;
+}
+
+// Clear the force accumulated for the next step without touching
+// anything else — Rapier's resetForces analogue.
+fn physics_body_reset_force(id: i64) -> bool {
+    guard physics_body_valid(id) else { return false; }
+    g_physics_bodies[id].force = float3_0;
+    return true;
+}
+
+// Clear the accumulated torque, like physics_body_reset_force.
+fn physics_body_reset_torque(id: i64) -> bool {
+    guard physics_body_valid(id) else { return false; }
+    g_physics_bodies[id].torque = float3_0;
+    return true;
+}
+
 // Advance the simulation by seconds. Substeps are capped at 1/60 second
 // and shrink further when a fast body would move more than a quarter of
 // the smallest collider feature per substep, which is what actually
@@ -1774,11 +1809,19 @@ fn physics_ray_capsule(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f
 // need not be normalized; `max_dist` is measured in world units along it.
 // Removed bodies and bodies whose node is gone are skipped.
 fn physics_raycast(origin: float3, direction: float3, max_dist: f32) -> PhysicsRayHit {
+    return physics_raycast_filtered(origin, direction, max_dist, -1);
+}
+
+// physics_raycast with one body excluded — `exclude` is a body id, or -1
+// to test every live body. Used for self-hits (a character's own
+// collider, a projectile's shooter).
+fn physics_raycast_filtered(origin: float3, direction: float3, max_dist: f32, exclude: i64) -> PhysicsRayHit {
     let dir_len = length(direction);
     guard dir_len > 0.0001 && max_dist > 0.0 else { return PhysicsRayHit { .. }; }
     let dir = direction / dir_len;
     var best = PhysicsRayHit { .. };
     for i in 0..g_physics_bodies.len {
+        if i == exclude { continue; }
         let body .= g_physics_bodies[i];
         if body.removed || !node_handle_valid(body.node) { continue; }
         var hit = PhysicsRayHit { .. };

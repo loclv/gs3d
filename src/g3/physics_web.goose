@@ -90,6 +90,15 @@ export fn g3_phys_body_set_restitution(id: i32, restitution: f32) -> bool {
 export fn g3_phys_body_set_friction(id: i32, friction: f32) -> bool {
     return g3::rapier_body_set_friction(id, friction);
 }
+export fn g3_phys_body_mass(id: i32) -> f32 { return g3::rapier_body_mass(id); }
+export fn g3_phys_body_add_force(id: i32, x: f32, y: f32, z: f32) -> bool {
+    return g3::rapier_body_add_force(id, float3 { x, y, z });
+}
+export fn g3_phys_body_reset_force(id: i32) -> bool { return g3::rapier_body_reset_force(id); }
+export fn g3_phys_body_reset_torque(id: i32) -> bool { return g3::rapier_body_reset_torque(id); }
+export fn g3_phys_body_is_sleeping(id: i32) -> bool { return g3::rapier_body_is_sleeping(id); }
+export fn g3_phys_body_sleep(id: i32) -> bool { return g3::rapier_body_sleep(id); }
+export fn g3_phys_body_wake(id: i32) -> bool { return g3::rapier_body_wake(id); }
 
 // Contacts recorded during the last world.step(). Each contact writes 9
 // floats into out: [a, b, nx, ny, nz, px, py, pz, penetration] where p is
@@ -112,6 +121,18 @@ export fn g3_phys_contact(id: i32, out: f32[:]) -> bool {
 export fn g3_phys_raycast(ox: f32, oy: f32, oz: f32, dx: f32, dy: f32, dz: f32, max_dist: f32, out: f32[:]) -> bool {
     guard out.len >= 8 else { return false; }
     let hit = g3::rapier_world_raycast(float3 { ox, oy, oz }, float3 { dx, dy, dz }, max_dist);
+    guard hit.hit else { return false; }
+    out[0] = hit.body;
+    out[1] = hit.distance;
+    phys_write_vec3(out[2..5], hit.point);
+    phys_write_vec3(out[5..8], hit.normal);
+    return true;
+}
+
+// Same cast with one body excluded — `exclude` is a body id or -1.
+export fn g3_phys_raycast_filtered(ox: f32, oy: f32, oz: f32, dx: f32, dy: f32, dz: f32, max_dist: f32, exclude: i32, out: f32[:]) -> bool {
+    guard out.len >= 8 else { return false; }
+    let hit = g3::rapier_world_raycast_filtered(float3 { ox, oy, oz }, float3 { dx, dy, dz }, max_dist, exclude);
     guard hit.hit else { return false; }
     out[0] = hit.body;
     out[1] = hit.distance;
