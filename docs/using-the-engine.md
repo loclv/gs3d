@@ -109,7 +109,8 @@ What the API gives you:
   and `physics_clear_water()` disables). Awake dynamic bodies below the
   surface get displaced-water buoyancy — `-gravity × (1000 × volume / mass)
   × submerged_fraction`, sphere-exact, box/capsule linear in world-Y — plus
-  linear drag on velocity and spin, so effective density is `mass / volume`
+  linear drag on velocity and spin and a righting moment that levels the
+  body's up axis toward the surface, so effective density is `mass / volume`
   and floaters want mass ≈ volume × a few hundred. `samples/water` is a
   runnable demo.
 * Meshes — `mesh_cube(half)`, `mesh_sphere(radius, rings, segments)`,

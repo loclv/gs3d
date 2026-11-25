@@ -145,8 +145,11 @@ obstacles, character controllers.
   world-Y extent for boxes/capsules, so effective density is
   `mass / volume`: floaters want mass ≈ volume × a few hundred, sinkers
   mass ≈ volume × >1000. `PhysicsBody.volume` is set at creation from the
-  collider shape; there is no fluid sim, no waves, and buoyancy applies no
-  torque (angular drag is what settles rotation).
+  collider shape; there is no fluid sim, no waves. A **righting moment**
+  (`PHYSICS_WATER_RIGHTING`) rotates the body's local +Y toward the
+  buoyancy direction while submerged — the stand-in for the real
+  center-of-buoyancy offset — so tilted floaters level out; it saturates
+  for large tilts and scales with submersion.
 - Still no sleeping islands, no joints/constraints, no collider lists,
   and only one friction direction per contact. Very slender stacks can
   still topple — treat tall perfect towers as beyond the stable envelope.
@@ -217,7 +220,7 @@ the solver), and write rotation back as `object.rotation.set(x, y, z,
 
 - `goose check src/test_siege.goose` — typechecks the module graph.
 - `./build_native.sh --test` — builds and runs all roots; `test_siege`
-  holds the hand-derived physics checks (currently 83).
+  holds the hand-derived physics checks (currently 84).
 - `./build_web.sh --gs3d` — rebuilds `web/gs3d/app.js`/`app.wasm`; new
   `g3_phys_*` exports must also be added to the `phys_exports` list in
   `build_web.sh` or they won't be callable from JS.

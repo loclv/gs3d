@@ -93,6 +93,12 @@ var g_physics_water_y: f32 = -1.0e30;
 const PHYSICS_WATER_DENSITY: f32 = 1000.0;
 const PHYSICS_WATER_DRAG: f32 = 6.0;
 const PHYSICS_WATER_ANG_DRAG: f32 = 8.0;
+// Righting moment strength (rad/s^2 at full submersion and 90 degrees of
+// tilt): real floaters level out because buoyancy acts across the
+// submerged volume, not at the center of mass. Approximated here as an
+// angular acceleration rotating the body's local +Y toward the buoyancy
+// direction (-gravity).
+const PHYSICS_WATER_RIGHTING: f32 = 3.0;
 
 fn physics_body_count() -> i64 { return g_physics_bodies.len; }
 
@@ -379,16 +385,31 @@ fn physics_submerged_fraction(b: PhysicsBody&) -> f32 {
 // Buoyancy and hydrodynamic drag for one dynamic body this substep.
 // Buoyancy is the weight of displaced water as an acceleration —
 // -gravity * (rho_water / rho_body) * submerged_fraction — applied at the
-// center of mass (no righting torque; angular drag is what settles
-// rotation). Drag is linear in velocity and spin, scaled by submersion.
+// center of mass, plus a righting moment that levels the body's local +Y
+// toward the buoyancy direction. Drag is linear in velocity and spin,
+// scaled by submersion.
 fn physics_apply_water(b: PhysicsBody&, dt: f32) {
     let frac = physics_submerged_fraction(b);
     if frac <= 0.0 { return; }
     let gmag = length(g_physics_gravity);
-    if gmag > 0.0001 && b.mass > 0.0 {
-        // rho_body = mass / volume, so rho_w / rho_body = rho_w * volume / mass.
-        let buoy = PHYSICS_WATER_DENSITY * b.volume / b.mass * frac * gmag;
-        b.velocity += (-g_physics_gravity / gmag) * buoy * dt;
+    if gmag > 0.0001 {
+        if b.mass > 0.0 {
+            // rho_body = mass / volume, so rho_w / rho_body = rho_w * volume / mass.
+            let buoy = PHYSICS_WATER_DENSITY * b.volume / b.mass * frac * gmag;
+            b.velocity += (-g_physics_gravity / gmag) * buoy * dt;
+        }
+        // Righting: spin about cross(up, buoyancy-up) — the axis that
+        // rotates the body's local +Y (orientation column 1) toward
+        // -gravity. Saturates for large tilts so near-inverted bodies do
+        // not get an impulsive snap.
+        let buoy_up = -g_physics_gravity / gmag;
+        let m = b.orientation.m;
+        let axis = cross(float3 { m[4], m[5], m[6] }, buoy_up);
+        let s = length(axis);
+        if s > 0.001 {
+            let alpha = PHYSICS_WATER_RIGHTING * frac * min(s * 4.0, 1.0);
+            b.angular_velocity += (axis / s) * alpha * dt;
+        }
     }
     let kd = PHYSICS_WATER_DRAG * frac * dt;
     let ka = PHYSICS_WATER_ANG_DRAG * frac * dt;

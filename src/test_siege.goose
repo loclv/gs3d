@@ -571,6 +571,12 @@ fn main() {
     let wball_node = g3::node_add(unit_mesh);
     g3::node(wball_node).pos = float3 { 0.0, 4.0, -2.0 };
     let wball = g3::physics_body_add_sphere(wball_node, 0.5, 261.8);
+    // A floater spawned tilted 0.6 rad about Z: the righting moment should
+    // level it while it bobs at the surface.
+    let wtilt_node = g3::node_add(unit_mesh);
+    g3::node(wtilt_node).pos = float3 { 1.5, 3.0, -2.0 };
+    g3::node(wtilt_node).rot = float3 { 0.0, 0.0, 0.6 };
+    let wtilt = g3::physics_body_add(wtilt_node, float3 { 0.5, 0.5, 0.5 }, 500.0);
     // Water drag caps sink speed near 1 u/s, so the dense box needs the
     // longer run to reach the floor.
     for i in 1500 { g3::physics_step(1.0 / 60.0); }
@@ -587,6 +593,9 @@ fn main() {
                    "dense box sinks to the floor under water");
     testing::check(abs(bb.position.y) < 0.3 && length(bb.velocity) < 0.3,
                    "sphere floats with exact cap buoyancy");
+    let te = g3::physics_body_euler(wtilt);
+    testing::check(abs(te.z) < 0.2 && abs(g3::physics_body(wtilt).position.y) < 0.3,
+                   "tilted floater rights itself and stays at the surface");
     testing::check(g3::physics_water_level() == 0.0, "water level reports");
     g3::physics_clear_water();
     testing::check(g3::physics_water_level() < -1.0e29, "clear_water disables");
