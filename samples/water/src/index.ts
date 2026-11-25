@@ -68,11 +68,23 @@ scene.background = new THREE.Color(0x0c1420);
 const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
 camera.position.set(4.2, 2.6, 5.4);
 
-scene.add(new THREE.HemisphereLight(0xbdd2ff, 0x1c2b3d, 1.6));
-const keyLight = new THREE.DirectionalLight(0xffe2bd, 2.6);
-keyLight.position.set(-4, 6, 5);
+scene.add(new THREE.HemisphereLight(0xbdd2ff, 0x1c2b3d, 0.9));
+// The key light doubles as the sun: warm, high, and the scene's one
+// shadow-casting light — bodies throw long shadows across the pool floor.
+const keyLight = new THREE.DirectionalLight(0xffe0b8, 3.2);
+keyLight.position.set(-6, 10, 4);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.camera.left = -10;
+keyLight.shadow.camera.right = 10;
+keyLight.shadow.camera.top = 10;
+keyLight.shadow.camera.bottom = -10;
+keyLight.shadow.camera.near = 2;
+keyLight.shadow.camera.far = 40;
+keyLight.shadow.bias = -0.0004;
+keyLight.shadow.normalBias = 0.05;
 scene.add(keyLight);
-const rimLight = new THREE.DirectionalLight(0x6fb7ff, 1.2);
+const rimLight = new THREE.DirectionalLight(0x6fb7ff, 1.0);
 rimLight.position.set(4, 3, -4);
 scene.add(rimLight);
 
@@ -105,6 +117,7 @@ const deepMesh = new THREE.Mesh(
 );
 deepMesh.rotation.x = -Math.PI / 2;
 deepMesh.position.y = -0.35;
+deepMesh.receiveShadow = true;
 scene.add(deepMesh);
 
 let sandbox: WaterSandbox | null = null;
@@ -153,6 +166,10 @@ function resizeCanvas(): void {
 const renderer = new THREE.WebGPURenderer({ canvas, alpha: false, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const controls = new THREE.OrbitControls(camera, canvas);
 controls.target.set(0, -0.2, 0);
 controls.enableDamping = true;

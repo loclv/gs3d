@@ -494,10 +494,23 @@ export class HemisphereLight extends Light {
   readonly isHemisphereLight: true;
   groundColor: Color;
 }
+export class DirectionalLightShadow {
+  mapSize: Vector2;
+  bias: number;
+  normalBias: number;
+  radius: number;
+  camera: { left: number; right: number; top: number; bottom: number; near: number; far: number; updateProjectionMatrix(): void };
+  map: unknown;
+  mapPass: unknown;
+  autoUpdate: boolean;
+  needsUpdate: boolean;
+  dispose(): void;
+}
 export class DirectionalLight extends Light {
   constructor(color?: number | string | Color, intensity?: number);
   readonly isDirectionalLight: true;
   target: Object3D;
+  shadow: DirectionalLightShadow;
 }
 export class PointLight extends Light {
   constructor(color?: number | string | Color, intensity?: number, distance?: number, decay?: number);
@@ -710,6 +723,11 @@ export const CustomToneMapping: 5;
 export const AgXToneMapping: 6;
 export const NeutralToneMapping: 7;
 
+export const BasicShadowMap: 0;
+export const PCFShadowMap: 1;
+export const PCFSoftShadowMap: 2;
+export const VSMShadowMap: 3;
+
 export interface WebGPURendererParameters {
   canvas: HTMLCanvasElement;
   alpha?: boolean;
@@ -730,7 +748,7 @@ export class WebGPURenderer {
   outputColorSpace: string;
   toneMapping: number;
   toneMappingExposure: number;
-  shadowMap: { enabled: boolean };
+  shadowMap: { enabled: boolean; type: number; autoUpdate: boolean; needsUpdate: boolean };
   autoClear: boolean;
   info: { autoReset: boolean; reset(): void; render: { calls: number; triangles: number; frame: number }; memory: { geometries: number; textures: number } };
   debug: { checkShaderErrors: boolean; onShaderError: ((gl: unknown, program: unknown, vs: unknown, fs: unknown) => void) | null };

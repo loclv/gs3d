@@ -54,3 +54,8 @@ and `envMapIntensity 1.4`; the scene gets image-based lighting from
 `PMREMGenerator.fromScene(new RoomEnvironment())` at `environmentIntensity
 0.55`, so the key light and the env map both produce specular glints that
 travel across the ripples.
+
+Lighting rig: a warm directional "sun" (`castShadow`, 1024² PCF-soft
+shadow map covering the pool — blended materials like the water surface
+are skipped by the shadow pass) plus a cool rim light, hemisphere fill,
+ACES filmic tone mapping at 1.15 exposure.
