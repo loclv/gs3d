@@ -42,5 +42,15 @@ Node-side constant checks, `bun run lint` / `bun run build` verify the rest.
 ## Files
 
 - `src/kinds.ts` — spawn kinds, collider volumes and densities (no gs3d imports).
+- `src/ripples.ts` — procedural tileable ripple normal map (summed sines → finite-difference normals), scrolled each frame.
 - `src/water.ts` — `createWaterSandbox`: pool floor, deferred body creation, per-frame transform write-back, `setWaterLevel`.
 - `src/index.ts` — UI, scene, water plane visual, click-to-drop.
+
+## The look
+
+The surface is a `MeshStandardMaterial` with `roughness 0.08`, a scrolling
+procedural `normalMap` (`src/ripples.ts`, seamless under `RepeatWrapping`)
+and `envMapIntensity 1.4`; the scene gets image-based lighting from
+`PMREMGenerator.fromScene(new RoomEnvironment())` at `environmentIntensity
+0.55`, so the key light and the env map both produce specular glints that
+travel across the ripples.

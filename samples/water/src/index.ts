@@ -1,6 +1,7 @@
 import './index.css';
 import * as THREE from 'gs3d/three';
 import { createWaterSandbox, KIND_INFO, type SpawnKind, type WaterSandbox } from './water';
+import { createRippleNormalMap } from './ripples';
 
 const root = document.querySelector<HTMLDivElement>('#root');
 if (!root) throw new Error('Missing #root app mount');
@@ -77,19 +78,22 @@ scene.add(rimLight);
 
 // The water surface: a large translucent plane the sandbox moves with
 // world.setWaterLevel. Slight emissive so it reads against the dark pool.
-const waterMesh = new THREE.Mesh(
-  new THREE.PlaneGeometry(40, 40),
-  new THREE.MeshStandardMaterial({
-    color: 0x2e6f8e,
-    roughness: 0.15,
-    metalness: 0.0,
-    transparent: true,
-    opacity: 0.42,
-    side: THREE.DoubleSide,
-    emissive: 0x0e2f45,
-    emissiveIntensity: 0.6,
-  }),
-);
+// Scrolling ripple normals: the procedural map wraps seamlessly, so
+// drifting texture.offset reads as moving surface waves that catch the
+// key light and the environment map as traveling specular glints.
+const rippleMap = createRippleNormalMap();
+const waterMaterial = new THREE.MeshStandardMaterial({
+  color: 0x1d4e6e,
+  roughness: 0.08,
+  metalness: 0.0,
+  transparent: true,
+  opacity: 0.55,
+  side: THREE.DoubleSide,
+  envMapIntensity: 1.4,
+  normalMap: rippleMap,
+  normalScale: new THREE.Vector2(0.55, 0.55),
+});
+const waterMesh = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), waterMaterial);
 waterMesh.rotation.x = -Math.PI / 2;
 waterMesh.position.y = 0;
 scene.add(waterMesh);
@@ -130,9 +134,9 @@ waterSlider.addEventListener('input', () => {
 function render(now: number): void {
   sandbox?.step();
   updatePhysCount();
-  // Gentle shimmer on the surface so the plane feels alive.
-  const mat = waterMesh.material as THREE.MeshStandardMaterial;
-  mat.opacity = 0.4 + Math.sin(now * 0.0012) * 0.03;
+  // Scroll the ripple normals and breathe the surface opacity.
+  rippleMap.offset.set((now * 0.000012) % 1, (now * 0.000008) % 1);
+  waterMaterial.opacity = 0.5 + Math.sin(now * 0.0012) * 0.04;
   controls.update();
   renderer.render(scene, camera);
 }
@@ -185,6 +189,11 @@ canvas.addEventListener('pointerup', event => {
 async function startRenderer(): Promise<void> {
   try {
     const engine = await renderer.init();
+    // Image-based lighting: a room env gives every glossy surface —
+    // above all the water — real specular reflections to play against.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new THREE.RoomEnvironment()).texture;
+    scene.environmentIntensity = 0.55;
     sandbox = createWaterSandbox(scene, engine, waterMesh);
     // Debug hook for agents/devtools: live sandbox + scene handles.
     (window as unknown as { __gs3dWater?: unknown }).__gs3dWater = { sandbox, scene };
