@@ -364,7 +364,9 @@ reuse, and published examples build and run through the supported API.
 Physics exists engine-side as `g3.physics` with a RapierPhysics-style
 facade (`g3.rapier`) — oriented box/sphere/capsule rigid bodies with
 linear and angular dynamics, static, dynamic and kinematic modes,
-automatic sleeping, per-body removal, contact queries and raycasts; a
-`gs3d` package binding (`gs3d/physics`) and audio can follow if needed.
+automatic sleeping, per-body removal, contact queries and raycasts, and
+a water-level plane giving submerged bodies displaced-water buoyancy
+and hydrodynamic drag; a `gs3d` package binding (`gs3d/physics`) and
+audio can follow if needed.
 They are useful for games, but are not prerequisites for a 3D rendering
 library.

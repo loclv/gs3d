@@ -7,11 +7,11 @@
 | `src/g3/math.goose` | column-major `Mat4`, transforms, perspective, AABB, frustum planes |
 | `src/g3/mesh.goose` | the geometry arena and its primitives: cube, sphere, plane |
 | `src/g3/scene.goose` | nodes, the parent hierarchy, the camera and its orbit controls |
-| `src/g3/physics.goose` | rigid-body core: `PhysicsBody` + arenas, body lifecycle and property API, node↔body pose bridge, transforms/bounds |
+| `src/g3/physics.goose` | rigid-body core: `PhysicsBody` + arenas, body lifecycle and property API, node↔body pose bridge, transforms/bounds, water level + buoyancy/drag |
 | `src/g3/physics_solver.goose` | `physics_step`/substeps, integration, sweep-and-prune broadphase, warm-start, sequential-impulse solve |
 | `src/g3/physics_contacts.goose` | `Contact` + SAT/manifold narrowphase for box/sphere/capsule pairs |
 | `src/g3/physics_query.goose` | contact store/accessors and raycasts |
-| `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics`: timestep/step, cuboid/ball/capsule bodies, linvel/angvel/rotation and impulse accessors, body-type/mass/removal, raycast |
+| `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics`: timestep/step, cuboid/ball/capsule bodies, linvel/angvel/rotation and impulse accessors, body-type/mass/removal, raycast, water level |
 | `src/g3/physics_web.goose` | `g3_phys_*` wasm exports of the rapier facade plus contacts and raycast for the `gs3d/physics` package module |
 | `src/g3/render.goose` | per frame: transforms, frustum cull, draw-list pack, sort, submit |
 | `src/g3/engine.goose` | `init` / `frame` / `shutdown`, input state, stats |
@@ -24,7 +24,7 @@
 | `src/test_math.goose` | known-answer transforms, matrices and frustum planes, no backend |
 | `src/test_engine.goose` | known-answer frames, checked by reading pixels back |
 | `src/test_game.goose` | Beacon Run rules: scoring, win/lose, reset |
-| `src/test_siege.goose` | Rift Siege rules: sweeps, movement, dash, cover |
+| `src/test_siege.goose` | Rift Siege rules plus the physics solver checks: colliders, contacts, raycasts, water |
 | `src/benchmark_transforms.goose` | native transform benchmark |
 | `src/benchmark_physics*.goose` | headless solver benchmarks |
 | `src/game_web.goose` | Beacon Run browser entry point (`--game`) |

@@ -461,3 +461,8 @@ mat-vec per impulse, adaptive substeps allowing half a collider feature
 of travel each, and a persistent contact store — contact records live
 across steps in a pair-keyed hash, so resting and sleeping overlaps are
 reported without re-running detection every substep.
+
+Water (`physics_set_water_level`) is off by default and costs nothing
+until enabled; when on, each awake dynamic body pays one submerged-
+fraction evaluation plus a few flops per substep — O(awake bodies), no
+extra pair work. `samples/water` exercises it in the browser.
