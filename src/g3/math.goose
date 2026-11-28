@@ -463,3 +463,103 @@ fn frustum_intersects_sphere(f: Frustum, center: float3, radius: f32) -> bool {
     }
     return true;
 }
+
+// --- Quaternions ---------------------------------------------------------
+//
+// A quaternion is a float4 { x, y, z, w } — the same layout glTF stores in
+// node rotation and animation samplers, so imported rotations drop in
+// without conversion. Unit quaternions only; `quat_normalize` is the guard
+// for data that comes from files or integration.
+//
+// Composition follows the matrix convention: `quat_mul(a, b)` applies b
+// first, then a — the same reading as `mat4_mul(a, b)`.
+
+fn quat_identity() -> float4 { float4 { 0.0, 0.0, 0.0, 1.0 } }
+
+fn quat_normalize(q: float4) -> float4 {
+    let l = length(q);
+    if l == 0.0 { return quat_identity(); }
+    return q / l;
+}
+
+// Conjugate; for a unit quaternion this is also the inverse.
+fn quat_conjugate(q: float4) -> float4 { float4 { -q.x, -q.y, -q.z, q.w } }
+
+// Hamilton product a*b: rotates by b first, then a.
+fn quat_mul(a: float4, b: float4) -> float4 {
+    return float4 {
+        a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+        a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+        a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+        a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+    };
+}
+
+// Rotation of `angle` radians about `axis` (normalized internally).
+fn quat_from_axis_angle(axis: float3, angle: f32) -> float4 {
+    let l = length(axis);
+    if l == 0.0 { return quat_identity(); }
+    let s = sin(angle * 0.5) / l;
+    return float4 { axis.x * s, axis.y * s, axis.z * s, cos(angle * 0.5) };
+}
+
+// Rotate a vector by a unit quaternion: v' = q * v * q^-1, expanded.
+fn quat_rotate(q: float4, v: float3) -> float3 {
+    let qv = float3 { q.x, q.y, q.z };
+    let t = cross(qv, v) * 2.0;
+    return v + t * q.w + cross(qv, t);
+}
+
+// Unit quaternion -> rotation matrix, same column-major layout as the rest
+// of Mat4. Cheaper than composing three axis rotations for a known quat.
+fn mat4_from_quat(q: float4) -> Mat4 {
+    let x = q.x; let y = q.y; let z = q.z; let w = q.w;
+    Mat4 { m: [
+        1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + z * w),     2.0 * (x * z - y * w),     0.0,
+        2.0 * (x * y - z * w),     1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + x * w),     0.0,
+        2.0 * (x * z + y * w),     2.0 * (y * z - x * w),     1.0 - 2.0 * (x * x + y * y), 0.0,
+        0.0,                     0.0,                     0.0,                     1.0,
+    ] }
+}
+
+// Rotation matrix -> quaternion (Shepperd's method: branch on the largest
+// diagonal so the sqrt argument stays well-conditioned). Mat4 is
+// column-major, so element (row r, col c) is m.m[c * 4 + r].
+fn quat_from_mat4(m: Mat4) -> float4 {
+    let t = m.m[0] + m.m[5] + m.m[10];
+    if t > 0.0 {
+        let s = sqrt(t + 1.0) * 2.0;
+        return float4 { (m.m[6] - m.m[9]) / s, (m.m[8] - m.m[2]) / s,
+                        (m.m[1] - m.m[4]) / s, 0.25 * s };
+    }
+    if m.m[0] > m.m[5] && m.m[0] > m.m[10] {
+        let s = sqrt(1.0 + m.m[0] - m.m[5] - m.m[10]) * 2.0;
+        return float4 { 0.25 * s, (m.m[4] + m.m[1]) / s, (m.m[8] + m.m[2]) / s,
+                        (m.m[6] - m.m[9]) / s };
+    }
+    if m.m[5] > m.m[10] {
+        let s = sqrt(1.0 + m.m[5] - m.m[0] - m.m[10]) * 2.0;
+        return float4 { (m.m[4] + m.m[1]) / s, 0.25 * s, (m.m[9] + m.m[6]) / s,
+                        (m.m[8] - m.m[2]) / s };
+    }
+    let s = sqrt(1.0 + m.m[10] - m.m[0] - m.m[5]) * 2.0;
+    return float4 { (m.m[8] + m.m[2]) / s, (m.m[9] + m.m[6]) / s, 0.25 * s,
+                    (m.m[1] - m.m[4]) / s };
+}
+
+// Spherical interpolation. `b` is negated first when it sits in the far
+// hemisphere so the long way around is never taken; near-antiparallel
+// inputs fall back to normalized lerp, where slerp is ill-conditioned.
+fn quat_slerp(a: float4, b: float4, t: f32) -> float4 {
+    var bb = b;
+    var d = dot(a, bb);
+    if d < 0.0 { bb = -bb; d = -d; }
+    if d > 0.9995 {
+        return quat_normalize(a + (bb - a) * t);
+    }
+    let theta = acos(d);
+    let wa = sin((1.0 - t) * theta) / sin(theta);
+    let wb = sin(t * theta) / sin(theta);
+    return float4 { a.x * wa + bb.x * wb, a.y * wa + bb.y * wb,
+                    a.z * wa + bb.z * wb, a.w * wa + bb.w * wb };
+}

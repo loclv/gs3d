@@ -1728,7 +1728,13 @@ fn case_asset_fragmentation() {
     g3::mesh_asset_release(combined);
     let first = g3::mesh_asset_create(small[..], small_i[..]);
     let second = g3::mesh_asset_create(small[..], small_i[..]);
-    testing::check(g3::mesh(first).first_vertex == a_start && g3::mesh(second).first_vertex == b_start &&
+    // Splits take from the tail of a free span, so the two small meshes may
+    // land in either order; what matters is they cover both blocks exactly
+    // once and leave the live mesh untouched.
+    let first_at_a = g3::mesh(first).first_vertex == a_start;
+    let second_at_b = g3::mesh(second).first_vertex == b_start;
+    testing::check((first_at_a && second_at_b) ||
+        (g3::mesh(first).first_vertex == b_start && g3::mesh(second).first_vertex == a_start) &&
         g3::mesh(live).first_vertex == live_start && g3::g_verts[live_start].pos.x == 9.0 &&
         g3::g_verts.len == before_v && g3::g_indices.len == before_i,
         "free spans split without moving a live mesh");
@@ -1749,6 +1755,32 @@ fn case_asset_fragmentation() {
     testing::check(g3::g_verts.len <= initial_v + 6 && g3::g_indices.len <= initial_i + 6,
         "a larger asset extends a free tail instead of abandoning it");
     g3::mesh_asset_release(grown);
+}
+
+fn case_mesh_normals() {
+    // A flat quad in the XZ plane, wound so the face normal is -Y. Every
+    // vertex should end up with that normal after smoothing.
+    var buf: g3::Vertex[>..] = [];
+    buf.push(g3::Vertex { pos: float3 { 0.0, 0.0, 0.0 }, .. });
+    buf.push(g3::Vertex { pos: float3 { 1.0, 0.0, 0.0 }, .. });
+    buf.push(g3::Vertex { pos: float3 { 1.0, 0.0, 1.0 }, .. });
+    buf.push(g3::Vertex { pos: float3 { 0.0, 0.0, 1.0 }, .. });
+    let indices: u32[6] = [0, 1, 2, 0, 2, 3];
+    g3::mesh_compute_normals(buf, indices[..]);
+    var all_down = true;
+    for i in 0..4 {
+        let n = buf[i].normal;
+        if abs(n.x) > 0.0001 || abs(n.y + 1.0) > 0.0001 || abs(n.z) > 0.0001 { all_down = false; }
+    }
+    testing::check(all_down, "mesh_compute_normals gives every vertex the face normal");
+    // Degenerate triangles contribute nothing: a zero-area triangle leaves
+    // every normal at zero (the pass zeroes first, then accumulates).
+    let degen: u32[3] = [0, 0, 1];
+    g3::mesh_compute_normals(buf, degen[..]);
+    testing::check(length(buf[2].normal) < 0.0001, "degenerate triangles add no normal");
+    // And the result is usable: the buffer closes into a real mesh.
+    let mesh = g3::mesh_create(buf[..], indices[..]);
+    testing::check(mesh >= 0, "normal-computed vertices close into a mesh");
 }
 
 fn case_picking() {
@@ -2358,6 +2390,7 @@ fn main() {
     case_node_epoch();
     case_node_removal();
     case_asset_fragmentation();
+    case_mesh_normals();
     case_picking();
     case_orthographic_camera();
     case_multiple_cameras();

@@ -434,12 +434,18 @@ fn node_update_worlds() {
             n.cached_world_parent = n.parent;
             continue;
         }
-        var w = node_local(n);
+        // Every node's local is cached, not just roots': the ancestor walk
+        // below would otherwise recompute mat4_trs (three sin/cos) for each
+        // ancestor of each descendant, every frame. cached_local holds
+        // exactly node_local()'s value, so the products are unchanged.
+        if node_local_cache_changed(n) { node_cache_local(n); }
+        var w = n.cached_local;
         var p = n.parent;
         var up = 0;
         while p >= 0 && up < 64 {
             let pn .= g_nodes[p];
-            w = mat4_mul(node_local(pn), w);
+            if node_local_cache_changed(pn) { node_cache_local(pn); }
+            w = mat4_mul(pn.cached_local, w);
             p = pn.parent;
             up++;
         }

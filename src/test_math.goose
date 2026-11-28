@@ -483,6 +483,62 @@ fn case_frustum() {
                    "a box beyond its far plane is culled");
 }
 
+fn close4(a: float4, b: float4, tol: f32) -> bool {
+    close_to(a.x, b.x, tol) && close_to(a.y, b.y, tol) &&
+    close_to(a.z, b.z, tol) && close_to(a.w, b.w, tol)
+}
+
+fn case_quat() {
+    print("quaternions");
+
+    // Identity rotates nothing.
+    testing::check(close3(g3::quat_rotate(g3::quat_identity(), float3 { 1.0, 2.0, 3.0 }),
+                        float3 { 1.0, 2.0, 3.0 }, 0.0), "identity quat is the identity");
+
+    // A 90 degree turn about +Y matches the euler/matrix path exactly:
+    // mat4_rotate_y maps (1,0,0) to (0,0,-1) in this engine's handedness.
+    let qy = g3::quat_from_axis_angle(float3 { 0.0, 1.0, 0.0 }, PI * 0.5);
+    testing::check(close3(g3::quat_rotate(qy, float3 { 1.0, 0.0, 0.0 }),
+                        float3 { 0.0, 0.0, -1.0 }, 1e-6),
+                   "axis-angle quat rotates like the matrix");
+    testing::check(close_mat(g3::mat4_from_quat(qy), g3::mat4_rotate_y(PI * 0.5), 1e-6),
+                   "mat4_from_quat matches mat4_rotate_y");
+
+    // Composition order matches mat4_mul: qy * qx applies qx first.
+    let qx = g3::quat_from_axis_angle(float3 { 1.0, 0.0, 0.0 }, PI * 0.5);
+    let both = g3::quat_mul(qy, qx);
+    testing::check(close3(g3::quat_rotate(both, float3 { 0.0, 1.0, 0.0 }),
+                        g3::mat4_apply(g3::mat4_mul(g3::mat4_rotate_y(PI * 0.5),
+                                                    g3::mat4_rotate_x(PI * 0.5)),
+                                       float3 { 0.0, 1.0, 0.0 }),
+                        1e-6), "quat_mul order matches mat4_mul order");
+
+    // Slerp halfway between identity and a 90 degree Y turn is the 45
+    // degree turn. (A 180 degree endpoint would sit on the slerp equator,
+    // where either geodesic is a valid midpoint — f32 cos(pi) < 0 makes the
+    // choice input-dependent, so the test stays away from it.)
+    let half = g3::quat_slerp(g3::quat_identity(), qy, 0.5);
+    testing::check(close4(half, g3::quat_from_axis_angle(float3 { 0.0, 1.0, 0.0 }, PI * 0.25), 1e-5),
+                   "slerp midpoint is the half-angle rotation");
+
+    // Round trip matrix -> quat -> matrix on a non-axis rotation.
+    let m = g3::mat4_rotate_euler(float3 { 0.4, -0.7, 1.1 });
+    testing::check(close_mat(g3::mat4_from_quat(g3::quat_from_mat4(m)), m, 1e-5),
+                   "quat_from_mat4 round-trips a rotation");
+
+    // A non-unit input still rotates correctly once normalized.
+    let scaled = qy * 3.7;
+    testing::check(close3(g3::quat_rotate(g3::quat_normalize(scaled), float3 { 1.0, 0.0, 0.0 }),
+                        float3 { 0.0, 0.0, -1.0 }, 1e-5),
+                   "quat_normalize fixes non-unit input");
+
+    // Conjugate undoes the rotation.
+    testing::check(close3(g3::quat_rotate(g3::quat_mul(g3::quat_conjugate(qy), qy),
+                                          float3 { 1.0, 2.0, 3.0 }),
+                        float3 { 1.0, 2.0, 3.0 }, 1e-6),
+                   "q^-1 * q is identity");
+}
+
 fn main() {
     print("g3 math self-test");
 
@@ -498,6 +554,7 @@ fn main() {
     case_transpose();
     case_aabb();
     case_frustum();
+    case_quat();
 
     if !testing::finish() { exit(1); }
 }

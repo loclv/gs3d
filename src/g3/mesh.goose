@@ -47,41 +47,79 @@ var g_meshes: Mesh[>..];
 // need not have been released by the same asset. Empty entries are reusable.
 struct FreeSpan { first: i64, count: i64, kind: i32 }
 var g_free_spans: FreeSpan[>..];
+var g_free_spans_scratch: FreeSpan[>..];
 
+// Free ranges stay sorted by (kind, first), so a release merges with at
+// most one neighbour per side: non-overlapping spans sorted by start can
+// only adjoin through the closest same-kind span. Empty entries (count 0)
+// are skipped by every scan; span_free_compact drops them when they pile up.
 fn span_release(first: i64, count: i64, kind: i32) {
     if count <= 0 { return; }
     var start = first;
     var size = count;
-    // Restart after each merge because a newly extended range may touch a
-    // range visited earlier. Existing live allocations are never moved.
-    var merged = true;
-    while merged {
-        merged = false;
-        for i in 0..g_free_spans.len {
-            let s .= g_free_spans[i];
-            if s.kind != kind || s.count == 0 { continue; }
-            if s.first + s.count == start {
-                start = s.first;
-                size += s.count;
-                s.count = 0;
-                merged = true;
-            } else if start + size == s.first {
-                size += s.count;
-                s.count = 0;
-                merged = true;
-            }
-        }
-    }
+    // Insertion point: before the first live span that sorts after us.
+    var pos = g_free_spans.len;
     for i in 0..g_free_spans.len {
-        if g_free_spans[i].count == 0 {
-            g_free_spans[i] = FreeSpan { first: start, count: size, kind: kind };
-            return;
-        }
+        let s = g_free_spans[i];
+        if s.count == 0 { continue; }
+        if s.kind > kind || (s.kind == kind && s.first > start) { pos = i; break; }
     }
-    g_free_spans.push(FreeSpan { first: start, count: size, kind: kind });
+    // Same-kind spans form one contiguous block; absorb neighbours that end
+    // or start exactly at the range, then stop — anything further away ends
+    // strictly short of the new boundary or would already have merged.
+    var i = pos;
+    while i > 0 {
+        i -= 1;
+        let s = g_free_spans[i];
+        if s.count == 0 { continue; }
+        if s.kind != kind { break; }
+        if s.first + s.count == start {
+            start = s.first;
+            size += s.count;
+            g_free_spans[i].count = 0;
+        } else { break; }
+    }
+    i = pos;
+    while i < g_free_spans.len {
+        let s = g_free_spans[i];
+        if s.count == 0 { i += 1; continue; }
+        if s.kind != kind { break; }
+        if s.first == start + size {
+            size += s.count;
+            g_free_spans[i].count = 0;
+            i += 1;
+        } else { break; }
+    }
+    // Reuse the slot at pos when it is empty; otherwise shift and insert.
+    if pos < g_free_spans.len && g_free_spans[pos].count == 0 {
+        g_free_spans[pos] = FreeSpan { first: start, count: size, kind: kind };
+    } else {
+        g_free_spans.push(FreeSpan { .. });
+        var j = g_free_spans.len - 1;
+        while j > pos {
+            g_free_spans[j] = g_free_spans[j - 1];
+            j -= 1;
+        }
+        g_free_spans[pos] = FreeSpan { first: start, count: size, kind: kind };
+    }
+    if g_free_spans.len > 512 { span_free_compact(); }
+}
+
+// Drop empty slots. Grow-only arrays cannot shrink, so live entries are
+// copied through a scratch array and the main one is cleared and refilled.
+fn span_free_compact() {
+    g_free_spans_scratch.clear();
+    for i in 0..g_free_spans.len {
+        if g_free_spans[i].count > 0 { g_free_spans_scratch.push(g_free_spans[i]); }
+    }
+    g_free_spans.clear();
+    for i in 0..g_free_spans_scratch.len { g_free_spans.push(g_free_spans_scratch[i]); }
+    g_free_spans_scratch.clear();
 }
 
 // Best-fit allocation splits a larger free span and retains its remainder.
+// The split takes from the tail so the remainder keeps its `first` and the
+// list stays sorted.
 fn span_take(count: i64, kind: i32) -> i64 {
     if count <= 0 { return -1; }
     var best: i64 = -1;
@@ -91,8 +129,7 @@ fn span_take(count: i64, kind: i32) -> i64 {
     }
     if best < 0 { return -1; }
     let s .= g_free_spans[best];
-    let first = s.first;
-    s.first += count;
+    let first = s.first + s.count - count;
     s.count -= count;
     return first;
 }
@@ -606,4 +643,30 @@ fn mesh_create(verts: const Vertex[:], indices: const u32[:]) -> i32 {
                          vertex_capacity: verts.len, index_capacity: indices.len, .. });
     g3p_upload_mesh(id, g_verts[fv..fv + verts.len], g_indices[fi..fi + indices.len]);
     return id;
+}
+
+// Smooth area-weighted normals for an indexed vertex buffer, accumulated
+// into each vertex's `normal` (zeroed first, then normalized). Call before
+// mesh_create, mesh_close or mesh_asset_create. The face normal is
+// cross(p1 - p0, p2 - p0) in index order, so the result follows whatever
+// winding the indices use; a clockwise-wound mesh gets inward normals.
+// Vertices touched only by degenerate triangles keep a zero normal.
+fn mesh_compute_normals(verts: Vertex[>..]&, indices: const u32[:]) {
+    for j in 0..verts.len { verts[j].normal = float3_0; }
+    var i = 0;
+    while i + 2 < indices.len {
+        let a = indices[i] as i64;
+        let b = indices[i + 1] as i64;
+        let c = indices[i + 2] as i64;
+        i += 3;
+        if a >= verts.len || b >= verts.len || c >= verts.len { continue; }
+        let n = cross(verts[b].pos - verts[a].pos, verts[c].pos - verts[a].pos);
+        verts[a].normal = verts[a].normal + n;
+        verts[b].normal = verts[b].normal + n;
+        verts[c].normal = verts[c].normal + n;
+    }
+    for j in 0..verts.len {
+        let l = length(verts[j].normal);
+        if l > 0.0 { verts[j].normal = verts[j].normal / l; }
+    }
 }
