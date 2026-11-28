@@ -29,6 +29,31 @@ struct BodyContact {
 
 var g_physics_contacts: BodyContact[>..];
 
+// Snapshot counters for profiling and tests. `steps` counts physics_step
+// calls since the last physics_clear; `joints` counts live (non-removed)
+// joints; `contacts` mirrors physics_contact_count.
+struct PhysicsStats {
+    bodies: i64,
+    joints: i64,
+    contacts: i64,
+    steps: i64,
+}
+
+var g_physics_steps: i64 = 0;
+
+fn physics_stats() -> PhysicsStats {
+    var live_joints: i64 = 0;
+    for j in 0..g_physics_joints.len {
+        if !g_physics_joints[j].removed { live_joints += 1; }
+    }
+    return PhysicsStats {
+        bodies: g_physics_bodies.len,
+        joints: live_joints,
+        contacts: g_physics_contacts.len,
+        steps: g_physics_steps,
+    };
+}
+
 // Contacts detected by the solver, one entry per body pair whose
 // colliders overlap — including pairs where both bodies sleep, whose
 // frozen poses keep the record valid without re-detection.

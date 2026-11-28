@@ -601,6 +601,99 @@ fn main() {
     testing::check(g3::physics_water_level() < -1.0e29, "clear_water disables");
     g3::physics_clear();
 
+    // Joints. Hand-derived setups: a fixed joint holds a sphere rigidly
+    // against gravity, a distance joint is a pendulum keeping its rest
+    // length, and a hinge frees spin about its axis only.
+    testing::check(g3::physics_joint_add_fixed(g3::node_count() + 100, 0,
+                   float3_0, float3_0) < 0 &&
+                   g3::physics_joint_add_hinge(0, 0, float3_0, float3_0,
+                                               float3_0) < 0 &&
+                   g3::physics_joint_add_distance(0, 0, float3_0, float3_0,
+                                                  1.0) < 0,
+                   "joints reject bad bodies, self-pairs and degenerate axes");
+
+    // Fixed: static sphere at (0,3,0), dynamic sphere at (1.5,3,0). The
+    // anchors coincide at world (2,3,0) — local +X*2 on the static body,
+    // +X*0.5 on the sphere — and center distance 1.5 leaves the r=0.5
+    // colliders (touch distance 1.0) clear of each other.
+    let jfix_static_node = g3::node_add(unit_mesh);
+    g3::node(jfix_static_node).pos = float3 { 0.0, 3.0, 0.0 };
+    let jfix_static = g3::physics_body_add_sphere(jfix_static_node, 0.5, 0.0);
+    let jfix_node = g3::node_add(unit_mesh);
+    g3::node(jfix_node).pos = float3 { 1.5, 3.0, 0.0 };
+    let jfix = g3::physics_body_add_sphere(jfix_node, 0.5, 1.0);
+    let jfix_joint = g3::physics_joint_add_fixed(jfix_static, jfix,
+        float3 { 2.0, 0.0, 0.0 }, float3 { 0.5, 0.0, 0.0 });
+    testing::check(jfix_joint >= 0 && g3::physics_joint_valid(jfix_joint),
+                   "fixed joint creation");
+    g3::physics_body_set_angvel(jfix, float3 { 0.0, 2.0, 0.0 });
+    for i in 300 { g3::physics_step(1.0 / 60.0); }
+    let jfb = g3::physics_body(jfix);
+    testing::check(abs(jfb.position.x - 1.5) < 0.05 &&
+                   abs(jfb.position.y - 3.0) < 0.05 &&
+                   abs(jfb.position.z) < 0.05 &&
+                   length(jfb.velocity) < 0.3 &&
+                   length(jfb.angular_velocity) < 0.3,
+                   "fixed joint holds position and rotation against gravity");
+    testing::check(g3::physics_joint_remove(jfix_joint) &&
+                   !g3::physics_joint_remove(jfix_joint),
+                   "joint removal reports once");
+
+    // Distance pendulum: static pivot at (0,5,0), sphere starts at
+    // (2,5,0) — the side of the arc — with rest length 2. The bottom of
+    // the swing is y = 3; after ten seconds it must have visited it.
+    g3::physics_clear();
+    let jpen_node = g3::node_add(unit_mesh);
+    g3::node(jpen_node).pos = float3 { 0.0, 5.0, 0.0 };
+    let jpen = g3::physics_body_add_sphere(jpen_node, 0.5, 0.0);
+    let jball_node = g3::node_add(unit_mesh);
+    g3::node(jball_node).pos = float3 { 2.0, 5.0, 0.0 };
+    let jball = g3::physics_body_add_sphere(jball_node, 0.5, 1.0);
+    let jdist = g3::physics_joint_add_distance(jpen, jball,
+        float3_0, float3_0, 2.0);
+    testing::check(jdist >= 0, "distance joint creation");
+    let jstats0 = g3::physics_stats();
+    testing::check(jstats0.joints == 1 && jstats0.bodies == 2 && jstats0.steps == 0,
+                   "physics stats count joints, bodies and steps");
+    var jmin_y: f32 = 5.0;
+    for i in 600 {
+        g3::physics_step(1.0 / 60.0);
+        jmin_y = min(jmin_y, g3::physics_body(jball).position.y);
+    }
+    testing::check(g3::physics_stats().steps == 600, "physics stats count steps");
+    let jbb = g3::physics_body(jball);
+    let jrad = length(jbb.position - float3 { 0.0, 5.0, 0.0 });
+    testing::check(abs(jrad - 2.0) < 0.08 && jmin_y < 3.6,
+                   "distance joint holds rest length as a pendulum");
+
+    // Hinge about world X with gravity off: initial spin (3,1,0) keeps its
+    // X component — free about the axis — while the perpendicular parts
+    // are driven to zero. The sphere's anchor sits at the pivot (0,3,0),
+    // so its center stays |anchor_b| = sqrt(2.5) from the pivot.
+    g3::physics_clear();
+    g3::physics_set_gravity(float3_0);
+    let jhp_node = g3::node_add(unit_mesh);
+    g3::node(jhp_node).pos = float3 { 0.0, 3.0, 0.0 };
+    let jhp = g3::physics_body_add_sphere(jhp_node, 0.5, 0.0);
+    let jhs_node = g3::node_add(unit_mesh);
+    g3::node(jhs_node).pos = float3 { 0.0, 1.5, 0.5 };
+    let jhs = g3::physics_body_add_sphere(jhs_node, 0.5, 1.0);
+    let jhinge = g3::physics_joint_add_hinge(jhp, jhs,
+        float3_0, float3 { 0.0, 1.5, -0.5 }, float3 { 1.0, 0.0, 0.0 });
+    testing::check(jhinge >= 0, "hinge joint creation");
+    g3::physics_body_set_angvel(jhs, float3 { 3.0, 1.0, 0.0 });
+    for i in 240 { g3::physics_step(1.0 / 60.0); }
+    let jhb = g3::physics_body(jhs);
+    testing::check(jhb.angular_velocity.x > 1.5 &&
+                   abs(jhb.angular_velocity.y) < 0.4 &&
+                   abs(jhb.angular_velocity.z) < 0.4,
+                   "hinge frees rotation about its axis only");
+    let jhd = length(jhb.position - float3 { 0.0, 3.0, 0.0 });
+    testing::check(abs(jhd - 1.5811) < 0.08,
+                   "hinge anchors stay coincident");
+    g3::physics_set_gravity(float3 { 0.0, -9.81, 0.0 });
+    g3::physics_clear();
+
     g3::rapier_set_timestep(1.0 / 60.0);
     g3::physics_clear();
     g3::shutdown();

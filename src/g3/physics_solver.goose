@@ -116,6 +116,7 @@ const PHYSICS_SOLVER_ITERATIONS: i32 = 12;
 // second are rejected to bound work after a long pause.
 fn physics_step(dt: f32) {
     guard dt > 0.0 && dt <= 1.0 else { return; }
+    g_physics_steps += 1;
     let sub_dt = physics_substep_dt(dt);
     var remaining = dt;
     var steps = 0;
@@ -244,6 +245,7 @@ fn physics_substep(dt: f32) {
         }
     }
     physics_solve_contacts();
+    physics_solve_joints();
 
     // Sleep evaluation runs after the solve, on post-impulse velocities —
     // checking before contacts would always see the gravity added this

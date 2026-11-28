@@ -27,6 +27,7 @@ import g3.scene;
 import g3.physics_solver;
 import g3.physics_contacts;
 import g3.physics_query;
+import g3.physics_joints;
 
 namespace g3;
 
@@ -341,6 +342,8 @@ fn physics_clear() {
     g_physics_solver.clear();
     g_warm_tab.clear();
     g_warm_mask = 0;
+    g_physics_joints.clear();
+    g_physics_steps = 0;
 }
 
 // Collider volume for buoyancy: box 8·hx·hy·hz, sphere 4/3·π·r³, capsule
