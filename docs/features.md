@@ -98,10 +98,11 @@ and the [Three.js roadmap](threejs-roadmap.md).
   translation/linvel/angvel/rotation accessors, applyImpulse,
   applyImpulseAtPoint, addTorque, body-type/mass changes and
   `world.castRay`-style raycasts.
-* Procedural audio (`g3.sound`): a heap-free mono PCM synthesizer —
-  pitch-swept thump, enveloped tone and lowpassed-noise voices over a
-  grow-only sample buffer, with `sound_contacts()` turning physics
-  contact approach speeds into impact sounds (mass-scaled pitch,
+* Procedural audio (`g3.sound`): a heap-free PCM synthesizer — mono or
+  interleaved stereo with per-voice panning — pitch-swept thump,
+  enveloped tone and lowpassed-noise voices over a grow-only sample
+  buffer, with `sound_contacts()` turning physics contact approach
+  speeds into impact sounds (mass-scaled pitch, listener-based panning,
   per-pair cooldown, silent at rest). Exports 16-bit WAV via
   `g3.sound_wav`, and a pending/commit view streams the buffer out in
   chunks.

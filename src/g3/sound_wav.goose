@@ -30,21 +30,23 @@ fn sound_wav_tag(out: u8[>..]&, tag: const u8[:]) {
 }
 
 // Append a complete WAV file image for g_sound_pcm[start..]: 44-byte
-// canonical header, mono, 16-bit samples, little-endian.
+// canonical header, `g_sound_channels` channels (mono or interleaved
+// stereo), 16-bit samples, little-endian.
 fn sound_wav_samples(out: u8[>..]&, start: i64) {
     var n = g_sound_pcm.len - start;
     if n < 0 { n = 0; }
     let data_bytes = n * 2;
+    let channels = g_sound_channels as u16;
     sound_wav_tag(out, "RIFF");
     sound_wav_u32(out, (36 + data_bytes) as u32);
     sound_wav_tag(out, "WAVE");
     sound_wav_tag(out, "fmt ");
     sound_wav_u32(out, 16);
     sound_wav_u16(out, 1);                        // PCM
-    sound_wav_u16(out, 1);                        // mono
+    sound_wav_u16(out, channels);
     sound_wav_u32(out, g_sound_rate as u32);
-    sound_wav_u32(out, (g_sound_rate as u32) * 2); // byte rate
-    sound_wav_u16(out, 2);                        // block align
+    sound_wav_u32(out, (g_sound_rate as u32) * channels * 2); // byte rate
+    sound_wav_u16(out, channels * 2);             // block align
     sound_wav_u16(out, 16);                       // bits per sample
     sound_wav_tag(out, "data");
     sound_wav_u32(out, data_bytes as u32);

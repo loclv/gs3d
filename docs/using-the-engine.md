@@ -113,13 +113,15 @@ What the API gives you:
   body's up axis toward the surface, so effective density is `mass / volume`
   and floaters want mass ≈ volume × a few hundred. `samples/water` is a
   runnable demo.
-* Sound — `import g3.sound` adds a heap-free mono PCM synthesizer:
-  `sound_init(rate)` once, then per frame spawn events
-  (`sound_impact(strength, pitch)`, `sound_tone`, `sound_noise`, or the
-  generic `sound_play`) and call `sound_render(dt)` to append samples.
-  `sound_contacts(scale, min_speed)` after `physics_step` turns contact
-  approach speeds into mass-pitched impacts — resting contacts stay
-  silent. Read the buffer with `sound_pcm()`, meter it with
+* Sound — `import g3.sound` adds a heap-free PCM synthesizer, mono or
+  interleaved stereo (`sound_init(rate, channels)`; every event takes a
+  `pan` -1..+1). Per frame spawn events (`sound_impact(strength, pitch,
+  pan)`, `sound_tone`, `sound_noise`, or the generic `sound_play`) and
+  call `sound_render(dt)` to append samples. `sound_contacts(scale,
+  min_speed)` after `physics_step` turns contact approach speeds into
+  mass-pitched impacts — resting contacts stay silent — and
+  `sound_set_listener(pos, right)` makes each impact pan toward where it
+  happened. Read the buffer with `sound_pcm()`, meter it with
   `sound_pending_peak()`, stream it with `sound_pending()`/
   `sound_commit()`, and write it with `import g3.sound_wav` +
   `sound_write_wav(path)` (or `sound_write_wav_pending` for chunks).

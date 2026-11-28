@@ -1,13 +1,17 @@
-// Procedural sound for the engine: a small mono PCM synthesizer that turns
+// Procedural sound for the engine: a small PCM synthesizer that turns
 // gameplay events — physics impacts above all — into samples.
 //
 // The module is event-driven and offline. Callers spawn voices with
 // sound_impact / sound_tone / sound_noise (or the generic sound_play), then
 // advance the mixer once per frame with sound_render(dt). Every render call
-// appends `dt * rate` mono f32 samples to an internal grow-only buffer; read
-// them back with sound_pcm() or write a RIFF/WAVE file with the helpers in
-// g3.sound_wav (sound_write_wav). Nothing here touches a device, a window or
-// the platform seam, so it links into headless builds unchanged.
+// appends `dt * rate` frames of f32 PCM to an internal grow-only buffer —
+// mono by default, or interleaved stereo when sound_init selects two
+// channels. Voices carry a `pan` (-1 left .. +1 right); sound_set_listener
+// gives sound_contacts a world position and right vector so impacts pan by
+// where they happen. Read samples back with sound_pcm() or write a
+// RIFF/WAVE file with the helpers in g3.sound_wav (sound_write_wav).
+// Nothing here touches a device, a window or the platform seam, so it links
+// into headless builds unchanged.
 //
 // Three voice kinds share one envelope shape (short attack, exponential
 // decay) and differ in what they oscillate:
@@ -54,13 +58,22 @@ struct SoundVoice {
     seed: u32 = 1,          // noise LFSR state
     lpf: f32 = 0.0,         // noise one-pole lowpass state
     cutoff: f32 = 0.25,     // noise lowpass mix amount, (0,1]
+    pan: f32 = 0.0,         // -1 left .. +1 right; ignored in mono
 }
 
 var g_sound_rate: f64 = 48000.0;
+var g_sound_channels: i64 = 1;
 var g_sound_pcm: f32[>..];
 var g_sound_mark: i64 = 0;
 var g_sound_voices: SoundVoice[SOUND_MAX_VOICES];
 var g_sound_seed: u32 = 1;
+
+// Listener for spatial panning in sound_contacts: world position and the
+// camera's right vector (need not be normalized — it is normalized here).
+// Disabled until sound_set_listener is called.
+var g_sound_listener_on: bool = false;
+var g_sound_listener_pos: float3 = float3_0;
+var g_sound_listener_right: float3 = float3 { 1.0, 0.0, 0.0 };
 
 // Last step each contact pair emitted a sound, for the cooldown in
 // sound_contacts. `step` is physics_stats().steps.
@@ -71,13 +84,29 @@ var g_sound_marks: SoundContactMark[>..];
 const SOUND_CONTACT_COOLDOWN = 12;
 
 // Select the output sample rate (8000..192000, the same range the stdlib
-// audio mixer accepts) and reset the buffer and voices. Out-of-range rates
-// are ignored.
-fn sound_init(sample_rate: f64 = 48000.0) {
+// audio mixer accepts) and channel count (1 mono or 2 interleaved stereo),
+// then reset the buffer and voices. Out-of-range arguments are ignored.
+fn sound_init(sample_rate: f64 = 48000.0, channels: i64 = 1) {
     guard sample_rate >= 8000.0 && sample_rate <= 192000.0 else { return; }
+    guard channels == 1 || channels == 2 else { return; }
     g_sound_rate = sample_rate;
+    g_sound_channels = channels;
     sound_clear();
 }
+
+fn sound_channels() -> i64 { return g_sound_channels; }
+
+// Set the listener sound_contacts pans against: `pos` is the listener's
+// world position, `right` its right vector (e.g. the camera's). A contact
+// to the listener's right pans right. Call sound_clear_listener to disable.
+fn sound_set_listener(pos: float3, right: float3) {
+    g_sound_listener_on = true;
+    g_sound_listener_pos = pos;
+    let len = length(right);
+    if len > 0.0001 { g_sound_listener_right = right / len; }
+}
+
+fn sound_clear_listener() { g_sound_listener_on = false; }
 
 // Drop every voice and discard the rendered PCM.
 fn sound_clear() {
@@ -138,7 +167,7 @@ fn sound_voice_slot() -> i64 {
 
 // Start a voice. freq_end <= 0 holds the pitch at freq. Returns false when
 // the voice table is full or the arguments cannot make a sound.
-fn sound_spawn(kind: i32, freq: f32, freq_end: f32, dur: f32, amp: f32, cutoff: f32) -> bool {
+fn sound_spawn(kind: i32, freq: f32, freq_end: f32, dur: f32, amp: f32, cutoff: f32, pan: f32) -> bool {
     guard kind >= SOUND_KIND_THUMP && kind <= SOUND_KIND_NOISE else { return false; }
     guard dur > 0.0 && amp > 0.0 else { return false; }
     var fq = freq;
@@ -157,21 +186,23 @@ fn sound_spawn(kind: i32, freq: f32, freq_end: f32, dur: f32, amp: f32, cutoff: 
         active: true, kind: kind, freq: fq, freq_end: fe,
         amp: clamp(amp, 0.0, 1.0), dur: dur, age: 0.0, phase: 0.0,
         seed: g_sound_seed | 1, lpf: 0.0, cutoff: cutoff,
+        pan: clamp(pan, -1.0, 1.0),
     };
     return true;
 }
 
 // Generic escape hatch: kind is SOUND_KIND_*, freq/freq_end in Hz,
-// dur in seconds, amp in [0,1], cutoff the noise lowpass amount.
-fn sound_play(kind: i32, freq: f32, freq_end: f32, dur: f32, amp: f32, cutoff: f32 = 0.25) -> bool {
-    return sound_spawn(kind, freq, freq_end, dur, amp, cutoff);
+// dur in seconds, amp in [0,1], cutoff the noise lowpass amount, pan
+// -1..+1 (ignored when the buffer is mono).
+fn sound_play(kind: i32, freq: f32, freq_end: f32, dur: f32, amp: f32, cutoff: f32 = 0.25, pan: f32 = 0.0) -> bool {
+    return sound_spawn(kind, freq, freq_end, dur, amp, cutoff, pan);
 }
 
 // A collision thump: a pitch-swept low sine for the body plus a short noise
 // click for the contact. `strength` is clamped to [0,1] and drives loudness
 // and length; `pitch` scales both voices (1.0 is a mid knock, higher is a
 // smaller/lighter object). Returns false only when every voice is busy.
-fn sound_impact(strength: f32, pitch: f32 = 1.0) -> bool {
+fn sound_impact(strength: f32, pitch: f32 = 1.0, pan: f32 = 0.0) -> bool {
     let s = clamp(strength, 0.0, 1.0);
     guard s > 0.001 else { return false; }
     // Deterministic per-call jitter so a burst of identical impacts does
@@ -180,35 +211,39 @@ fn sound_impact(strength: f32, pitch: f32 = 1.0) -> bool {
     let jitter = 0.94 + ((g_sound_seed >> 8) as f32) / 8388608.0 * 0.12;
     let p = clamp(pitch * jitter, 0.25, 4.0);
     var ok = sound_spawn(SOUND_KIND_THUMP, 115.0 * p, 38.0 * p,
-                         0.10 + 0.25 * s, 0.85 * s, 0.0);
+                         0.10 + 0.25 * s, 0.85 * s, 0.0, pan);
     // Harder hits click brighter.
     ok = sound_spawn(SOUND_KIND_NOISE, 0.0, 0.0,
-                     0.015 + 0.03 * s, 0.6 * s, 0.6 + 0.35 * s) || ok;
+                     0.015 + 0.03 * s, 0.6 * s, 0.6 + 0.35 * s, pan) || ok;
     return ok;
 }
 
 // A plain enveloped sine, optionally gliding to freq_end (0 keeps freq).
-fn sound_tone(freq: f32, dur: f32, amp: f32, freq_end: f32 = 0.0) -> bool {
-    return sound_spawn(SOUND_KIND_TONE, freq, freq_end, dur, amp, 0.0);
+fn sound_tone(freq: f32, dur: f32, amp: f32, freq_end: f32 = 0.0, pan: f32 = 0.0) -> bool {
+    return sound_spawn(SOUND_KIND_TONE, freq, freq_end, dur, amp, 0.0, pan);
 }
 
 // An enveloped lowpassed noise burst. cutoff is the lowpass mix amount:
 // near 1 is bright, near 0 is a low rumble.
-fn sound_noise(dur: f32, amp: f32, cutoff: f32 = 0.3) -> bool {
-    return sound_spawn(SOUND_KIND_NOISE, 0.0, 0.0, dur, amp, cutoff);
+fn sound_noise(dur: f32, amp: f32, cutoff: f32 = 0.3, pan: f32 = 0.0) -> bool {
+    return sound_spawn(SOUND_KIND_NOISE, 0.0, 0.0, dur, amp, cutoff, pan);
 }
 
-// Mix every live voice for `dt` seconds and append the mono result to the
-// PCM buffer. Call once per frame after spawning that frame's events;
-// events spawned between renders all start at the next sample boundary.
+// Mix every live voice for `dt` seconds and append the result to the PCM
+// buffer — one sample per channel per frame (mono, or interleaved L/R when
+// sound_init selected two channels). Call once per frame after spawning
+// that frame's events; events spawned between renders all start at the
+// next sample boundary.
 fn sound_render(dt: f64) {
     guard dt > 0.0 else { return; }
     var frames = (dt * g_sound_rate + 0.5) as i64;
     guard frames > 0 else { return; }
     let inv_rate = (1.0 / g_sound_rate) as f32;
     let step = (1.0 / g_sound_rate) as f32;
+    let stereo = g_sound_channels == 2;
     for s in 0..frames {
         var mix: f32 = 0.0;
+        var mix_r: f32 = 0.0;
         var v: i64 = 0;
         while v < SOUND_MAX_VOICES {
             if g_sound_voices[v].active {
@@ -234,13 +269,22 @@ fn sound_render(dt: f64) {
                         sample = sin(g_sound_voices[v].phase * TAU) *
                             sound_envelope(age, dur, attack, decay);
                     }
-                    mix += sample * g_sound_voices[v].amp;
+                    let a = sample * g_sound_voices[v].amp;
+                    if stereo {
+                        // Linear pan law: center is unity on both sides,
+                        // hard left/right is silent on the far side.
+                        mix += a * (1.0 - max(g_sound_voices[v].pan, 0.0));
+                        mix_r += a * (1.0 + min(g_sound_voices[v].pan, 0.0));
+                    } else {
+                        mix += a;
+                    }
                     g_sound_voices[v].age += step;
                 }
             }
             v += 1;
         }
         g_sound_pcm.push(clamp(mix, -1.0, 1.0));
+        if stereo { g_sound_pcm.push(clamp(mix_r, -1.0, 1.0)); }
     }
 }
 
@@ -251,7 +295,9 @@ fn sound_render(dt: f64) {
 // contacts stay silent even though their records persist. `scale` multiplies
 // approach speed into impact strength (m/s is already a reasonable [0,1]
 // input). Pitch follows the lighter body's mass — a heavy crate knocks
-// lower than a pebble. A pair re-arms after SOUND_CONTACT_COOLDOWN steps,
+// lower than a pebble. When a listener is set with sound_set_listener,
+// each impact also pans toward the contact point. A pair re-arms after
+// SOUND_CONTACT_COOLDOWN steps,
 // so a bounce that keeps reporting does not machine-gun. Call after
 // physics_step; events land on the next sound_render either way. Returns
 // the number of events emitted.
@@ -285,7 +331,18 @@ fn sound_contacts(scale: f32 = 1.0, min_speed: f32 = 0.5) -> i64 {
                 var pitch: f32 = 1.0;
                 if m > 0.0 { pitch = 1.0 / sqrt(m); }
                 pitch = clamp(pitch, 0.4, 2.5);
-                if sound_impact(c.impact * scale, pitch) {
+                // Pan by where the contact sits relative to the listener,
+                // when one is set; distance does not attenuate (there is
+                // no distance model — pan only).
+                var pan: f32 = 0.0;
+                if g_sound_listener_on {
+                    let to = c.point - g_sound_listener_pos;
+                    let d = length(to);
+                    if d > 0.0001 {
+                        pan = clamp(dot(to / d, g_sound_listener_right), -1.0, 1.0);
+                    }
+                }
+                if sound_impact(c.impact * scale, pitch, pan) {
                     hits += 1;
                     g_sound_marks.push(SoundContactMark { pkey: c.pkey, step: step });
                 }

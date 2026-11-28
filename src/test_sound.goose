@@ -103,6 +103,28 @@ fn main() {
     g3::sound_wav_pending_bytes(pbytes);
     testing::check(pbytes.len == 44 + 40 * 2, "pending wav covers only new samples");
 
+    // --- stereo and panning ------------------------------------------------
+    g3::sound_init(8000.0, 2);
+    testing::check(g3::sound_channels() == 2, "stereo init selects two channels");
+    g3::sound_tone(440.0, 0.01, 0.5, 0.0, 1.0);
+    g3::sound_render(0.01);
+    testing::check(g3::sound_len() == 160, "stereo render writes interleaved L/R");
+    let spcm = g3::sound_pcm();
+    var el: f32 = 0.0;
+    var er: f32 = 0.0;
+    for i in 0..spcm.len / 2 {
+        el += abs(spcm[i * 2]);
+        er += abs(spcm[i * 2 + 1]);
+    }
+    testing::check(er > 0.0 && el == 0.0, "pan=+1 puts all energy on the right");
+    var sb: u8[>..] = [];
+    g3::sound_wav_pending_bytes(sb);
+    testing::check(sb.len == 44 + 160 * 2, "stereo wav size is header plus PCM16");
+    testing::check(sb[22] == 2 && sb[23] == 0, "wav header says two channels");
+    testing::check(sb[32] == 4 && sb[33] == 0, "wav block align is 4 bytes");
+    g3::sound_init(8000.0);
+    testing::check(g3::sound_channels() == 1, "re-init returns to mono");
+
     // --- physics bridge --------------------------------------------------
     // Static floor box, dynamic sphere dropped onto it. The first contact
     // step has real closing speed; once the sphere rests, contacts stay
@@ -115,6 +137,10 @@ fn main() {
     let ball_node = g3::node_add(mesh);
     g3::node(ball_node).pos = float3 { 0.0, 2.0, 0.0 };
     g3::physics_body_add_sphere(ball_node, 0.5, 1.0);
+    // Stereo + a listener off to the contact's left: the impact should pan
+    // right (positive pan -> right channel).
+    g3::sound_init(8000.0, 2);
+    g3::sound_set_listener(float3 { -3.0, 0.5, -3.0 }, float3 { 0.0, 0.0, 1.0 });
     g3::sound_clear();
     var emitted: i64 = 0;
     var landed = false;
@@ -129,6 +155,15 @@ fn main() {
     testing::check(emitted >= 1, "impact contact emits a sound event");
     testing::check(g3::sound_len() > 0 && peak(g3::sound_pcm()) > 0.0,
                    "physics-driven render produced audible PCM");
+    var el2: f32 = 0.0;
+    var er2: f32 = 0.0;
+    let pall = g3::sound_pcm();
+    for i in 0..pall.len / 2 {
+        el2 += abs(pall[i * 2]);
+        er2 += abs(pall[i * 2 + 1]);
+    }
+    testing::check(er2 > el2, "listener pans the impact toward its side");
+    g3::sound_clear_listener();
     // A settled scene must not keep firing: drain contacts while resting.
     var rest_hits: i64 = 0;
     for step in 60 {
