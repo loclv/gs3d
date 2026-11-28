@@ -43,6 +43,7 @@ Rules that keep it correct:
 | node local TRS | `src/g3/scene.goose` `node_local_cache_changed` | `cached_pos/rot/scale/local_matrix` compares |
 | frustum cull | `src/g3/render.goose` `render_scene` | `cached_cull_*` version tuple |
 | draw-item MVP | `src/g3/render.goose` | `cached_mvp_view_version` |
+| per-fragment light culling | `src/g3/render.goose` `node_light_mask` | `cached_light_mask_*` + `g_lights_version` |
 | mesh span alloc | `src/g3/mesh.goose` | spans sorted by `(kind, first)`, tail-take |
 | glTF JSON | `src/g3/gltf_native.goose` `glb_ensure_document` | parse-once per path, append-only globals |
 
@@ -111,3 +112,11 @@ stage produces N small writes per frame:
 - **`onBeforeCompile` parity trap**: adding a hook to base `Material` for API
   parity made every material take the custom-shader path; mark facade defaults
   with `_gs3dDefault` so only user overrides trigger it.
+- **Uniform-per-item vs instanced batching**: WebGL batches `scene_compatible`
+  items into one instanced draw sharing uniforms — any new per-item shader
+  input must join `scene_compatible` or instances silently share the first
+  item's value (this is why `light_mask` is in the compatibility check).
+- **Conservative cull bounds**: `node_light_mask` may only skip a light whose
+  shader falloff is provably zero — range fade is exactly 0 past `range`,
+  but the spot cone needs the bounding-sphere `cos(theta-alpha)` bound, and
+  the `theta < alpha` case (best dot = 1) is easy to miss.

@@ -158,7 +158,7 @@ typedef struct {
     int no_fog;
     GLint texture_units[13];
     GLint mvp, view_proj, model, view, normal_matrix, color, params, eye, light_dir, light_color, ambient, fog, tex, textured;
-    GLint light_count, light_position[8], light_direction[8], light_color_extra[8], light_inner[8], light_attenuation[8];
+    GLint light_count, light_mask, light_position[8], light_direction[8], light_color_extra[8], light_inner[8], light_attenuation[8];
     GLint env_sky, env_ground, view_direction, pbr, mr_tex, mr_textured;
     GLint normal_tex, normal_textured, normal_scale, occlusion_tex, occlusion_textured, occlusion_strength;
     GLint emissive, emissive_tex, emissive_textured;
@@ -518,6 +518,7 @@ static const char *FRAGMENT_SRC =
     "struct Light { vec4 position; vec4 direction; vec4 color; float inner; float attenuation; };\n"
     "uniform Light u_lights[8];\n"
     "uniform int u_light_count;\n"
+    "uniform int u_light_mask;\n"
     "uniform vec4 u_env_sky;\n"
     "uniform vec4 u_env_ground;\n"
     "uniform sampler2D u_env_map;\n"
@@ -696,6 +697,7 @@ static const char *FRAGMENT_SRC =
     "        }\n"
     "    }\n"
     "    for (int i = 0; i < u_light_count; i++) {\n"
+    "        if ((u_light_mask & (1 << i)) == 0) continue;\n"
     "        Light light = u_lights[i];\n"
     "        vec3 delta = light.position.xyz - v_world;\n"
     "        float distance_to_light = length(delta);\n"
@@ -861,6 +863,7 @@ static void find_uniforms(void) {
     shader.tex = glGetUniformLocation(shader.program, "u_tex");
     shader.textured = glGetUniformLocation(shader.program, "u_textured");
     shader.light_count = glGetUniformLocation(shader.program, "u_light_count");
+    shader.light_mask = glGetUniformLocation(shader.program, "u_light_mask");
     shader.env_sky = glGetUniformLocation(shader.program, "u_env_sky");
     shader.env_ground = glGetUniformLocation(shader.program, "u_env_ground");
     shader.env_map = glGetUniformLocation(shader.program, "u_env_map");
@@ -1571,6 +1574,7 @@ static int scene_compatible(const g3_draw_item *a, const g3_draw_item *b) {
            same_uv_transform(a->sheen_roughness_uv,b->sheen_roughness_uv) &&
            same_uv_transform(a->anisotropy_uv,b->anisotropy_uv) &&
            a->shader == b->shader && a->lut_texture == b->lut_texture &&
+           a->light_mask == b->light_mask &&
            same_vec4(a->user0,b->user0) && same_vec4(a->user1,b->user1) &&
            same_vec4(a->user2,b->user2) && same_vec4(a->user3,b->user3) &&
            same_vec4(a->user4,b->user4) && same_vec4(a->user5,b->user5) &&
@@ -2449,6 +2453,10 @@ static void draw_item(g3_draw_item_slice items, int64_t first, int32_t count) {
         float normal_matrix[9];
         g3_normal_matrix(&it->model, normal_matrix);
         glUniformMatrix3fv(shader.normal_matrix, 1, GL_FALSE, normal_matrix);
+        /* Per-item light culling mask; varies independently of material
+           state, so it uploads on every draw rather than inside the
+           material-change block. Location is -1 on unlit programs. */
+        glUniform1i(shader.light_mask, it->light_mask);
     }
     int update_material = !cached_material_valid || cached_material_program != shader.program ||
                           !scene_compatible(it, &cached_material_item);

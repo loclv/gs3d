@@ -870,6 +870,7 @@ g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *ou
     }
     int count = vs->light_count < 0 ? 0 : vs->light_count > 8 ? 8 : vs->light_count;
     for (int i = 0; i < count; i++) {
+        if ((it->light_mask & (1 << i)) == 0) continue;
         const g3_light *light = &vs->lights[i];
         float dx = light->position.x - wp.x, dy = light->position.y - wp.y, dz = light->position.z - wp.z;
         float distance = sqrtf(dx * dx + dy * dy + dz * dz);

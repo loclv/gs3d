@@ -74,6 +74,14 @@ pass — orders of magnitude cheaper than trig.
   transform and frustum test entirely when nothing moved.
 - `cached_mvp` / `cached_mvp_view_version` → draw items reuse the model-view
   projection until `world_version` or the view changes.
+- `cached_light_mask` + `cached_light_mask_{world,lights,mesh,bounds}` →
+  `node_light_mask` computes a per-node bitmask of the eight extra lights
+  that can contribute (directional extras always; point/spot bounded by
+  range fade = 0 past `range`, spots additionally by a bounding-sphere cone
+  test). The mask rides on `DrawItem.light_mask`; WebGL skips culled lights
+  per fragment and `scene_compatible` only batches same-mask items. The CPU
+  backend applies the same skip. Keyed on `g_lights_version`, bumped by
+  every light-list mutation including saved-set restores.
 - `world_dirty` is a sticky flag consumed by draw-item refresh; it is set
   only inside the `world_version += 1` branches.
 

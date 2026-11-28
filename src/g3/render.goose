@@ -78,6 +78,9 @@ struct SavedLightSet {
 }
 var g_saved_light_sets: SavedLightSet[>..];
 var g_active_light_set: i32 = -1;
+// Bumped whenever the extra-light list (or a saved set's restore) changes;
+// node light masks key on it so per-fragment light culling stays correct.
+var g_lights_version: i64 = 0;
 
 // --- the frame's constants
 
@@ -91,7 +94,7 @@ fn set_light(dir: float3, color: float3) {
 }
 
 // The original directional light is independent of these eight extra lights.
-fn clear_lights() { g_view_state.light_count = 0; clear_point_light_shadows(); clear_spot_light_shadows(); }
+fn clear_lights() { g_view_state.light_count = 0; clear_point_light_shadows(); clear_spot_light_shadows(); g_lights_version += 1; }
 
 fn light_set_snapshot(previous: i32) -> SavedLightSet {
     return SavedLightSet { previous: previous, removed: false, children: 0,
@@ -144,6 +147,7 @@ fn asset_light_set_release(id: i32) -> bool {
         if previous >= 0 && g_saved_light_sets[previous].removed { releasing = previous; }
         else { g_active_light_set = previous; done = true; }
     }
+    g_lights_version += 1;
     return true;
 }
 
@@ -154,6 +158,7 @@ fn add_directional_light(dir: float3, color: float3) -> bool {
     g_view_state.lights[i] = Light { position: float4 { 0.0, 0.0, 0.0, 0.0 },
         direction: float4 { d.x, d.y, d.z, 0.0 }, color: float4 { color.x, color.y, color.z, 0.0 }, inner: 0.0, attenuation: 0.0 };
     g_view_state.light_count += 1;
+    g_lights_version += 1;
     return true;
 }
 
@@ -164,6 +169,7 @@ fn add_point_light_mode(pos: float3, color: float3, range: f32, attenuation: f32
     g_view_state.lights[i] = Light { position: float4 { pos.x, pos.y, pos.z, 1.0 },
         direction: float4 { 0.0, 0.0, 0.0, range }, color: float4 { color.x, color.y, color.z, 0.0 }, inner: 0.0, attenuation: attenuation };
     g_view_state.light_count += 1;
+    g_lights_version += 1;
     return true;
 }
 
@@ -256,6 +262,7 @@ fn add_spot_light_mode(pos: float3, dir: float3, color: float3, range: f32, inne
     g_view_state.lights[i] = Light { position: float4 { pos.x, pos.y, pos.z, 2.0 },
         direction: float4 { d.x, d.y, d.z, range }, color: float4 { color.x, color.y, color.z, cos(outer) }, inner: cos(inner), attenuation: attenuation };
     g_view_state.light_count += 1;
+    g_lights_version += 1;
     return true;
 }
 
@@ -605,9 +612,72 @@ fn sort_key(mesh_id: i32, dist: f32, blended: bool) -> f32 {
     return key;
 }
 
+// Conservative per-node mask of the eight extra lights: bit i is set when
+// light i can contribute to any fragment of the drawn mesh. Directional
+// extras reach everything; point and spot lights are bounded by their range
+// (the shader's range fade is exactly zero past it) and spots additionally
+// by a bounding-sphere cone test. Cached on the node against transform,
+// light-list and drawn-mesh bounds versions.
+fn node_light_mask(n: Node&, mesh_id: i32) -> i32 {
+    let count = g_view_state.light_count;
+    if count <= 0 { return 0; }
+    let m2 .= mesh(mesh_id);
+    if n.light_mask_valid &&
+        n.cached_light_mask_world == n.world_version &&
+        n.cached_light_mask_lights == g_lights_version &&
+        n.cached_light_mask_mesh == mesh_id &&
+        n.cached_light_mask_bounds == m2.bounds_version {
+        return n.cached_light_mask;
+    }
+    var mask: i32 = 0;
+    if !aabb_is_empty(m2.bounds) {
+        let box = aabb_transform_affine(m2.bounds, n.world);
+        let center = aabb_center(box);
+        let radius = aabb_radius(box);
+        for i in 0..count {
+            let l = g_view_state.lights[i];
+            var keep = true;
+            if l.position.w > 0.5 {
+                let to_center = center - float3 { l.position.x, l.position.y, l.position.z };
+                let dc = length(to_center);
+                // The box's bounding sphere is larger than the box, so
+                // dc - radius <= true closest distance: a safe range test.
+                if l.direction.w > 0.0 && dc - radius > l.direction.w { keep = false; }
+                if keep && l.position.w > 1.5 && dc > radius && dc > 0.000001 {
+                    // Spot cone: the box subtends at most asin(radius/dc)
+                    // around its centre direction, so the best-case surface
+                    // dot product is cos(theta - alpha); keep only when it
+                    // still beats the outer cone cosine.
+                    let dir = normalize(float3 { l.direction.x, l.direction.y, l.direction.z });
+                    let cos_center = dot(dir, to_center / dc);
+                    let sin_extent = radius / dc;
+                    let cos_extent = sqrt(max(0.0, 1.0 - sin_extent * sin_extent));
+                    let sin_center = sqrt(max(0.0, 1.0 - cos_center * cos_center));
+                    // When the centre direction lies inside the box's
+                    // subtense (theta < alpha) some surface faces the light
+                    // dead-on: the best dot is 1, not cos(theta - alpha).
+                    let max_dot = if sin_center <= sin_extent && cos_center >= 0.0 { 1.0 }
+                                  else { cos_center * cos_extent + sin_center * sin_extent };
+                    if max_dot <= l.color.w { keep = false; }
+                }
+            }
+            if keep { mask = mask | (1 << i); }
+        }
+    } else {
+        mask = (1 << count) - 1;
+    }
+    n.cached_light_mask = mask;
+    n.cached_light_mask_world = n.world_version;
+    n.cached_light_mask_lights = g_lights_version;
+    n.cached_light_mask_mesh = mesh_id;
+    n.cached_light_mask_bounds = m2.bounds_version;
+    n.light_mask_valid = true;
+    return mask;
+}
+
 // One node's worth of a frame: its matrices multiplied out, its colour and
 // shading parameters, and the key that decides where it sorts.
-fn pack_item(n: Node&, mesh_id: i32, dist: f32) -> DrawItem {
+fn pack_item(n: Node&, mesh_id: i32, dist: f32, light_mask: i32) -> DrawItem {
     if !n.mvp_cache_valid || n.world_dirty || n.cached_mvp_view_version != g_view_proj_version {
         n.cached_mvp = mat4_mul(g_view_proj, n.world);
         n.cached_mvp_view_version = g_view_proj_version;
@@ -678,6 +748,7 @@ fn pack_item(n: Node&, mesh_id: i32, dist: f32) -> DrawItem {
         user6: surface.user6,
         user7: surface.user7,
         lut_texture: surface.lut_texture,
+        light_mask: light_mask,
     };
 }
 
@@ -767,7 +838,7 @@ fn render_scene() {
             mesh_id = n.lod_mesh;
             g_stats.lod_swaps += 1;
         }
-        g_draws.push(pack_item(n, mesh_id, dist));
+        g_draws.push(pack_item(n, mesh_id, dist, node_light_mask(n, mesh_id)));
         g_stats.drawn += 1;
         g_stats.triangles += g_meshes[mesh_id].index_count / 3;
     }

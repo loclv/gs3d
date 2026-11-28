@@ -85,6 +85,9 @@ struct DrawItem {
     // 3D texture id sampled by custom shaders as `uniform sampler3D u_lut`;
     // -1 disables. WebGL-only.
     lut_texture: i32,
+    // Bit i set means extra light i can contribute to this item; backends
+    // skip the rest of the per-fragment light loop. -1 means all lights.
+    light_mask: i32,
 }
 
 // Additional light: position.w = 0 directional, 1 point, 2 spot;

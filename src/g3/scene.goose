@@ -58,6 +58,12 @@ struct Node {
     cached_cull_bounds_version: i64 = -1,
     cached_cull_intersects: bool,
     cull_cache_valid: bool,
+    cached_light_mask: i32 = -1,       // per-draw bitmask of contributing extra lights
+    cached_light_mask_world: i64 = -1, // cache key: transform
+    cached_light_mask_lights: i64 = -1,// cache key: light list version
+    cached_light_mask_mesh: i32 = -2,  // cache key: drawn mesh bounds owner
+    cached_light_mask_bounds: i64 = -1,// cache key: mesh bounds version
+    light_mask_valid: bool,
     local_matrix: Mat4,         // optional imported affine transform
     use_local_matrix: bool,
     cached_local: Mat4,          // local transform cache for unparented nodes
