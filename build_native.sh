@@ -32,7 +32,10 @@ goose build --cc "$native_cc" -o build/test_game src/test_game.goose
 
 goose build --cc "$native_cc" -o build/test_siege src/test_siege.goose
 
-echo "built build/app_native, build/test_math, build/test_engine build/test_game and build/test_siege"
+echo "goose -> build/test_sound"
+goose build --cc "$native_cc" -o build/test_sound src/test_sound.goose
+
+echo "built build/app_native, build/test_math, build/test_engine build/test_game, build/test_siege and build/test_sound"
 
 if [ "${1:-}" = "--test" ]; then
   echo
@@ -41,6 +44,7 @@ if [ "${1:-}" = "--test" ]; then
   ./build/test_engine
   ./build/test_game
   ./build/test_siege
+  ./build/test_sound
 
   echo
   echo "== zero-warning check (ideal 11) =="

@@ -24,6 +24,11 @@ struct BodyContact {
     normal: float3 = float3_0,
     point: float3 = float3_0,
     penetration: f32 = 0.0,
+    // Approach speed along -normal at detection time, m/s: positive while
+    // the pair closed in, ~0 at rest. Recorded pre-solve, so it survives
+    // the impulse that cancels the velocity; stale on records kept for
+    // sleeping pairs, which skip re-detection.
+    impact: f32 = 0.0,
     pkey: i64 = 0,
 }
 

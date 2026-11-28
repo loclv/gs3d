@@ -442,13 +442,18 @@ fn physics_detect_pair(a_id: i64, b_id: i64) {
     let normal = g_physics_manifold.normal;
 
     // A real impact at any manifold point wakes sleepers; resting contacts
-    // below the threshold leave them asleep and immovable.
+    // below the threshold leave them asleep and immovable. The deepest
+    // approach speed is kept for the contact record — it is measured here,
+    // before the impulse solve erases it from the velocities.
+    var impact: f32 = 0.0;
     for k in 0..g_physics_manifold.count {
         let p = g_physics_manifold.points[k];
         let ra = p - a.position;
         let rb = p - b.position;
         let vrel = physics_point_velocity(b, rb) - physics_point_velocity(a, ra);
-        if dot(vrel, normal) < -0.1 {
+        let vn = dot(vrel, normal);
+        if -vn > impact { impact = -vn; }
+        if vn < -0.1 {
             physics_wake(a);
             physics_wake(b);
         }
@@ -471,7 +476,7 @@ fn physics_detect_pair(a_id: i64, b_id: i64) {
     physics_contact_record(pkey, BodyContact { a: a_id, b: b_id, normal: normal,
         point: g_physics_manifold.points[deepest],
         penetration: g_physics_manifold.penetrations[deepest],
-        pkey: pkey });
+        impact: impact, pkey: pkey });
 
     if im_a + im_b <= 0.0 { return; }
 
