@@ -1397,6 +1397,11 @@ static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
     return shadow_depth_visibility(shadow_depth,size,px,py,z,vs->shadow_params.y,(int)(vs->shadow_params.z+0.5f));
 }
 
+/* Point-light shadows use the same tangent-plane disk PCF as the GLSL
+   samplerCubeShadow path in FRAGMENT_SRC: perturb the view ray inside a
+   (2/resolution * distance)-sized disk, look each perturbed direction up on
+   the matching cube face, and average refz <= occluder-depth tests. The six
+   2D maps stand in for the cubemap's faces. */
 static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int light_index) {
     (void)light_index;
     const g3_light *light = &vs->lights[vs->point_shadow_light_index];
@@ -1404,16 +1409,54 @@ static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int li
     float ax=fabsf(dx), ay=fabsf(dy), az=fabsf(dz);
     int face = ax >= ay && ax >= az ? (dx >= 0.0f ? 0 : 1) : ay >= az ? (dy >= 0.0f ? 2 : 3) : (dz >= 0.0f ? 4 : 5);
     const float *m=vs->point_shadow_view_proj[face].m;
-    float x=m[0]*wp.x+m[4]*wp.y+m[8]*wp.z+m[12];
-    float y=m[1]*wp.x+m[5]*wp.y+m[9]*wp.z+m[13];
     float z=m[2]*wp.x+m[6]*wp.y+m[10]*wp.z+m[14];
     float w=m[3]*wp.x+m[7]*wp.y+m[11]*wp.z+m[15];
     if (w <= 0.0f) return 1.0f;
-    x=x/w*0.5f+0.5f; y=y/w*0.5f+0.5f; z=z/w*0.5f+0.5f;
-    if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
+    /* refz carries the bias, exactly like the shader's comparison value. */
+    float refz = (z/w*0.5f+0.5f) - vs->point_shadow_params.y;
+    if (refz < 0.0f || refz > 1.0f) return 1.0f;
+    float dist = sqrtf(dx*dx+dy*dy+dz*dz);
+    if (dist <= 0.0f) return 1.0f;
+    /* tangent frame perpendicular to the light ray, |ray.y| < 0.99 picks +Y */
+    float rx=dx/dist, ry=dy/dist, rz=dz/dist;
+    float ux=0.0f, uy=1.0f, uz=0.0f;
+    if (fabsf(ry) >= 0.99f) { ux=1.0f; uy=0.0f; }
+    float tx = ry*uz - rz*uy, ty = rz*ux - rx*uz, tz = rx*uy - ry*ux;
+    float tl = sqrtf(tx*tx+ty*ty+tz*tz);
+    if (tl <= 0.0f) return 1.0f;
+    tx/=tl; ty/=tl; tz/=tl;
+    float bx = ry*tz - rz*ty, by = rz*tx - rx*tz, bz = rx*ty - ry*tx;
+    int radius=(int)(vs->point_shadow_params.z+0.5f);
     int size=shadow_map_size(vs);
-    int px=(int)(x*size), py=size-1-(int)(y*size);
-    return shadow_depth_visibility(point_shadow_depth[face],size,px,py,z,vs->point_shadow_params.y,(int)(vs->point_shadow_params.z+0.5f));
+    float scale = 2.0f / (float)vs->shadow_resolution * dist;
+    float sum=0.0f, count=0.0f;
+    for (int sy=-2; sy<=2; sy++) for (int sx=-2; sx<=2; sx++) {
+        if (abs(sx)>radius || abs(sy)>radius) continue;
+        /* sample_ray = delta + (tangent*x + bitangent*y) * scale */
+        float svx = dx + (tx*sx + bx*sy)*scale;
+        float svy = dy + (ty*sx + by*sy)*scale;
+        float svz = dz + (tz*sx + bz*sy)*scale;
+        float sax=fabsf(svx), say=fabsf(svy), saz=fabsf(svz);
+        int sface = sax >= say && sax >= saz ? (svx >= 0.0f ? 0 : 1)
+                 : say >= saz             ? (svy >= 0.0f ? 2 : 3)
+                                          : (svz >= 0.0f ? 4 : 5);
+        /* Project a point one ray-length along the perturbed direction; only
+           its face and UV matter — the compared depth stays refz. */
+        const float *sm=vs->point_shadow_view_proj[sface].m;
+        float qx=light->position.x+svx, qy=light->position.y+svy, qz=light->position.z+svz;
+        float qcx=sm[0]*qx+sm[4]*qy+sm[8]*qz+sm[12];
+        float qcy=sm[1]*qx+sm[5]*qy+sm[9]*qz+sm[13];
+        float qcw=sm[3]*qx+sm[7]*qy+sm[11]*qz+sm[15];
+        if (qcw > 0.0f) {
+            float u=qcx/qcw*0.5f+0.5f, v=qcy/qcw*0.5f+0.5f;
+            if (u >= 0.0f && u < 1.0f && v >= 0.0f && v < 1.0f) {
+                int px=(int)(u*size), py=size-1-(int)(v*size);
+                sum += refz <= point_shadow_depth[sface][py*size+px] ? 1.0f : 0.0f;
+                count += 1.0f;
+            }
+        }
+    }
+    return count > 0.0f ? sum/count : 1.0f;
 }
 
 static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
