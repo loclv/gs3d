@@ -125,16 +125,33 @@ obstacles, character controllers.
   returns an equivalent rotation (yaw zeroed), so the *matrix* is
   preserved even when the angles differ.
 - Angular response runs against a cached **world-space inverse inertia
-  tensor** (`inv_inertia_world` = R·diag(ii)·Rᵀ), refreshed once per substep
-  after integration — one mat-vec per impulse instead of two basis
-  transforms. Bounds refresh and the tensor refresh share one fused
-  O(n) pass after integration; sleeping bodies are skipped in both.
+  tensor** (`inv_inertia_world` = R·diag(ii)·Rᵀ). It recomputes only for
+  bodies that integrated this substep — orientation is its only input —
+  inside the same fused O(n) pass as integration and bounds refresh.
 - Broadphase is a per-substep **sweep-and-prune along x**: live bodies are
-  sorted by AABB min-x (`bounds` is refreshed every substep) and only
-  x-overlapping pairs reach `physics_detect_pair`, which still rejects on
-  y/z bounds and skips pairs where neither side can move. Pairs are no
-  longer visited in id order — contact resolution order follows the
-  sorted sweep, which is deterministic but not id-ordered.
+  sorted by AABB min-x and only x-overlapping pairs reach
+  `physics_detect_pair`, which still rejects on y/z bounds and skips pairs
+  where neither side can move. The sort comparator reads a flat
+  `g_physics_minx` array, not the body structs. Pairs are no longer
+  visited in id order — contact resolution order follows the sorted
+  sweep, which is deterministic but not id-ordered.
+- **Settled-scene fast path**: `physics_substep` returns whether anything
+  could move; when every dynamic body sleeps and no kinematic body is
+  live, the order rebuild, sort, pair sweep, contact solve, joint solve
+  and sleep pass are all skipped — one fused O(n) scan per substep.
+  `physics_step` likewise skips node writeback on fully inactive steps
+  (forces still reset). See `docs/performance-physics.md`.
+- **`bounds_dirty`** gates `physics_update_bounds`: static colliders pay
+  the |R|·he math once, not per substep. Teleports
+  (`rapier_body_set_translation`) and node syncs (`physics_body_sync`)
+  set it; it defaults `true` at creation. Any new path that writes
+  `body.position`/`body.orientation` outside integration MUST set it or
+  the broadphase goes stale.
+- **Joints** (`physics_joints.goose`): fixed/distance/hinge constraints
+  solved after contacts each substep with the same sequential-impulse
+  scheme, warm-started lambdas stored per joint. Hinge coincidence
+  impulses are linear-only — full angular response there drained the
+  free axis (ω 3.0 → 0.1 in 4 s).
 - `physics_set_water_level(y)` puts a water surface at height `y` on world
   Y (`physics_water_level()` reads it, `physics_clear_water()` disables;
   the `-1e30` default is off). Awake dynamic bodies below it get
@@ -150,9 +167,9 @@ obstacles, character controllers.
   buoyancy direction while submerged — the stand-in for the real
   center-of-buoyancy offset — so tilted floaters level out; it saturates
   for large tilts and scales with submersion.
-- Still no sleeping islands, no joints/constraints, no collider lists,
-  and only one friction direction per contact. Very slender stacks can
-  still topple — treat tall perfect towers as beyond the stable envelope.
+- No collider lists, and only one friction direction per contact. Very
+  slender stacks can still topple — treat tall perfect towers as beyond
+  the stable envelope.
   `src/benchmark_physics.goose` (separated bodies, broadphase) and
   `src/benchmark_physics_stack.goose` (active contact pile) measure the
   solver headlessly.
@@ -220,7 +237,8 @@ the solver), and write rotation back as `object.rotation.set(x, y, z,
 
 - `goose check src/test_siege.goose` — typechecks the module graph.
 - `./build_native.sh --test` — builds and runs all roots; `test_siege`
-  holds the hand-derived physics checks (currently 84).
+  holds the hand-derived physics checks (currently 95, including joints
+  and `physics_stats`).
 - `./build_web.sh --gs3d` — rebuilds `web/gs3d/app.js`/`app.wasm`; new
   `g3_phys_*` exports must also be added to the `phys_exports` list in
   `build_web.sh` or they won't be callable from JS.
