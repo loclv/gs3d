@@ -113,12 +113,15 @@ struct ViewState {
     shadow_view_proj: Mat4,
     shadow_params: float4, // x enabled, y depth bias, z PCF radius in texels
     view_direction: float4, // xyz toward the viewer, w = orthographic
-    point_shadow_view_proj: Mat4[6],
-    point_shadow_light_index: i32,
-    point_shadow_params: float4, // x enabled, y depth bias, z PCF radius in texels
-    spot_shadow_view_proj: Mat4,
-    spot_shadow_light_index: i32,
-    spot_shadow_params: float4, // x enabled, y depth bias, z PCF radius in texels
+    // Up to two point lights cast cube shadows and up to two spot lights
+    // cast perspective shadows. Slots are flat: slot s owns
+    // point_shadow_view_proj[s*6 .. s*6+5] and the matching index/params.
+    point_shadow_view_proj: Mat4[12],
+    point_shadow_light_index: i32[2],
+    point_shadow_params: float4[2], // x enabled, y depth bias, z PCF radius in texels
+    spot_shadow_view_proj: Mat4[2],
+    spot_shadow_light_index: i32[2],
+    spot_shadow_params: float4[2], // x enabled, y depth bias, z PCF radius in texels
     shadow_resolution: i32, // 256, 512, or 1024 square shadow maps
     post_process: i32, // bit 0 enables the FXAA output pass
     render_target: i32, // texture id to render into, -1 for the surface

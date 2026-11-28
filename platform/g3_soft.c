@@ -59,9 +59,15 @@ typedef struct {
 static soft_texture *textures;
 static int32_t texture_count;
 #define SHADOW_MAX_SIZE 1024
+#define SHADOW_POINT_SLOTS 2
+#define SHADOW_SPOT_SLOTS 2
 static float shadow_depth[SHADOW_MAX_SIZE * SHADOW_MAX_SIZE];
-static float point_shadow_depth[6][SHADOW_MAX_SIZE * SHADOW_MAX_SIZE];
-static float spot_shadow_depth[SHADOW_MAX_SIZE * SHADOW_MAX_SIZE];
+/* Per-slot depth buffers, allocated lazily at the active shadow resolution
+   so unused slots cost nothing. */
+static float *point_shadow_depth[SHADOW_POINT_SLOTS][6];
+static int point_shadow_cap[SHADOW_POINT_SLOTS][6];
+static float *spot_shadow_depth[SHADOW_SPOT_SLOTS];
+static int spot_shadow_cap[SHADOW_SPOT_SLOTS];
 static uint8_t brdf_lut[G3_BRDF_LUT_SIZE * G3_BRDF_LUT_SIZE * 4];
 
 /* --- the frame's scratch
@@ -614,8 +620,8 @@ int g3_backend_resize(int w, int h) {
 static void sample_texture(int32_t id, float u, float v, float rho, float out[4]);
 static void sample_environment_lod(int32_t id, float u, float v, float lod, float out[4]);
 static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
-static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int light_index);
-static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp);
+static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int slot);
+static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int slot);
 
 static int shadow_map_size(const g3_view_state *vs) {
     return vs->shadow_resolution == 256 || vs->shadow_resolution == 512 || vs->shadow_resolution == 1024 ? vs->shadow_resolution : 512;
@@ -897,10 +903,12 @@ g3_vec3 anisotropy_t, g3_vec3 anisotropy_b, float anisotropy_strength, float *ou
             if (cone > 1.0f) cone = 1.0f;
             falloff *= cone * cone * (3.0f - 2.0f * cone);
         }
-        if (vs->point_shadow_params.x > 0.5f && i == vs->point_shadow_light_index && light->position.w > 0.5f && light->position.w < 1.5f)
-            falloff *= point_shadow_visibility(vs, wp, i);
-        if (vs->spot_shadow_params.x > 0.5f && i == vs->spot_shadow_light_index && light->position.w > 1.5f)
-            falloff *= spot_shadow_visibility(vs, wp);
+        for (int s = 0; s < SHADOW_POINT_SLOTS; s++)
+            if (vs->point_shadow_params[s].x > 0.5f && i == vs->point_shadow_light_index[s] && light->position.w > 0.5f && light->position.w < 1.5f)
+                falloff *= point_shadow_visibility(vs, wp, s);
+        for (int s = 0; s < SHADOW_SPOT_SLOTS; s++)
+            if (vs->spot_shadow_params[s].x > 0.5f && i == vs->spot_shadow_light_index[s] && light->position.w > 1.5f)
+                falloff *= spot_shadow_visibility(vs, wp, s);
         float d = n.x * ex + n.y * ey + n.z * ez;
         if (d < 0.0f) d = 0.0f;
         float ax = ex + vx, ay = ey + vy, az = ez + vz;
@@ -1383,6 +1391,17 @@ static int setup_triangle(const g3_draw_item *it, const g3_vertex *const tri[3],
     return t->x0 <= t->x1 && t->y0 <= t->y1;
 }
 
+/* Grow a lazily allocated per-slot shadow depth buffer to `size`^2 floats. */
+static float *shadow_slot_buffer(float **buf, int *cap, int size) {
+    int need = size * size;
+    if (*cap >= need && *buf) return *buf;
+    float *grown = realloc(*buf, (size_t)need * sizeof(float));
+    if (!grown) return NULL;
+    *buf = grown;
+    *cap = need;
+    return grown;
+}
+
 static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
     if (vs->shadow_params.x < 0.5f) return 1.0f;
     const float *m = vs->shadow_view_proj.m;
@@ -1403,18 +1422,17 @@ static float shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
    (2/resolution * distance)-sized disk, look each perturbed direction up on
    the matching cube face, and average refz <= occluder-depth tests. The six
    2D maps stand in for the cubemap's faces. */
-static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int light_index) {
-    (void)light_index;
-    const g3_light *light = &vs->lights[vs->point_shadow_light_index];
+static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int slot) {
+    const g3_light *light = &vs->lights[vs->point_shadow_light_index[slot]];
     float dx=wp.x-light->position.x, dy=wp.y-light->position.y, dz=wp.z-light->position.z;
     float ax=fabsf(dx), ay=fabsf(dy), az=fabsf(dz);
     int face = ax >= ay && ax >= az ? (dx >= 0.0f ? 0 : 1) : ay >= az ? (dy >= 0.0f ? 2 : 3) : (dz >= 0.0f ? 4 : 5);
-    const float *m=vs->point_shadow_view_proj[face].m;
+    const float *m=vs->point_shadow_view_proj[slot*6+face].m;
     float z=m[2]*wp.x+m[6]*wp.y+m[10]*wp.z+m[14];
     float w=m[3]*wp.x+m[7]*wp.y+m[11]*wp.z+m[15];
     if (w <= 0.0f) return 1.0f;
     /* refz carries the bias, exactly like the shader's comparison value. */
-    float refz = (z/w*0.5f+0.5f) - vs->point_shadow_params.y;
+    float refz = (z/w*0.5f+0.5f) - vs->point_shadow_params[slot].y;
     if (refz < 0.0f || refz > 1.0f) return 1.0f;
     float dist = sqrtf(dx*dx+dy*dy+dz*dz);
     if (dist <= 0.0f) return 1.0f;
@@ -1427,7 +1445,7 @@ static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int li
     if (tl <= 0.0f) return 1.0f;
     tx/=tl; ty/=tl; tz/=tl;
     float bx = ry*tz - rz*ty, by = rz*tx - rx*tz, bz = rx*ty - ry*tx;
-    int radius=(int)(vs->point_shadow_params.z+0.5f);
+    int radius=(int)(vs->point_shadow_params[slot].z+0.5f);
     int size=shadow_map_size(vs);
     float scale = 2.0f / (float)vs->shadow_resolution * dist;
     float sum=0.0f, count=0.0f;
@@ -1443,7 +1461,7 @@ static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int li
                                           : (svz >= 0.0f ? 4 : 5);
         /* Project a point one ray-length along the perturbed direction; only
            its face and UV matter — the compared depth stays refz. */
-        const float *sm=vs->point_shadow_view_proj[sface].m;
+        const float *sm=vs->point_shadow_view_proj[slot*6+sface].m;
         float qx=light->position.x+svx, qy=light->position.y+svy, qz=light->position.z+svz;
         float qcx=sm[0]*qx+sm[4]*qy+sm[8]*qz+sm[12];
         float qcy=sm[1]*qx+sm[5]*qy+sm[9]*qz+sm[13];
@@ -1452,7 +1470,7 @@ static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int li
             float u=qcx/qcw*0.5f+0.5f, v=qcy/qcw*0.5f+0.5f;
             if (u >= 0.0f && u < 1.0f && v >= 0.0f && v < 1.0f) {
                 int px=(int)(u*size), py=size-1-(int)(v*size);
-                sum += refz <= point_shadow_depth[sface][py*size+px] ? 1.0f : 0.0f;
+                sum += refz <= point_shadow_depth[slot][sface][py*size+px] ? 1.0f : 0.0f;
                 count += 1.0f;
             }
         }
@@ -1460,8 +1478,8 @@ static float point_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int li
     return count > 0.0f ? sum/count : 1.0f;
 }
 
-static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
-    const float *m=vs->spot_shadow_view_proj.m;
+static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp, int slot) {
+    const float *m=vs->spot_shadow_view_proj[slot].m;
     float x=m[0]*wp.x+m[4]*wp.y+m[8]*wp.z+m[12];
     float y=m[1]*wp.x+m[5]*wp.y+m[9]*wp.z+m[13];
     float z=m[2]*wp.x+m[6]*wp.y+m[10]*wp.z+m[14];
@@ -1471,7 +1489,7 @@ static float spot_shadow_visibility(const g3_view_state *vs, g3_vec3 wp) {
     if (x < 0.0f || x >= 1.0f || y < 0.0f || y >= 1.0f || z < 0.0f || z > 1.0f) return 1.0f;
     int size=shadow_map_size(vs);
     int px=(int)(x*size), py=size-1-(int)(y*size);
-    return shadow_depth_visibility(spot_shadow_depth,size,px,py,z,vs->spot_shadow_params.y,(int)(vs->spot_shadow_params.z+0.5f));
+    return shadow_depth_visibility(spot_shadow_depth[slot],size,px,py,z,vs->spot_shadow_params[slot].y,(int)(vs->spot_shadow_params[slot].z+0.5f));
 }
 
 /* Perspective-correct UV at a neighboring pixel, even if it lies just
@@ -1978,10 +1996,19 @@ void g3p_draw_frame(g3_draw_item_slice items, const g3_view_state *view) {
     }
     int shadow_size=shadow_map_size(view);
     if (view->shadow_params.x > 0.5f) render_shadow_map(items, view, &view->shadow_view_proj, shadow_depth, shadow_size);
-    if (view->point_shadow_params.x > 0.5f && view->point_shadow_light_index >= 0 && view->point_shadow_light_index < view->light_count)
-        for (int face=0; face<6; face++) render_shadow_map(items, view, &view->point_shadow_view_proj[face], point_shadow_depth[face], shadow_size);
-    if (view->spot_shadow_params.x > 0.5f && view->spot_shadow_light_index >= 0 && view->spot_shadow_light_index < view->light_count && view->lights[view->spot_shadow_light_index].position.w > 1.5f)
-        render_shadow_map(items, view, &view->spot_shadow_view_proj, spot_shadow_depth, shadow_size);
+    for (int s = 0; s < SHADOW_POINT_SLOTS; s++) {
+        if (view->point_shadow_params[s].x > 0.5f && view->point_shadow_light_index[s] >= 0 && view->point_shadow_light_index[s] < view->light_count)
+            for (int face=0; face<6; face++) {
+                float *buf = shadow_slot_buffer(&point_shadow_depth[s][face], &point_shadow_cap[s][face], shadow_size);
+                if (buf) render_shadow_map(items, view, &view->point_shadow_view_proj[s*6+face], buf, shadow_size);
+            }
+    }
+    for (int s = 0; s < SHADOW_SPOT_SLOTS; s++) {
+        if (view->spot_shadow_params[s].x > 0.5f && view->spot_shadow_light_index[s] >= 0 && view->spot_shadow_light_index[s] < view->light_count && view->lights[view->spot_shadow_light_index[s]].position.w > 1.5f) {
+            float *buf = shadow_slot_buffer(&spot_shadow_depth[s], &spot_shadow_cap[s], shadow_size);
+            if (buf) render_shadow_map(items, view, &view->spot_shadow_view_proj[s], buf, shadow_size);
+        }
+    }
     prof.frames += 1;
     const double t0 = prof.on ? now_seconds() : 0.0;
 

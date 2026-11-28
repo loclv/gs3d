@@ -73,8 +73,8 @@ struct SavedLightSet {
     children: i32,
     lights: Light[8],
     count: i32,
-    point_view_proj: Mat4[6], point_index: i32, point_params: float4,
-    spot_view_proj: Mat4, spot_index: i32, spot_params: float4,
+    point_view_proj: Mat4[12], point_index: i32[2], point_params: float4[2],
+    spot_view_proj: Mat4[2], spot_index: i32[2], spot_params: float4[2],
 }
 var g_saved_light_sets: SavedLightSet[>..];
 var g_active_light_set: i32 = -1;
@@ -136,12 +136,14 @@ fn asset_light_set_release(id: i32) -> bool {
         let saved = g_saved_light_sets[releasing];
         g_view_state.light_count = saved.count;
         for i in 0..8 { g_view_state.lights[i] = saved.lights[i]; }
-        for i in 0..6 { g_view_state.point_shadow_view_proj[i] = saved.point_view_proj[i]; }
-        g_view_state.point_shadow_light_index = saved.point_index;
-        g_view_state.point_shadow_params = saved.point_params;
-        g_view_state.spot_shadow_view_proj = saved.spot_view_proj;
-        g_view_state.spot_shadow_light_index = saved.spot_index;
-        g_view_state.spot_shadow_params = saved.spot_params;
+        for i in 0..12 { g_view_state.point_shadow_view_proj[i] = saved.point_view_proj[i]; }
+        for i in 0..2 {
+            g_view_state.point_shadow_light_index[i] = saved.point_index[i];
+            g_view_state.point_shadow_params[i] = saved.point_params[i];
+            g_view_state.spot_shadow_view_proj[i] = saved.spot_view_proj[i];
+            g_view_state.spot_shadow_light_index[i] = saved.spot_index[i];
+            g_view_state.spot_shadow_params[i] = saved.spot_params[i];
+        }
         let previous = saved.previous;
         if previous >= 0 { g_saved_light_sets[previous].children -= 1; }
         if previous >= 0 && g_saved_light_sets[previous].removed { releasing = previous; }
@@ -183,13 +185,26 @@ fn add_point_light_physical(pos: float3, color: float3, range: f32) -> bool {
     return add_point_light_mode(pos, color, range, 1.0);
 }
 
-// One extra point light can cast a six-face hard shadow. The index is its
-// position in the extra-light list; changing lights requires calling again.
+// Up to two extra point lights can cast six-face hard shadows. The index is
+// a light's position in the extra-light list; calling again with the same
+// index refreshes its slot, a new index takes a free slot, and a third
+// distinct index fails. Slots survive until clear_point_light_shadows or
+// clear_lights runs.
 fn set_point_light_shadows(light_index: i32, bias: f32) -> bool {
     guard light_index >= 0 && light_index < g_view_state.light_count && bias >= 0.0 else { return false; }
     let light = g_view_state.lights[light_index];
     guard light.position.w > 0.5 && light.position.w < 1.5 && light.direction.w >= 0.0 &&
           (light.direction.w > 0.01 || light.attenuation > 0.5) else { return false; }
+    var slot: i32 = -1;
+    for s in 0..2 {
+        if g_view_state.point_shadow_light_index[s] == light_index && g_view_state.point_shadow_params[s].x > 0.5 { slot = s as i32; break; }
+    }
+    if slot < 0 {
+        for s in 0..2 {
+            if g_view_state.point_shadow_params[s].x < 0.5 { slot = s as i32; break; }
+        }
+    }
+    guard slot >= 0 else { return false; }
     let eye = float3 { light.position.x, light.position.y, light.position.z };
     let far = if light.direction.w > 0.01 { light.direction.w } else { 1000.0 };
     let projection = mat4_perspective(PI * 0.5, 1.0, 0.01, far);
@@ -201,38 +216,53 @@ fn set_point_light_shadows(light_index: i32, bias: f32) -> bool {
     ups[0] = float3 { 0.0, -1.0, 0.0 }; ups[1] = float3 { 0.0, -1.0, 0.0 };
     ups[2] = float3 { 0.0, 0.0, 1.0 }; ups[3] = float3 { 0.0, 0.0, -1.0 };
     ups[4] = float3 { 0.0, -1.0, 0.0 }; ups[5] = float3 { 0.0, -1.0, 0.0 };
-    for i in 0..6 { g_view_state.point_shadow_view_proj[i] = mat4_mul(projection, mat4_look_at(eye, eye + directions[i], ups[i])); }
-    g_view_state.point_shadow_light_index = light_index;
-    g_view_state.point_shadow_params = float4 { 1.0, bias, g_shadow_filter_radius, 0.0 };
+    for i in 0..6 { g_view_state.point_shadow_view_proj[slot * 6 + i] = mat4_mul(projection, mat4_look_at(eye, eye + directions[i], ups[i])); }
+    g_view_state.point_shadow_light_index[slot] = light_index;
+    g_view_state.point_shadow_params[slot] = float4 { 1.0, bias, g_shadow_filter_radius, 0.0 };
     return true;
 }
 
 fn clear_point_light_shadows() {
-    g_view_state.point_shadow_light_index = -1;
-    g_view_state.point_shadow_params.x = 0.0;
+    for s in 0..2 {
+        g_view_state.point_shadow_light_index[s] = -1;
+        g_view_state.point_shadow_params[s].x = 0.0;
+    }
 }
 
-// One extra spot light can cast a single-perspective hard shadow. Spot angles
-// wider than a hemisphere cannot be represented by this perspective map.
+// Up to two extra spot lights can cast single-perspective hard shadows, with
+// the same slot rules as point lights. Spot angles wider than a hemisphere
+// cannot be represented by a perspective map.
 fn set_spot_light_shadows(light_index: i32, bias: f32) -> bool {
     guard light_index >= 0 && light_index < g_view_state.light_count && bias >= 0.0 else { return false; }
     let light = g_view_state.lights[light_index];
     guard light.position.w > 1.5 && light.direction.w >= 0.0 &&
           (light.direction.w > 0.01 || light.attenuation > 0.5) && light.color.w > 0.0 else { return false; }
+    var slot: i32 = -1;
+    for s in 0..2 {
+        if g_view_state.spot_shadow_light_index[s] == light_index && g_view_state.spot_shadow_params[s].x > 0.5 { slot = s as i32; break; }
+    }
+    if slot < 0 {
+        for s in 0..2 {
+            if g_view_state.spot_shadow_params[s].x < 0.5 { slot = s as i32; break; }
+        }
+    }
+    guard slot >= 0 else { return false; }
     let eye = float3 { light.position.x, light.position.y, light.position.z };
     let dir = float3 { light.direction.x, light.direction.y, light.direction.z };
     let up = if abs(dir.y) > 0.95 { float3 { 1.0, 0.0, 0.0 } } else { float3 { 0.0, 1.0, 0.0 } };
     let far = if light.direction.w > 0.01 { light.direction.w } else { 1000.0 };
     let projection = mat4_perspective(2.0 * acos(light.color.w), 1.0, 0.01, far);
-    g_view_state.spot_shadow_view_proj = mat4_mul(projection, mat4_look_at(eye, eye + dir, up));
-    g_view_state.spot_shadow_light_index = light_index;
-    g_view_state.spot_shadow_params = float4 { 1.0, bias, g_shadow_filter_radius, 0.0 };
+    g_view_state.spot_shadow_view_proj[slot] = mat4_mul(projection, mat4_look_at(eye, eye + dir, up));
+    g_view_state.spot_shadow_light_index[slot] = light_index;
+    g_view_state.spot_shadow_params[slot] = float4 { 1.0, bias, g_shadow_filter_radius, 0.0 };
     return true;
 }
 
 fn clear_spot_light_shadows() {
-    g_view_state.spot_shadow_light_index = -1;
-    g_view_state.spot_shadow_params.x = 0.0;
+    for s in 0..2 {
+        g_view_state.spot_shadow_light_index[s] = -1;
+        g_view_state.spot_shadow_params[s].x = 0.0;
+    }
 }
 
 // Set a square PCF radius in map texels: 0 is hard, 1 is 3x3, 2 is 5x5.
@@ -242,8 +272,10 @@ fn set_shadow_filter_radius(radius: i32) -> bool {
     g_shadow_filter_radius = radius;
     let r = radius;
     g_view_state.shadow_params.z = r;
-    g_view_state.point_shadow_params.z = r;
-    g_view_state.spot_shadow_params.z = r;
+    for s in 0..2 {
+        g_view_state.point_shadow_params[s].z = r;
+        g_view_state.spot_shadow_params[s].z = r;
+    }
     return true;
 }
 
@@ -781,7 +813,9 @@ fn render_scene() {
         if !n.visible || n.mesh < 0 || n.mesh >= g_meshes.len || !mesh_handle_valid(mesh_handle(n.mesh)) { continue; }
         g_stats.nodes += 1;
         let m .= mesh(n.mesh);
-        let cull_enabled = g_view_state.shadow_params.x < 0.5 && g_view_state.point_shadow_params.x < 0.5 && g_view_state.spot_shadow_params.x < 0.5;
+        let cull_enabled = g_view_state.shadow_params.x < 0.5 &&
+            g_view_state.point_shadow_params[0].x < 0.5 && g_view_state.point_shadow_params[1].x < 0.5 &&
+            g_view_state.spot_shadow_params[0].x < 0.5 && g_view_state.spot_shadow_params[1].x < 0.5;
         var box = m.bounds;
         var intersects = true;
         var box_ready = false;

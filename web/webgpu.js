@@ -3,7 +3,7 @@
 const FRAME_UNIFORM_BYTES = 176;
 const INSTANCE_BYTES = 80;
 const INSTANCE_FLOATS = INSTANCE_BYTES / 4;
-const VIEW_PROJ_BYTE_OFFSET = 1196; // g3_view_state.view_proj in g3_abi.h
+const VIEW_PROJ_BYTE_OFFSET = 1684; // g3_view_state.view_proj in g3_abi.h
 const shader = /* wgsl */ `
 struct Frame {
   params: vec4<f32>, ambient: vec4<f32>,

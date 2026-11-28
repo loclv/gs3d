@@ -4786,14 +4786,23 @@ function syncLights(engine, collected, renderer) {
 	engine._g3_asset_lights_clear();
 	const shadowsOn = !!(renderer && renderer.shadowMap && renderer.shadowMap.enabled);
 	let keyLight = null;
+	let engineIndex = 0;
 	for (const light of collected.lights) {
 		if (light.kind === "directional" && shadowsOn && !keyLight && light.source && light.source.castShadow) {
 			keyLight = light;
 			continue;
 		}
+		const shadow = shadowsOn && light.source && light.source.castShadow ? light.source.shadow || {} : null;
+		const bias = Math.max(0, shadow?.bias ?? 0);
 		if (light.kind === "directional") engine._g3_asset_light_directional(...light.direction, ...light.color);
-		else if (light.kind === "point") engine._g3_asset_light_point(...light.position, ...light.color, light.range);
-		else engine._g3_asset_light_spot(...light.position, ...light.direction, ...light.color, light.range, light.inner, light.outer);
+		else if (light.kind === "point") {
+			engine._g3_asset_light_point(...light.position, ...light.color, light.range);
+			if (shadow) engine._g3_asset_light_point_shadow(engineIndex, bias);
+		} else {
+			engine._g3_asset_light_spot(...light.position, ...light.direction, ...light.color, light.range, light.inner, light.outer);
+			if (shadow) engine._g3_asset_light_spot_shadow(engineIndex, bias);
+		}
+		engineIndex += 1;
 	}
 	engine._g3_asset_ambient(collected.ambient[0], collected.ambient[1], collected.ambient[2], 1);
 	if (collected.hemisphere) {

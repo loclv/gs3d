@@ -1325,9 +1325,38 @@ fn case_lights() {
     let imported_shadow = g3::set_spot_light_shadows(0, 0.002);
     let shadows_restored = g3::asset_light_set_release(shadow_lease);
     testing::check(original_point && original_shadow && imported_spot && imported_shadow && shadows_restored &&
-                   g3::g_view_state.light_count == 1 && g3::g_view_state.point_shadow_light_index == 0 &&
-                   g3::g_view_state.spot_shadow_light_index == -1 && g3::g_view_state.point_shadow_params.x > 0.5,
+                   g3::g_view_state.light_count == 1 && g3::g_view_state.point_shadow_light_index[0] == 0 &&
+                   g3::g_view_state.spot_shadow_light_index[0] == -1 && g3::g_view_state.point_shadow_params[0].x > 0.5,
                    "disposing imported lights restores the prior point shadow and clears the imported spot shadow");
+    g3::clear_lights();
+
+    // Two shadow slots per punctual type: same-index calls refresh, a third
+    // distinct index is rejected, and clearing frees the slots again.
+    g3::add_point_light(float3_0, float3_1, 5.0);
+    g3::add_point_light(float3 { 1.0, 0.0, 0.0 }, float3_1, 5.0);
+    g3::add_point_light(float3 { 0.0, 1.0, 0.0 }, float3_1, 5.0);
+    let slot0 = g3::set_point_light_shadows(0, 0.001);
+    let slot1 = g3::set_point_light_shadows(1, 0.001);
+    let rejected = !g3::set_point_light_shadows(2, 0.001);
+    let refreshed = g3::set_point_light_shadows(0, 0.002);
+    testing::check(slot0 && slot1 && rejected && refreshed &&
+                   g3::g_view_state.point_shadow_params[0].y == 0.002 &&
+                   g3::g_view_state.point_shadow_light_index[0] == 0 &&
+                   g3::g_view_state.point_shadow_light_index[1] == 1,
+                   "point shadow slots allocate per light index, refresh in place, reject a third");
+    g3::clear_point_light_shadows();
+    let reused = g3::set_point_light_shadows(2, 0.001) && g3::g_view_state.point_shadow_light_index[0] == 2;
+    testing::check(reused, "clearing point shadows frees both slots for reuse");
+    g3::add_spot_light(float3_0, float3 { 0.0, 0.0, -1.0 }, float3_1, 5.0, 0.1, 0.2);
+    g3::add_spot_light(float3 { 1.0, 0.0, 0.0 }, float3 { 0.0, 0.0, -1.0 }, float3_1, 5.0, 0.1, 0.2);
+    g3::add_spot_light(float3 { 0.0, 1.0, 0.0 }, float3 { 0.0, 0.0, -1.0 }, float3_1, 5.0, 0.1, 0.2);
+    let s0 = g3::set_spot_light_shadows(3, 0.001);
+    let s1 = g3::set_spot_light_shadows(4, 0.001);
+    let s_rejected = !g3::set_spot_light_shadows(5, 0.001);
+    testing::check(s0 && s1 && s_rejected &&
+                   g3::g_view_state.spot_shadow_light_index[0] == 3 &&
+                   g3::g_view_state.spot_shadow_light_index[1] == 4,
+                   "spot shadow slots allocate independently of point slots");
     g3::clear_lights();
 }
 
