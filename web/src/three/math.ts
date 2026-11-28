@@ -387,6 +387,29 @@ export class Matrix4 {
     e[0] = x; e[5] = y; e[10] = z; e[15] = 1;
     return this;
   }
+  makePerspective(fov, aspect, near, far) {
+    // three.js makePerspective: fov in degrees, column-major result.
+    const e = this.elements;
+    const f = 1 / Math.tan((fov * Math.PI / 180) / 2);
+    const nf = 1 / (near - far);
+    e.fill(0);
+    e[0] = f / aspect; e[5] = f;
+    e[10] = (far + near) * nf; e[11] = -1;
+    e[14] = 2 * far * near * nf;
+    return this;
+  }
+  makeOrthographic(left, right, top, bottom, near, far) {
+    const e = this.elements;
+    const w = 1 / (right - left), h = 1 / (top - bottom);
+    const p = 1 / (far - near), q = (far + near) / (far - near);
+    e.fill(0);
+    e[0] = 2 * w; e[5] = 2 * h;
+    e[10] = -2 * p; e[14] = -q;
+    e[12] = -(right + left) * w;
+    e[13] = -(top + bottom) * h;
+    e[15] = 1;
+    return this;
+  }
   makeRotationX(theta) {
     const c = Math.cos(theta), s = Math.sin(theta);
     return this.set(1, 0, 0, 0, 0, c, -s, 0, 0, s, c, 0, 0, 0, 0, 1);
@@ -457,7 +480,50 @@ export const MathUtils = {
     const t = Math.max(0, Math.min(1, (x - min) / (max - min || 1e-12)));
     return t * t * (3 - 2 * t);
   },
+  generateUUID: () => 'uuid-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2),
+  euclideanModulo: (n, m) => ((n % m) + m) % m,
+  isPowerOfTwo: n => n > 0 && (n & (n - 1)) === 0,
+  ceilPowerOfTwo: n => Math.pow(2, Math.ceil(Math.log(n) / Math.LN2)),
+  floorPowerOfTwo: n => Math.pow(2, Math.floor(Math.log(n) / Math.LN2)),
+  setQuaternionFromProperEuler: (q, a, b, c, order) => q,
 };
+
+// Frame clock matching three.js Clock: getDelta()/getElapsedTime() in
+// seconds, with autoStart and an optional performance.now override.
+export class Clock {
+  autoStart: boolean;
+  startTime = 0;
+  oldTime = 0;
+  elapsedTime = 0;
+  running = false;
+  constructor(autoStart = true) { this.autoStart = autoStart; }
+  start() {
+    this.startTime = nowMs();
+    this.oldTime = this.startTime;
+    this.elapsedTime = 0;
+    this.running = true;
+  }
+  stop() { this.getElapsedTime(); this.running = false; this.autoStart = false; return this.elapsedTime; }
+  getElapsedTime() {
+    this.getDelta();
+    return this.elapsedTime;
+  }
+  getDelta() {
+    let diff = 0;
+    if (this.autoStart && !this.running) this.start();
+    if (this.running) {
+      const newTime = nowMs();
+      diff = (newTime - this.oldTime) / 1000;
+      this.oldTime = newTime;
+      this.elapsedTime += diff;
+    }
+    return diff;
+  }
+}
+
+function nowMs() {
+  return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+}
 
 
 

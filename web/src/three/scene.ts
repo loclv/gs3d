@@ -16,8 +16,12 @@ export class Layers {
   isEnabled(channel: number) { return (this.mask & (1 << channel)) !== 0; }
 }
 
+let _object3DId = 0;
+
 export class Object3D {
   isObject3D: boolean;
+  id: number;
+  uuid: string;
   name: string;
   position: Vector3;
   rotation: Euler;
@@ -45,6 +49,8 @@ export class Object3D {
   isScene?: boolean;
   constructor() {
     this.isObject3D = true;
+    this.id = _object3DId++;
+    this.uuid = 'obj-' + Math.random().toString(36).slice(2, 10);
     this.name = '';
     this.position = new Vector3();
     this.rotation = new Euler();

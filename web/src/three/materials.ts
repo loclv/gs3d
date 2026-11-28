@@ -93,13 +93,126 @@ export class MeshStandardMaterial extends Material {
     if (parameters.color !== undefined) this.color = parameters.color instanceof Color ? parameters.color : new Color(parameters.color);
   }
 }
+// Aliases keep instanceof working for code that checks material classes.
 export { MeshStandardMaterial as MeshPhysicalMaterial };
-export { MeshStandardMaterial as MeshPhongMaterial };
-export { MeshStandardMaterial as MeshLambertMaterial };
-export { MeshBasicMaterial as MeshNormalMaterial };
-export { MeshBasicMaterial as SpriteMaterial };
-export { MeshBasicMaterial as PointsMaterial };
-export { MeshBasicMaterial as LineBasicMaterial };
+
+// Distinct subclasses so is* flags match three.js for code that feature-
+// detects materials. Rendering falls back to the nearest supported shading.
+export class MeshPhongMaterial extends MeshStandardMaterial {
+  isMeshPhongMaterial: boolean;
+  shininess: number;
+  specular: Color;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isMeshPhongMaterial = true;
+    this.shininess = parameters.shininess ?? 30;
+    this.specular = parameters.specular instanceof Color ? parameters.specular : new Color(parameters.specular ?? 0x111111);
+  }
+}
+export class MeshLambertMaterial extends MeshStandardMaterial {
+  isMeshLambertMaterial: boolean;
+  emissive: Color;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isMeshLambertMaterial = true;
+  }
+}
+export class MeshNormalMaterial extends MeshBasicMaterial {
+  isMeshNormalMaterial: boolean;
+  flatShading: boolean;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isMeshNormalMaterial = true;
+  }
+}
+export class MeshToonMaterial extends MeshStandardMaterial {
+  isMeshToonMaterial: boolean;
+  gradientMap: any;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isMeshToonMaterial = true;
+    this.gradientMap = parameters.gradientMap ?? null;
+  }
+}
+export class MeshDepthMaterial extends MeshBasicMaterial {
+  isMeshDepthMaterial: boolean;
+  depthPacking: number;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isMeshDepthMaterial = true;
+    this.depthPacking = parameters.depthPacking ?? 0;
+  }
+}
+export class MeshDistanceMaterial extends MeshBasicMaterial {
+  isMeshDistanceMaterial: boolean;
+  referencePosition: any;
+  near: number;
+  far: number;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isMeshDistanceMaterial = true;
+    this.referencePosition = parameters.referencePosition ?? null;
+    this.near = parameters.near ?? 1;
+    this.far = parameters.far ?? 1000;
+  }
+}
+export class ShadowMaterial extends Material {
+  isShadowMaterial: boolean;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isShadowMaterial = true;
+    this.opacity = parameters.opacity ?? 1;
+  }
+}
+export class MeshMatcapMaterial extends MeshBasicMaterial {
+  isMeshMatcapMaterial: boolean;
+  matcap: any;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isMeshMatcapMaterial = true;
+    this.matcap = parameters.matcap ?? null;
+  }
+}
+export class SpriteMaterial extends MeshBasicMaterial {
+  isSpriteMaterial: boolean;
+  rotation: number;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isSpriteMaterial = true;
+    this.rotation = parameters.rotation ?? 0;
+  }
+}
+export class PointsMaterial extends MeshBasicMaterial {
+  isPointsMaterial: boolean;
+  size: number;
+  sizeAttenuation: boolean;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isPointsMaterial = true;
+    this.size = parameters.size ?? 1;
+    this.sizeAttenuation = parameters.sizeAttenuation !== false;
+  }
+}
+export class LineBasicMaterial extends Material {
+  isLineBasicMaterial: boolean;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isLineBasicMaterial = true;
+  }
+}
+export class LineDashedMaterial extends LineBasicMaterial {
+  isLineDashedMaterial: boolean;
+  dashSize: number;
+  gapSize: number;
+  scale: number;
+  constructor(parameters: Record<string, any> = {}) {
+    super(parameters);
+    this.isLineDashedMaterial = true;
+    this.dashSize = parameters.dashSize ?? 1;
+    this.gapSize = parameters.gapSize ?? 1;
+    this.scale = parameters.scale ?? 1;
+  }
+}
 
 // Complete user vertex+fragment programs (GLSL ES 1.00, three.js style).
 // The engine supplies the standard matrix/camera uniforms and the vertex

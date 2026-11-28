@@ -315,13 +315,13 @@ export class CubeTexture extends Texture {
   images: unknown[];
 }
 export class TextureLoader {
-  constructor();
-  manager: unknown;
+  constructor(manager?: LoadingManager);
+  manager: LoadingManager | null;
   load(url: string, onLoad?: (texture: Texture) => void, onProgress?: (event: ProgressEvent) => void, onError?: (error: unknown) => void): this;
 }
 export class ImageLoader {
-  constructor();
-  manager: unknown;
+  constructor(manager?: LoadingManager);
+  manager: LoadingManager | null;
   load(url: string, onLoad?: (image: HTMLImageElement) => void, onProgress?: (event: ProgressEvent) => void, onError?: (event: unknown) => void): HTMLImageElement;
 }
 
@@ -432,6 +432,8 @@ export class Layers {
 export class Object3D {
   constructor();
   readonly isObject3D: true;
+  id: number;
+  uuid: string;
   name: string;
   position: Vector3;
   rotation: Euler;
@@ -888,3 +890,302 @@ export interface WebGPURenderer {
   getRenderTarget(): WebGLRenderTarget | null;
   compile?(scene: Scene, camera: Camera): void;
 }
+
+/* --- animation --------------------------------------------------------------- */
+
+export class LinearInterpolant {
+  constructor(parameterPositions: ArrayLike<number>, sampleValues: ArrayLike<number>, sampleSize: number, resultBuffer?: Float32Array);
+  evaluate(t: number): Float32Array;
+}
+export class QuaternionLinearInterpolant extends LinearInterpolant {}
+export class CubicInterpolant extends LinearInterpolant {}
+export class DiscreteInterpolant extends LinearInterpolant {}
+
+export class KeyframeTrack {
+  constructor(name: string, times: ArrayLike<number>, values: ArrayLike<number>, interpolation?: 'linear' | 'discrete' | 'cubic');
+  readonly isKeyframeTrack: true;
+  name: string;
+  times: Float32Array;
+  values: ArrayLike<number>;
+  valueTypeName: string;
+  DefaultInterpolation: string;
+  getValueSize(): number;
+  createInterpolant(result?: Float32Array): LinearInterpolant;
+  clone(): KeyframeTrack;
+}
+export class VectorKeyframeTrack extends KeyframeTrack {}
+export class QuaternionKeyframeTrack extends KeyframeTrack {}
+export class NumberKeyframeTrack extends KeyframeTrack {}
+export class ColorKeyframeTrack extends KeyframeTrack {}
+export class BooleanKeyframeTrack extends KeyframeTrack {}
+export class StringKeyframeTrack extends KeyframeTrack {}
+
+export function parseTrackName(trackName: string): { nodeName: string; propertyPath: string; path: string[] };
+export function findNodeByName(root: Object3D, nodeName: string): Object3D | null;
+
+export class PropertyBinding {
+  constructor(rootNode: Object3D, path: string, parsedPath?: ReturnType<typeof parseTrackName>);
+  readonly isPropertyBinding: true;
+  path: string;
+  nodeName: string;
+  rootNode: Object3D;
+  node: Object3D | null;
+  static create(rootNode: Object3D, trackName: string, parsedPath?: ReturnType<typeof parseTrackName>): PropertyBinding;
+  resolve(): unknown;
+  getValue(targetArray: Float32Array, offset?: number): Float32Array;
+  setValue(buffer: ArrayLike<number>, offset?: number): void;
+}
+
+export class AnimationClip {
+  constructor(name: string, duration: number, tracks?: KeyframeTrack[], blendMode?: string);
+  readonly isAnimationClip: true;
+  name: string;
+  tracks: KeyframeTrack[];
+  duration: number;
+  uuid: string;
+  blendMode: string;
+  resetDuration(): this;
+  clone(): AnimationClip;
+  optimize(): this;
+  trim(): this;
+  static CreateClipsFromMorphTargetTracks(name: string, tracks: KeyframeTrack[], fps?: number): AnimationClip[];
+}
+
+export const LoopOnce: 2200;
+export const LoopRepeat: 2201;
+export const LoopPingPong: 2202;
+
+export class AnimationAction {
+  constructor(mixer: AnimationMixer | null, clip: AnimationClip, root?: Object3D);
+  readonly isAnimationAction: true;
+  mixer: AnimationMixer | null;
+  clip: AnimationClip;
+  root: Object3D | null;
+  paused: boolean;
+  enabled: boolean;
+  time: number;
+  timeScale: number;
+  weight: number;
+  loop: number;
+  repetitions: number;
+  clampWhenFinished: boolean;
+  play(): this;
+  stop(): this;
+  reset(): this;
+  isRunning(): boolean;
+  isScheduled(): boolean;
+  pause(): this;
+  unpause(): this;
+  setLoop(mode: number, repetitions?: number): this;
+  setEffectiveTimeScale(scale: number): this;
+  getEffectiveTimeScale(): number;
+  setEffectiveWeight(weight: number): this;
+  getEffectiveWeight(): number;
+  fadeIn(duration: number): this;
+  fadeOut(duration: number): this;
+  setClampWhenFinished(clamp: boolean): this;
+  syncWith(action: AnimationAction): this;
+}
+
+export class AnimationMixer {
+  constructor(root: Object3D);
+  readonly isAnimationMixer: true;
+  readonly root: Object3D;
+  time: number;
+  timeScale: number;
+  clipAction(clip: AnimationClip, optionalRoot?: Object3D): AnimationAction;
+  update(deltaTime: number): this;
+  setTime(timeInSeconds: number): this;
+  stopAllAction(): this;
+  uncacheClip(clip: AnimationClip): this;
+  uncacheRoot(root: Object3D): this;
+  uncacheAction(clip: AnimationClip, optionalRoot?: Object3D): this;
+}
+
+export const AnimationUtils: {
+  subclip(clip: AnimationClip, name: string, startFrame: number, endFrame: number, fps?: number): AnimationClip;
+  clone(clip: AnimationClip): AnimationClip;
+};
+
+/* --- clock ------------------------------------------------------------------- */
+
+export class Clock {
+  constructor(autoStart?: boolean);
+  autoStart: boolean;
+  startTime: number;
+  oldTime: number;
+  elapsedTime: number;
+  running: boolean;
+  start(): void;
+  stop(): number;
+  getElapsedTime(): number;
+  getDelta(): number;
+}
+
+/* --- bounds additions ---------------------------------------------------------- */
+
+export class Triangle {
+  constructor(a?: Vector3, b?: Vector3, c?: Vector3);
+  readonly isTriangle: true;
+  a: Vector3; b: Vector3; c: Vector3;
+  set(a: Vector3, b: Vector3, c: Vector3): this;
+  setFromPointsAndIndices(points: Vector3[], i0: number, i1: number, i2: number): this;
+  setFromAttributeAndIndices(attribute: BufferAttribute, i0: number, i1: number, i2: number): this;
+  clone(): Triangle;
+  getArea(): number;
+  getMidpoint(target?: Vector3): Vector3;
+  getNormal(target?: Vector3): Vector3;
+  getPlane(target?: Plane): Plane;
+  getBarycoord(point: Vector3, target?: Vector3): Vector3;
+  containsPoint(point: Vector3): boolean;
+  getUV(point: Vector3, uv1: Vector2, uv2: Vector2, uv3: Vector2, target?: Vector3): Vector3;
+  closestPointToPoint(point: Vector3, target?: Vector3): Vector3;
+  isFrontFacing(direction: Vector3): boolean;
+  equals(triangle: Triangle): boolean;
+}
+
+export class Frustum {
+  constructor(p0?: Plane, p1?: Plane, p2?: Plane, p3?: Plane, p4?: Plane, p5?: Plane);
+  readonly isFrustum: true;
+  planes: Plane[];
+  set(p0: Plane, p1: Plane, p2: Plane, p3: Plane, p4: Plane, p5: Plane): this;
+  clone(): Frustum;
+  copy(frustum: Frustum): this;
+  setFromProjectionMatrix(m: Matrix4): this;
+  intersectsSphere(sphere: Sphere): boolean;
+  containsSphere(sphere: Sphere): boolean;
+  containsPoint(point: Vector3): boolean;
+  intersectsBox(box: Box3): boolean;
+}
+
+export class Plane {
+  constructor(normal?: Vector3, constant?: number);
+  readonly isPlane: true;
+  normal: Vector3;
+  constant: number;
+  set(normal: Vector3, constant: number): this;
+  copy(plane: Plane): this;
+  setComponents(x: number, y: number, z: number, w: number): this;
+  normalize(): this;
+  distanceToPoint(point: Vector3): number;
+  clone(): Plane;
+}
+
+/* --- derived geometry ---------------------------------------------------------- */
+
+export class WireframeGeometry extends BufferGeometry {
+  constructor(geometry: BufferGeometry, thresholdAngle?: number);
+  readonly isWireframeGeometry: true;
+}
+export class EdgesGeometry extends BufferGeometry {
+  constructor(geometry: BufferGeometry, thresholdAngle?: number);
+  readonly isEdgesGeometry: true;
+}
+
+/* --- additional materials -------------------------------------------------------- */
+
+export class MeshPhongMaterial extends MeshStandardMaterial {
+  readonly isMeshPhongMaterial: true;
+  shininess: number;
+  specular: Color;
+}
+export class MeshLambertMaterial extends MeshStandardMaterial {
+  readonly isMeshLambertMaterial: true;
+}
+export class MeshNormalMaterial extends MeshBasicMaterial {
+  readonly isMeshNormalMaterial: true;
+  flatShading: boolean;
+}
+export class MeshToonMaterial extends MeshStandardMaterial {
+  readonly isMeshToonMaterial: true;
+  gradientMap: Texture | null;
+}
+export class MeshDepthMaterial extends MeshBasicMaterial {
+  readonly isMeshDepthMaterial: true;
+  depthPacking: number;
+}
+export class MeshDistanceMaterial extends MeshBasicMaterial {
+  readonly isMeshDistanceMaterial: true;
+  referencePosition: Vector3 | null;
+  near: number;
+  far: number;
+}
+export class MeshMatcapMaterial extends MeshBasicMaterial {
+  readonly isMeshMatcapMaterial: true;
+  matcap: Texture | null;
+}
+export class ShadowMaterial extends Material {
+  readonly isShadowMaterial: true;
+}
+export class LineDashedMaterial extends Material {
+  readonly isLineDashedMaterial: true;
+  dashSize: number;
+  gapSize: number;
+  scale: number;
+}
+
+/* --- loading ---------------------------------------------------------------------- */
+
+export class LoadingManager {
+  constructor(onLoad?: (url: string, loaded: number, total: number) => void,
+              onProgress?: (url: string, loaded: number, total: number) => void,
+              onError?: (url: string) => void);
+  readonly isLoadingManager: true;
+  urlModifier: ((url: string) => string) | null;
+  itemsTotal: number;
+  itemsLoaded: number;
+  filesLoaded: number;
+  onStart: (url: string, loaded: number, total: number) => void;
+  onLoad: (url: string, loaded: number, total: number) => void;
+  onProgress: (url: string, loaded: number, total: number) => void;
+  onError: (url: string) => void;
+  onLoadAll: () => void;
+  itemStart(url?: string): void;
+  itemEnd(url?: string): void;
+  itemError(url?: string): void;
+  resolveURL(url: string): string;
+  addHandler(regex: RegExp | string, loader: unknown): this;
+  removeHandler(regex: RegExp | string): this;
+  getHandler(url: string): unknown;
+}
+export const DefaultLoadingManager: LoadingManager;
+
+export const Cache: {
+  enabled: boolean;
+  files: Map<string, unknown>;
+  add(key: string, file: unknown): void;
+  get(key: string): unknown;
+  remove(key: string): typeof Cache;
+  clear(): typeof Cache;
+};
+
+export class FileLoader {
+  constructor(manager?: LoadingManager);
+  readonly isFileLoader: true;
+  manager: LoadingManager;
+  responseType: string;
+  mimeType: string;
+  withCredentials: boolean;
+  requestHeader: Record<string, string>;
+  path: string;
+  load(url: string, onLoad?: (data: unknown) => void, onProgress?: (event: unknown) => void, onError?: (error: unknown) => void): this;
+  setPath(value: string): this;
+  setResponseType(value: string): this;
+  setWithCredentials(value: boolean): this;
+  setRequestHeader(key: string, value: string): this;
+  abort(): this;
+}
+
+export class SpriteMaterial extends MeshBasicMaterial {
+  readonly isSpriteMaterial: true;
+  rotation: number;
+}
+export class PointsMaterial extends MeshBasicMaterial {
+  readonly isPointsMaterial: true;
+  size: number;
+  sizeAttenuation: boolean;
+}
+export class LineBasicMaterial extends Material {
+  readonly isLineBasicMaterial: true;
+}
+export class MeshPhysicalMaterial extends MeshStandardMaterial {}

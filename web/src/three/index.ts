@@ -6,9 +6,10 @@ export {
   Quaternion,
   Matrix4,
   MathUtils,
+  Clock,
 } from './math';
 export { Color } from './color';
-export { Plane, Ray, Sphere, Box3 } from './bounds';
+export { Plane, Ray, Sphere, Box3, Triangle, Frustum } from './bounds';
 
 export {
   Layers,
@@ -62,6 +63,8 @@ export {
   TorusKnotGeometry,
   TubeGeometry,
   LatheGeometry,
+  WireframeGeometry,
+  EdgesGeometry,
 } from './primitives';
 export {
   Curve,
@@ -140,12 +143,49 @@ export {
   MeshPhongMaterial,
   MeshLambertMaterial,
   MeshNormalMaterial,
+  MeshToonMaterial,
+  MeshDepthMaterial,
+  MeshDistanceMaterial,
+  MeshMatcapMaterial,
+  ShadowMaterial,
   SpriteMaterial,
   PointsMaterial,
   LineBasicMaterial,
+  LineDashedMaterial,
   ShaderMaterial,
   RawShaderMaterial,
 } from './materials';
+
+export {
+  LinearInterpolant,
+  QuaternionLinearInterpolant,
+  CubicInterpolant,
+  DiscreteInterpolant,
+  KeyframeTrack,
+  VectorKeyframeTrack,
+  QuaternionKeyframeTrack,
+  NumberKeyframeTrack,
+  ColorKeyframeTrack,
+  BooleanKeyframeTrack,
+  StringKeyframeTrack,
+  AnimationClip,
+  AnimationAction,
+  AnimationMixer,
+  AnimationUtils,
+  LoopOnce,
+  LoopRepeat,
+  LoopPingPong,
+  parseTrackName,
+  findNodeByName,
+  PropertyBinding,
+} from './animation';
+
+export {
+  LoadingManager,
+  DefaultLoadingManager,
+  FileLoader,
+  Cache,
+} from './loaders';
 
 export { Raycaster } from './raycaster';
 export { OrbitControls } from './controls';

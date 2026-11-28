@@ -293,9 +293,11 @@ export function ensureEngineRenderTarget(engine, rt) {
 
 export class TextureLoader {
   manager: any;
-  constructor() { this.manager = null; }
+  constructor(manager: any = null) { this.manager = manager; }
   load(url: string, onLoad?: (t: Texture) => void, _onProgress?: any, onError?: (e: any) => void) {
-    fetch(url)
+    const resolved = this.manager ? this.manager.resolveURL(url) : url;
+    this.manager && this.manager.itemStart(resolved);
+    fetch(resolved)
       .then(response => {
         if (!response.ok) throw new Error(`gs3d: failed to fetch texture ${url} (${response.status})`);
         return response.blob();
@@ -308,22 +310,33 @@ export class TextureLoader {
         texture.needsUpdate = true;
         texture.version++;
         if (onLoad) onLoad(texture);
+        this.manager && this.manager.itemEnd(resolved);
         return texture;
       })
-      .catch(error => onError ? onError(error) : console.error(error));
+      .catch(error => {
+        this.manager && this.manager.itemError(resolved);
+        this.manager && this.manager.itemEnd(resolved);
+        if (onError) onError(error); else console.error(error);
+      });
     return this;
   }
 }
 
 export class ImageLoader {
   manager: any;
-  constructor() { this.manager = null; }
+  constructor(manager: any = null) { this.manager = manager; }
   load(url: string, onLoad?: (img: HTMLImageElement) => void, onProgress?: any, onError?: (e: any) => void) {
+    const resolved = this.manager ? this.manager.resolveURL(url) : url;
+    this.manager && this.manager.itemStart(resolved);
     const image = new Image();
-    image.onload = () => onLoad && onLoad(image);
-    image.onerror = event => onError && onError(event);
+    image.onload = () => { if (onLoad) onLoad(image); this.manager && this.manager.itemEnd(resolved); };
+    image.onerror = event => {
+      this.manager && this.manager.itemError(resolved);
+      this.manager && this.manager.itemEnd(resolved);
+      if (onError) onError(event);
+    };
     if (onProgress) image.onprogress = onProgress;
-    image.src = url;
+    image.src = resolved;
     return image;
   }
 }

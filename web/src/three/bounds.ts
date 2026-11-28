@@ -14,6 +14,19 @@ export class Plane {
     this.constant = constant;
   }
   set(normal, constant) { this.normal.copy(normal); this.constant = constant; return this; }
+  copy(plane) { this.normal.copy(plane.normal); this.constant = plane.constant; return this; }
+  setComponents(x, y, z, w) {
+    this.normal.set(x, y, z); this.constant = w;
+    return this;
+  }
+  normalize() {
+    const l = this.normal.length() || 1;
+    this.normal.multiplyScalar(1 / l);
+    this.constant /= l;
+    return this;
+  }
+  distanceToPoint(point) { return this.normal.dot(point) + this.constant; }
+  clone() { return new Plane(this.normal.clone(), this.constant); }
 }
 
 export class Ray {
@@ -290,3 +303,187 @@ export class Box3 {
 
 
 // Vector2 is used only by getSize; keep it dependency-free.
+
+/* --- triangle and frustum -------------------------------------------------------- */
+
+export class Triangle {
+  a: Vector3;
+  b: Vector3;
+  c: Vector3;
+  isTriangle: boolean;
+  constructor(a = new Vector3(), b = new Vector3(), c = new Vector3()) {
+    this.a = a; this.b = b; this.c = c; this.isTriangle = true;
+  }
+  set(a, b, c) { this.a.copy(a); this.b.copy(b); this.c.copy(c); return this; }
+  setFromPointsAndIndices(points, i0, i1, i2) {
+    this.a.copy(points[i0]); this.b.copy(points[i1]); this.c.copy(points[i2]);
+    return this;
+  }
+  setFromAttributeAndIndices(attribute, i0, i1, i2) {
+    const p = attribute.array, s = attribute.itemSize || 3;
+    this.a.set(p[i0 * s], p[i0 * s + 1], p[i0 * s + 2]);
+    this.b.set(p[i1 * s], p[i1 * s + 1], p[i1 * s + 2]);
+    this.c.set(p[i2 * s], p[i2 * s + 1], p[i2 * s + 2]);
+    return this;
+  }
+  clone() { return new Triangle(this.a.clone(), this.b.clone(), this.c.clone()); }
+  getArea() { return area3(this.a, this.b, this.c); }
+  getMidpoint(target = new Vector3()) {
+    return target.addVectors(this.a, this.b).add(this.c).multiplyScalar(1 / 3);
+  }
+  getNormal(target = new Vector3()) {
+    target.subVectors(this.c, this.b);
+    const cb = target.clone();
+    target.subVectors(this.a, this.b);
+    target.cross(cb);
+    const l = target.length();
+    return l > 0 ? target.multiplyScalar(1 / l) : target.set(0, 0, 0);
+  }
+  getPlane(target: any) {
+    const normal = this.getNormal(new Vector3());
+    const constant = -normal.dot(this.a);
+    if (target && target.set) return target.set(normal, constant);
+    return new Plane(normal, constant);
+  }
+  getBarycoord(point, target = new Vector3()) {
+    const v0 = _v0.subVectors(this.c, this.a);
+    const v1 = _v1.subVectors(this.b, this.a);
+    const v2 = _v2.subVectors(point, this.a);
+    const d00 = v0.dot(v0), d01 = v0.dot(v1), d11 = v1.dot(v1);
+    const d20 = v2.dot(v0), d21 = v2.dot(v1);
+    const denom = d00 * d11 - d01 * d01;
+    if (Math.abs(denom) < 1e-12) return target.set(-1, -1, -1);
+    const v = (d11 * d20 - d01 * d21) / denom;
+    const w = (d00 * d21 - d01 * d20) / denom;
+    return target.set(1 - v - w, v, w);
+  }
+  containsPoint(point) {
+    const bary = this.getBarycoord(point);
+    return bary.x >= -1e-10 && bary.y >= -1e-10 && bary.z >= -1e-10;
+  }
+  getUV(point, uv1, uv2, uv3, target = new Vector3()) {
+    this.getBarycoord(point, target);
+    const v = target.y, w = target.z;
+    return target.set(
+      uv1.x + v * (uv2.x - uv1.x) + w * (uv3.x - uv1.x),
+      uv1.y + v * (uv2.y - uv1.y) + w * (uv3.y - uv1.y),
+      0);
+  }
+  closestPointToPoint(point, target = new Vector3()) {
+    const a = this.a, b = this.b, c = this.c;
+    const ab = _v0.subVectors(b, a), ac = _v1.subVectors(c, a), ap = _v2.subVectors(point, a);
+    const d1 = ab.dot(ap), d2 = ac.dot(ap);
+    if (d1 <= 0 && d2 <= 0) return target.copy(a);
+    const bp = _v3.subVectors(point, b);
+    const d3 = ab.dot(bp), d4 = ac.dot(bp);
+    if (d3 >= 0 && d4 <= d3) return target.copy(b);
+    const vc = d1 * d4 - d3 * d2;
+    if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+      const v = d1 / (d1 - d3);
+      return target.copy(a).addScaledVector(ab, v);
+    }
+    const cp = _v3.subVectors(point, c);
+    const d5 = ab.dot(cp), d6 = ac.dot(cp);
+    if (d6 >= 0 && d5 <= d6) return target.copy(c);
+    const vb = d5 * d2 - d1 * d6;
+    if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+      const w = d2 / (d2 - d6);
+      return target.copy(a).addScaledVector(ac, w);
+    }
+    const va = d3 * d6 - d5 * d4;
+    if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+      const w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+      return target.copy(b).addScaledVector(_v4.subVectors(c, b), w);
+    }
+    const denom = 1 / (va + vb + vc);
+    const v = vb * denom, w = vc * denom;
+    return target.copy(a).addScaledVector(ab, v).addScaledVector(ac, w);
+  }
+  isFrontFacing(direction) {
+    const normal = this.getNormal(_v0);
+    return normal.dot(direction) < 0;
+  }
+  equals(triangle) {
+    return this.a.equals(triangle.a) && this.b.equals(triangle.b) && this.c.equals(triangle.c);
+  }
+}
+
+function area3(a, b, c) {
+  const ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
+  const vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
+  const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+  return Math.hypot(cx, cy, cz) * 0.5;
+}
+
+const _v0 = new Vector3(), _v1 = new Vector3(), _v2 = new Vector3();
+const _v3 = new Vector3(), _v4 = new Vector3();
+
+export class Frustum {
+  planes: Plane[];
+  isFrustum: boolean;
+  constructor(p0 = new Plane(), p1 = new Plane(), p2 = new Plane(), p3 = new Plane(), p4 = new Plane(), p5 = new Plane()) {
+    this.isFrustum = true;
+    this.planes = [p0, p1, p2, p3, p4, p5];
+  }
+  set(p0, p1, p2, p3, p4, p5) {
+    const planes = this.planes;
+    planes[0].copy(p0); planes[1].copy(p1); planes[2].copy(p2);
+    planes[3].copy(p3); planes[4].copy(p4); planes[5].copy(p5);
+    return this;
+  }
+  clone() {
+    return new Frustum(...this.planes.map(p => p.clone ? p.clone() : new Plane(p.normal.clone(), p.constant)));
+  }
+  copy(frustum) {
+    for (let i = 0; i < 6; i++) this.planes[i].copy(frustum.planes[i]);
+    return this;
+  }
+  setFromProjectionMatrix(m) {
+    const me = m.elements || m;
+    const planes = this.planes;
+    planes[0].setComponents(me[3] - me[0], me[7] - me[4], me[11] - me[8], me[15] - me[12]).normalize();
+    planes[1].setComponents(me[3] + me[0], me[7] + me[4], me[11] + me[8], me[15] + me[12]).normalize();
+    planes[2].setComponents(me[3] + me[1], me[7] + me[5], me[11] + me[9], me[15] + me[13]).normalize();
+    planes[3].setComponents(me[3] - me[1], me[7] - me[5], me[11] - me[9], me[15] - me[13]).normalize();
+    planes[4].setComponents(me[3] - me[2], me[7] - me[6], me[11] - me[10], me[15] - me[14]).normalize();
+    planes[5].setComponents(me[3] + me[2], me[7] + me[6], me[11] + me[10], me[15] + me[14]).normalize();
+    return this;
+  }
+  // Standard sphere test: the sphere intersects iff no plane has the
+  // sphere's centre farther than radius behind it.
+  intersectsSphere(sphere) {
+    const center = sphere.center;
+    for (const plane of this.planes) {
+      const dist = plane.normal.dot(center) + plane.constant;
+      if (dist < -sphere.radius) return false;
+    }
+    return true;
+  }
+  containsSphere(sphere) {
+    const center = sphere.center;
+    for (const plane of this.planes) {
+      if (plane.normal.dot(center) + plane.constant < sphere.radius) return false;
+    }
+    return true;
+  }
+  containsPoint(point) {
+    for (const plane of this.planes) {
+      if (plane.normal.dot(point) + plane.constant < 0) return false;
+    }
+    return true;
+  }
+  intersectsBox(box) {
+    for (const plane of this.planes) {
+      const n = plane.normal;
+      const p = _boxPoint;
+      // Support point: the box corner furthest along the plane normal.
+      p.set(n.x > 0 ? box.max.x : box.min.x,
+        n.y > 0 ? box.max.y : box.min.y,
+        n.z > 0 ? box.max.z : box.min.z);
+      if (n.dot(p) + plane.constant < 0) return false;
+    }
+    return true;
+  }
+}
+
+const _boxPoint = new Vector3();

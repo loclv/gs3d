@@ -570,3 +570,95 @@ export class LatheGeometry extends BufferGeometry {
   }
 }
 
+
+/* --- derived line geometries -----------------------------------------------------
+ * EdgesGeometry keeps only edges whose adjacent face normals differ by more
+ * than the threshold angle; WireframeGeometry emits every triangle edge. Both
+ * produce position-only BufferGeometry for use with Line/LineSegments. */
+
+function edgePositions(geometry, dedupe) {
+  const pos = geometry.attributes.position;
+  const index = geometry.index;
+  const p = pos.array, is = pos.itemSize || 3;
+  const triCount = index ? index.count / 3 : pos.count / 3;
+  const out = [];
+  const key = (a, b) => a < b ? a * 4294967296 + b : b * 4294967296 + a;
+  const seen = new Set();
+  const push = (a, b) => {
+    if (dedupe) {
+      const k = key(a, b);
+      if (seen.has(k)) return;
+      seen.add(k);
+    }
+    out.push(p[a * is], p[a * is + 1], p[a * is + 2], p[b * is], p[b * is + 1], p[b * is + 2]);
+  };
+  for (let t = 0; t < triCount; t++) {
+    const i0 = index ? index.array[t * 3] : t * 3;
+    const i1 = index ? index.array[t * 3 + 1] : t * 3 + 1;
+    const i2 = index ? index.array[t * 3 + 2] : t * 3 + 2;
+    push(i0, i1); push(i1, i2); push(i2, i0);
+  }
+  return out;
+}
+
+export class WireframeGeometry extends BufferGeometry {
+  constructor(geometry, thresholdAngle = 1) {
+    super();
+    this.isWireframeGeometry = true;
+    this.setAttribute('position', new Float32BufferAttribute(edgePositions(geometry, false), 3));
+  }
+}
+
+export class EdgesGeometry extends BufferGeometry {
+  constructor(geometry, thresholdAngle = 1) {
+    super();
+    this.isEdgesGeometry = true;
+    const thresholdDot = Math.cos((thresholdAngle * Math.PI) / 180);
+    const pos = geometry.attributes.position;
+    const index = geometry.index;
+    const p = pos.array, is = pos.itemSize || 3;
+    const out = [];
+    // Map undirected vertex-index edge -> first adjacent face normal + edge.
+    const edgeFaces = new Map();
+    const vkey = (a, b) => a < b ? a * 4294967296 + b : b * 4294967296 + a;
+    const faceNormal = (ia, ib, ic) => {
+      const ax = p[ia * is], ay = p[ia * is + 1], az = p[ia * is + 2];
+      const e1x = p[ib * is] - ax, e1y = p[ib * is + 1] - ay, e1z = p[ib * is + 2] - az;
+      const e2x = p[ic * is] - ax, e2y = p[ic * is + 1] - ay, e2z = p[ic * is + 2] - az;
+      let nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      return [nx / l, ny / l, nz / l];
+    };
+    const triCount = index ? index.count / 3 : pos.count / 3;
+    for (let t = 0; t < triCount; t++) {
+      const i0 = index ? index.array[t * 3] : t * 3;
+      const i1 = index ? index.array[t * 3 + 1] : t * 3 + 1;
+      const i2 = index ? index.array[t * 3 + 2] : t * 3 + 2;
+      const n = faceNormal(i0, i1, i2);
+      for (const [a, b] of [[i0, i1], [i1, i2], [i2, i0]]) {
+        const k = vkey(a, b);
+        const prev = edgeFaces.get(k);
+        if (prev === undefined) edgeFaces.set(k, { a, b, n, count: 1, emitted: false });
+        else {
+          prev.count++;
+          if (!prev.emitted && prev.count === 2) {
+            // Second adjacent face: emit the edge only where the faces bend
+            // past the threshold angle.
+            const dot = prev.n[0] * n[0] + prev.n[1] * n[1] + prev.n[2] * n[2];
+            if (dot <= thresholdDot) {
+              prev.emitted = true;
+              out.push(p[prev.a * is], p[prev.a * is + 1], p[prev.a * is + 2],
+                       p[prev.b * is], p[prev.b * is + 1], p[prev.b * is + 2]);
+            }
+          }
+        }
+      }
+    }
+    // Boundary edges (one adjacent face) always emit; smooth interior edges
+    // (shared by two near-parallel faces) do not.
+    for (const e of edgeFaces.values()) {
+      if (e.count === 1) out.push(p[e.a * is], p[e.a * is + 1], p[e.a * is + 2], p[e.b * is], p[e.b * is + 1], p[e.b * is + 2]);
+    }
+    this.setAttribute('position', new Float32BufferAttribute(out, 3));
+  }
+}

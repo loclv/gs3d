@@ -285,10 +285,18 @@ function materialFromGltf(def, resolveTexture) {
 }
 
 export class GLTFLoader {
-  constructor() { this.manager = null; }
+  constructor(manager = null) { this.manager = manager; }
 
   load(url, onLoad, onProgress, onError) {
-    fetch(url)
+    const resolved = this.manager ? this.manager.resolveURL(url) : url;
+    this.manager && this.manager.itemStart(resolved);
+    const done = gltf => { this.manager && this.manager.itemEnd(resolved); if (onLoad) onLoad(gltf); };
+    const fail = error => {
+      this.manager && this.manager.itemError(resolved);
+      this.manager && this.manager.itemEnd(resolved);
+      if (onError) onError(error); else console.error(error);
+    };
+    fetch(resolved)
       .then(response => {
         if (!response.ok) throw new Error(`gs3d: failed to fetch ${url} (${response.status})`);
         return response.arrayBuffer();
@@ -300,12 +308,23 @@ export class GLTFLoader {
           return this.parse(json, bin);
         }
         const json = JSON.parse(new TextDecoder().decode(buffer));
-        return this.parse(json, null, url);
+        return this.parse(json, null, resolved);
       })
-      .then(gltf => onLoad && onLoad(gltf))
-      .catch(error => onError ? onError(error) : console.error(error));
+      .then(done)
+      .catch(fail);
     return this;
   }
+
+  loadAsync(url) {
+    return new Promise((resolve, reject) => this.load(url, resolve, undefined, reject));
+  }
+
+  // Decoder hooks exist for API parity; compressed payloads are unsupported
+  // and still throw in parse().
+  setDRACOLoader() { return this; }
+  setKTX2Loader() { return this; }
+  setMeshoptDecoder() { return this; }
+  register(parser) { return this; }
 
   // Build the scene graph from a parsed glTF JSON document. `bin` is the GLB
   // binary chunk (or null); `baseUrl` resolves relative resources for .gltf.

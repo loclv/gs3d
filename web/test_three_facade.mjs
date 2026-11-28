@@ -1962,4 +1962,122 @@ function buildTestGLB() {
 }
 
 
+
+{
+  // Animation: keyframe tracks, property bindings, mixer loop modes.
+  const scene = new THREE.Scene();
+  const node = new THREE.Object3D();
+  node.name = 'slider';
+  scene.add(node);
+
+  const track = new THREE.VectorKeyframeTrack('slider.position', [0, 1], [0, 0, 0, 10, 0, 0]);
+  const clip = new THREE.AnimationClip('move', 1, [track]);
+  assert.equal(clip.duration, 1, 'clip duration from track times');
+  const mixer = new THREE.AnimationMixer(scene);
+  mixer.clipAction(clip).play();
+  mixer.update(0.5);
+  assert.ok(Math.abs(node.position.x - 5) < 1e-5, 'vector track midpoint');
+  mixer.update(0.25);
+  assert.ok(Math.abs(node.position.x - 7.5) < 1e-5, 'vector track quarter');
+  mixer.update(0.2);
+  assert.ok(Math.abs(node.position.x - 9.5) < 1e-5, 'vector track near end');
+  mixer.update(0.05);
+  assert.ok(Math.abs(node.position.x) < 1e-5, 'loop repeat wraps to start');
+
+  // LoopOnce + clampWhenFinished + finished event.
+  mixer.stopAllAction();
+  let finished = 0;
+  mixer.addEventListener('finished', () => finished++);
+  const onceTrack = new THREE.VectorKeyframeTrack('slider.position', [0, 1], [0, 0, 0, 4, 0, 0]);
+  const once = mixer.clipAction(new THREE.AnimationClip('once', 1, [onceTrack]));
+  once.setLoop(THREE.LoopOnce);
+  once.clampWhenFinished = true;
+  once.play();
+  mixer.update(0.5);
+  assert.ok(Math.abs(node.position.x - 2) < 1e-5, 'loopOnce mid');
+  mixer.update(0.5);
+  mixer.update(0.5);
+  assert.equal(finished, 1, 'finished event fired once');
+  assert.ok(Math.abs(node.position.x - 4) < 1e-5, 'clampWhenFinished holds final pose');
+
+  // Quaternion track: identity -> 180deg about Y, midpoint is 90deg.
+  const rotor = new THREE.Object3D();
+  rotor.name = 'rotor';
+  scene.add(rotor);
+  const qTrack = new THREE.QuaternionKeyframeTrack('rotor.quaternion',
+    [0, 1], [0, 0, 0, 1, 0, 1, 0, 0]);
+  const qmixer = new THREE.AnimationMixer(scene);
+  qmixer.clipAction(new THREE.AnimationClip('spin', 1, [qTrack])).setLoop(THREE.LoopOnce).play();
+  qmixer.update(0.5);
+  assert.ok(Math.abs(rotor.quaternion.y - Math.SQRT1_2) < 1e-4, 'quaternion slerp midpoint');
+  assert.ok(Math.abs(rotor.quaternion.w - Math.SQRT1_2) < 1e-4, 'quaternion slerp w');
+  qmixer.update(0.5);
+  assert.ok(Math.abs(rotor.quaternion.y - 1) < 1e-4 && Math.abs(rotor.quaternion.w) < 1e-4, 'quaternion slerp end');
+
+  // Material color track through "mesh.material.color".
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+  mesh.name = 'box';
+  scene.add(mesh);
+  const cTrack = new THREE.ColorKeyframeTrack('box.material.color', [0, 1], [1, 0, 0, 0, 0, 1]);
+  const cmixer = new THREE.AnimationMixer(scene);
+  cmixer.clipAction(new THREE.AnimationClip('tint', 1, [cTrack])).setLoop(THREE.LoopOnce).play();
+  cmixer.update(0.5);
+  assert.ok(Math.abs(mesh.material.color.r - 0.5) < 1e-4 && Math.abs(mesh.material.color.b - 0.5) < 1e-4, 'material color midpoint');
+
+  // Weight blending: two actions at 0.5/0.5 average the result.
+  mixer.stopAllAction();
+  const a1 = mixer.clipAction(new THREE.AnimationClip('a', 1, [new THREE.VectorKeyframeTrack('slider.position', [0, 1], [0, 0, 0, 10, 0, 0])])).setLoop(THREE.LoopOnce);
+  const a2 = mixer.clipAction(new THREE.AnimationClip('b', 1, [new THREE.VectorKeyframeTrack('slider.position', [0, 1], [0, 0, 0, 0, 0, 20])])).setLoop(THREE.LoopOnce);
+  a1.setEffectiveWeight(0.5); a1.fadeIn(0); a1.play();
+  a2.setEffectiveWeight(0.5); a2.fadeIn(0); a2.play();
+  mixer.update(1);
+  assert.ok(Math.abs(node.position.x - 5) < 1e-4 && Math.abs(node.position.z - 10) < 1e-4, 'weighted blend averages tracks');
+
+  // Clock and track-name parsing.
+  const clock = new THREE.Clock(false);
+  assert.equal(clock.getDelta(), 0, 'stopped clock reports zero delta');
+  clock.start();
+  assert.ok(clock.getDelta() >= 0, 'running clock reports non-negative delta');
+  const parsed = THREE.parseTrackName ? null : null;
+  assert.equal(typeof THREE.parseTrackName, 'function', 'parseTrackName exported');
+}
+
+{
+  // Frustum, Triangle and EdgesGeometry/WireframeGeometry.
+  const proj = new THREE.Matrix4().makePerspective(60, 1, 0.1, 100);
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(proj);
+  assert.equal(frustum.containsPoint(new THREE.Vector3(0, 0, -1)), true, 'frustum contains centre point');
+  assert.equal(frustum.containsPoint(new THREE.Vector3(0, 100, -1)), false, 'frustum rejects far point');
+  const tri = new THREE.Triangle(new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0));
+  assert.ok(Math.abs(tri.getArea() - 0.5) < 1e-6, 'triangle area');
+  assert.ok(tri.containsPoint(new THREE.Vector3(0.25, 0.25, 0)), 'triangle contains interior point');
+  assert.ok(!tri.containsPoint(new THREE.Vector3(0.75, 0.75, 0)), 'triangle rejects exterior point');
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  const edges = new THREE.EdgesGeometry(boxGeo);
+  const wire = new THREE.WireframeGeometry(boxGeo);
+  assert.ok(edges.attributes.position.count > 0, 'EdgesGeometry emits positions');
+  assert.ok(wire.attributes.position.count > edges.attributes.position.count, 'WireframeGeometry emits more edges than EdgesGeometry on a box');
+}
+
+{
+  // LoadingManager + FileLoader + material class flags.
+  const manager = new THREE.LoadingManager();
+  let loads = 0, all = 0;
+  manager.onLoad = () => loads++;
+  manager.onLoadAll = () => all++;
+  const loader = new THREE.FileLoader(manager);
+  loader.load('data:text/plain,hello', data => {
+    assert.equal(data, 'hello', 'FileLoader fetches text');
+  });
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(loads, 1, 'manager onLoad fired');
+  assert.equal(all, 1, 'manager onLoadAll fired');
+  assert.equal(manager.itemsLoaded, 1, 'manager item count');
+  assert.ok(new THREE.MeshPhongMaterial().isMeshPhongMaterial, 'MeshPhongMaterial flag');
+  assert.ok(new THREE.MeshLambertMaterial().isMeshLambertMaterial, 'MeshLambertMaterial flag');
+  assert.ok(new THREE.LineDashedMaterial().isLineDashedMaterial, 'LineDashedMaterial flag');
+  const obj = new THREE.Object3D();
+  assert.ok(obj.id >= 0 && typeof obj.uuid === 'string', 'Object3D id/uuid');
+}
+
 console.log('three.js facade checks passed');
