@@ -47,6 +47,7 @@ No GL call, no window, no file I/O appears anywhere in `src/g3/`.
 | `src/g3/physics{,_solver,_contacts,_query}.goose` | rigid-body solver split in four: core (bodies, pose bridge), solver (step, broadphase, impulses), contacts (SAT/manifolds), queries (contacts, raycasts) |
 | `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics` |
 | `src/g3/physics_web.goose` | `g3_phys_*` wasm exports for the `gs3d/physics` package module (gs3d host only) |
+| `src/g3/sound.goose`, `src/g3/sound_wav.goose` | procedural mono PCM synth (thump/tone/noise voices), `sound_contacts` physics-impact bridge, pending/commit streaming, 16-bit WAV export via `os` |
 | `src/g3/collision.goose`, `src/g3/picking.goose` | swept segment/sphere tests, raycast picking |
 | `src/g3/render.goose` | per frame: view/proj, frustum, cull loop, `pack_item`/`sort_key`, sort, submit; `Stats`; lighting setters |
 | `src/g3/engine.goose` | `init`/`frame(dt)`/`shutdown`, 512-key input state with edge detection, `read_pixel`, `save_frame`, `KEY_*` codes |
@@ -62,6 +63,7 @@ No GL call, no window, no file I/O appears anywhere in `src/g3/`.
 | `src/test_engine.goose` | `platform/g3_soft.c` | 333 checks on whole frames, read back with `g3::read_pixel` |
 | `src/test_game.goose` | `platform/g3_soft.c` | 4 checks on the Beacon Run rules |
 | `src/test_siege.goose` | `platform/g3_soft.c` | 78 checks on Rift Siege rules, sweeps, physics colliders, rotation/angular dynamics, kinematics, contacts, raycasts and the `g3.rapier` facade |
+| `src/test_sound.goose` | `platform/g3_soft.c` | 28 checks on the sound synth: envelopes, PCM bounds, voice cap, WAV bytes, pending/commit streaming, physics-contact impacts |
 | `src/benchmark_transforms.goose` | none | native transform benchmark |
 | `src/benchmark_physics.goose`, `src/benchmark_physics_stack.goose` | none | headless solver benchmarks |
 | `src/game_web.goose` | `platform/g3_web.c` | Beacon Run browser build (`--game`) |
@@ -138,4 +140,6 @@ Verification ladder, cheapest first — use the lowest rung that proves the chan
 * The ABI, offsets and adding a backend → skill `g3-abi-and-backends`
 * Adding a rendering feature → skill `g3-adding-a-render-feature`
 * Tests, byte comparisons, profiling → skill `g3-testing-and-profiling`
+* Physics solver and contact queries → skill `g3-physics`
+* Procedural sound and physics-impact audio → skill `g3-sound`
 * Reference material: `docs/architecture.md`, `docs/abi.md`, `docs/performance.md`

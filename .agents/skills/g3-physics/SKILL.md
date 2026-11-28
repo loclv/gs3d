@@ -81,12 +81,17 @@ obstacles, character controllers.
 ## Queries
 
 - **Contacts**: `physics_contact_count()` / `physics_contact(i)` →
-  `BodyContact { a, b, normal, point, penetration }` — one entry per
-  body pair per step (deduped across substeps, freshest record wins),
-  cleared each step. Pairs keep reporting while both sides sleep, so
-  resting contacts don't flicker; static-vs-static pairs are never
+  `BodyContact { a, b, normal, point, penetration, impact, pkey }` — one
+  entry per body pair per step (deduped across substeps, freshest record
+  wins), cleared each step. Pairs keep reporting while both sides sleep,
+  so resting contacts don't flicker; static-vs-static pairs are never
   recorded. Manifold pairs report their deepest point; `point` is the
-  world-space contact point used for angular response.
+  world-space contact point used for angular response. `impact` is the
+  approach speed (m/s) measured at detection, *before* the impulse solve
+  cancels it — ~0 at rest, high on a real hit. It goes stale on records
+  kept for sleeping pairs (they skip re-detection), so pair it with a
+  cooldown or freshness check; `g3::sound_contacts` in `sound.goose`
+  shows the pattern.
 - **Raycast**: `physics_raycast(origin, dir, max_dist)` → `PhysicsRayHit
   { hit, body, point, normal, distance }`, nearest hit, `dir` need not be
   normalized. Box rays run in the box's local frame; capsule rays reuse

@@ -3,9 +3,10 @@
 // synthesizer stays linkable where `os` file output is not wanted; import
 // g3.sound_wav alongside g3.sound.
 //
-//   sound_write_wav("impact.wav")   // writes g_sound_pcm
+//   sound_write_wav("impact.wav")          // whole buffer
+//   sound_write_wav_pending("chunk.wav")   // only since last sound_commit
 //   var bytes: u8[>..] = [];
-//   sound_wav_bytes(bytes);         // same bytes, for your own sink
+//   sound_wav_bytes(bytes);                // same bytes, for your own sink
 
 import os;
 import g3.sound;
@@ -28,10 +29,11 @@ fn sound_wav_tag(out: u8[>..]&, tag: const u8[:]) {
     for i in 0..tag.len { out.push(tag[i]); }
 }
 
-// Append a complete WAV file image for the current PCM buffer: 44-byte
+// Append a complete WAV file image for g_sound_pcm[start..]: 44-byte
 // canonical header, mono, 16-bit samples, little-endian.
-fn sound_wav_bytes(out: u8[>..]&) {
-    let n = g_sound_pcm.len;
+fn sound_wav_samples(out: u8[>..]&, start: i64) {
+    var n = g_sound_pcm.len - start;
+    if n < 0 { n = 0; }
     let data_bytes = n * 2;
     sound_wav_tag(out, "RIFF");
     sound_wav_u32(out, (36 + data_bytes) as u32);
@@ -46,10 +48,22 @@ fn sound_wav_bytes(out: u8[>..]&) {
     sound_wav_u16(out, 16);                       // bits per sample
     sound_wav_tag(out, "data");
     sound_wav_u32(out, data_bytes as u32);
-    for i in 0..n {
+    for i in start..g_sound_pcm.len {
         let s = clamp(g_sound_pcm[i], -1.0, 1.0);
         sound_wav_u16(out, ((s * 32767.0 + 32768.0) as i64) as u16);
     }
+}
+
+// Append a WAV file image for the whole rendered buffer.
+fn sound_wav_bytes(out: u8[>..]&) {
+    sound_wav_samples(out, 0);
+}
+
+// Append a WAV file image for the pending region only — the samples since
+// the last sound_commit. Does not consume them; call sound_commit after a
+// successful write to move the mark.
+fn sound_wav_pending_bytes(out: u8[>..]&) {
+    sound_wav_samples(out, g_sound_mark);
 }
 
 // Write the current PCM buffer to `path` as a WAV file. Returns false when
@@ -58,5 +72,13 @@ fn sound_wav_bytes(out: u8[>..]&) {
 fn sound_write_wav(path: const u8[:]) -> bool {
     var bytes: u8[>..] = [];
     sound_wav_bytes(bytes);
+    return write_file(path, bytes[..]);
+}
+
+// Write only the pending region (since the last sound_commit) to `path`.
+// Pair with sound_commit to stream the buffer out in WAV chunks.
+fn sound_write_wav_pending(path: const u8[:]) -> bool {
+    var bytes: u8[>..] = [];
+    sound_wav_pending_bytes(bytes);
     return write_file(path, bytes[..]);
 }

@@ -58,6 +58,7 @@ struct SoundVoice {
 
 var g_sound_rate: f64 = 48000.0;
 var g_sound_pcm: f32[>..];
+var g_sound_mark: i64 = 0;
 var g_sound_voices: SoundVoice[SOUND_MAX_VOICES];
 var g_sound_seed: u32 = 1;
 
@@ -81,6 +82,7 @@ fn sound_init(sample_rate: f64 = 48000.0) {
 // Drop every voice and discard the rendered PCM.
 fn sound_clear() {
     g_sound_pcm.clear();
+    g_sound_mark = 0;
     g_sound_marks.clear();
     for i in SOUND_MAX_VOICES {
         g_sound_voices[i] = SoundVoice { .. };
@@ -97,6 +99,27 @@ fn sound_seconds() -> f64 { return g_sound_pcm.len / g_sound_rate; }
 // The rendered mono PCM as a slice. The arena never moves, so the view
 // stays valid while the buffer grows.
 fn sound_pcm() -> f32[:] { return g_sound_pcm[..]; }
+
+// Samples rendered since the last sound_commit — the streaming view. Pair
+// with sound_commit to consume the buffer incrementally (chunked WAV,
+// feeding a playback queue) instead of keeping every sample forever.
+fn sound_pending() -> f32[:] { return g_sound_pcm[g_sound_mark..]; }
+
+fn sound_pending_len() -> i64 { return g_sound_pcm.len - g_sound_mark; }
+
+// Discard the pending prefix: everything before it is considered consumed.
+fn sound_commit() { g_sound_mark = g_sound_pcm.len; }
+
+// Largest |sample| in the pending region, for level meters and
+// normalisation. 0.0 when nothing is pending.
+fn sound_pending_peak() -> f32 {
+    var m: f32 = 0.0;
+    for i in g_sound_mark..g_sound_pcm.len {
+        let a = abs(g_sound_pcm[i]);
+        if a > m { m = a; }
+    }
+    return m;
+}
 
 // Attack-ramp then exponential-decay envelope, 1.0 at the attack's end.
 fn sound_envelope(age: f32, dur: f32, attack: f32, decay: f32) -> f32 {
@@ -151,11 +174,16 @@ fn sound_play(kind: i32, freq: f32, freq_end: f32, dur: f32, amp: f32, cutoff: f
 fn sound_impact(strength: f32, pitch: f32 = 1.0) -> bool {
     let s = clamp(strength, 0.0, 1.0);
     guard s > 0.001 else { return false; }
-    let p = clamp(pitch, 0.25, 4.0);
+    // Deterministic per-call jitter so a burst of identical impacts does
+    // not sound like one sample repeated.
+    g_sound_seed = g_sound_seed * 1664525 + 1013904223;
+    let jitter = 0.94 + ((g_sound_seed >> 8) as f32) / 8388608.0 * 0.12;
+    let p = clamp(pitch * jitter, 0.25, 4.0);
     var ok = sound_spawn(SOUND_KIND_THUMP, 115.0 * p, 38.0 * p,
                          0.10 + 0.25 * s, 0.85 * s, 0.0);
+    // Harder hits click brighter.
     ok = sound_spawn(SOUND_KIND_NOISE, 0.0, 0.0,
-                     0.015 + 0.03 * s, 0.6 * s, 0.95) || ok;
+                     0.015 + 0.03 * s, 0.6 * s, 0.6 + 0.35 * s) || ok;
     return ok;
 }
 

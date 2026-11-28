@@ -89,6 +89,20 @@ fn main() {
     testing::check(read_file("build/test_sound.wav", on_disk) && on_disk.len == bytes.len,
                    "wav on disk matches the byte builder");
 
+    // --- streaming view: pending / commit / peak ------------------------
+    g3::sound_clear();
+    g3::sound_tone(440.0, 0.01, 0.5);
+    g3::sound_render(0.01);
+    testing::check(g3::sound_pending_len() == g3::sound_len(), "pending covers the buffer");
+    testing::check(g3::sound_pending_peak() > 0.0, "pending peak meters the signal");
+    g3::sound_commit();
+    testing::check(g3::sound_pending_len() == 0, "commit consumes the pending region");
+    g3::sound_render(0.005);
+    testing::check(g3::sound_pending_len() == 40, "pending regrows after commit");
+    var pbytes: u8[>..] = [];
+    g3::sound_wav_pending_bytes(pbytes);
+    testing::check(pbytes.len == 44 + 40 * 2, "pending wav covers only new samples");
+
     // --- physics bridge --------------------------------------------------
     // Static floor box, dynamic sphere dropped onto it. The first contact
     // step has real closing speed; once the sphere rests, contacts stay

@@ -13,6 +13,8 @@
 | `src/g3/physics_query.goose` | contact store/accessors and raycasts |
 | `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics`: timestep/step, cuboid/ball/capsule bodies, linvel/angvel/rotation and impulse accessors, body-type/mass/removal, raycast, water level |
 | `src/g3/physics_web.goose` | `g3_phys_*` wasm exports of the rapier facade plus contacts and raycast for the `gs3d/physics` package module |
+| `src/g3/sound.goose` | procedural mono PCM synth: thump/tone/noise voices, `sound_render`, `sound_contacts` physics-impact bridge, pending/commit streaming view |
+| `src/g3/sound_wav.goose` | WAV (16-bit PCM) export of the sound buffer via `os` |
 | `src/g3/render.goose` | per frame: transforms, frustum cull, draw-list pack, sort, submit |
 | `src/g3/engine.goose` | `init` / `frame` / `shutdown`, input state, stats |
 | `src/g3/gltf_native.goose` | native static GLB and JSON glTF scene and primitive loading into checked handles |
@@ -25,6 +27,7 @@
 | `src/test_engine.goose` | known-answer frames, checked by reading pixels back |
 | `src/test_game.goose` | Beacon Run rules: scoring, win/lose, reset |
 | `src/test_siege.goose` | Rift Siege rules plus the physics solver checks: colliders, contacts, raycasts, water |
+| `src/test_sound.goose` | sound synth checks: envelopes, PCM bounds, voice cap, WAV bytes, physics-contact impacts |
 | `src/benchmark_transforms.goose` | native transform benchmark |
 | `src/benchmark_physics*.goose` | headless solver benchmarks |
 | `src/game_web.goose` | Beacon Run browser entry point (`--game`) |
