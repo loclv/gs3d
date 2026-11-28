@@ -438,6 +438,9 @@ fn node_update_worlds() {
     g_world_frame += 1;
     let frame = g_world_frame;
     for &n in g_nodes {
+        // Freed slots are leaves (release reparents children first) and
+        // nothing reads their world — stamp them fresh and skip the rest.
+        if n.asset_free { n.worlds_frame = frame; continue; }
         let local_changed = node_local_cache_changed(n);
         if local_changed { node_cache_local(n); }
         if n.parent < 0 {

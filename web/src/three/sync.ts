@@ -45,29 +45,15 @@ function syncNode(engine, object, parentEngineIndex, local, draw = true, opts?) 
     if (opts?.defer) {
       // Deferred bulk path: record the upload, caller flushes via
       // _g3_asset_matrix16_bulk after the tree walk.
-      if (!record.matrix) record.matrix = new Float64Array(16);
-      for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
       opts.defer.push(record.index, local, off);
     } else if (opts?.skipMatrix) {
       // Bulk path: the caller uploads this matrix via _g3_asset_matrix16_bulk.
-      if (!record.matrix) record.matrix = new Float64Array(16);
-      for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
       if (opts.collect) opts.collect.push(record.index, off);
-    } else if (typeof engine._g3_asset_matrix16 === 'function') {
-      engine._g3_asset_matrix16(
-        record.index,
-        local[off], local[off + 1], local[off + 2], local[off + 3],
-        local[off + 4], local[off + 5], local[off + 6], local[off + 7],
-        local[off + 8], local[off + 9], local[off + 10], local[off + 11],
-        local[off + 12], local[off + 13], local[off + 14], local[off + 15],
-      );
-      if (!record.matrix) record.matrix = new Float64Array(16);
-      for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
     } else {
       uploadMatrix16(engine, record.index, local, off);
-      if (!record.matrix) record.matrix = new Float64Array(16);
-      for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
     }
+    if (!record.matrix) record.matrix = new Float64Array(16);
+    for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
   }
   return record.index;
 }

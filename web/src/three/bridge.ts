@@ -212,14 +212,17 @@ export function localMatrixOf(object) {
 const _wmAcc = new Float64Array(16);
 const _wmTmp = new Float64Array(16);
 export function worldMatrixOf(object) {
-  _wmAcc.set(localMatrixOf(object));
+  // Ping-pong the two scratch buffers so each ancestor costs one multiply
+  // and no copy; the result is the single allocation.
+  let acc = _wmAcc, tmp = _wmTmp;
+  acc.set(localMatrixOf(object));
   let parent = object.parent;
   while (parent) {
-    multiplyMat4Into(localMatrixOf(parent), _wmAcc, _wmTmp);
-    _wmAcc.set(_wmTmp);
+    multiplyMat4Into(localMatrixOf(parent), acc, tmp);
+    const swap = acc; acc = tmp; tmp = swap;
     parent = parent.parent;
   }
-  return Float64Array.from(_wmAcc);
+  return Float64Array.from(acc);
 }
 
 // material.flatShading is emulated by expanding the geometry into

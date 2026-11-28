@@ -4614,23 +4614,12 @@ function syncNode(engine, object, parentEngineIndex, local, draw = true, opts) {
 	}
 	const off = opts?.offset ?? 0;
 	if (!record.matrix || !matricesEqual(record.matrix, local, off)) {
-		if (opts?.defer) {
-			if (!record.matrix) record.matrix = /* @__PURE__ */ new Float64Array(16);
-			for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
-			opts.defer.push(record.index, local, off);
-		} else if (opts?.skipMatrix) {
-			if (!record.matrix) record.matrix = /* @__PURE__ */ new Float64Array(16);
-			for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
+		if (opts?.defer) opts.defer.push(record.index, local, off);
+		else if (opts?.skipMatrix) {
 			if (opts.collect) opts.collect.push(record.index, off);
-		} else if (typeof engine._g3_asset_matrix16 === "function") {
-			engine._g3_asset_matrix16(record.index, local[off], local[off + 1], local[off + 2], local[off + 3], local[off + 4], local[off + 5], local[off + 6], local[off + 7], local[off + 8], local[off + 9], local[off + 10], local[off + 11], local[off + 12], local[off + 13], local[off + 14], local[off + 15]);
-			if (!record.matrix) record.matrix = /* @__PURE__ */ new Float64Array(16);
-			for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
-		} else {
-			uploadMatrix16(engine, record.index, local, off);
-			if (!record.matrix) record.matrix = /* @__PURE__ */ new Float64Array(16);
-			for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
-		}
+		} else uploadMatrix16(engine, record.index, local, off);
+		if (!record.matrix) record.matrix = /* @__PURE__ */ new Float64Array(16);
+		for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
 	}
 	return record.index;
 }
@@ -5551,14 +5540,17 @@ function localMatrixOf(object) {
 const _wmAcc = /* @__PURE__ */ new Float64Array(16);
 const _wmTmp = /* @__PURE__ */ new Float64Array(16);
 function worldMatrixOf(object) {
-	_wmAcc.set(localMatrixOf(object));
+	let acc = _wmAcc, tmp = _wmTmp;
+	acc.set(localMatrixOf(object));
 	let parent = object.parent;
 	while (parent) {
-		multiplyMat4Into(localMatrixOf(parent), _wmAcc, _wmTmp);
-		_wmAcc.set(_wmTmp);
+		multiplyMat4Into(localMatrixOf(parent), acc, tmp);
+		const swap = acc;
+		acc = tmp;
+		tmp = swap;
 		parent = parent.parent;
 	}
-	return Float64Array.from(_wmAcc);
+	return Float64Array.from(acc);
 }
 const flatGeometryCache = /* @__PURE__ */ new WeakMap();
 function flatShadedGeometry(geometry) {
