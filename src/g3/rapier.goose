@@ -87,6 +87,10 @@ fn rapier_body_set_translation(id: i64, position: float3) -> bool {
     let body .= physics_body(id);
     body.position = position;
     body.velocity = float3_0;
+    body.bounds_dirty = true;
+    // A teleport must wake the body: a sleeper would otherwise keep its
+    // stale bounds and never re-enter the broadphase.
+    physics_wake(body);
     if node_handle_valid(body.node) { node(body.node.index).pos = position; }
     return true;
 }

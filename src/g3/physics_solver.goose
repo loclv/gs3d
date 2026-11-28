@@ -19,6 +19,11 @@ namespace g3;
 // broadphase that keeps the pair loop near O(n log n + candidates).
 var g_physics_order: i64[>..];
 
+// Per-body broadphase min-x, indexed by body slot. The sort comparator reads
+// this flat array instead of chasing position/bounds through the body
+// struct twice per comparison.
+var g_physics_minx: f32[>..];
+
 // A contact kept for the iterative solve. Detection runs once per substep;
 // then a fixed number of Gauss-Seidel passes refine the impulses. lambda_n
 // accumulates the normal impulse (clamped >= 0 — the non-penetration
@@ -120,9 +125,10 @@ fn physics_step(dt: f32) {
     let sub_dt = physics_substep_dt(dt);
     var remaining = dt;
     var steps = 0;
+    var step_active = false;
     while remaining > 0.0000001 && steps < 12 {
         let h = min(remaining, sub_dt);
-        physics_substep(h);
+        if physics_substep(h) { step_active = true; }
         remaining -= h;
         steps += 1;
     }
@@ -151,6 +157,11 @@ fn physics_step(dt: f32) {
     }
 
     for &body in g_physics_bodies { body.force = float3_0; body.torque = float3_0; }
+    // Node writeback only runs when something moved: a fully inactive step
+    // leaves every body pose — and therefore every node transform — exactly
+    // as the previous writeback left it. Forces still reset above so an
+    // impulse applied to a sleeper is dropped, matching prior semantics.
+    if !step_active { return; }
     for &body in g_physics_bodies {
         if !node_handle_valid(body.node) { continue; }
         let nref .= node(body.node.index);
@@ -195,43 +206,63 @@ fn physics_substep_dt(dt: f32) -> f32 {
     return min(dt, clamp(needed, 1.0 / 480.0, 1.0 / 60.0));
 }
 
-fn physics_substep(dt: f32) {
-    for &body in g_physics_bodies {
-        if body.removed || body.sleeping || !node_handle_valid(body.node) { continue; }
-        if body.inverse_mass > 0.0 {
-            body.velocity += (g_physics_gravity + body.force * body.inverse_mass) * dt;
-            body.angular_velocity += physics_torque_to_angacc(body) * dt;
-            if g_physics_water_y > -1.0e29 { physics_apply_water(body, dt); }
-            body.position += body.velocity * dt;
-            physics_integrate_orientation(body, dt);
-        } else if body.kinematic {
-            body.position += body.velocity * dt;
-            physics_integrate_orientation(body, dt);
-        }
-    }
-
-    // Refresh world-space inverse inertia and broadphase bounds in one
-    // pass — orientation and position changed during integration, and
-    // both are only consumed by the sweep below. Sleeping bodies are
-    // frozen, so theirs cannot have changed since they slept; static and
-    // kinematic bodies keep a zero inertia tensor already.
+// Returns true when at least one body could have moved this substep. When
+// nothing can move — every dynamic body asleep, no live kinematics — the
+// broadphase, contact solve, joint solve and sleep pass are all no-ops, so
+// the substep skips them entirely. That is what keeps a fully settled pile
+// at a couple of O(n) scans per substep instead of a sort plus a pair sweep.
+fn physics_substep(dt: f32) -> bool {
+    var any_active = false;
+    // Integration, bounds refresh and world-space inverse inertia fuse into
+    // one pass: every quantity is a pure function of the body's own
+    // post-integration state, so bodies need no ordering between them. The
+    // refresh still covers bodies that did not integrate (static, invalid
+    // node) exactly as the old separate pass did.
     for &body in g_physics_bodies {
         if body.removed || body.sleeping { continue; }
-        physics_update_bounds(body);
-        if body.inverse_mass > 0.0 { physics_update_inv_inertia_world(body); }
+        var integrated = false;
+        if node_handle_valid(body.node) {
+            if body.inverse_mass > 0.0 {
+                body.velocity += (g_physics_gravity + body.force * body.inverse_mass) * dt;
+                body.angular_velocity += physics_torque_to_angacc(body) * dt;
+                if g_physics_water_y > -1.0e29 { physics_apply_water(body, dt); }
+                body.position += body.velocity * dt;
+                physics_integrate_orientation(body, dt);
+                integrated = true;
+                any_active = true;
+            } else if body.kinematic {
+                body.position += body.velocity * dt;
+                physics_integrate_orientation(body, dt);
+                integrated = true;
+                any_active = true;
+            }
+        }
+        // Bounds refresh only for bodies that actually moved this substep
+        // or were dirtied by a teleport/node sync — a static level's
+        // colliders used to pay the |R|*he math every substep for nothing.
+        // Sleeping bodies are frozen, so theirs cannot have changed since
+        // they slept; static and kinematic bodies keep a zero inertia
+        // tensor already, and inv_inertia_world only depends on
+        // orientation, which only integration changes.
+        if integrated || body.bounds_dirty {
+            physics_update_bounds(body);
+            body.bounds_dirty = false;
+        }
+        if integrated && body.inverse_mass > 0.0 { physics_update_inv_inertia_world(body); }
     }
+    if !any_active { return false; }
 
     // Sweep and prune along x: sort live bodies by AABB min-x once per
     // substep, then only pairs whose x intervals overlap reach
     // physics_resolve_pair (which still AABB-rejects on y and z).
+    while g_physics_minx.len < g_physics_bodies.len { g_physics_minx.push(0.0); }
     g_physics_order.clear();
     for i in 0..g_physics_bodies.len {
-        if !g_physics_bodies[i].removed { g_physics_order.push(i); }
+        if g_physics_bodies[i].removed { continue; }
+        g_physics_minx[i] = g_physics_bodies[i].position.x - g_physics_bodies[i].bounds.x;
+        g_physics_order.push(i);
     }
-    sort(g_physics_order) { a, b =>
-        (g_physics_bodies[a].position.x - g_physics_bodies[a].bounds.x) <
-        (g_physics_bodies[b].position.x - g_physics_bodies[b].bounds.x)
-    };
+    sort(g_physics_order) { a, b => g_physics_minx[a] < g_physics_minx[b] };
     for ii in 0..g_physics_order.len {
         let i = g_physics_order[ii];
         let a .= g_physics_bodies[i];
@@ -239,7 +270,7 @@ fn physics_substep(dt: f32) {
         var jj = ii + 1;
         while jj < g_physics_order.len {
             let j = g_physics_order[jj];
-            if g_physics_bodies[j].position.x - g_physics_bodies[j].bounds.x > xmax { break; }
+            if g_physics_minx[j] > xmax { break; }
             physics_detect_pair(i, j);
             jj += 1;
         }
@@ -263,6 +294,7 @@ fn physics_substep(dt: f32) {
             body.sleep_timer = 0.0;
         }
     }
+    return true;
 }
 
 // Angular acceleration from the accumulated world-frame torque through

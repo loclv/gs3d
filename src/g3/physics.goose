@@ -78,10 +78,13 @@ struct PhysicsBody {
     // until a real impact or an explicit wake.
     sleeping: bool = false,
     sleep_timer: f32 = 0.0,
-    // Conservative world-space half extents of the collider, refreshed at
-    // the top of every substep. The pair loop rejects on these before any
-    // contact math runs — the broadphase.
+    // Conservative world-space half extents of the collider. Refreshed in
+    // the substep only for bodies that integrated or had bounds_dirty set
+    // (teleports, node syncs) — static bodies at rest keep theirs. The
+    // pair loop rejects on these before any contact math runs — the
+    // broadphase.
     bounds: float3 = float3_0,
+    bounds_dirty: bool = true,
 }
 
 var g_physics_bodies: PhysicsBody[>..];
@@ -541,6 +544,7 @@ fn physics_body_sync(id: i64) -> bool {
     let pose = physics_node_pose(nref);
     body.position = pose.position;
     body.orientation = pose.orientation;
+    body.bounds_dirty = true;
     physics_wake(body);
     return true;
 }
