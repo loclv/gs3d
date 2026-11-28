@@ -121,7 +121,11 @@ What the API gives you:
   min_speed)` after `physics_step` turns contact approach speeds into
   mass-pitched impacts — resting contacts stay silent — and
   `sound_set_listener(pos, right)` makes each impact pan toward where it
-  happened. Read the buffer with `sound_pcm()`, meter it with
+  happened and fade with distance (`SOUND_LISTENER_RANGE`). The master
+  bus has `sound_set_volume`, `sound_normalize(target)` for the pending
+  region, and `sound_set_echo(delay, feedback, wet)` for a
+  feedback-delay effect. Read the buffer with `sound_pcm()`, meter it
+  with
   `sound_pending_peak()`, stream it with `sound_pending()`/
   `sound_commit()`, and write it with `import g3.sound_wav` +
   `sound_write_wav(path)` (or `sound_write_wav_pending` for chunks).

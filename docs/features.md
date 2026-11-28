@@ -102,8 +102,10 @@ and the [Three.js roadmap](threejs-roadmap.md).
   interleaved stereo with per-voice panning — pitch-swept thump,
   enveloped tone and lowpassed-noise voices over a grow-only sample
   buffer, with `sound_contacts()` turning physics contact approach
-  speeds into impact sounds (mass-scaled pitch, listener-based panning,
-  per-pair cooldown, silent at rest). Exports 16-bit WAV via
+  speeds into impact sounds (mass-scaled pitch, listener-based panning
+  and distance attenuation, per-pair cooldown, silent at rest), a
+  master volume/normalize stage and a feedback-delay echo. Exports
+  16-bit WAV via
   `g3.sound_wav`, and a pending/commit view streams the buffer out in
   chunks.
 * Input: 512-key state with edge detection (`key_down`/`key_pressed`/

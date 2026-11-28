@@ -63,7 +63,7 @@ No GL call, no window, no file I/O appears anywhere in `src/g3/`.
 | `src/test_engine.goose` | `platform/g3_soft.c` | 333 checks on whole frames, read back with `g3::read_pixel` |
 | `src/test_game.goose` | `platform/g3_soft.c` | 4 checks on the Beacon Run rules |
 | `src/test_siege.goose` | `platform/g3_soft.c` | 78 checks on Rift Siege rules, sweeps, physics colliders, rotation/angular dynamics, kinematics, contacts, raycasts and the `g3.rapier` facade |
-| `src/test_sound.goose` | `platform/g3_soft.c` | 36 checks on the sound synth: envelopes, PCM bounds, voice cap, WAV bytes (mono + stereo), pending/commit streaming, panning, physics-contact impacts |
+| `src/test_sound.goose` | `platform/g3_soft.c` | 42 checks on the sound synth: envelopes, PCM bounds, voice cap, WAV bytes (mono + stereo), pending/commit streaming, panning, master bus, physics-contact impacts |
 | `src/benchmark_transforms.goose` | none | native transform benchmark |
 | `src/benchmark_physics.goose`, `src/benchmark_physics_stack.goose` | none | headless solver benchmarks |
 | `src/game_web.goose` | `platform/g3_web.c` | Beacon Run browser build (`--game`) |

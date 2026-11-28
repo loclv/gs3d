@@ -125,6 +125,32 @@ fn main() {
     g3::sound_init(8000.0);
     testing::check(g3::sound_channels() == 1, "re-init returns to mono");
 
+    // --- master bus: volume, normalize, echo ------------------------------
+    g3::sound_clear();
+    g3::sound_set_volume(0.5);
+    g3::sound_tone(440.0, 0.02, 0.8);
+    g3::sound_render(0.02);
+    testing::check(g3::sound_pending_peak() < 0.45, "master volume scales the mix");
+    g3::sound_normalize(0.5);
+    testing::check(abs(g3::sound_pending_peak() - 0.5) < 0.02, "normalize hits the target peak");
+    g3::sound_set_volume(1.0);
+    testing::check(!g3::sound_set_echo(0.0, 0.5, 0.5) && !g3::sound_set_echo(0.1, 1.5, 0.5) &&
+                   !g3::sound_set_echo(0.1, 0.5, 1.5), "echo rejects bad arguments");
+    g3::sound_clear();
+    testing::check(g3::sound_set_echo(0.01, 0.8, 0.9) && g3::sound_echo_active(),
+                   "echo engages");
+    g3::sound_tone(440.0, 0.005, 0.8);
+    g3::sound_render(0.05);
+    var tail_peak: f32 = 0.0;
+    let epcm = g3::sound_pcm();
+    for i in 300..epcm.len {
+        let a = abs(epcm[i]);
+        if a > tail_peak { tail_peak = a; }
+    }
+    testing::check(tail_peak > 0.001, "echo repeats past the dry tail");
+    g3::sound_clear_echo();
+    testing::check(!g3::sound_echo_active(), "clear_echo disables");
+
     // --- physics bridge --------------------------------------------------
     // Static floor box, dynamic sphere dropped onto it. The first contact
     // step has real closing speed; once the sphere rests, contacts stay

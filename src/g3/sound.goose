@@ -68,12 +68,31 @@ var g_sound_mark: i64 = 0;
 var g_sound_voices: SoundVoice[SOUND_MAX_VOICES];
 var g_sound_seed: u32 = 1;
 
-// Listener for spatial panning in sound_contacts: world position and the
-// camera's right vector (need not be normalized — it is normalized here).
-// Disabled until sound_set_listener is called.
+// Listener for spatial panning and distance attenuation in sound_contacts:
+// world position and the camera's right vector (need not be normalized —
+// it is normalized here). Disabled until sound_set_listener is called.
 var g_sound_listener_on: bool = false;
 var g_sound_listener_pos: float3 = float3_0;
 var g_sound_listener_right: float3 = float3 { 1.0, 0.0, 0.0 };
+
+// World units at which listener attenuation reaches its floor.
+const SOUND_LISTENER_RANGE = 25.0;
+// Gain floor so far-away impacts stay audible rather than vanishing.
+const SOUND_LISTENER_MIN_GAIN = 0.05;
+
+// Master volume, applied to the mixed signal before the WAV/PCM clamp.
+var g_sound_volume: f32 = 1.0;
+
+// Feedback-delay echo on the master bus: one interleaved ring holding
+// `g_echo_frames * channels` samples. Off until sound_set_echo; cleared
+// by sound_clear/sound_init (set it again after re-init).
+var g_echo_on: bool = false;
+var g_echo_frames: i64 = 0;
+var g_echo_pos: i64 = 0;
+var g_echo_delay_s: f64 = 0.0;
+var g_echo_feedback: f32 = 0.0;
+var g_echo_mix: f32 = 0.0;
+var g_echo_buf: f32[>..];
 
 // Last step each contact pair emitted a sound, for the cooldown in
 // sound_contacts. `step` is physics_stats().steps.
@@ -82,6 +101,9 @@ var g_sound_marks: SoundContactMark[>..];
 
 // Steps between repeat sounds for one contact pair — about 0.2 s at 60 Hz.
 const SOUND_CONTACT_COOLDOWN = 12;
+
+// Longest echo delay sound_set_echo accepts, seconds.
+const SOUND_ECHO_MAX_SECONDS = 0.5;
 
 // Select the output sample rate (8000..192000, the same range the stdlib
 // audio mixer accepts) and channel count (1 mono or 2 interleaved stereo),
@@ -108,11 +130,45 @@ fn sound_set_listener(pos: float3, right: float3) {
 
 fn sound_clear_listener() { g_sound_listener_on = false; }
 
+// Master volume 0..2, applied after panning and echo. 1.0 is unity.
+fn sound_set_volume(v: f32) { g_sound_volume = clamp(v, 0.0, 2.0); }
+fn sound_volume() -> f32 { return g_sound_volume; }
+
+// Feedback-delay echo across the whole mix: `delay_s` seconds (up to
+// SOUND_ECHO_MAX_SECONDS), `feedback` 0..0.95 repeat decay, `wet` 0..1
+// echo level added on top of the dry signal. Returns false on bad
+// arguments. Call after sound_init — sound_clear disables the effect.
+fn sound_set_echo(delay_s: f64, feedback: f32, wet: f32) -> bool {
+    guard delay_s > 0.001 && delay_s <= SOUND_ECHO_MAX_SECONDS else { return false; }
+    guard feedback >= 0.0 && feedback < 1.0 && wet >= 0.0 && wet <= 1.0 else { return false; }
+    var frames = (delay_s * g_sound_rate + 0.5) as i64;
+    if frames < 1 { frames = 1; }
+    g_echo_buf.clear();
+    for i in 0..frames * g_sound_channels { g_echo_buf.push(0.0); }
+    g_echo_frames = frames;
+    g_echo_pos = 0;
+    g_echo_delay_s = delay_s;
+    g_echo_feedback = feedback;
+    g_echo_mix = wet;
+    g_echo_on = true;
+    return true;
+}
+
+fn sound_clear_echo() {
+    g_echo_on = false;
+    g_echo_frames = 0;
+    g_echo_pos = 0;
+    g_echo_buf.clear();
+}
+
+fn sound_echo_active() -> bool { return g_echo_on; }
+
 // Drop every voice and discard the rendered PCM.
 fn sound_clear() {
     g_sound_pcm.clear();
     g_sound_mark = 0;
     g_sound_marks.clear();
+    sound_clear_echo();
     for i in SOUND_MAX_VOICES {
         g_sound_voices[i] = SoundVoice { .. };
     }
@@ -148,6 +204,19 @@ fn sound_pending_peak() -> f32 {
         if a > m { m = a; }
     }
     return m;
+}
+
+// Scale the pending region so its peak becomes `target` (clamped to
+// [0,1]). Boosting can push samples past [-1,1] — the mix already clipped
+// at render, so this is a gain on stored audio, not a limiter. No-op on
+// silence.
+fn sound_normalize(target: f32) {
+    let p = sound_pending_peak();
+    guard p > 0.0001 else { return; }
+    let g = clamp(target, 0.0, 1.0) / p;
+    for i in g_sound_mark..g_sound_pcm.len {
+        g_sound_pcm[i] *= g;
+    }
 }
 
 // Attack-ramp then exponential-decay envelope, 1.0 at the attack's end.
@@ -283,8 +352,21 @@ fn sound_render(dt: f64) {
             }
             v += 1;
         }
-        g_sound_pcm.push(clamp(mix, -1.0, 1.0));
-        if stereo { g_sound_pcm.push(clamp(mix_r, -1.0, 1.0)); }
+        // Master bus: feedback-delay echo, then volume, then the clamp.
+        if g_echo_on {
+            for ch in 0..g_sound_channels {
+                let idx = g_echo_pos * g_sound_channels + ch;
+                let delayed = g_echo_buf[idx];
+                let dry = if ch == 0 { mix } else { mix_r };
+                g_echo_buf[idx] = dry + delayed * g_echo_feedback;
+                if ch == 0 { mix += delayed * g_echo_mix; }
+                else { mix_r += delayed * g_echo_mix; }
+            }
+            g_echo_pos += 1;
+            if g_echo_pos >= g_echo_frames { g_echo_pos = 0; }
+        }
+        g_sound_pcm.push(clamp(mix * g_sound_volume, -1.0, 1.0));
+        if stereo { g_sound_pcm.push(clamp(mix_r * g_sound_volume, -1.0, 1.0)); }
     }
 }
 
@@ -296,8 +378,9 @@ fn sound_render(dt: f64) {
 // approach speed into impact strength (m/s is already a reasonable [0,1]
 // input). Pitch follows the lighter body's mass — a heavy crate knocks
 // lower than a pebble. When a listener is set with sound_set_listener,
-// each impact also pans toward the contact point. A pair re-arms after
-// SOUND_CONTACT_COOLDOWN steps,
+// each impact also pans toward the contact point and attenuates linearly
+// to SOUND_LISTENER_RANGE (floored at SOUND_LISTENER_MIN_GAIN). A pair
+// re-arms after SOUND_CONTACT_COOLDOWN steps,
 // so a bounce that keeps reporting does not machine-gun. Call after
 // physics_step; events land on the next sound_render either way. Returns
 // the number of events emitted.
@@ -331,18 +414,22 @@ fn sound_contacts(scale: f32 = 1.0, min_speed: f32 = 0.5) -> i64 {
                 var pitch: f32 = 1.0;
                 if m > 0.0 { pitch = 1.0 / sqrt(m); }
                 pitch = clamp(pitch, 0.4, 2.5);
-                // Pan by where the contact sits relative to the listener,
-                // when one is set; distance does not attenuate (there is
-                // no distance model — pan only).
+                // Pan and attenuate by where the contact sits relative to
+                // the listener, when one is set: linear falloff to
+                // SOUND_LISTENER_RANGE with a floor of
+                // SOUND_LISTENER_MIN_GAIN so far impacts stay audible.
                 var pan: f32 = 0.0;
+                var att: f32 = 1.0;
                 if g_sound_listener_on {
                     let to = c.point - g_sound_listener_pos;
                     let d = length(to);
                     if d > 0.0001 {
                         pan = clamp(dot(to / d, g_sound_listener_right), -1.0, 1.0);
                     }
+                    att = clamp(1.0 - d / SOUND_LISTENER_RANGE,
+                                SOUND_LISTENER_MIN_GAIN, 1.0);
                 }
-                if sound_impact(c.impact * scale, pitch, pan) {
+                if sound_impact(c.impact * scale * att, pitch, pan) {
                     hits += 1;
                     g_sound_marks.push(SoundContactMark { pkey: c.pkey, step: step });
                 }

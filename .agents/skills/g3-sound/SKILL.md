@@ -28,13 +28,27 @@ and (unexported) could feed wasm later.
   generic `sound_play`.
 - `sound_clear()` resets buffer, voices, marks and the contact cooldown.
 
-## Panning and the listener
+## Panning, listener and distance
 
 - `sound_set_listener(pos, right)` stores a world position and right
   vector (normalized internally); `sound_clear_listener()` disables.
 - `sound_contacts` then pans each impact by `dot(dir(contact - pos),
-  right)` — pan only, no distance attenuation (there is no distance
-  model). Feed it the camera position and its right vector each frame.
+  right)` and attenuates linearly to `SOUND_LISTENER_RANGE` (25 world
+  units) floored at `SOUND_LISTENER_MIN_GAIN` (0.05). Feed it the camera
+  position and its right vector each frame.
+
+## Master bus
+
+- `sound_set_volume(v)` — 0..2 gain applied after panning and echo,
+  before the [-1,1] clamp. `sound_volume()` reads it back.
+- `sound_normalize(target)` — scales the *pending* region so its peak
+  hits `target`; boosting can exceed [-1,1] (it's gain on stored audio,
+  not a limiter).
+- `sound_set_echo(delay_s, feedback, wet)` — feedback-delay on the whole
+  mix, one interleaved ring sized `delay_frames × channels`
+  (`SOUND_ECHO_MAX_SECONDS` = 0.5). `sound_clear_echo()` /
+  `sound_echo_active()`. `sound_clear()` and `sound_init()` disable it —
+  set echo again after re-init or clear.
 
 ## Reading the buffer
 
@@ -43,7 +57,8 @@ and (unexported) could feed wasm later.
   channels; `sound_channels()` reports the mode.
 - Streaming: `sound_pending()`/`sound_pending_len()` is the unconsumed
   tail since `sound_commit()`; `sound_pending_peak()` is its max |sample|
-  for metering/normalisation. Commit after handing samples off.
+  for metering/normalisation (`sound_normalize` rescales it). Commit
+  after handing samples off.
 - WAV: `sound_write_wav(path)` whole buffer;
   `sound_write_wav_pending(path)` / `sound_wav_pending_bytes(out)` only
   the pending region — pair with `sound_commit()` for chunked output.
@@ -56,7 +71,8 @@ and (unexported) could feed wasm later.
 the step's `BodyContact` records and emits an impact per qualifying pair.
 Strength is the contact's `impact` field (approach speed in m/s recorded
 pre-solve — see `g3-physics`); pitch is `1/sqrt(lighter mass)` clamped
-0.4..2.5; pan comes from the listener when set. A per-pair cooldown
+0.4..2.5; pan and distance attenuation come from the listener when set.
+A per-pair cooldown
 (`SOUND_CONTACT_COOLDOWN = 12` steps, keyed on `pkey`, tracked against
 `physics_stats().steps`) prevents repeats while a record persists;
 resting contacts have ~0 impact and stay silent. Returns the number of
@@ -76,14 +92,17 @@ events emitted.
   start at the next render boundary and overlap in the mix.
 - Changing `sound_init` channels mid-stream changes the sample layout of
   everything rendered afterwards; the pending mark is a sample index, so
-  keep the mode fixed for a stream or `sound_clear()` on switch.
+  keep the mode fixed for a stream or `sound_clear()` on switch. The echo
+  ring is sized for the rate/channels at `sound_set_echo` time — set it
+  after `sound_init`, and re-set after any clear.
 
 ## Verify
 
 - `goose check src/test_sound.goose` — typechecks the module graph.
 - `G3_NATIVE_CC=/usr/bin/cc goose build --cc tools/native_cc.sh -o
-  build/test_sound src/test_sound.goose && ./build/test_sound` — 36
+  build/test_sound src/test_sound.goose && ./build/test_sound` — 42
   checks: envelopes, bounds, voice cap, WAV header/size (mono + stereo),
-  pending/commit, hard-pan channel energy, listener panning on a real
+  pending/commit, hard-pan channel energy, master volume/normalize,
+  echo tail repeats, listener pan + attenuation on a real
   dropped-sphere impact, and silence at rest.
 - `./build_native.sh --test` runs it with the rest of the suite.

@@ -13,7 +13,7 @@
 | `src/g3/physics_query.goose` | contact store/accessors and raycasts |
 | `src/g3/rapier.goose` | RapierPhysics-style facade over `g3.physics`: timestep/step, cuboid/ball/capsule bodies, linvel/angvel/rotation and impulse accessors, body-type/mass/removal, raycast, water level |
 | `src/g3/physics_web.goose` | `g3_phys_*` wasm exports of the rapier facade plus contacts and raycast for the `gs3d/physics` package module |
-| `src/g3/sound.goose` | procedural PCM synth: thump/tone/noise voices, mono or interleaved-stereo panning, `sound_render`, `sound_contacts` physics-impact bridge with listener panning, pending/commit streaming view |
+| `src/g3/sound.goose` | procedural PCM synth: thump/tone/noise voices, mono or interleaved-stereo panning, `sound_render`, master volume/normalize/echo, `sound_contacts` physics-impact bridge with listener pan + distance attenuation, pending/commit streaming view |
 | `src/g3/sound_wav.goose` | WAV (16-bit PCM) export of the sound buffer via `os` |
 | `src/g3/render.goose` | per frame: transforms, frustum cull, draw-list pack, sort, submit |
 | `src/g3/engine.goose` | `init` / `frame` / `shutdown`, input state, stats |
