@@ -38,4 +38,4 @@ web/gs3d/app.js.map
 shots/
 
 # node dependencies
-node_modules/__pycache__/
+node_modules/
