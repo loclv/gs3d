@@ -469,6 +469,15 @@ export class Object3D {
   getWorldPosition(target?: Vector3): Vector3;
   getWorldDirection(target?: Vector3): Vector3;
   getWorldQuaternion(target?: Quaternion): Quaternion;
+  rotateOnAxis(axis: Vector3, angle: number): this;
+  rotateOnWorldAxis(axis: Vector3, angle: number): this;
+  rotateX(angle: number): this;
+  rotateY(angle: number): this;
+  rotateZ(angle: number): this;
+  translateX(distance: number): this;
+  translateY(distance: number): this;
+  translateZ(distance: number): this;
+  translateOnAxis(axis: Vector3, distance: number): this;
 }
 export class Group extends Object3D { constructor(); readonly isGroup: true; }
 export class Scene extends Object3D {

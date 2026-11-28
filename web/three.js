@@ -1051,6 +1051,11 @@ var Layers = class {
 		return (this.mask & 1 << channel) !== 0;
 	}
 };
+const _rotQuat = new Quaternion();
+const _rotVec = new Vector3();
+const _axisX = new Vector3(1, 0, 0);
+const _axisY = new Vector3(0, 1, 0);
+const _axisZ = new Vector3(0, 0, 1);
 let _object3DId = 0;
 var Object3D = class {
 	constructor() {
@@ -1250,6 +1255,39 @@ var Object3D = class {
 	}
 	getWorldQuaternion(target = new Quaternion()) {
 		return target.setFromRotationMatrix(worldMatrixOf(this));
+	}
+	rotateOnAxis(axis, angle) {
+		_rotQuat.setFromAxisAngle(axis, angle);
+		this.quaternion.multiply(_rotQuat);
+		return this;
+	}
+	rotateOnWorldAxis(axis, angle) {
+		_rotQuat.setFromAxisAngle(axis, angle);
+		this.quaternion.premultiply(_rotQuat);
+		return this;
+	}
+	rotateX(angle) {
+		return this.rotateOnAxis(_axisX, angle);
+	}
+	rotateY(angle) {
+		return this.rotateOnAxis(_axisY, angle);
+	}
+	rotateZ(angle) {
+		return this.rotateOnAxis(_axisZ, angle);
+	}
+	translateX(distance) {
+		return this.translateOnAxis(_axisX, distance);
+	}
+	translateY(distance) {
+		return this.translateOnAxis(_axisY, distance);
+	}
+	translateZ(distance) {
+		return this.translateOnAxis(_axisZ, distance);
+	}
+	translateOnAxis(axis, distance) {
+		_rotVec.copy(axis).applyQuaternion(this.quaternion);
+		this.position.addScaledVector(_rotVec, distance);
+		return this;
 	}
 };
 var Group = class extends Object3D {

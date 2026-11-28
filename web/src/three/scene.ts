@@ -16,6 +16,10 @@ export class Layers {
   isEnabled(channel: number) { return (this.mask & (1 << channel)) !== 0; }
 }
 
+const _rotQuat = new Quaternion();
+const _rotVec = new Vector3();
+const _axisX = new Vector3(1, 0, 0), _axisY = new Vector3(0, 1, 0), _axisZ = new Vector3(0, 0, 1);
+
 let _object3DId = 0;
 
 export class Object3D {
@@ -198,6 +202,28 @@ export class Object3D {
   }
   getWorldQuaternion(target = new Quaternion()) {
     return target.setFromRotationMatrix(worldMatrixOf(this));
+  }
+  // Local-axis rotations/translations, matching three.js Object3D helpers.
+  rotateOnAxis(axis: Vector3, angle: number) {
+    _rotQuat.setFromAxisAngle(axis, angle);
+    this.quaternion.multiply(_rotQuat);
+    return this;
+  }
+  rotateOnWorldAxis(axis: Vector3, angle: number) {
+    _rotQuat.setFromAxisAngle(axis, angle);
+    this.quaternion.premultiply(_rotQuat);
+    return this;
+  }
+  rotateX(angle: number) { return this.rotateOnAxis(_axisX, angle); }
+  rotateY(angle: number) { return this.rotateOnAxis(_axisY, angle); }
+  rotateZ(angle: number) { return this.rotateOnAxis(_axisZ, angle); }
+  translateX(distance: number) { return this.translateOnAxis(_axisX, distance); }
+  translateY(distance: number) { return this.translateOnAxis(_axisY, distance); }
+  translateZ(distance: number) { return this.translateOnAxis(_axisZ, distance); }
+  translateOnAxis(axis: Vector3, distance: number) {
+    _rotVec.copy(axis).applyQuaternion(this.quaternion);
+    this.position.addScaledVector(_rotVec, distance);
+    return this;
   }
 }
 
