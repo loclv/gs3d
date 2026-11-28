@@ -39,7 +39,7 @@
 | `platform/g3_web.c` | the WebGL2 backend (Emscripten), scene and shadow shaders, opaque instancing, GPU skin and morph deformation |
 | `platform/g3_webgpu.c`, `web/webgpu.js` | WebGPU backend and JavaScript WebGPU bridge used by the default landing page; WebGL2 remains its fallback |
 | `platform/g3_soft.c` | the CPU backend: a z-buffered reference rasterizer, threaded over row blocks |
-| `docs/` | `architecture.md`, `abi.md`, `performance.md` — the reference detail |
+| `docs/` | `architecture.md`, `abi.md`, `performance.md`, `performance-scene-sync.md` — the reference detail |
 | `.agents/skills/` | five `SKILL.md` guides for working in this repo (map, language, ABI, features, testing) |
 | `web/index.html` | the page: a canvas, the stats line, and a status overlay |
 | `web/shell.js` | boot and the frame loop — the order things happen in |

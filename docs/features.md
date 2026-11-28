@@ -147,4 +147,5 @@ and the [Three.js roadmap](threejs-roadmap.md).
 * Benchmark tooling: instancing draw-call page, animation benchmark,
   transform microbenchmark, WebGPU timestamp queries where the browser
   exposes them, and documented measurement methods in
-  [performance.md](performance.md).
+  [performance.md](performance.md) and
+  [performance-scene-sync.md](performance-scene-sync.md).

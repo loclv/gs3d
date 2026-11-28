@@ -2,7 +2,9 @@
 
 Measurements, the method that produced them, and what has already been tried and
 rejected. Everything here is reproducible on the shipped binaries — no special
-build.
+build. For the scene-graph and facade sync side — version-keyed caches,
+O(n) world updates, bulk wasm uploads — see
+[performance-scene-sync.md](performance-scene-sync.md).
 
 Machine used for all numbers below: Apple M-series, 8 logical cores (4
 performance + 4 efficiency), clang with `-O2` (Goose's default), Goose v2026.3.
