@@ -162,12 +162,13 @@ struct PhysicsRayHit {
     distance: f32 = 0.0,
 }
 
-// Ray against a sphere: exact quadratic. A ray starting inside reports a
-// hit at distance 0 with the normal pointing from the center to the origin.
-fn physics_ray_sphere(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
-    let oc = origin - b.position;
+// Ray against a sphere of `radius` at `center`: exact quadratic. A ray
+// starting inside reports a hit at distance 0 with the normal pointing
+// from the center to the origin.
+fn physics_ray_sphere_at(origin: float3, dir: float3, center: float3, radius: f32, max_dist: f32) -> PhysicsRayHit {
+    let oc = origin - center;
     let half_b = dot(dir, oc);
-    let c = dot(oc, oc) - b.radius * b.radius;
+    let c = dot(oc, oc) - radius * radius;
     let disc = half_b * half_b - c;
     if disc < 0.0 { return PhysicsRayHit { .. }; }
     var t = -half_b - sqrt(disc);
@@ -177,13 +178,17 @@ fn physics_ray_sphere(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f3
     let point = origin + dir * t;
     var normal: float3;
     if inside {
-        let off = point - b.position;
+        let off = point - center;
         let off_len = length(off);
         normal = if off_len > 0.0001 { off / off_len } else { -dir };
     } else {
-        normal = (point - b.position) / b.radius;
+        normal = (point - center) / radius;
     }
     return PhysicsRayHit { hit: true, point: point, normal: normal, distance: t, .. };
+}
+
+fn physics_ray_sphere(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
+    return physics_ray_sphere_at(origin, dir, b.position, b.radius, max_dist);
 }
 
 // One axis of the box slab test: tightens the entry/exit distances and
@@ -217,14 +222,17 @@ fn physics_ray_clip_axis(o: f32, d: f32, c: f32, he: f32, t_enter: f32, t_exit: 
 // distances, so `t` values carry over unchanged; the entry face normal is
 // rotated back to world. A ray starting inside reports distance 0 with
 // -dir as normal.
-fn physics_ray_box(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
+// `pad_radius` grows every half extent: the swept-sphere test treats the box as
+// its Minkowski sum with a sphere, conservatively approximated by the
+// axis-aligned expansion in the box's local frame.
+fn physics_ray_box_pad(origin: float3, dir: float3, b: PhysicsBody&, pad_radius: f32, max_dist: f32) -> PhysicsRayHit {
     let local_origin = physics_world_to_body(b, origin - b.position);
     let local_dir = physics_world_to_body(b, dir);
     let he = b.half_extents;
     let oo: f32[3] = [local_origin.x, local_origin.y, local_origin.z];
     let dd: f32[3] = [local_dir.x, local_dir.y, local_dir.z];
     let cc: f32[3] = [0.0, 0.0, 0.0];
-    let hh: f32[3] = [he.x, he.y, he.z];
+    let hh: f32[3] = [he.x + pad_radius, he.y + pad_radius, he.z + pad_radius];
     var t_enter: f32 = -max_dist;
     var t_exit: f32 = max_dist;
     var enter_axis: i64 = -1;
@@ -255,17 +263,23 @@ fn physics_ray_box(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) 
     return PhysicsRayHit { hit: true, point: origin + dir * distance, normal: normal, distance: distance, .. };
 }
 
+fn physics_ray_box(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
+    return physics_ray_box_pad(origin, dir, b, 0.0, max_dist);
+}
+
 // Ray against a capsule: a ray hits the capsule exactly when its distance
 // to the axis segment is under the radius, so reuse the segment-segment
 // closest-point routine with the ray as one segment. The reported distance
 // backs off from the closest approach by the surface clearance along the
 // ray; for grazing angles this is a good approximation, not exact.
-fn physics_ray_capsule(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
+// `pad_radius` is the swept sphere's radius added to the capsule's own.
+fn physics_ray_capsule_pad(origin: float3, dir: float3, b: PhysicsBody&, pad_radius: f32, max_dist: f32) -> PhysicsRayHit {
     let ray_seg = Segment { start: origin, end: origin + dir * max_dist };
     let points = segment_segment_closest(ray_seg, physics_capsule_segment(b));
     let d = points.on_first - points.on_second;
     let dist = length(d);
-    if dist >= b.radius { return PhysicsRayHit { .. }; }
+    let radius = b.radius + pad_radius;
+    if dist >= radius { return PhysicsRayHit { .. }; }
     let along = dot(points.on_first - origin, dir);
     if along < 0.0 || along > max_dist { return PhysicsRayHit { .. }; }
     var normal: float3;
@@ -276,9 +290,13 @@ fn physics_ray_capsule(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f
         // face back along the ray.
         normal = -dir;
     }
-    let clearance = sqrt(max(b.radius * b.radius - dist * dist, 0.0));
+    let clearance = sqrt(max(radius * radius - dist * dist, 0.0));
     let distance = max(along - clearance, 0.0);
     return PhysicsRayHit { hit: true, point: origin + dir * distance, normal: normal, distance: distance, .. };
+}
+
+fn physics_ray_capsule(origin: float3, dir: float3, b: PhysicsBody&, max_dist: f32) -> PhysicsRayHit {
+    return physics_ray_capsule_pad(origin, dir, b, 0.0, max_dist);
 }
 
 // Cast a ray against every live body and return the nearest hit. `dir`
@@ -312,3 +330,80 @@ fn physics_raycast_filtered(origin: float3, direction: float3, max_dist: f32, ex
     }
     return best;
 }
+
+// Sweep a sphere of `radius` along a ray: the character-controller and
+// projectile-with-volume query. Each collider is tested with the sphere's
+// radius added — exact for spheres and capsules, a conservative axis
+// expansion for boxes (see physics_ray_box_pad). Same result shape and
+// nearest-hit semantics as physics_raycast.
+fn physics_sweep_sphere(origin: float3, direction: float3, radius: f32, max_dist: f32) -> PhysicsRayHit {
+    return physics_sweep_sphere_filtered(origin, direction, radius, max_dist, -1);
+}
+
+fn physics_sweep_sphere_filtered(origin: float3, direction: float3, radius: f32, max_dist: f32, exclude: i64) -> PhysicsRayHit {
+    let dir_len = length(direction);
+    guard dir_len > 0.0001 && max_dist > 0.0 && radius >= 0.0 else { return PhysicsRayHit { .. }; }
+    let dir = direction / dir_len;
+    var best = PhysicsRayHit { .. };
+    for i in 0..g_physics_bodies.len {
+        if i == exclude { continue; }
+        let body .= g_physics_bodies[i];
+        if body.removed || !node_handle_valid(body.node) { continue; }
+        let kind = physics_kind(body);
+        var hit = PhysicsRayHit { .. };
+        if kind == 0 { hit = physics_ray_box_pad(origin, dir, body, radius, max_dist); }
+        else if kind == 1 { hit = physics_ray_sphere_at(origin, dir, body.position, body.radius + radius, max_dist); }
+        else { hit = physics_ray_capsule_pad(origin, dir, body, radius, max_dist); }
+        if hit.hit && (!best.hit || hit.distance < best.distance) {
+            best = hit;
+            best.body = i;
+        }
+    }
+    return best;
+}
+
+// Bodies whose collider overlaps a world-space sphere — trigger volumes,
+// pickups, "is anything in range" checks. physics_overlap_sphere fills the
+// result in body order and returns the count; physics_overlap_body maps a
+// result slot back to a body id. Removed bodies and dead nodes are skipped.
+var g_physics_overlap: i64[>..];
+
+fn physics_body_overlaps_sphere(b: PhysicsBody&, center: float3, radius: f32) -> bool {
+    let kind = physics_kind(b);
+    if kind == 1 {
+        return distance(center, b.position) <= radius + b.radius;
+    }
+    // Rotation preserves distances, so the test runs in the body's local
+    // frame where every collider is simple.
+    let local = physics_world_to_body(b, center - b.position);
+    if kind == 0 {
+        let he = b.half_extents;
+        let q = float3 {
+            clamp(local.x, -he.x, he.x),
+            clamp(local.y, -he.y, he.y),
+            clamp(local.z, -he.z, he.z),
+        };
+        let d = local - q;
+        return dot(d, d) <= radius * radius;
+    }
+    // Capsule: the axis is the local Y segment [-half_length, +half_length].
+    let t = clamp(local.y, -b.half_length, b.half_length);
+    let radial = float3 { local.x, local.y - t, local.z };
+    let reach = radius + b.radius;
+    return dot(radial, radial) <= reach * reach;
+}
+
+fn physics_overlap_sphere(center: float3, radius: f32) -> i64 {
+    g_physics_overlap.clear();
+    guard radius >= 0.0 else { return 0; }
+    for i in 0..g_physics_bodies.len {
+        let body .= g_physics_bodies[i];
+        if body.removed || !node_handle_valid(body.node) { continue; }
+        if physics_body_overlaps_sphere(body, center, radius) { g_physics_overlap.push(i); }
+    }
+    return g_physics_overlap.len;
+}
+
+fn physics_overlap_count() -> i64 { return g_physics_overlap.len }
+
+fn physics_overlap_body(id: i64) -> i64 { return g_physics_overlap[id]; }

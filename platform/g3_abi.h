@@ -290,6 +290,11 @@ uint8_t g3p_resize_render_target(int32_t id, int32_t width, int32_t height, int3
 /* format: 0 = RGBA8 (4 bytes/texel), 1 = RGBA16F, 2 = RGBA32F (16 bytes/texel
    when read back as float). Reads return bottom-up rows. */
 uint8_t g3p_render_target_read(int32_t id, int32_t x, int32_t y, int32_t width, int32_t height, g3_u8_slice pixels);
+/* Read back an uploaded RGBA8 texture (or a render target's RGBA8 content).
+   Rows come back in upload order: the first row written is v=0. */
+uint8_t g3p_texture_read(int32_t id, int32_t x, int32_t y, int32_t width, int32_t height, g3_u8_slice pixels);
+/* Same for an HDR (RGBA32F/RGBA16F) texture; pixels is w*h*4 floats. */
+uint8_t g3p_texture_read_hdr(int32_t id, int32_t x, int32_t y, int32_t width, int32_t height, g3_f32_slice pixels);
 uint8_t g3p_post_process(int32_t source, int32_t destination, int32_t effect);
 uint8_t g3p_post_process_shader_create(int32_t id, g3_u8_slice body);
 void g3p_post_process_shader_release(int32_t id);

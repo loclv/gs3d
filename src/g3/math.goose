@@ -34,15 +34,27 @@ fn mat4_identity() -> Mat4 {
 }
 
 // `a * b`, as it reads in math: the result applies b first, then a.
+// Hand-unrolled: the k-loop accumulates in the same order as the nested
+// loops did, so results are bit-identical, but the compiler sees sixteen
+// independent dot products instead of indexing through the loop.
 fn mat4_mul(a: Mat4, b: Mat4) -> Mat4 {
     var out = mat4_zero();
-    for c in 4 {
-        for r in 4 {
-            var s: f32 = 0.0;
-            for k in 4 { s += a.m[k * 4 + r] * b.m[c * 4 + k]; }
-            out.m[c * 4 + r] = s;
-        }
-    }
+    out.m[0] = a.m[0] * b.m[0] + a.m[4] * b.m[1] + a.m[8] * b.m[2] + a.m[12] * b.m[3];
+    out.m[1] = a.m[1] * b.m[0] + a.m[5] * b.m[1] + a.m[9] * b.m[2] + a.m[13] * b.m[3];
+    out.m[2] = a.m[2] * b.m[0] + a.m[6] * b.m[1] + a.m[10] * b.m[2] + a.m[14] * b.m[3];
+    out.m[3] = a.m[3] * b.m[0] + a.m[7] * b.m[1] + a.m[11] * b.m[2] + a.m[15] * b.m[3];
+    out.m[4] = a.m[0] * b.m[4] + a.m[4] * b.m[5] + a.m[8] * b.m[6] + a.m[12] * b.m[7];
+    out.m[5] = a.m[1] * b.m[4] + a.m[5] * b.m[5] + a.m[9] * b.m[6] + a.m[13] * b.m[7];
+    out.m[6] = a.m[2] * b.m[4] + a.m[6] * b.m[5] + a.m[10] * b.m[6] + a.m[14] * b.m[7];
+    out.m[7] = a.m[3] * b.m[4] + a.m[7] * b.m[5] + a.m[11] * b.m[6] + a.m[15] * b.m[7];
+    out.m[8] = a.m[0] * b.m[8] + a.m[4] * b.m[9] + a.m[8] * b.m[10] + a.m[12] * b.m[11];
+    out.m[9] = a.m[1] * b.m[8] + a.m[5] * b.m[9] + a.m[9] * b.m[10] + a.m[13] * b.m[11];
+    out.m[10] = a.m[2] * b.m[8] + a.m[6] * b.m[9] + a.m[10] * b.m[10] + a.m[14] * b.m[11];
+    out.m[11] = a.m[3] * b.m[8] + a.m[7] * b.m[9] + a.m[11] * b.m[10] + a.m[15] * b.m[11];
+    out.m[12] = a.m[0] * b.m[12] + a.m[4] * b.m[13] + a.m[8] * b.m[14] + a.m[12] * b.m[15];
+    out.m[13] = a.m[1] * b.m[12] + a.m[5] * b.m[13] + a.m[9] * b.m[14] + a.m[13] * b.m[15];
+    out.m[14] = a.m[2] * b.m[12] + a.m[6] * b.m[13] + a.m[10] * b.m[14] + a.m[14] * b.m[15];
+    out.m[15] = a.m[3] * b.m[12] + a.m[7] * b.m[13] + a.m[11] * b.m[14] + a.m[15] * b.m[15];
     return out;
 }
 
@@ -238,6 +250,52 @@ fn mat4_transpose(a: Mat4) -> Mat4 {
     return out;
 }
 
+// The inverse, plus whether the matrix was invertible. mat4_invert's
+// identity-on-singular fallback is kept for callers that want it; this is
+// for callers that must distinguish "inverted to identity" from "singular".
+fn mat4_try_invert(a: Mat4) -> Mat4, bool {
+    let m = a.m;
+    let a00 = m[0];  let a01 = m[1];  let a02 = m[2];  let a03 = m[3];
+    let a10 = m[4];  let a11 = m[5];  let a12 = m[6];  let a13 = m[7];
+    let a20 = m[8];  let a21 = m[9];  let a22 = m[10]; let a23 = m[11];
+    let a30 = m[12]; let a31 = m[13]; let a32 = m[14]; let a33 = m[15];
+
+    let b00 = a00 * a11 - a01 * a10;
+    let b01 = a00 * a12 - a02 * a10;
+    let b02 = a00 * a13 - a03 * a10;
+    let b03 = a01 * a12 - a02 * a11;
+    let b04 = a01 * a13 - a03 * a11;
+    let b05 = a02 * a13 - a03 * a12;
+    let b06 = a20 * a31 - a21 * a30;
+    let b07 = a20 * a32 - a22 * a30;
+    let b08 = a20 * a33 - a23 * a30;
+    let b09 = a21 * a32 - a22 * a31;
+    let b10 = a21 * a33 - a23 * a31;
+    let b11 = a22 * a33 - a23 * a32;
+
+    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+    if abs(det) < 1e-20 { return mat4_identity(), false; }
+    let inv = 1.0 / det;
+    var out = mat4_zero();
+    out.m[0] = (a11 * b11 - a12 * b10 + a13 * b09) * inv;
+    out.m[1] = (a02 * b10 - a01 * b11 - a03 * b09) * inv;
+    out.m[2] = (a31 * b05 - a32 * b04 + a33 * b03) * inv;
+    out.m[3] = (a22 * b04 - a21 * b05 - a23 * b03) * inv;
+    out.m[4] = (a12 * b08 - a10 * b11 - a13 * b07) * inv;
+    out.m[5] = (a00 * b11 - a02 * b08 + a03 * b07) * inv;
+    out.m[6] = (a32 * b02 - a30 * b05 - a33 * b01) * inv;
+    out.m[7] = (a20 * b05 - a22 * b02 + a23 * b01) * inv;
+    out.m[8] = (a10 * b10 - a11 * b08 + a13 * b06) * inv;
+    out.m[9] = (a01 * b08 - a00 * b10 - a03 * b06) * inv;
+    out.m[10] = (a30 * b04 - a31 * b02 + a33 * b00) * inv;
+    out.m[11] = (a21 * b02 - a20 * b04 - a23 * b00) * inv;
+    out.m[12] = (a11 * b07 - a10 * b09 - a12 * b06) * inv;
+    out.m[13] = (a00 * b09 - a01 * b07 + a02 * b06) * inv;
+    out.m[14] = (a31 * b01 - a30 * b03 - a32 * b00) * inv;
+    out.m[15] = (a20 * b03 - a21 * b01 + a22 * b00) * inv;
+    return out, true;
+}
+
 fn mat4_equals(a: Mat4, b: Mat4) -> bool {
     for i in 16 { if a.m[i] != b.m[i] { return false; } }
     return true;
@@ -284,6 +342,36 @@ fn aabb_add(b: Aabb&, p: float3) {
 fn aabb_center(b: Aabb) -> float3 { (b.lo + b.hi) * 0.5 }
 
 fn aabb_radius(b: Aabb) -> f32 { length((b.hi - b.lo) * 0.5) }
+
+// An empty box (from aabb_empty, or one with no points added) has lo > hi
+// on every axis; tests below treat that as touching nothing.
+fn aabb_is_empty(b: Aabb) -> bool { return b.lo.x > b.hi.x || b.lo.y > b.hi.y || b.lo.z > b.hi.z }
+
+fn aabb_contains_point(b: Aabb, p: float3) -> bool {
+    return p.x >= b.lo.x && p.x <= b.hi.x && p.y >= b.lo.y && p.y <= b.hi.y && p.z >= b.lo.z && p.z <= b.hi.z;
+}
+
+fn aabb_intersects(a: Aabb, b: Aabb) -> bool {
+    return a.lo.x <= b.hi.x && a.hi.x >= b.lo.x &&
+           a.lo.y <= b.hi.y && a.hi.y >= b.lo.y &&
+           a.lo.z <= b.hi.z && a.hi.z >= b.lo.z;
+}
+
+fn aabb_contains_aabb(a: Aabb, b: Aabb) -> bool {
+    return b.lo.x >= a.lo.x && b.hi.x <= a.hi.x &&
+           b.lo.y >= a.lo.y && b.hi.y <= a.hi.y &&
+           b.lo.z >= a.lo.z && b.hi.z <= a.hi.z;
+}
+
+// The smallest box covering both inputs; either may be empty.
+fn aabb_merge(a: Aabb, b: Aabb) -> Aabb {
+    if aabb_is_empty(a) { return b; }
+    if aabb_is_empty(b) { return a; }
+    Aabb {
+        lo: float3 { min(a.lo.x, b.lo.x), min(a.lo.y, b.lo.y), min(a.lo.z, b.lo.z) },
+        hi: float3 { max(a.hi.x, b.hi.x), max(a.hi.y, b.hi.y), max(a.hi.z, b.hi.z) },
+    }
+}
 
 // The world-space box around a local box under `m`: all eight corners, which
 // is exact enough to cull with and cheap enough to do per node.
@@ -352,6 +440,26 @@ fn frustum_intersects(f: Frustum, b: Aabb) -> bool {
             if p.n.z >= 0.0 { b.hi.z } else { b.lo.z },
         };
         if dot(p.n, v) + p.d < 0.0 { return false; }
+    }
+    return true;
+}
+
+// Is the point on the inside of every plane?
+fn frustum_contains_point(f: Frustum, p: float3) -> bool {
+    for i in 6 {
+        let pl = f.planes[i];
+        if dot(pl.n, p) + pl.d < 0.0 { return false; }
+    }
+    return true;
+}
+
+// Sphere-vs-frustum: reject when the centre is further than `radius` beyond
+// any plane. The conservative bound (centre distance minus radius) keeps a
+// sphere that straddles a plane visible.
+fn frustum_intersects_sphere(f: Frustum, center: float3, radius: f32) -> bool {
+    for i in 6 {
+        let pl = f.planes[i];
+        if dot(pl.n, center) + pl.d < -radius { return false; }
     }
     return true;
 }

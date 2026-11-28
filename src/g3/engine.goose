@@ -30,7 +30,9 @@ namespace g3;
 let KEY_COUNT = 512;
 
 // Key codes. They are the numbers a keyboard's classic keys have always had,
-// which is also what `web/shell.js` maps the browser's events onto.
+// which is also what `web/shell.js` maps the browser's events onto. The
+// table tracks all 512 codes; only the commonly bound ones are named here —
+// any other code can be passed to key_down/key_pressed directly.
 let KEY_BACKSPACE = 8;
 let KEY_TAB = 9;
 let KEY_ENTER = 13;

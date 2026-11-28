@@ -25,6 +25,8 @@ struct Stats {
     nodes: i64,         // nodes with geometry that the pass looked at
     drawn: i64,         // items that went to the backend
     culled: i64,        // left out by the frustum
+    distance_culled: i64, // left out by set_max_view_distance
+    lod_swaps: i64,     // nodes drawn through their lod_mesh
     triangles: i64,
     draws: i64,         // draw items submitted to the backend, before backend batching
     feedback_items_suppressed: i64, // submitted items skipped because a material samples the active target
@@ -43,6 +45,7 @@ var g_output_srgb: bool;
 var g_tone_mapping: i32;
 var g_fxaa: bool;
 var g_exposure: f32 = 1.0;
+var g_max_view_distance: f32 = 0.0;
 var g_shadow_center: float3;
 var g_shadow_extent: f32;
 var g_shadow_bias: f32;
@@ -380,6 +383,15 @@ fn set_tone_mapping(enabled: bool) { g_tone_mapping = if enabled { TONE_MAPPING_
 // Apply a fast edge-aware antialiasing pass after scene rendering.
 fn set_fxaa(enabled: bool) { g_fxaa = enabled; }
 
+// World-space distance beyond which nodes are culled, measured to the
+// nearest point of the node's bounds sphere. 0 disables. Perspective
+// cameras only — orthographic depth is not a distance.
+fn set_max_view_distance(distance: f32) -> bool {
+    guard distance >= 0.0 && distance <= 3.4e38 else { return false; }
+    g_max_view_distance = distance;
+    return true;
+}
+
 // Apply one built-in pass from any texture to a render target. Calls can be
 // chained in order; source and destination must be different textures.
 fn post_process_run(source: i32, destination: i32, effect: i32) -> bool {
@@ -595,7 +607,7 @@ fn sort_key(mesh_id: i32, dist: f32, blended: bool) -> f32 {
 
 // One node's worth of a frame: its matrices multiplied out, its colour and
 // shading parameters, and the key that decides where it sorts.
-fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
+fn pack_item(n: Node&, mesh_id: i32, dist: f32) -> DrawItem {
     if !n.mvp_cache_valid || n.world_dirty || n.cached_mvp_view_version != g_view_proj_version {
         n.cached_mvp = mat4_mul(g_view_proj, n.world);
         n.cached_mvp_view_version = g_view_proj_version;
@@ -607,7 +619,7 @@ fn pack_item(n: Node&, m: Mesh&, dist: f32) -> DrawItem {
     if material_valid(n.material) { surface = g_materials[n.material]; }
     let blended = surface_is_blended(surface.alpha_mode, surface.color.w);
     return DrawItem {
-        mesh: n.mesh,
+        mesh: mesh_id,
         mvp: n.cached_mvp,
         model: n.world,
         color: surface.color,
@@ -727,15 +739,37 @@ fn render_scene() {
             continue;
         }
         let blended = node_is_blended(n);
-        if blended && !box_ready { box = aabb_transform_affine(m.bounds, n.world); }
-        let dist = if blended {
+        // View distance feeds the blended sort key, LOD selection and
+        // distance culling; compute it once, lazily, off the world box.
+        let want_dist = blended || g_max_view_distance > 0.0 ||
+            (n.lod_mesh >= 0 && n.lod_mesh < g_meshes.len && n.lod_distance > 0.0);
+        var dist: f32 = 0.0;
+        if want_dist {
+            if !box_ready { box = aabb_transform_affine(m.bounds, n.world); box_ready = true; }
             let center = aabb_center(box);
-            if g_camera.orthographic { -mat4_apply(g_view, center).z }
-            else { length(center - g_camera.pos) }
-        } else { 0.0 };
-        g_draws.push(pack_item(n, m, dist));
+            dist = if g_camera.orthographic { -mat4_apply(g_view, center).z }
+                   else { length(center - g_camera.pos) };
+        }
+        // Distance culling uses the bounds sphere: centre distance minus
+        // radius is a lower bound on the true distance, so it can only
+        // reject boxes entirely beyond the limit.
+        if g_max_view_distance > 0.0 && !g_camera.orthographic && box_ready &&
+           dist - aabb_radius(box) > g_max_view_distance {
+            g_stats.distance_culled += 1;
+            continue;
+        }
+        // Two-level LOD: swap in the node's lod_mesh beyond lod_distance.
+        // Culling still uses the primary mesh's bounds, which is the
+        // conservative choice when the LOD mesh is smaller.
+        var mesh_id = n.mesh;
+        if n.lod_mesh >= 0 && n.lod_mesh < g_meshes.len && n.lod_distance > 0.0 &&
+           dist > n.lod_distance && mesh_handle_valid(mesh_handle(n.lod_mesh)) {
+            mesh_id = n.lod_mesh;
+            g_stats.lod_swaps += 1;
+        }
+        g_draws.push(pack_item(n, mesh_id, dist));
         g_stats.drawn += 1;
-        g_stats.triangles += m.index_count / 3;
+        g_stats.triangles += g_meshes[mesh_id].index_count / 3;
     }
     var needs_sort = false;
     for i in 1..g_draws.len {

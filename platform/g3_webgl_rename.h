@@ -28,6 +28,8 @@
 #define g3p_draw_frame g3glp_draw_frame
 #define g3p_save_frame g3glp_save_frame
 #define g3p_read_pixel g3glp_read_pixel
+#define g3p_texture_read g3glp_texture_read
+#define g3p_texture_read_hdr g3glp_texture_read_hdr
 #define g3_backend_resize g3gl_backend_resize
 #define g3_host_scene_draw_calls g3gl_host_scene_draw_calls
 #define g3_host_scene_draw_ms g3gl_host_scene_draw_ms

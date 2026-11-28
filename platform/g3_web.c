@@ -1841,6 +1841,54 @@ uint8_t g3p_render_target_read(int32_t id, int32_t x, int32_t y, int32_t w, int3
     return 1;
 }
 
+/* Read back an uploaded texture's base level. glGetTexImage has no sub-rect
+   form, so the whole level comes down and the requested rows are copied out.
+   GL returns rows in the same order texImage2D was given them, which is the
+   upload order the engine documents (first row = v=0). */
+uint8_t g3p_texture_read(int32_t id, int32_t x, int32_t y, int32_t w, int32_t h, g3_u8_slice pixels) {
+    if (id < 0 || id >= texture_count || !textures[id] || !pixels.data ||
+        w <= 0 || h <= 0 || x < 0 || y < 0 ||
+        x + w > texture_widths[id] || y + h > texture_heights[id] ||
+        pixels.len < (int64_t)w * (int64_t)h * 4) return 0;
+    int32_t tw = texture_widths[id], th = texture_heights[id];
+    uint8_t *full = (uint8_t *)malloc((size_t)tw * (size_t)th * 4);
+    if (!full) return 0;
+    GLint prev = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev);
+    glBindTexture(GL_TEXTURE_2D, textures[id]);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, full);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prev);
+    for (int32_t row = 0; row < h; row++) {
+        memcpy(pixels.data + (size_t)row * (size_t)w * 4,
+               full + ((size_t)(y + row) * (size_t)tw + (size_t)x) * 4, (size_t)w * 4);
+    }
+    free(full);
+    return 1;
+}
+
+uint8_t g3p_texture_read_hdr(int32_t id, int32_t x, int32_t y, int32_t w, int32_t h, g3_f32_slice pixels) {
+    if (id < 0 || id >= texture_count || !textures[id] || !pixels.data ||
+        w <= 0 || h <= 0 || x < 0 || y < 0 ||
+        x + w > texture_widths[id] || y + h > texture_heights[id] ||
+        pixels.len < (int64_t)w * (int64_t)h * 4) return 0;
+    int32_t tw = texture_widths[id], th = texture_heights[id];
+    float *full = (float *)malloc((size_t)tw * (size_t)th * 16);
+    if (!full) return 0;
+    GLint prev = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev);
+    glBindTexture(GL_TEXTURE_2D, textures[id]);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, full);
+    GLenum err = glGetError();
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prev);
+    if (err != GL_NO_ERROR) { free(full); return 0; }
+    for (int32_t row = 0; row < h; row++) {
+        memcpy(pixels.data + (size_t)row * (size_t)w * 4,
+               full + ((size_t)(y + row) * (size_t)tw + (size_t)x) * 4, (size_t)w * 16);
+    }
+    free(full);
+    return 1;
+}
+
 /* Browser assets are fetched and decoded by web/assets.js. */
 uint8_t g3p_load_radiance_hdr(int32_t id, g3_u8_slice path) {
     (void)id; (void)path;

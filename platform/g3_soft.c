@@ -2103,6 +2103,32 @@ uint8_t g3p_render_target_read(int32_t id, int32_t x, int32_t y, int32_t w, int3
     return 1;
 }
 
+uint8_t g3p_texture_read(int32_t id, int32_t x, int32_t y, int32_t w, int32_t h, g3_u8_slice pixels) {
+    if (id < 0 || id >= texture_count || !textures[id].pixels || !pixels.data ||
+        w <= 0 || h <= 0 || x < 0 || y < 0 ||
+        x + w > textures[id].w || y + h > textures[id].h ||
+        pixels.len < (int64_t)w * (int64_t)h * 4) return 0;
+    const soft_texture *t = &textures[id];
+    for (int32_t row = 0; row < h; row++) {
+        const uint8_t *src = t->pixels + ((size_t)(y + row) * (size_t)t->w + (size_t)x) * 4;
+        memcpy(pixels.data + (size_t)row * (size_t)w * 4, src, (size_t)w * 4);
+    }
+    return 1;
+}
+
+uint8_t g3p_texture_read_hdr(int32_t id, int32_t x, int32_t y, int32_t w, int32_t h, g3_f32_slice pixels) {
+    if (id < 0 || id >= texture_count || !textures[id].hdr_pixels || !pixels.data ||
+        w <= 0 || h <= 0 || x < 0 || y < 0 ||
+        x + w > textures[id].w || y + h > textures[id].h ||
+        pixels.len < (int64_t)w * (int64_t)h * 4) return 0;
+    const soft_texture *t = &textures[id];
+    for (int32_t row = 0; row < h; row++) {
+        const float *src = t->hdr_pixels + ((size_t)(y + row) * (size_t)t->w + (size_t)x) * 4;
+        memcpy(pixels.data + (size_t)row * (size_t)w * 4, src, (size_t)w * 16);
+    }
+    return 1;
+}
+
 uint32_t g3p_read_pixel(int32_t x, int32_t y) {
     if (!fb || x < 0 || y < 0 || x >= fb_w || y >= fb_h) return 0;
     const uint8_t *p = fb + ((size_t)y * (size_t)fb_w + (size_t)x) * 3;

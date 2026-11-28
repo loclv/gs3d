@@ -24,6 +24,14 @@ namespace g3;
 
 struct Node {
     mesh: i32 = -1,             // -1: a group, it draws nothing
+    // Optional label for node_find; the slice must outlive the node —
+    // string literals and other static data are the safe sources.
+    name: const u8[:] = "",
+    // Two-level LOD: when the view distance exceeds lod_distance and
+    // lod_mesh names a live mesh, that mesh is drawn instead. 0 distance
+    // disables the swap; -1 mesh disables it too.
+    lod_mesh: i32 = -1,
+    lod_distance: f32 = 0.0,
     material: i32 = -1,         // -1: use this node's inline surface fields
     texture: i32 = -1,          // texture_create handle, or -1 for solid colour
     parent: i32 = -1,           // -1: a root
@@ -336,6 +344,53 @@ fn node_group() -> i64 {
 
 fn node_parent(child: i64, parent: i64) {
     g_nodes[child].parent = parent as i32;
+}
+
+// Children of a node in scene order. Goose has no iterators, so callers
+// walk `for i in 0..node_child_count(p)` and `node_child_at(p, i)`.
+fn node_child_count(parent: i64) -> i64 {
+    let p = parent as i32;
+    var count: i64 = 0;
+    for i in 0..g_nodes.len {
+        if !g_nodes[i].asset_free && g_nodes[i].parent == p { count += 1; }
+    }
+    return count;
+}
+
+fn node_child_at(parent: i64, index: i64) -> i64 {
+    let p = parent as i32;
+    var seen: i64 = 0;
+    for i in 0..g_nodes.len {
+        if !g_nodes[i].asset_free && g_nodes[i].parent == p {
+            if seen == index { return i; }
+            seen += 1;
+        }
+    }
+    return -1;
+}
+
+fn node_set_name(id: i64, name: const u8[:]) -> bool {
+    guard id >= 0 && id < g_nodes.len && !g_nodes[id].asset_free else { return false; }
+    g_nodes[id].name = name;
+    return true;
+}
+
+fn node_name(id: i64) -> const u8[:] {
+    guard id >= 0 && id < g_nodes.len else { return ""; }
+    return g_nodes[id].name;
+}
+
+// First live node carrying `name`, or -1. Comparison is bytewise.
+fn node_find(name: const u8[:]) -> i64 {
+    for i in 0..g_nodes.len {
+        if g_nodes[i].asset_free || g_nodes[i].name.len != name.len { continue; }
+        var same = true;
+        for j in 0..name.len {
+            if g_nodes[i].name[j] != name[j] { same = false; break; }
+        }
+        if same { return i; }
+    }
+    return -1;
 }
 
 fn node_local(n: Node&) -> Mat4 {

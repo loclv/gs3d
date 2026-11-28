@@ -400,8 +400,10 @@ fn mesh_cube(half: f32) -> i32 {
 }
 
 // A ball: `rings` bands from pole to pole, `segments` around, smooth normals.
-// The poles end up with a whole fan of coincident vertices, which is one
-// triangle fan's worth of waste and no work to avoid.
+// The poles still carry a row of coincident vertices for the UV seam, but
+// their cells emit triangle fans instead of the degenerate quads a grid
+// would produce — the surviving triangles, and so the rendered image, are
+// exactly the ones the grid emitted.
 fn mesh_sphere(radius: f32, rings: i64, segments: i64) -> i32 {
     let fv = g_build_verts.len;
     let fi = g_build_indices.len;
@@ -413,7 +415,27 @@ fn mesh_sphere(radius: f32, rings: i64, segments: i64) -> i32 {
             push_vertex_uv(n * radius, n, float2 { s as f32 / segments, r as f32 / rings });
         }
     }
-    push_grid(rings, segments, segments + 1, false);
+    let stride = segments + 1;
+    // Top cap: one triangle per segment, pole vertex to the first ring.
+    for s in 0..segments {
+        push_triangle(s as u32, (stride + s + 1) as u32, (stride + s) as u32);
+    }
+    // Interior quads, rows 1..rings-1, same winding push_grid uses.
+    for r in 1..rings - 1 {
+        for c in 0..segments {
+            let a = (r * stride + c) as u32;
+            let b = (r * stride + c + 1) as u32;
+            let c2 = ((r + 1) * stride + c + 1) as u32;
+            let d = ((r + 1) * stride + c) as u32;
+            push_triangle(a, b, c2);
+            push_triangle(a, c2, d);
+        }
+    }
+    // Bottom cap.
+    for s in 0..segments {
+        push_triangle(((rings - 1) * stride + s) as u32, ((rings - 1) * stride + s + 1) as u32,
+                      (rings * stride + s + 1) as u32);
+    }
     return mesh_close(fv, fi);
 }
 
@@ -436,4 +458,152 @@ fn mesh_plane(size: f32, tiles: i64) -> i32 {
     // faces down and would be culled.
     push_grid(tiles, tiles, tiles + 1, true);
     return mesh_close(fv, fi);
+}
+
+// A cylinder along Y, centred on the origin, `segments` around. With `capped`
+// both ends get a fan: a centre vertex plus a ring whose normals differ from
+// the side's, so they cannot share the side's vertices.
+fn mesh_cylinder(radius: f32, height: f32, segments: i64, capped: bool) -> i32 {
+    let fv = g_build_verts.len;
+    let fi = g_build_indices.len;
+    let half = height * 0.5;
+    // Side: two rings, seam vertex duplicated at s = segments.
+    for row in 0..2 {
+        let y = if row == 0 { -half } else { half };
+        for s in 0..segments + 1 {
+            let theta = (s as f32 / segments) * TAU;
+            let radial = float3 { cos(theta), 0.0, sin(theta) };
+            push_vertex_uv(radial * radius + float3 { 0.0, y, 0.0 }, radial,
+                           float2 { s as f32 / segments, row });
+        }
+    }
+    let stride = segments + 1;
+    for s in 0..segments {
+        let a = s as u32;
+        let b = (s + 1) as u32;
+        let c2 = (stride + s + 1) as u32;
+        let d = (stride + s) as u32;
+        // Outward-facing: verified against the radial normal at theta = 0.
+        push_triangle(a, d, c2);
+        push_triangle(a, c2, b);
+    }
+    if capped {
+        mesh_cap_disc(-half, radius, segments, false);
+        mesh_cap_disc(half, radius, segments, true);
+    }
+    return mesh_close(fv, fi);
+}
+
+// One flat cap of a cylinder/cone: centre vertex plus `segments` ring
+// vertices at height `y`, then a fan. `up` picks the winding so the cap
+// faces away from the cylinder's interior.
+fn mesh_cap_disc(y: f32, radius: f32, segments: i64, up: bool) {
+    let base = g_build_verts.len as u32;
+    let normal = if up { float3 { 0.0, 1.0, 0.0 } } else { float3 { 0.0, -1.0, 0.0 } };
+    push_vertex_uv(float3 { 0.0, y, 0.0 }, normal, float2 { 0.5, 0.5 });
+    for s in 0..segments {
+        let theta = (s as f32 / segments) * TAU;
+        push_vertex_uv(float3 { cos(theta) * radius, y, sin(theta) * radius }, normal,
+                       float2 { 0.5 + cos(theta) * 0.5, 0.5 + sin(theta) * 0.5 });
+    }
+    for s in 0..segments {
+        let a = base;
+        let b = base + 1 + s as u32;
+        let c = base + 1 + ((s + 1) % segments) as u32;
+        if up {
+            push_triangle(a, c, b);
+        } else {
+            push_triangle(a, b, c);
+        }
+    }
+}
+
+// A cone along Y, apex at +height/2, base disc at -height/2. Side normals
+// tilt outward by the slant angle; the base is capped, the apex is a point.
+fn mesh_cone(radius: f32, height: f32, segments: i64) -> i32 {
+    let fv = g_build_verts.len;
+    let fi = g_build_indices.len;
+    let half = height * 0.5;
+    let slant = sqrt(radius * radius + height * height);
+    guard slant > 0.0 else { return mesh_close(fv, fi); }
+    // Base ring (seam duplicated), then the apex.
+    for s in 0..segments + 1 {
+        let theta = (s as f32 / segments) * TAU;
+        let p = float3 { cos(theta) * radius, -half, sin(theta) * radius };
+        let n = float3 { cos(theta) * height / slant, radius / slant, sin(theta) * height / slant };
+        push_vertex_uv(p, n, float2 { s as f32 / segments, 0.0 });
+    }
+    let apex = g_build_verts.len as u32;
+    push_vertex_uv(float3 { 0.0, half, 0.0 }, float3 { 0.0, 1.0, 0.0 }, float2 { 0.5, 1.0 });
+    for s in 0..segments {
+        // (base_s, apex, base_s+1) winds so the slant normal points outward.
+        push_triangle(s as u32, apex, (s + 1) as u32);
+    }
+    mesh_cap_disc(-half, radius, segments, false);
+    return mesh_close(fv, fi);
+}
+
+// A torus around Y: `ring_radius` from the centre to the tube's centre,
+// `tube_radius` the tube itself, `segments` around the ring and `sides`
+// around the tube.
+fn mesh_torus(ring_radius: f32, tube_radius: f32, segments: i64, sides: i64) -> i32 {
+    let fv = g_build_verts.len;
+    let fi = g_build_indices.len;
+    for i in 0..sides + 1 {
+        let psi = (i as f32 / sides) * TAU;
+        let sp = sin(psi);
+        let cp = cos(psi);
+        for j in 0..segments + 1 {
+            let phi = (j as f32 / segments) * TAU;
+            let cf = cos(phi);
+            let sf = sin(phi);
+            let radial = ring_radius + tube_radius * cp;
+            let p = float3 { radial * cf, tube_radius * sp, radial * sf };
+            let n = float3 { cp * cf, sp, cp * sf };
+            push_vertex_uv(p, n, float2 { j as f32 / segments, i as f32 / sides });
+        }
+    }
+    push_grid(sides, segments, segments + 1, true);
+    return mesh_close(fv, fi);
+}
+
+// A single quad in the XY plane facing +Z, `width` by `height`, centred on
+// the origin — the sprite/billboard primitive mesh_plane cannot express.
+fn mesh_quad(width: f32, height: f32) -> i32 {
+    let fv = g_build_verts.len;
+    let fi = g_build_indices.len;
+    let hw = width * 0.5;
+    let hh = height * 0.5;
+    let n = float3 { 0.0, 0.0, 1.0 };
+    push_vertex_uv(float3 { -hw, -hh, 0.0 }, n, float2 { 0.0, 0.0 });
+    push_vertex_uv(float3 { hw, -hh, 0.0 }, n, float2 { 1.0, 0.0 });
+    push_vertex_uv(float3 { hw, hh, 0.0 }, n, float2 { 1.0, 1.0 });
+    push_vertex_uv(float3 { -hw, hh, 0.0 }, n, float2 { 0.0, 1.0 });
+    push_triangle(0, 1, 2);
+    push_triangle(0, 2, 3);
+    return mesh_close(fv, fi);
+}
+
+// Permanent custom geometry: unlike mesh_asset_create the mesh is never
+// recycled, and mesh_remove can retire it once no node references it.
+// Indices are validated against the vertex count before upload.
+fn mesh_create(verts: const Vertex[:], indices: const u32[:]) -> i32 {
+    guard verts.len > 0 && indices.len > 0 else { return -1; }
+    for i in 0..indices.len {
+        if indices[i] >= verts.len { return -1; }
+    }
+    var bounds = aabb_empty();
+    for v in verts { aabb_add(bounds, v.pos); }
+    let fv = span_alloc_first(verts.len, 0, g_verts.len);
+    while g_verts.len < fv + verts.len { g_verts.push(Vertex { .. }); }
+    let fi = span_alloc_first(indices.len, 1, g_indices.len);
+    while g_indices.len < fi + indices.len { g_indices.push(0); }
+    for j in 0..verts.len { g_verts[fv + j] = verts[j]; }
+    for j in 0..indices.len { g_indices[fi + j] = indices[j]; }
+    let id = g_meshes.len as i32;
+    g_meshes.push(Mesh { id: id, first_vertex: fv, vertex_count: verts.len,
+                         first_index: fi, index_count: indices.len, bounds: bounds,
+                         vertex_capacity: verts.len, index_capacity: indices.len, .. });
+    g3p_upload_mesh(id, g_verts[fv..fv + verts.len], g_indices[fi..fi + indices.len]);
+    return id;
 }

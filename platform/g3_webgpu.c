@@ -35,6 +35,8 @@ extern int32_t g3glp_decode_texture_srgb(int32_t, g3_u8_slice);
 extern int32_t g3glp_decode_texture_linear(int32_t, g3_u8_slice);
 extern uint8_t g3glp_save_frame(g3_u8_slice);
 extern uint32_t g3glp_read_pixel(int32_t, int32_t);
+extern uint8_t g3glp_texture_read(int32_t, int32_t, int32_t, int32_t, int32_t, g3_u8_slice);
+extern uint8_t g3glp_texture_read_hdr(int32_t, int32_t, int32_t, int32_t, int32_t, g3_f32_slice);
 extern int32_t g3gl_host_scene_draw_calls(void);
 #ifdef G3_BENCHMARK_TIMING
 extern double g3gl_host_scene_draw_ms(void);
@@ -118,3 +120,5 @@ int32_t g3p_decode_texture_srgb(int32_t a,g3_u8_slice b){return active_backend==
 int32_t g3p_decode_texture_linear(int32_t a,g3_u8_slice b){return active_backend==1?g3glp_decode_texture_linear(a,b):-1;}
 uint8_t g3p_save_frame(g3_u8_slice a){return active_backend==1?g3glp_save_frame(a):0;}
 uint32_t g3p_read_pixel(int32_t x,int32_t y){return active_backend==1?g3glp_read_pixel(x,y):0;}
+uint8_t g3p_texture_read(int32_t a,int32_t b,int32_t c,int32_t d,int32_t e,int32_t f,g3_u8_slice g){return active_backend==1?g3glp_texture_read(a,b,c,d,e,f,g):0;}
+uint8_t g3p_texture_read_hdr(int32_t a,int32_t b,int32_t c,int32_t d,int32_t e,int32_t f,g3_f32_slice g){return active_backend==1?g3glp_texture_read_hdr(a,b,c,d,e,f,g):0;}

@@ -292,3 +292,30 @@ fn texture_asset_release_handle(handle: TextureHandle) -> bool {
     texture_asset_release(handle.id);
     return true;
 }
+
+// Release a texture created by texture_create and friends. Asset-owned and
+// render-target textures have their own release paths; callers must ensure
+// no node or material still samples the texture.
+fn texture_release(id: i32) -> bool {
+    guard id >= 0 && id < g_texture_count && texture_slot_live(id) &&
+          !g_texture_slots[id].asset_owned && !g_texture_slots[id].render_target else { return false; }
+    g3p_release_texture(id);
+    g_texture_slots[id].removed = true;
+    return true;
+}
+
+// Read back texels of an RGBA8 texture (or an RGBA8 render target).
+// (x, y) is a texel offset from the top-left; rows come back in upload
+// order, the first row being v=0. `pixels` must hold width*height*4 bytes.
+fn texture_read(id: i32, x: i32, y: i32, width: i32, height: i32, pixels: const u8[:]) -> bool {
+    guard id >= 0 && id < g_texture_count && texture_slot_live(id) else { return false; }
+    return g3p_texture_read(id, x, y, width, height, pixels);
+}
+
+// HDR variant for textures made by texture_create_hdr or an HDR render
+// target: `pixels` holds width*height*4 floats. Unsupported formats and
+// the WebGPU backend report false.
+fn texture_read_hdr(id: i32, x: i32, y: i32, width: i32, height: i32, pixels: const f32[:]) -> bool {
+    guard id >= 0 && id < g_texture_count && texture_slot_live(id) else { return false; }
+    return g3p_texture_read_hdr(id, x, y, width, height, pixels);
+}

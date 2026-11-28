@@ -194,6 +194,11 @@ extern fn g3p_mouse_dy() -> f32;
 // (the web backend), which is how an app tells whether it can.
 extern fn g3p_save_frame(path: const u8[:]) -> bool;
 
+// Read back an uploaded texture's texels, rows in upload order (first row
+// is v=0). pixels must hold width*height*4 bytes (or floats for _hdr).
+extern fn g3p_texture_read(id: i32, x: i32, y: i32, width: i32, height: i32, pixels: const u8[:]) -> bool;
+extern fn g3p_texture_read_hdr(id: i32, x: i32, y: i32, width: i32, height: i32, pixels: const f32[:]) -> bool;
+
 // The rgb of one pixel of the frame just drawn, as 0xRRGGBB, with (0, 0) at
 // the top left. 0 outside the surface. This is how a headless program checks
 // what it drew; it is a read of the framebuffer, so it costs a stall.
