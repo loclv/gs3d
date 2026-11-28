@@ -1,6 +1,7 @@
 import { Color } from './color';
-import { Vector2, Vector3, Euler, Quaternion, Matrix4, transformPoint, transformDir, normalize3 } from './math';
+import { Vector2, Vector3, Vector4, Euler, Quaternion, Matrix4, transformPoint, transformDir, normalize3 } from './math';
 import { releaseEngineTree, localMatrixOf, worldMatrixOf } from './bridge';
+import { EventDispatcher } from './events';
 
 /* --- scene graph ---------------------------------------------------------- */
 
@@ -22,7 +23,7 @@ const _axisX = new Vector3(1, 0, 0), _axisY = new Vector3(0, 1, 0), _axisZ = new
 
 let _object3DId = 0;
 
-export class Object3D {
+export class Object3D extends EventDispatcher {
   isObject3D: boolean;
   id: number;
   uuid: string;
@@ -52,6 +53,7 @@ export class Object3D {
   isGroup?: boolean;
   isScene?: boolean;
   constructor() {
+    super();
     this.isObject3D = true;
     this.id = _object3DId++;
     this.uuid = 'obj-' + Math.random().toString(36).slice(2, 10);
@@ -225,6 +227,122 @@ export class Object3D {
     this.position.addScaledVector(_rotVec, distance);
     return this;
   }
+  // --- three.js parity helpers -------------------------------------------------
+  // Prototype accessors (three r180 exposes these on the prototype too).
+  get onBeforeRender() { return this._onBeforeRender ?? null; }
+  set onBeforeRender(v: Function | null) { this._onBeforeRender = v; }
+  get onAfterRender() { return this._onAfterRender ?? null; }
+  set onAfterRender(v: Function | null) { this._onAfterRender = v; }
+  get onBeforeShadow() { return this._onBeforeShadow ?? null; }
+  set onBeforeShadow(v: Function | null) { this._onBeforeShadow = v; }
+  get onAfterShadow() { return this._onAfterShadow ?? null; }
+  set onAfterShadow(v: Function | null) { this._onAfterShadow = v; }
+  _onBeforeRender: Function | null = null;
+  _onAfterRender: Function | null = null;
+  _onBeforeShadow: Function | null = null;
+  _onAfterShadow: Function | null = null;
+  applyMatrix4(m: Matrix4) {
+    // Transform the world transform, then fold back into the local TRS.
+    this.updateWorldMatrix(true, false);
+    const world = new Matrix4().multiplyMatrices(m.elements || m, this.matrixWorld);
+    const local = this.parent
+      ? world.premultiply(new Matrix4().copy(this.parent.matrixWorld).invert())
+      : world;
+    local.decompose(this.position, this.quaternion, this.scale);
+    this.updateMatrix();
+    return this;
+  }
+  applyQuaternion(q: Quaternion) {
+    // World-space rotation premultiplied onto the local quaternion.
+    const world = new Quaternion().setFromRotationMatrix(worldMatrixOf(this));
+    world.premultiply(q);
+    this.quaternion.copy(world);
+    return this;
+  }
+  setRotationFromAxisAngle(axis: Vector3, angle: number) {
+    this.quaternion.setFromAxisAngle(axis, angle);
+    return this;
+  }
+  setRotationFromEuler(euler: Euler) {
+    this.quaternion.setFromEuler(euler);
+    this.rotation.copy(euler);
+    return this;
+  }
+  setRotationFromMatrix(m: Matrix4) {
+    this.quaternion.setFromRotationMatrix(m);
+    return this;
+  }
+  setRotationFromQuaternion(q: Quaternion) {
+    this.quaternion.copy(q);
+    return this;
+  }
+  // Reparent keeping the world transform (three.Object3D.attach).
+  attach(object: Object3D) {
+    this.updateWorldMatrix(true, false);
+    object.updateWorldMatrix(true, false);
+    const world = object.matrixWorld.clone();
+    const inv = new Matrix4().copy(this.matrixWorld).invert();
+    const local = world.premultiply(inv);
+    local.decompose(object.position, object.quaternion, object.scale);
+    object.updateMatrix();
+    this.add(object);
+    return this;
+  }
+  getObjectById(id: number) {
+    if (this.id === id) return this;
+    for (const child of this.children) {
+      const found = child.getObjectById(id);
+      if (found) return found;
+    }
+    return null;
+  }
+  getObjectsByProperty(name: string, value: any, result: Object3D[] = []) {
+    if ((this as any)[name] === value) result.push(this);
+    for (const child of this.children) child.getObjectsByProperty(name, value, result);
+    return result;
+  }
+  getWorldScale(target = new Vector3()) {
+    const m = worldMatrixOf(this);
+    return target.set(
+      Math.hypot(m[0], m[1], m[2]),
+      Math.hypot(m[4], m[5], m[6]),
+      Math.hypot(m[8], m[9], m[10]),
+    );
+  }
+  // Copy transform + common fields; recursive clones children like three.
+  copy(source: Object3D, recursive = true) {
+    this.name = source.name;
+    this.position.copy(source.position);
+    this.quaternion.copy(source.quaternion);
+    this.scale.copy(source.scale);
+    this.rotation.copy(source.rotation);
+    this.visible = source.visible;
+    this.castShadow = source.castShadow;
+    this.receiveShadow = source.receiveShadow;
+    this.renderOrder = source.renderOrder;
+    this.frustumCulled = source.frustumCulled;
+    this.matrixAutoUpdate = source.matrixAutoUpdate;
+    this.userData = JSON.parse(JSON.stringify(source.userData || {}));
+    if (recursive) {
+      for (const child of source.children) this.add(child.clone(true));
+    }
+    return this;
+  }
+  clone(recursive = true) {
+    return new (this as any).constructor().copy(this, recursive);
+  }
+  raycast(raycaster: any, intersects: any[] = []) { return intersects; }
+  updateMorphTargets() { return this; }
+  dispose() {}
+  toJSON(meta: any = {}) {
+    return {
+      uuid: this.uuid,
+      type: (this as any).type || this.constructor.name,
+      name: this.name,
+      matrix: Array.from(this.matrix.elements),
+      children: this.children.map(c => c.toJSON ? c.toJSON(meta) : null).filter(Boolean),
+    };
+  }
 }
 
 export class Group extends Object3D {
@@ -326,6 +444,8 @@ export class PointLight extends Light {
   isPointLight: boolean;
   distance: number;
   decay: number;
+    get power() { return (this as any).intensity * 4 * Math.PI; }
+  set power(v: number) { (this as any).intensity = v / (4 * Math.PI); }
   constructor(color: any = 0xffffff, intensity = 1, distance = 0, decay = 2) {
     super(color, intensity);
     this.isPointLight = true;
@@ -341,6 +461,8 @@ export class SpotLight extends Light {
   penumbra: number;
   decay: number;
   target: Object3D;
+    get power() { return (this as any).intensity * 4 * Math.PI; }
+  set power(v: number) { (this as any).intensity = v / (4 * Math.PI); }
   constructor(color: any = 0xffffff, intensity = 1, distance = 0, angle = Math.PI / 3, penumbra = 0, decay = 2) {
     super(color, intensity);
     this.isSpotLight = true;
@@ -354,6 +476,8 @@ export class SpotLight extends Light {
 
 export class RectAreaLight extends Light {
   isRectAreaLight: boolean;
+    get power() { return (this as any).intensity * 4 * Math.PI; }
+  set power(v: number) { (this as any).intensity = v / (4 * Math.PI); }
   constructor(color: any = 0xffffff, intensity = 1) { super(color, intensity); this.isRectAreaLight = true; }
 }
 
@@ -366,13 +490,66 @@ export class PerspectiveCamera extends Object3D {
   near: number;
   far: number;
   view?: any;
+  projectionMatrix: Matrix4;
+  _filmWidth?: number;
+  _filmHeight?: number;
+  _reversedDepth?: boolean;
   constructor(fov = 50, aspect = 1, near = 0.1, far = 2000) {
     super();
     this.isCamera = true; this.isPerspectiveCamera = true;
     this.fov = fov; this.aspect = aspect; this.near = near; this.far = far;
+    this.projectionMatrix = new Matrix4();
+    this.updateProjectionMatrix();
   }
-  updateProjectionMatrix() { return this; }
+  updateProjectionMatrix() {
+    const fov = this.fov * Math.PI / 180;
+    this.projectionMatrix = new Matrix4().makePerspective(fov, this.aspect, this.near, this.far);
+    const v = this.view;
+    if (v && v.enabled) {
+      // Off-axis frustum for setViewOffset: shift the projection so only the
+      // sub-rectangle renders, like three's updateProjectionMatrix.
+      const e = this.projectionMatrix.elements;
+      const fullW = v.fullWidth, fullH = v.fullHeight;
+      const w = v.width, h = v.height;
+      const x = v.offsetX, y = v.offsetY;
+      e[8] = (2 * x + w) / fullW - 1;
+      e[9] = 1 - (2 * y + h) / fullH;
+      e[0] *= fullW / w;
+      e[5] *= fullH / h;
+    }
+    return this;
+  }
+  // Film/gate math matching three.js PerspectiveCamera.
+  get filmWidth() { return this._filmWidth ?? 35; }
+  set filmWidth(v) { this._filmWidth = v; this.updateProjectionMatrix(); }
+  get filmHeight() { return this._filmHeight ?? 0; }
+  set filmHeight(v) { this._filmHeight = v; this.updateProjectionMatrix(); }
+  getViewSize(target = new Vector2()) {
+    const h = this.getFilmHeight();
+    const w = h * this.aspect;
+    return target.set(w, h);
+  }
+  getViewBounds(target = new Vector4()) {
+    const v = this.getViewSize(_perspSize);
+    return target.set(-v.x / 2, -v.y / 2, v.x / 2, v.y / 2);
+  }
+  getFilmWidth() { return this._filmHeight ? this._filmHeight * this.aspect : 35; }
+  getFilmHeight() { return this._filmHeight ?? (35 / this.aspect); }
+  getFocalLength() {
+    const vFov = this.fov * Math.PI / 180;
+    return (this.getFilmHeight() / 2) / Math.tan(vFov / 2);
+  }
+  setFocalLength(focalLength: number) {
+    const vExtentSlope = (this.getFilmHeight() / 2) / focalLength;
+    this.fov = 2 * Math.atan(vExtentSlope) * 180 / Math.PI;
+    this.updateProjectionMatrix();
+    return this;
+  }
+  getEffectiveFOV() { return this.fov; }
+  get reversedDepth() { return this._reversedDepth ?? false; }
+  set reversedDepth(v) { this._reversedDepth = v; this.updateProjectionMatrix(); }
 }
+const _perspSize = new Vector2();
 
 // camera.setViewOffset / clearViewOffset (three.js): render only a
 // sub-rectangle of a larger virtual image through an off-axis frustum.
@@ -380,13 +557,17 @@ export class PerspectiveCamera extends Object3D {
 const cameraViewOffset = {
   setViewOffset(fullWidth, fullHeight, x, y, width, height) {
     this.view = { enabled: true, fullWidth, fullHeight, offsetX: x, offsetY: y, width, height };
+    if (this.updateProjectionMatrix) this.updateProjectionMatrix();
     return this;
   },
-  clearViewOffset() { this.view = null; return this; },
+  clearViewOffset() { this.view = null; if (this.updateProjectionMatrix) this.updateProjectionMatrix(); return this; },
 };
 Object.assign(PerspectiveCamera.prototype, cameraViewOffset);
 
 export class OrthographicCamera extends Object3D {
+  _reversedDepth?: boolean;
+  get reversedDepth() { return this._reversedDepth ?? false; }
+  set reversedDepth(v) { this._reversedDepth = v; this.updateProjectionMatrix(); }
   isOrthographicCamera: boolean;
   left: number;
   right: number;
@@ -395,17 +576,56 @@ export class OrthographicCamera extends Object3D {
   near: number;
   far: number;
   view?: any;
+  projectionMatrix: Matrix4;
   constructor(left = -1, right = 1, top = 1, bottom = -1, near = 0.1, far = 2000) {
     super();
     this.isCamera = true; this.isOrthographicCamera = true;
     this.left = left; this.right = right; this.top = top; this.bottom = bottom;
     this.near = near; this.far = far;
+    this.projectionMatrix = new Matrix4();
+    this.updateProjectionMatrix();
   }
-  updateProjectionMatrix() { return this; }
+  updateProjectionMatrix() {
+    this.projectionMatrix = new Matrix4().makeOrthographic(this.left, this.right, this.bottom, this.top, this.near, this.far);
+    const v = this.view;
+    if (v && v.enabled) {
+      const e = this.projectionMatrix.elements;
+      e[12] = -(2 * v.offsetX + v.width) / v.fullWidth + 1;
+      e[13] = (2 * v.offsetY + v.height) / v.fullHeight - 1;
+      e[0] *= v.fullWidth / v.width;
+      e[5] *= v.fullHeight / v.height;
+    }
+    return this;
+  }
 }
 Object.assign(OrthographicCamera.prototype, cameraViewOffset);
 
+// CubeCamera renders the scene into six faces of a cube render target.
+// The gs3d engine has no cube render targets yet, so update() is a stub that
+// keeps the API shape; render targets passed in are honoured if present.
+export class CubeCamera extends Object3D {
+  updateCoordinateSystem() { return this; }
+  isCubeCamera: boolean;
+  renderTarget: any;
+  near: number;
+  far: number;
+  constructor(near = 0.1, far = 2000, renderTarget?: any) {
+    super();
+    this.isCubeCamera = true;
+    this.near = near; this.far = far;
+    this.renderTarget = renderTarget || null;
+    for (let i = 0; i < 6; i++) {
+      const cam = new PerspectiveCamera(90, 1, near, far);
+      cam.name = 'cube' + i;
+      this.add(cam);
+    }
+  }
+  getRenderTarget() { return this.renderTarget; }
+  update(renderer: any, scene: any) { /* no cube targets in gs3d yet */ return this; }
+}
+
 export class Camera extends Object3D {
+  get reversedDepth() { return false; }
   near: number;
   far: number;
   aspect: number;
@@ -422,6 +642,8 @@ export class Camera extends Object3D {
 /* --- fog ------------------------------------------------------------------------- */
 
 export class Fog {
+  clone() { return new Fog(this.color.clone ? this.color.clone() : this.color, this.near, this.far); }
+  toJSON() { return { color: this.color.getHex ? this.color.getHex() : this.color, near: this.near, far: this.far }; }
   isFog: boolean;
   color: Color;
   near: number;
@@ -433,6 +655,8 @@ export class Fog {
   }
 }
 export class FogExp2 {
+  clone() { return new FogExp2(this.color.clone ? this.color.clone() : this.color, this.density); }
+  toJSON() { return { color: this.color.getHex ? this.color.getHex() : this.color, density: this.density }; }
   isFogExp2: boolean;
   color: Color;
   density: number;

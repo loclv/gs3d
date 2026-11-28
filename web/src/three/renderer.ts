@@ -68,7 +68,12 @@ export class WebGPURenderer {
   _raf: number;
   _disposed: boolean;
   backend: { isWebGPUBackend: boolean; isWebGLBackend: boolean };
-  outputColorSpace: string;
+  _outputColorSpace: string;
+  _coordinateSystem?: number;
+  get outputColorSpace() { return this._outputColorSpace; }
+  set outputColorSpace(v) { this._outputColorSpace = v; }
+  get coordinateSystem() { return this._coordinateSystem ?? 2000; }
+  set coordinateSystem(v) { this._coordinateSystem = v; }
   toneMapping: number | string;
   toneMappingExposure: number;
   _engineOverride: any;
@@ -106,7 +111,7 @@ export class WebGPURenderer {
     this._raf = 0;
     this._disposed = false;
     this.backend = { isWebGPUBackend: false, isWebGLBackend: true };
-    this.outputColorSpace = parameters.outputColorSpace ?? SRGBColorSpace;
+    this._outputColorSpace = parameters.outputColorSpace ?? SRGBColorSpace;
     this.toneMapping = parameters.toneMapping ?? NoToneMapping;
     this.toneMappingExposure = parameters.toneMappingExposure ?? 1;
     // Advanced/testing hook: a prebuilt engine module (or promise of one)

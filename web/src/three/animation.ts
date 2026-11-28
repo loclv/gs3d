@@ -21,6 +21,7 @@
 import { Vector3, Quaternion, Euler } from './math';
 import { Color } from './color';
 import { Object3D } from './scene';
+import { EventDispatcher } from './events';
 
 /* --- interpolants ------------------------------------------------------------ */
 
@@ -42,20 +43,41 @@ function intervalIndex(times: ArrayLike<number>, t: number, lastIndex = 0) {
   return i;
 }
 
-export class LinearInterpolant {
+// Interpolation type constants, matching three's Interpolate* numbering.
+export const InterpolateDiscrete = 2300;
+export const InterpolateLinear = 2301;
+export const InterpolateSmooth = 2302;
+
+export class Interpolant {
   parameterPositions: any;
   sampleValues: any;
   valueSize: number;
   resultBuffer: any;
   interpolantFactor = 0;
   interpolantBuffer = null;
-  isLinearInterpolant = true;
+  isInterpolant = true;
   constructor(parameterPositions, sampleValues, sampleSize, resultBuffer) {
     this.parameterPositions = parameterPositions;
     this.sampleValues = sampleValues;
     this.valueSize = sampleSize;
     this.resultBuffer = resultBuffer !== undefined ? resultBuffer : new (sampleValues as any).constructor(sampleSize);
   }
+  evaluate(t) {
+    throw new Error('Interpolant.evaluate must be implemented by subclasses');
+  }
+  interpolate_(i1, t0, t, i2) {
+    throw new Error('Interpolant.interpolate_ must be implemented by subclasses');
+  }
+  before(t) {}
+  after(t) {}
+  // three.js private-method names; subclasses implement real logic.
+  copySampleValue_(index) { return this.sampleValues.subarray ? this.sampleValues.subarray(index * this.valueSize, (index + 1) * this.valueSize) : this.sampleValues.slice(index * this.valueSize, (index + 1) * this.valueSize); }
+  getSettings_() { return {}; }
+  intervalChanged_(i1, t0, t, i2) {}
+}
+
+export class LinearInterpolant extends Interpolant {
+  isLinearInterpolant = true;
   evaluate(t) {
     const pp = this.parameterPositions, sv = this.sampleValues, vs = this.valueSize;
     const i1 = intervalIndex(pp, t, (this as any)._lastIndex | 0);
@@ -165,6 +187,87 @@ export class KeyframeTrack {
     }
   }
   getValueSize() { return TRACK_VALUE_SIZES[this.valueTypeName] ?? 1; }
+  getInterpolation() { return this.DefaultInterpolation; }
+  setInterpolation(interpolation: string) {
+    this.DefaultInterpolation = interpolation;
+    return this;
+  }
+  // Scale all key times by a factor (three.js KeyframeTrack.scale).
+  scale(timeScale: number) {
+    const times = this.times;
+    for (let i = 0; i < times.length; i++) times[i] *= timeScale;
+    return this;
+  }
+  // Shift all key times by an offset.
+  shift(timeOffset: number) {
+    const times = this.times;
+    for (let i = 0; i < times.length; i++) times[i] += timeOffset;
+    return this;
+  }
+  // Keep only keys in [startTime, endTime); returns the removed count.
+  trim(startTime: number, endTime: number) {
+    const times = this.times, values = this.values, size = this.getValueSize();
+    const keepTimes: number[] = [], keepValues: number[] = [];
+    let removed = 0;
+    for (let i = 0; i < times.length; i++) {
+      if (times[i] >= startTime && times[i] < endTime) {
+        keepTimes.push(times[i]);
+        for (let j = 0; j < size; j++) keepValues.push(values[i * size + j]);
+      } else removed++;
+    }
+    if (!removed) return 0;
+    this.times = Float32Array.from(keepTimes);
+    this.values = values instanceof Float32Array ? Float32Array.from(keepValues) : keepValues;
+    return removed;
+  }
+  // Validate monotonic times and value count; returns true when sane.
+  validate() {
+    const n = this.times.length, size = this.getValueSize();
+    const expected = n * size;
+    const actual = this.values.length;
+    if (actual !== expected) {
+      console.warn?.(`gs3d: KeyframeTrack '${this.name}' values length ${actual} != times*size ${expected}`);
+      return false;
+    }
+    for (let i = 1; i < n; i++) {
+      if (this.times[i] <= this.times[i - 1]) {
+        console.warn?.(`gs3d: KeyframeTrack '${this.name}' times not increasing at ${i}`);
+        return false;
+      }
+    }
+    return true;
+  }
+  // Remove redundant keys (equal adjacent values); returns the track.
+  optimize() {
+    const times = this.times, values = this.values, size = this.getValueSize();
+    if (times.length <= 2) return this;
+    const kt: number[] = [], kv: number[] = [];
+    const push = i => {
+      kt.push(times[i]);
+      for (let j = 0; j < size; j++) kv.push(values[i * size + j]);
+    };
+    push(0);
+    for (let i = 1; i < times.length - 1; i++) {
+      let same = true;
+      for (let j = 0; j < size; j++) {
+        if (values[i * size + j] !== values[(i - 1) * size + j] ||
+            values[i * size + j] !== values[(i + 1) * size + j]) { same = false; break; }
+      }
+      if (!same) push(i);
+    }
+    push(times.length - 1);
+    this.times = Float32Array.from(kt);
+    this.values = values instanceof Float32Array ? Float32Array.from(kv) : kv;
+    return this;
+  }
+  toJSON() {
+    return {
+      name: this.name,
+      times: Array.from(this.times),
+      values: Array.from(this.values),
+      type: this.constructor.name,
+    };
+  }
   createInterpolant(result?: any) {
     const size = this.getValueSize();
     const values = this.values instanceof Float32Array ? this.values : Float32Array.from(this.values as any);
@@ -185,6 +288,20 @@ export class KeyframeTrack {
   }
 }
 
+// Prototype-level factory hooks, matching three r180's per-instance surface.
+const _KTproto: any = KeyframeTrack.prototype;
+_KTproto.InterpolantFactoryMethodDiscrete = function (buffer?: any) {
+  return new DiscreteInterpolant(this.times, this.values, this.getValueSize(), buffer);
+};
+_KTproto.InterpolantFactoryMethodLinear = function (buffer?: any) {
+  return new LinearInterpolant(this.times, this.values, this.getValueSize(), buffer);
+};
+_KTproto.InterpolantFactoryMethodSmooth = function (buffer?: any) {
+  return new CubicInterpolant(this.times, this.values, this.getValueSize(), buffer);
+};
+_KTproto.TimeBufferType = Float32Array;
+_KTproto.ValueBufferType = Float32Array;
+
 export class VectorKeyframeTrack extends KeyframeTrack {
   constructor(name, times, values, interpolation?) { super(name, times, values, interpolation); this.valueTypeName = 'vector'; }
 }
@@ -203,6 +320,11 @@ export class BooleanKeyframeTrack extends KeyframeTrack {
 export class StringKeyframeTrack extends KeyframeTrack {
   constructor(name, times, values, interpolation?) { super(name, times, values, interpolation); this.valueTypeName = 'string'; this.DefaultInterpolation = 'discrete'; }
 }
+
+const TRACK_CTORS: Record<string, any> = {
+  VectorKeyframeTrack, QuaternionKeyframeTrack, NumberKeyframeTrack,
+  ColorKeyframeTrack, BooleanKeyframeTrack, StringKeyframeTrack,
+};
 
 /* --- property binding ---------------------------------------------------------- */
 
@@ -311,6 +433,8 @@ export class PropertyBinding {
   static create(rootNode: Object3D, trackName: string, parsedPath?: any) {
     return new PropertyBinding(rootNode, trackName, parsedPath);
   }
+  bind() { return this; }
+  unbind() { this._resolved = false; this._target = null; return this; }
   // Resolve to { object, key }: the parent object and the property (or array
   // index) the values write into. Nodes may be added after clipAction, so
   // resolution retries until it succeeds.
@@ -435,11 +559,43 @@ export class AnimationClip {
     this.duration = max;
     return this;
   }
+  // Sanity-check tracks: monotonic times and matching value strides.
+  validate() {
+    for (const track of this.tracks) {
+      const t = track.times, vs = track.getValueSize ? track.getValueSize() : 1;
+      const expected = t.length * vs;
+      if (track.values && track.values.length !== expected)
+        console.warn(`gs3d: AnimationClip '${this.name}' track '${track.name}' has mismatched value count`);
+      for (let i = 1; i < t.length; i++)
+        if (t[i] <= t[i - 1])
+          console.warn(`gs3d: AnimationClip '${this.name}' track '${track.name}' times not sorted`);
+    }
+    return this;
+  }
   clone() {
     return new AnimationClip(this.name, this.duration, this.tracks.map(t => t.clone()), this.blendMode);
   }
   optimize() { return this; }
   trim() { return this; }
+  toJSON() {
+    return {
+      name: this.name,
+      duration: this.duration,
+      tracks: this.tracks.map(t => t.toJSON ? t.toJSON() : null).filter(Boolean),
+      uuid: this.uuid,
+      blendMode: this.blendMode,
+    };
+  }
+  static parse(json: any) {
+    // Minimal inverse of toJSON for round-tripping simple clips.
+    const tracks = (json.tracks || []).map((t: any) => {
+      const Ctor = TRACK_CTORS[t.type] || NumberKeyframeTrack;
+      return new Ctor(t.name, t.times || [], t.values || [], 'linear');
+    });
+    const clip = new AnimationClip(json.name || 'clip', json.duration ?? -1, tracks, json.blendMode);
+    clip.resetDuration();
+    return clip;
+  }
   static CreateClipsFromMorphTargetTracks(name, tracks, fps = 30) {
     const clip = new AnimationClip(name, -1, tracks);
     clip.resetDuration();
@@ -450,6 +606,13 @@ export class AnimationClip {
 export const LoopOnce = 2200;
 export const LoopRepeat = 2201;
 export const LoopPingPong = 2202;
+
+// Keyframe interpolation endings and animation blend modes (three values).
+export const ZeroCurvatureEnding = 2400;
+export const ZeroSlopeEnding = 2401;
+export const WrapAroundEnding = 2402;
+export const NormalAnimationBlendMode = 2500;
+export const AdditiveAnimationBlendMode = 2501;
 
 /* --- animation action ------------------------------------------------------------ */
 
@@ -480,6 +643,11 @@ export class AnimationAction {
   _rampTo = 1;
   _direction = 1;
   _finished = false;
+  _haltWhenRampDone = false;
+  _warpFrom = 1;
+  _warpTo = 1;
+  _warpStart = -1;
+  _warpEnd = -1;
   constructor(mixer: AnimationMixer | null, clip: AnimationClip, root?: Object3D) {
     this.isAnimationAction = true;
     this.mixer = mixer;
@@ -555,6 +723,51 @@ export class AnimationAction {
   setEffectiveWeightValue(w: number) { this._effectiveWeight = w; return this; }
   setClampWhenFinished(clamp: boolean) { this.clampWhenFinished = clamp; return this; }
   syncWith(action: AnimationAction) { return this.play(); }
+  getMixer() { return this.mixer; }
+  getRoot() { return this.root; }
+  getClip() { return this.clip; }
+  setDuration(duration: number) {
+    this.timeScale = duration / (this.clip.duration || 1) || 1;
+    return this;
+  }
+  startAt(time: number) { this.time = time; return this; }
+  stopFading() { this._rampEnd = -1; return this; }
+  stopWarping() { this._warpEnd = -1; return this; }
+  // Fade this action out while fadeInAction fades in over `duration`.
+  crossFadeTo(fadeInAction: AnimationAction, duration: number, warp = false) {
+    fadeInAction.fadeIn(duration);
+    this.fadeOut(duration);
+    if (warp) {
+      const scale = (fadeInAction.clip.duration / (this.clip.duration || 1)) *
+        (fadeInAction.timeScale / (this.timeScale || 1));
+      this.warp(scale, duration);
+      fadeInAction.warp(1 / (scale || 1), duration);
+    }
+    return this;
+  }
+  crossFadeFrom(fadeOutAction: AnimationAction, duration: number, warp = false) {
+    return fadeOutAction.crossFadeTo(this, duration, warp);
+  }
+  // Stop after an optional fade-out.
+  halt(duration = 0) {
+    if (duration > 0) {
+      this.fadeOut(duration);
+      this._haltWhenRampDone = true;
+    } else {
+      this._haltWhenRampDone = false;
+      this.stop();
+    }
+    return this;
+  }
+  // Ramp the effective time scale over `duration` seconds.
+  warp(timeScale: number, duration = 0) {
+    const mixerTime = this.mixer ? this.mixer.time : 0;
+    this._warpFrom = this._effectiveTimeScale;
+    this._warpTo = timeScale;
+    this._warpStart = mixerTime;
+    this._warpEnd = mixerTime + Math.max(0.0001, duration);
+    return this;
+  }
   _update(deltaTime: number, mixerTime: number) {
     if (!this.enabled) return;
     // Weight ramp; with no ramp scheduled the effective weight tracks weight.
@@ -570,6 +783,21 @@ export class AnimationAction {
       }
     } else {
       this._effectiveWeight = this.weight;
+    }
+    if (this._warpEnd >= 0) {
+      if (mixerTime < this._warpEnd) {
+        const span = this._warpEnd - this._warpStart || 1;
+        const t = Math.min(1, (mixerTime - this._warpStart) / span);
+        this._effectiveTimeScale = this._warpFrom + (this._warpTo - this._warpFrom) * t;
+      } else {
+        this._effectiveTimeScale = this._warpTo;
+        this._warpEnd = -1;
+      }
+    }
+    if (this._haltWhenRampDone && this._rampEnd < 0) {
+      this._haltWhenRampDone = false;
+      this.stop();
+      return;
     }
     if (this.paused || this._finished) {
       if (this._finished && !this.clampWhenFinished) this.enabled = false;
@@ -674,7 +902,7 @@ function bindingAcc(binding: PropertyBinding) {
 
 /* --- animation mixer -------------------------------------------------------------- */
 
-export class AnimationMixer {
+export class AnimationMixer extends EventDispatcher {
   isAnimationMixer: boolean;
   _root: Object3D;
   _actions: AnimationAction[] = [];
@@ -683,16 +911,21 @@ export class AnimationMixer {
   time = 0;
   timeScale = 1;
   _events: any[] = [];
-  _listeners: Record<string, Function[]> = {};
   constructor(root: Object3D) {
+    super();
     this.isAnimationMixer = true;
     this._root = root;
     this.time = 0;
     this.timeScale = 1;
   }
   get root() { return this._root; }
+  getRoot() { return this._root; }
   clipAction(clip: AnimationClip, optionalRoot?: Object3D) {
-    const action = new AnimationAction(this, clip, optionalRoot !== undefined ? optionalRoot : this._root);
+    // three caches one action per (clip, root) pair.
+    const root = optionalRoot !== undefined ? optionalRoot : this._root;
+    const existing = this.existingAction(clip, root);
+    if (existing) return existing;
+    const action = new AnimationAction(this, clip, root);
     this._actions.push(action);
     return action;
   }
@@ -712,24 +945,6 @@ export class AnimationMixer {
       this._bindingCache.set(key, binding);
     }
     return binding;
-  }
-  addEventListener(type: string, listener: Function) {
-    (this._listeners[type] ||= []).push(listener);
-  }
-  removeEventListener(type: string, listener: Function) {
-    const list = this._listeners[type];
-    if (list) {
-      const i = list.indexOf(listener);
-      if (i >= 0) list.splice(i, 1);
-    }
-  }
-  hasEventListener(type: string, listener?: Function) {
-    const list = this._listeners[type];
-    return !!list && (!listener || list.includes(listener));
-  }
-  dispatchEvent(event: any) {
-    for (const fn of this._listeners[event.type] || []) fn.call(this, event);
-    return true;
   }
   update(deltaTime: number) {
     this.time += deltaTime * this.timeScale;
@@ -773,7 +988,20 @@ export class AnimationMixer {
     this._bindingCache.clear();
     return this;
   }
+  // Return an existing action for the clip+root pair, or undefined.
+  existingAction(clip: AnimationClip, optionalRoot?: Object3D) {
+    const root = optionalRoot !== undefined ? optionalRoot : this._root;
+    return this._actions.find(a => a.clip === clip && a.root === root);
+  }
+  // Find all actions referencing a clip (optionally filtered by root).
+  getActionByClip(clip: AnimationClip) {
+    return this._actions.filter(a => a.clip === clip);
+  }
   uncacheAction(clip: AnimationClip, optionalRoot?: Object3D) {
+    const root = optionalRoot !== undefined ? optionalRoot : this._root;
+    for (const action of [...this._actions]) {
+      if (action.clip === clip && action.root === root) this._deactivateAction(action);
+    }
     return this;
   }
 }

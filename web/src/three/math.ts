@@ -75,8 +75,151 @@ export class Vector3 {
       e[2] * x + e[6] * y + e[10] * z,
     ).normalize();
   }
+  setFromMatrix3Column(m, index) {
+    return this.set(m.elements ? m.elements[index * 4] : m[index * 4],
+      m.elements ? m.elements[index * 4 + 1] : m[index * 4 + 1],
+      m.elements ? m.elements[index * 4 + 2] : m[index * 4 + 2]);
+  }
   setFromMatrixPosition(m) { const e = m.elements || m; return this.set(e[12], e[13], e[14]); }
+  addScalar(s) { return this.set(this.x + s, this.y + s, this.z + s); }
+  subScalar(s) { return this.set(this.x - s, this.y - s, this.z - s); }
+  multiply(v) { this.x *= v.x; this.y *= v.y; this.z *= v.z; return this; }
+  multiplyVectors(a, b) { return this.set(a.x * b.x, a.y * b.y, a.z * b.z); }
+  divide(v) { return this.set(this.x / (v.x || 1), this.y / (v.y || 1), this.z / (v.z || 1)); }
+  ceil() { return this.set(Math.ceil(this.x), Math.ceil(this.y), Math.ceil(this.z)); }
+  floor() { return this.set(Math.floor(this.x), Math.floor(this.y), Math.floor(this.z)); }
+  round() { return this.set(Math.round(this.x), Math.round(this.y), Math.round(this.z)); }
+  roundToZero() {
+    return this.set(this.x < 0 ? Math.ceil(this.x) : Math.floor(this.x),
+      this.y < 0 ? Math.ceil(this.y) : Math.floor(this.y),
+      this.z < 0 ? Math.ceil(this.z) : Math.floor(this.z));
+  }
+  setLength(length) { return this.normalize().multiplyScalar(length); }
+  clampLength(min, max) {
+    const l = this.length();
+    if (l === 0) return this;
+    return this.multiplyScalar(Math.max(min, Math.min(max, l)) / l);
+  }
+  clampScalar(min, max) { return this.clamp(_clampMin.set(min, min, min), _clampMax.set(max, max, max)); }
+  lerpVectors(a, b, t) {
+    return this.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+  }
+  manhattanLength() { return Math.abs(this.x) + Math.abs(this.y) + Math.abs(this.z); }
+  manhattanDistanceTo(v) {
+    return Math.abs(this.x - v.x) + Math.abs(this.y - v.y) + Math.abs(this.z - v.z);
+  }
+  angleTo(v) {
+    const d = Math.sqrt(this.lengthSq() * v.lengthSq());
+    if (d === 0) return Math.PI / 2;
+    return Math.acos(Math.max(-1, Math.min(1, this.dot(v) / d)));
+  }
+  random() {
+    this.x = Math.random() * 2 - 1;
+    this.y = Math.random() * 2 - 1;
+    this.z = Math.random() * 2 - 1;
+    return this.normalize();
+  }
+  randomDirection() { return this.random(); }
+  projectOnVector(v) {
+    const d = v.lengthSq() || 1;
+    const s = this.dot(v) / d;
+    return this.copy(v).multiplyScalar(s);
+  }
+  projectOnPlane(planeNormal) {
+    _projV.copy(this).projectOnVector(planeNormal);
+    return this.sub(_projV);
+  }
+  reflect(normal) {
+    // this = this - 2 * dot(this, normal) * normal (normal assumed unit).
+    return this.sub(_projV.copy(normal).multiplyScalar(2 * this.dot(normal)));
+  }
+  setX(x) { this.x = x; return this; }
+  setY(y) { this.y = y; return this; }
+  setZ(z) { this.z = z; return this; }
+  setComponent(index, value) {
+    switch (index) { case 0: this.x = value; break; case 1: this.y = value; break; default: this.z = value; }
+    return this;
+  }
+  getComponent(index) { return index === 0 ? this.x : index === 1 ? this.y : this.z; }
+  fromBufferAttribute(attribute, index) {
+    const a = attribute.array, s = attribute.itemSize || 3;
+    return this.set(a[index * s], a[index * s + 1], a[index * s + 2]);
+  }
+  applyMatrix3(m) {
+    const e = m.elements || m, x = this.x, y = this.y, z = this.z;
+    return this.set(
+      e[0] * x + e[4] * y + e[8] * z,
+      e[1] * x + e[5] * y + e[9] * z,
+      e[2] * x + e[6] * y + e[10] * z,
+    );
+  }
+  applyNormalMatrix(m) {
+    // Inverse-transpose of the upper 3x3, like three's normalMatrix.
+    const inv = invertMat4(m.elements || m);
+    if (!inv) return this;
+    // Transpose the rotation/scale block (indices are column-major).
+    const t = new Float64Array(16);
+    t.set(inv);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+      const src = c * 4 + r, dst = r * 4 + c;
+      // swap (r,c) <-> (c,r) within the 3x3
+      const tmp = t[src]; t[src] = t[dst]; t[dst] = tmp;
+    }
+    return this.applyMatrix3(t).normalize();
+  }
+  setFromMatrixColumn(m, index) {
+    const e = m.elements || m, o = index * 4;
+    return this.set(e[o], e[o + 1], e[o + 2]);
+  }
+  setFromMatrixScale(m) {
+    const e = m.elements || m;
+    return this.set(Math.hypot(e[0], e[1], e[2]), Math.hypot(e[4], e[5], e[6]), Math.hypot(e[8], e[9], e[10]));
+  }
+  setFromSphericalCoords(radius, phi, theta) {
+    const sp = Math.sin(phi);
+    return this.set(radius * sp * Math.sin(theta), radius * Math.cos(phi), radius * sp * Math.cos(theta));
+  }
+  setFromCylindricalCoords(radius, theta, y) {
+    return this.set(radius * Math.sin(theta), y, radius * Math.cos(theta));
+  }
+  setFromSpherical(s) {
+    return this.setFromSphericalCoords(s.radius ?? 1, s.phi ?? 0, s.theta ?? 0);
+  }
+  setFromCylindrical(c) {
+    return this.setFromCylindricalCoords(c.radius ?? 1, c.theta ?? 0, c.y ?? 0);
+  }
+  setFromEuler(e) {
+    // Unit -Z direction rotated by the euler, like three's Vector3.setFromEuler.
+    return this.set(0, 0, -1).applyEuler(e);
+  }
+  setFromColor(c) { return this.set(c.r, c.g, c.b); }
+  project(camera) {
+    // view = inverse(camera.matrixWorld); proj = camera.projectionMatrix.
+    if (camera.updateWorldMatrix) camera.updateWorldMatrix(true, false);
+    const world = camera.matrixWorld;
+    if (!world) return this;
+    const view = invertMat4(world.elements || world);
+    const proj = camera.projectionMatrix;
+    if (!view || !proj) return this;
+    this.applyMatrix4(view).applyMatrix4(proj.elements || proj);
+    const w = this.z || 1;
+    return this.set(this.x / w, this.y / w, this.z / w);
+  }
+  unproject(camera) {
+    const proj = camera.projectionMatrix;
+    if (!proj) return this;
+    if (camera.updateWorldMatrix) camera.updateWorldMatrix(true, false);
+    const world = camera.matrixWorld;
+    const invProj = invertMat4(proj.elements || proj);
+    if (!invProj || !world) return this;
+    const view = invertMat4(world.elements || world);
+    this.applyMatrix4(invProj);
+    if (view) this.applyMatrix4(view);
+    return this;
+  }
 }
+
+const _clampMin = new Vector3(), _clampMax = new Vector3(), _projV = new Vector3();
 
 export class Vector4 {
   isVector4: boolean;
@@ -86,22 +229,162 @@ export class Vector4 {
   w: number;
   constructor(x = 0, y = 0, z = 0, w = 0) { this.isVector4 = true; this.x = x; this.y = y; this.z = z; this.w = w; }
   set(x, y, z, w) { this.x = x; this.y = y; this.z = z; this.w = w; return this; }
+  setScalar(s) { this.x = s; this.y = s; this.z = s; this.w = s; return this; }
   copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; this.w = v.w; return this; }
   clone() { return new Vector4(this.x, this.y, this.z, this.w); }
+  add(v) { this.x += v.x; this.y += v.y; this.z += v.z; this.w += v.w; return this; }
+  addScalar(s) { this.x += s; this.y += s; this.z += s; this.w += s; return this; }
+  sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; this.w -= v.w; return this; }
+  subScalar(s) { this.x -= s; this.y -= s; this.z -= s; this.w -= s; return this; }
+  multiplyScalar(s) { this.x *= s; this.y *= s; this.z *= s; this.w *= s; return this; }
+  divideScalar(s) { return this.multiplyScalar(1 / (s || 1)); }
+  negate() { return this.set(-this.x, -this.y, -this.z, -this.w); }
+  dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z + this.w * v.w; }
+  length() { return Math.hypot(this.x, this.y, this.z, this.w); }
+  lengthSq() { return this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w; }
+  manhattanLength() { return Math.abs(this.x) + Math.abs(this.y) + Math.abs(this.z) + Math.abs(this.w); }
+  normalize() { const l = this.length() || 1; return this.multiplyScalar(1 / l); }
+  setLength(length) { return this.normalize().multiplyScalar(length); }
+  lerp(v, alpha) {
+    this.x += (v.x - this.x) * alpha; this.y += (v.y - this.y) * alpha;
+    this.z += (v.z - this.z) * alpha; this.w += (v.w - this.w) * alpha;
+    return this;
+  }
+  distanceTo(v) { return Math.hypot(this.x - v.x, this.y - v.y, this.z - v.z, this.w - v.w); }
+  distanceToSquared(v) {
+    const dx = this.x - v.x, dy = this.y - v.y, dz = this.z - v.z, dw = this.w - v.w;
+    return dx * dx + dy * dy + dz * dz + dw * dw;
+  }
+  manhattanDistanceTo(v) {
+    return Math.abs(this.x - v.x) + Math.abs(this.y - v.y) + Math.abs(this.z - v.z) + Math.abs(this.w - v.w);
+  }
+  equals(v) { return this.x === v.x && this.y === v.y && this.z === v.z && this.w === v.w; }
+  setX(x) { this.x = x; return this; }
+  setY(y) { this.y = y; return this; }
+  setZ(z) { this.z = z; return this; }
+  setW(w) { this.w = w; return this; }
+  setComponent(index, value) {
+    switch (index) { case 0: this.x = value; break; case 1: this.y = value; break;
+      case 2: this.z = value; break; default: this.w = value; }
+    return this;
+  }
+  getComponent(index) { return index === 0 ? this.x : index === 1 ? this.y : index === 2 ? this.z : this.w; }
+  fromArray(a, offset = 0) { return this.set(a[offset], a[offset + 1], a[offset + 2], a[offset + 3]); }
+  toArray(a = [], offset = 0) {
+    a[offset] = this.x; a[offset + 1] = this.y; a[offset + 2] = this.z; a[offset + 3] = this.w;
+    return a;
+  }
+  fromBufferAttribute(attribute, index) {
+    const a = attribute.array, s = attribute.itemSize || 4;
+    return this.set(a[index * s], a[index * s + 1], a[index * s + 2], a[index * s + 3]);
+  }
+  applyMatrix4(m) {
+    const e = m.elements || m;
+    const x = this.x, y = this.y, z = this.z, w = this.w;
+    const d = e[3] * x + e[7] * y + e[11] * z + e[15] * w || 1;
+    return this.set(
+      (e[0] * x + e[4] * y + e[8] * z + e[12] * w) / d,
+      (e[1] * x + e[5] * y + e[9] * z + e[13] * w) / d,
+      (e[2] * x + e[6] * y + e[10] * z + e[14] * w) / d,
+      (e[3] * x + e[7] * y + e[11] * z + e[15] * w) / d,
+    );
+  }
+  addVectors(a, b) { return this.set(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w); }
+  subVectors(a, b) { return this.set(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w); }
+  multiply(v) { this.x *= v.x; this.y *= v.y; this.z *= v.z; this.w *= v.w; return this; }
+  divide(v) { this.x /= v.x || 1; this.y /= v.y || 1; this.z /= v.z || 1; this.w /= v.w || 1; return this; }
+  addScaledVector(v, s) { this.x += v.x * s; this.y += v.y * s; this.z += v.z * s; this.w += v.w * s; return this; }
+  lerpVectors(a, b, t) { return this.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+    a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t); }
+  clamp(min, max) {
+    this.x = Math.max(min.x, Math.min(max.x, this.x));
+    this.y = Math.max(min.y, Math.min(max.y, this.y));
+    this.z = Math.max(min.z, Math.min(max.z, this.z));
+    this.w = Math.max(min.w, Math.min(max.w, this.w));
+    return this;
+  }
+  clampScalar(min, max) {
+    return this.set(
+      Math.max(min, Math.min(max, this.x)), Math.max(min, Math.min(max, this.y)),
+      Math.max(min, Math.min(max, this.z)), Math.max(min, Math.min(max, this.w)));
+  }
+  clampLength(min, max) {
+    const l = this.length();
+    return this.divideScalar(l || 1).multiplyScalar(Math.max(min, Math.min(max, l)));
+  }
+  floor() { return this.set(Math.floor(this.x), Math.floor(this.y), Math.floor(this.z), Math.floor(this.w)); }
+  ceil() { return this.set(Math.ceil(this.x), Math.ceil(this.y), Math.ceil(this.z), Math.ceil(this.w)); }
+  round() { return this.set(Math.round(this.x), Math.round(this.y), Math.round(this.z), Math.round(this.w)); }
+  roundToZero() {
+    return this.set(
+      this.x < 0 ? Math.ceil(this.x) : Math.floor(this.x),
+      this.y < 0 ? Math.ceil(this.y) : Math.floor(this.y),
+      this.z < 0 ? Math.ceil(this.z) : Math.floor(this.z),
+      this.w < 0 ? Math.ceil(this.w) : Math.floor(this.w));
+  }
+  min(v) { this.x = Math.min(this.x, v.x); this.y = Math.min(this.y, v.y); this.z = Math.min(this.z, v.z); this.w = Math.min(this.w, v.w); return this; }
+  max(v) { this.x = Math.max(this.x, v.x); this.y = Math.max(this.y, v.y); this.z = Math.max(this.z, v.z); this.w = Math.max(this.w, v.w); return this; }
+  random() {
+    return this.set(Math.random(), Math.random(), Math.random(), Math.random());
+  }
+  setFromMatrixPosition(m) {
+    const e = m.elements || m;
+    return this.set(e[12], e[13], e[14], e[15]);
+  }
+  setAxisAngleFromQuaternion(q) { return this.set(q.x, q.y, q.z, q.w); }
+  setAxisAngleFromRotationMatrix(m) {
+    const q = new Quaternion().setFromRotationMatrix(m.elements || m);
+    return this.setAxisAngleFromQuaternion(q);
+  }
+  // three.js Vector4 has no width/height; kept for duck-type parity.
+  get width() { return this.z; }
+  get height() { return this.w; }
 }
 
 export class Euler {
-  x: number;
-  y: number;
-  z: number;
-  order: string;
+  _x: number;
+  _y: number;
+  _z: number;
+  _order: string;
   isEuler: boolean;
+  get x() { return this._x; } set x(v) { this._x = v; }
+  get y() { return this._y; } set y(v) { this._y = v; }
+  get z() { return this._z; } set z(v) { this._z = v; }
+  get order() { return this._order; } set order(v) { this._order = v; }
   constructor(x = 0, y = 0, z = 0, order = 'XYZ') {
-    this.x = x; this.y = y; this.z = z; this.order = order; this.isEuler = true;
+    this._x = x; this._y = y; this._z = z; this._order = order; this.isEuler = true;
   }
   set(x, y, z, order) { this.x = x; this.y = y; this.z = z; if (order) this.order = order; return this; }
   copy(e) { this.x = e.x; this.y = e.y; this.z = e.z; this.order = e.order; return this; }
   clone() { return new Euler(this.x, this.y, this.z, this.order); }
+  equals(e) { return this.x === e.x && this.y === e.y && this.z === e.z && this.order === e.order; }
+  setFromVector3(v, order) { return this.set(v.x, v.y, v.z, order || this.order); }
+  setFromQuaternion(q, order = null, update = true) {
+    this.order = order || this.order;
+    const [x, y, z] = eulerFromQuatXYZ(q);
+    this.x = x; this.y = y; this.z = z;
+    return this;
+  }
+  setFromRotationMatrix(m, order = null, update = true) {
+    this.order = order || this.order;
+    const q = new Quaternion().setFromRotationMatrix(m.elements || m);
+    return this.setFromQuaternion(q, this.order);
+  }
+  // Reorder the components into a new rotation order (three.js reorder).
+  reorder(newOrder) {
+    const q = new Quaternion().setFromEuler(this);
+    this.order = newOrder;
+    this.setFromQuaternion(q, newOrder);
+    return this;
+  }
+  fromArray(a, offset = 0) {
+    return this.set(a[offset], a[offset + 1], a[offset + 2],
+      a[offset + 3] !== undefined ? a[offset + 3] : this.order);
+  }
+  toArray(a = [], offset = 0) {
+    a[offset] = this.x; a[offset + 1] = this.y; a[offset + 2] = this.z; a[offset + 3] = this.order;
+    return a;
+  }
 }
 
 // Euler order: three.js applies the axes in the listed order, so 'XYZ' is
@@ -158,11 +441,16 @@ export function eulerFromQuatXYZ(q) {
 
 export class Quaternion {
   isQuaternion: boolean;
-  x: number;
-  y: number;
-  z: number;
-  w: number;
-  constructor(x = 0, y = 0, z = 0, w = 1) { this.isQuaternion = true; this.x = x; this.y = y; this.z = z; this.w = w; }
+  _x: number;
+  _y: number;
+  _z: number;
+  _w: number;
+  // three r180 exposes these as prototype accessors backed by _x.._w.
+  get x() { return this._x; } set x(v) { this._x = v; }
+  get y() { return this._y; } set y(v) { this._y = v; }
+  get z() { return this._z; } set z(v) { this._z = v; }
+  get w() { return this._w; } set w(v) { this._w = v; }
+  constructor(x = 0, y = 0, z = 0, w = 1) { this.isQuaternion = true; this._x = x; this._y = y; this._z = z; this._w = w; }
   set(x, y, z, w) { this.x = x; this.y = y; this.z = z; this.w = w; return this; }
   copy(q) { this.x = q.x; this.y = q.y; this.z = q.z; this.w = q.w; return this; }
   clone() { return new Quaternion(this.x, this.y, this.z, this.w); }
@@ -257,6 +545,45 @@ export class Quaternion {
     return this.set(this.x * ra + bx * rb, this.y * ra + by * rb,
       this.z * ra + bz * rb, this.w * ra + bw * rb);
   }
+  angleTo(q) { return 2 * Math.acos(Math.min(1, Math.abs(this.dot(q)))); }
+  rotateTowards(q, step) {
+    const angle = this.angleTo(q);
+    if (angle === 0) return this;
+    return this.slerp(q, Math.min(1, step / angle));
+  }
+  equals(q) { return this.x === q.x && this.y === q.y && this.z === q.z && this.w === q.w; }
+  length() { return Math.hypot(this.x, this.y, this.z, this.w); }
+  lengthSq() { return this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w; }
+  fromArray(array, offset = 0) { return this.set(array[offset], array[offset + 1], array[offset + 2], array[offset + 3]); }
+  toArray(array = [], offset = 0) {
+    array[offset] = this.x; array[offset + 1] = this.y;
+    array[offset + 2] = this.z; array[offset + 3] = this.w;
+    return array;
+  }
+  fromBufferAttribute(attribute, index) {
+    const o = index * attribute.itemSize;
+    return this.set(attribute.array[o], attribute.array[o + 1], attribute.array[o + 2], attribute.array[o + 3]);
+  }
+  multiplyQuaternions(a, b) {
+    const ax = a.x, ay = a.y, az = a.z, aw = a.w;
+    const bx = b.x, by = b.y, bz = b.z, bw = b.w;
+    return this.set(
+      aw * bx + ax * bw + ay * bz - az * by,
+      aw * by - ax * bz + ay * bw + az * bx,
+      aw * bz + ax * by - ay * bx + az * bw,
+      aw * bw - ax * bx - ay * by - az * bz,
+    );
+  }
+  slerpQuaternions(qa, qb, t) {
+    return this.copy(qa).slerp(qb, t);
+  }
+  random() {
+    // Uniform random unit quaternion (Shoemake's method).
+    const u1 = Math.random(), u2 = Math.random() * Math.PI * 2, u3 = Math.random() * Math.PI * 2;
+    const a = Math.sqrt(1 - u1), b = Math.sqrt(u1);
+    return this.set(a * Math.sin(u2), a * Math.cos(u2), b * Math.sin(u3), b * Math.cos(u3));
+  }
+  toJSON() { return [this.x, this.y, this.z, this.w]; }
 }
 
 // Column-major 4x4, the layout both three.js and the engine's Mat4 use.
@@ -461,7 +788,121 @@ export class Matrix4 {
     e[3] = e[7] = e[11] = 0; e[15] = 1;
     return this;
   }
+  copyPosition(m) {
+    const e = this.elements, me = m.elements || m;
+    e[12] = me[12]; e[13] = me[13]; e[14] = me[14];
+    return this;
+  }
+  determinant() {
+    const e = this.elements;
+    return e[0] * (e[5] * e[10] - e[6] * e[9])
+      - e[4] * (e[1] * e[10] - e[2] * e[9])
+      + e[8] * (e[1] * e[6] - e[2] * e[5]);
+  }
+  extractBasis(xAxis, yAxis, zAxis) {
+    const e = this.elements;
+    xAxis.set(e[0], e[1], e[2]);
+    yAxis.set(e[4], e[5], e[6]);
+    zAxis.set(e[8], e[9], e[10]);
+    return this;
+  }
+  makeBasis(xAxis, yAxis, zAxis) {
+    return this.set(
+      xAxis.x, xAxis.y, xAxis.z, 0,
+      yAxis.x, yAxis.y, yAxis.z, 0,
+      zAxis.x, zAxis.y, zAxis.z, 0,
+      0, 0, 0, 1,
+    );
+  }
+  makeRotationAxis(axis, angle) {
+    const c = Math.cos(angle), s = Math.sin(angle), t = 1 - c;
+    const x = axis.x, y = axis.y, z = axis.z;
+    return this.set(
+      t * x * x + c, t * x * y - s * z, t * x * z + s * y, 0,
+      t * x * y + s * z, t * y * y + c, t * y * z - s * x, 0,
+      t * x * z - s * y, t * y * z + s * x, t * z * z + c, 0,
+      0, 0, 0, 1,
+    );
+  }
+  makeRotationFromEuler(euler) {
+    return this.makeRotationFromQuaternion(new Quaternion().setFromEuler(euler));
+  }
+  makeShear(xy = 0, xz = 0, yx = 0, yz = 0, zx = 0, zy = 0) {
+    return this.set(1, yx, zx, 0, xy, 1, zy, 0, xz, yz, 1, 0, 0, 0, 1, 1);
+  }
+  getMaxScaleOnAxis() {
+    const e = this.elements;
+    const sx = e[0] * e[0] + e[1] * e[1] + e[2] * e[2];
+    const sy = e[4] * e[4] + e[5] * e[5] + e[6] * e[6];
+    const sz = e[8] * e[8] + e[9] * e[9] + e[10] * e[10];
+    return Math.sqrt(Math.max(sx, sy, sz));
+  }
+  scale(v) {
+    const e = this.elements;
+    e[0] *= v.x; e[1] *= v.x; e[2] *= v.x;
+    e[4] *= v.y; e[5] *= v.y; e[6] *= v.y;
+    e[8] *= v.z; e[9] *= v.z; e[10] *= v.z;
+    return this;
+  }
+  multiplyScalar(s) {
+    const e = this.elements;
+    for (let i = 0; i < 16; i++) e[i] *= s;
+    return this;
+  }
+  transpose() {
+    const e = this.elements;
+    for (let r = 0; r < 3; r++)
+      for (let c = r + 1; c < 3; c++) {
+        const a = c * 4 + r, b = r * 4 + c;
+        const t = e[a]; e[a] = e[b]; e[b] = t;
+      }
+    return this;
+  }
+  fromArray(array, offset = 0) {
+    const e = this.elements;
+    for (let i = 0; i < 16; i++) e[i] = array[offset + i];
+    return this;
+  }
+  toArray(array = [], offset = 0) {
+    const e = this.elements;
+    for (let i = 0; i < 16; i++) array[offset + i] = e[i];
+    return array;
+  }
+  setFromMatrix3(m) {
+    const e = this.elements, me = m.elements || m;
+    e[0] = me[0]; e[1] = me[1]; e[2] = me[2]; e[3] = 0;
+    e[4] = me[3]; e[5] = me[4]; e[6] = me[5]; e[7] = 0;
+    e[8] = me[6]; e[9] = me[7]; e[10] = me[8]; e[11] = 0;
+    e[12] = 0; e[13] = 0; e[14] = 0; e[15] = 1;
+    return this;
+  }
+  premultiply(m) {
+    this.elements.set(multiplyMat4(m.elements || m, this.elements));
+    return this;
+  }
+  // Decompose into position/quaternion/scale, matching three.js Matrix4.decompose.
+  decompose(position, quaternion, scale) {
+    const e = this.elements;
+    position.set(e[12], e[13], e[14]);
+    const sx = Math.hypot(e[0], e[1], e[2]);
+    const sy = Math.hypot(e[4], e[5], e[6]);
+    const sz = Math.hypot(e[8], e[9], e[10]);
+    // Sign of the determinant decides whether the z-scale is negative.
+    const det = e[0] * (e[5] * e[10] - e[6] * e[9])
+      - e[4] * (e[1] * e[10] - e[2] * e[9])
+      + e[8] * (e[1] * e[6] - e[2] * e[5]);
+    scale.set(sx, sy, det < 0 ? -sz : sz);
+    // Rotation part: basis columns divided by their scale.
+    const rot = _decompMat.copy(this);
+    const re = rot.elements;
+    if (sx) { re[0] /= sx; re[1] /= sx; re[2] /= sx; }
+    if (sy) { re[4] /= sy; re[5] /= sy; re[6] /= sy; }
+    if (sz) { re[8] /= sz; re[9] /= sz; re[10] /= sz; }
+    quaternion.setFromRotationMatrix(rot);
+    return this;
+  }
 }
+const _decompMat = new Matrix4();
 
 
 
@@ -555,4 +996,61 @@ export class Vector2 {
     return this;
   }
   equals(v) { return this.x === v.x && this.y === v.y; }
+  addScalar(s) { this.x += s; this.y += s; return this; }
+  subScalar(s) { this.x -= s; this.y -= s; return this; }
+  multiply(v) { this.x *= v.x; this.y *= v.y; return this; }
+  divide(v) { this.x /= v.x || 1; this.y /= v.y || 1; return this; }
+  addVectors(a, b) { return this.set(a.x + b.x, a.y + b.y); }
+  subVectors(a, b) { return this.set(a.x - b.x, a.y - b.y); }
+  lerpVectors(a, b, alpha) { return this.set(a.x + (b.x - a.x) * alpha, a.y + (b.y - a.y) * alpha); }
+  angle() { return Math.atan2(this.y, this.x); }
+  angleTo(v) {
+    const d = Math.sqrt(this.lengthSq() * v.lengthSq());
+    if (d === 0) return Math.PI / 2;
+    return Math.acos(Math.max(-1, Math.min(1, this.dot(v) / d)));
+  }
+  manhattanLength() { return Math.abs(this.x) + Math.abs(this.y); }
+  manhattanDistanceTo(v) { return Math.abs(this.x - v.x) + Math.abs(this.y - v.y); }
+  ceil() { return this.set(Math.ceil(this.x), Math.ceil(this.y)); }
+  floor() { return this.set(Math.floor(this.x), Math.floor(this.y)); }
+  round() { return this.set(Math.round(this.x), Math.round(this.y)); }
+  roundToZero() {
+    return this.set(this.x < 0 ? Math.ceil(this.x) : Math.floor(this.x),
+      this.y < 0 ? Math.ceil(this.y) : Math.floor(this.y));
+  }
+  setLength(length) { return this.normalize().multiplyScalar(length); }
+  clampLength(min, max) {
+    const l = this.length();
+    if (l === 0) return this;
+    return this.multiplyScalar(Math.max(min, Math.min(max, l)) / l);
+  }
+  clampScalar(min, max) { return this.clamp(_v2Min.set(min, min), _v2Max.set(max, max)); }
+  setX(x) { this.x = x; return this; }
+  setY(y) { this.y = y; return this; }
+  rotateAround(center, angle) {
+    const c = Math.cos(angle), s = Math.sin(angle);
+    const dx = this.x - center.x, dy = this.y - center.y;
+    return this.set(center.x + dx * c - dy * s, center.y + dx * s + dy * c);
+  }
+  random() { this.x = Math.random(); this.y = Math.random(); return this; }
+  get width() { return this.x; }
+  get height() { return this.y; }
+  fromArray(a, offset = 0) { return this.set(a[offset], a[offset + 1]); }
+  toArray(a = [], offset = 0) { a[offset] = this.x; a[offset + 1] = this.y; return a; }
+  fromBufferAttribute(attribute, index) {
+    const a = attribute.array, s = attribute.itemSize || 2;
+    return this.set(a[index * s], a[index * s + 1]);
+  }
+  getComponent(index) { return index === 0 ? this.x : this.y; }
+  setComponent(index, value) { if (index === 0) this.x = value; else this.y = value; return this; }
+  addScaledVector(v, s) { this.x += v.x * s; this.y += v.y * s; return this; }
+  min(v) { this.x = Math.min(this.x, v.x); this.y = Math.min(this.y, v.y); return this; }
+  max(v) { this.x = Math.max(this.x, v.x); this.y = Math.max(this.y, v.y); return this; }
+  applyMatrix3(m) {
+    const e = m.elements || m;
+    const x = this.x, y = this.y;
+    return this.set(e[0] * x + e[3] * y, e[1] * x + e[4] * y);
+  }
 }
+
+const _v2Min = new Vector2(), _v2Max = new Vector2();

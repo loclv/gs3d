@@ -41,6 +41,15 @@ export class PMREMGenerator {
   renderer: any;
   _rt: number;
   constructor(renderer: any) { this.renderer = renderer; this._rt = -1; }
+  // Shader precompilation hooks — the engine has no separate shader cache;
+  // these exist for three.js API parity and are no-ops.
+  compileCubemapShader() { return this; }
+  compileEquirectangularShader() { return this; }
+  // CubeTexture input: flatten the six faces into an equirect layout would
+  // need a GPU pass; return the texture unchanged as the closest mapping.
+  fromCubemap(texture: any) {
+    return { texture, dispose() {} };
+  }
 
   fromEquirectangular(texture) {
     // Already equirectangular — pass through; the engine generates env mips.

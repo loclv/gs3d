@@ -1198,3 +1198,362 @@ export class LineBasicMaterial extends Material {
   readonly isLineBasicMaterial: true;
 }
 export class MeshPhysicalMaterial extends MeshStandardMaterial {}
+
+// ---------------------------------------------------------------------------
+// r180 compat surface (see src/three/compat.ts)
+// ---------------------------------------------------------------------------
+
+export class Spherical {
+  isSpherical: true; radius: number; phi: number; theta: number;
+  set(radius: number, phi: number, theta: number): this;
+  copy(other: Spherical): this; clone(): Spherical;
+  setFromVector3(v: Vector3): this;
+  setFromCartesianCoords(x: number, y: number, z: number): this;
+  makeSafe(): this;
+}
+export class Cylindrical {
+  isCylindrical: true; radius: number; theta: number; y: number;
+  set(radius: number, theta: number, y: number): this;
+  copy(other: Cylindrical): this; clone(): Cylindrical;
+  setFromVector3(v: Vector3): this;
+  setFromCartesianCoords(x: number, y: number, z: number): this;
+}
+
+export class LineCurve extends Curve {
+  isLineCurve: true; v1: Vector2; v2: Vector2;
+  constructor(v1?: Vector2, v2?: Vector2);
+}
+export class QuadraticBezierCurve extends Curve {
+  isQuadraticBezierCurve: true; v0: Vector2; v1: Vector2; v2: Vector2;
+  constructor(v0?: Vector2, v1?: Vector2, v2?: Vector2);
+}
+export class CubicBezierCurve extends Curve {
+  isCubicBezierCurve: true; v0: Vector2; v1: Vector2; v2: Vector2; v3: Vector2;
+  constructor(v0?: Vector2, v1?: Vector2, v2?: Vector2, v3?: Vector2);
+}
+export class ArcCurve extends Curve {
+  isArcCurve: true; aX: number; aY: number; xRadius: number; yRadius: number;
+  aStartAngle: number; aEndAngle: number; aClockwise: boolean;
+}
+export class EllipseCurve extends Curve {
+  isEllipseCurve: true; aX: number; aY: number; xRadius: number; yRadius: number;
+  aStartAngle: number; aEndAngle: number; aClockwise: boolean;
+}
+export class SplineCurve extends Curve {
+  isSplineCurve: true; points: Vector2[];
+  constructor(points?: Vector2[]);
+}
+export class LineCurve3 extends Curve {
+  isLineCurve3: true; v1: Vector3; v2: Vector3;
+  constructor(v1?: Vector3, v2?: Vector3);
+}
+export class QuadraticBezierCurve3 extends Curve {
+  isQuadraticBezierCurve3: true; v0: Vector3; v1: Vector3; v2: Vector3;
+  constructor(v0?: Vector3, v1?: Vector3, v2?: Vector3);
+}
+export class CubicBezierCurve3 extends Curve {
+  isCubicBezierCurve3: true; v0: Vector3; v1: Vector3; v2: Vector3; v3: Vector3;
+  constructor(v0?: Vector3, v1?: Vector3, v2?: Vector3, v3?: Vector3);
+}
+export class CurvePath extends Curve {
+  isCurvePath: true; curves: Curve[];
+  add(curve: Curve): this; closePath(): this;
+  getCurveLengths(): number[]; getLength(): number;
+  getPoint(t: number, optionalTarget?: any): any;
+}
+export class ShapePath extends Path {
+  isShapePath: true; currentPoint: Vector2;
+  absarc(x: number, y: number, radius: number, startAngle: number, endAngle: number, clockwise?: boolean): this;
+  arc(x: number, y: number, radius: number, startAngle: number, endAngle: number, clockwise?: boolean): this;
+  bezierCurveTo(cp1x: number, cp1y: number, cp2x: number, cp2y: number, x: number, y: number): this;
+  toShapes(isCCW?: boolean): Shape[];
+}
+
+export class Matrix2 {
+  isMatrix2: true; elements: number[];
+  set(n11: number, n12: number, n21: number, n22: number): this;
+  identity(): this; copy(m: Matrix2): this; clone(): Matrix2;
+  determinant(): number; inverse(): this; transpose(): this;
+  multiply(m: Matrix2): this; multiplyScalar(s: number): this;
+  fromArray(a: number[], o?: number): this; toArray(a?: number[], o?: number): number[];
+  scale(v: Vector2): this; rotate(angle: number): this;
+  setUvTransform(tx: number, ty: number, sx: number, sy: number, rotation: number, cx: number, cy: number): this;
+}
+export class Matrix3 {
+  isMatrix3: true; elements: number[];
+  set(n11: number, n12: number, n13: number, n21: number, n22: number, n23: number, n31: number, n32: number, n33: number): this;
+  identity(): this; copy(m: Matrix3): this; clone(): Matrix3;
+  determinant(): number; inverse(): this; transpose(): this;
+  multiply(m: Matrix3): this; multiplyScalar(s: number): this;
+  fromArray(a: number[], o?: number): this; toArray(a?: number[], o?: number): number[];
+  setFromMatrix4(m: Matrix4): this;
+  extractBasis(xAxis: Vector3, yAxis: Vector3, zAxis: Vector3): this;
+  getNormalMatrix(m: Matrix4): this; invert(): this;
+  multiplyMatrices(a: Matrix3, b: Matrix3): this; premultiply(m: Matrix3): this;
+  translate(x: number, y: number): this; transposeIntoArray(r: number[], o?: number): number[];
+}
+
+export class Float16BufferAttribute extends BufferAttribute {}
+export class Int8BufferAttribute extends BufferAttribute {}
+export class Int16BufferAttribute extends BufferAttribute {}
+export class Int32BufferAttribute extends BufferAttribute {}
+export class Uint8BufferAttribute extends BufferAttribute {}
+export class Uint8ClampedBufferAttribute extends BufferAttribute {}
+export class GLBufferAttribute extends BufferAttribute {}
+export class InstancedBufferAttribute extends BufferAttribute { meshPerAttribute: number; }
+export class InstancedBufferGeometry extends BufferGeometry {
+  instanceCount: number; maxInstanceCount: number;
+}
+export class InstancedInterleavedBuffer extends InterleavedBuffer { meshPerAttribute: number; }
+
+export class DataArrayTexture extends Texture { isDataArrayTexture: true; }
+export class DepthTexture extends Texture { isDepthTexture: true; }
+export class CompressedArrayTexture extends Texture { isCompressedArrayTexture: true; }
+export class CompressedCubeTexture extends Texture { isCompressedCubeTexture: true; }
+export class ExternalTexture extends Texture { isExternalTexture: true; }
+export class FramebufferTexture extends Texture { isFramebufferTexture: true; }
+export class VideoFrameTexture extends Texture { isVideoFrameTexture: true; setFrame(frame: any): this; update(): this; }
+export class WebGLCubeRenderTarget extends WebGLRenderTarget {}
+export class WebGL3DRenderTarget extends WebGLRenderTarget { depth: number; }
+export class WebGLArrayRenderTarget extends WebGLRenderTarget { depth: number; }
+export const RenderTarget: typeof WebGLRenderTarget;
+export class RenderTarget3D extends WebGL3DRenderTarget {}
+
+export class ArrayCamera extends PerspectiveCamera { isArrayCamera: true; cameras: Camera[]; }
+export class StereoCamera extends Object3D {
+  isStereoCamera: true; aspect: number; eyeSep: number;
+  cameraL: PerspectiveCamera; cameraR: PerspectiveCamera;
+  update(camera: Camera): [PerspectiveCamera, PerspectiveCamera];
+}
+export class LOD extends Object3D {
+  isLOD: true; levels: { distance: number; object: Object3D }[];
+  autoUpdate: boolean;
+  addLevel(object: Object3D, distance?: number): this;
+  getObjectForDistance(distance: number): Object3D | null;
+  removeLevel(index: number): this; update(camera: Camera): any;
+}
+export class FrustumArray {
+  isFrustumArray: true; frusta: Frustum[];
+  clone(): FrustumArray;
+  containsPoint(p: Vector3): boolean; intersectsSphere(s: Sphere): boolean;
+  intersectsBox(b: Box3): boolean;
+}
+export class LightProbe extends Object3D { isLightProbe: true; sh: any; }
+export class HemisphereLightHelper extends Object3D {
+  isHemisphereLightHelper: true; light: HemisphereLight; size: number;
+  update(): this; dispose(): void;
+}
+export class BatchedMesh extends Mesh {
+  isBatchedMesh: true; maxInstanceCount: number;
+  unusedVertexCount: number; unusedIndexCount: number;
+  addGeometry(geometry: BufferGeometry, reservedVertexCount?: number, reservedIndexCount?: number): number;
+  deleteGeometry(start: number, count: number): this;
+  setGeometryAt(geometryId: number, geometry: BufferGeometry, reservedVertexCount?: number, reservedIndexCount?: number): this;
+  setGeometryIdAt(instanceId: number, geometryId: number): this;
+  setGeometrySize(geometryId: number, vertexCount: number, indexCount: number): this;
+  getBoundingBoxAt(geometryId: number, target?: any): any;
+  getBoundingSphereAt(geometryId: number, target?: any): any;
+  setInstanceCount(count: number): this;
+  getMatrixAt(index: number, matrix: Matrix4): Matrix4;
+  setMatrixAt(index: number, matrix: Matrix4): this;
+  setVisibleAt(index: number, visible: boolean): this; getVisibleAt(index: number): boolean;
+  setColorAt(index: number, color: Color): this; getColorAt(index: number, color: Color): Color;
+  setCustomSort(fn: any): this; sort(objects: any[], camera: any): void; optimize(): this;
+}
+export class AnimationObjectGroup extends Object3D {
+  isAnimationObjectGroup: true;
+  uncache(clip: any): this;
+}
+
+export class AudioContext { state: string; currentTime: number; sampleRate: number; resume(): Promise<void>; suspend(): Promise<void>; close(): Promise<void>; }
+export class AudioListener extends Object3D { isAudioListener: true; filter: any; timeDelta: number; }
+export class Audio extends Object3D {
+  isAudio: true; autoplay: boolean; loop: boolean; playbackRate: number; detune: number;
+  volume: number; isPlaying: boolean; duration: number;
+  play(delay?: number): this; pause(): this; stop(): this;
+  setBuffer(buffer: any): this; setLoop(v: boolean): this; getLoop(): boolean;
+  setVolume(v: number): this; getVolume(): number;
+  setPlaybackRate(v: number): this; getPlaybackRate(): number;
+  setDetune(v: number): this; getDetune(): number;
+  connect(): this; disconnect(): this;
+}
+export class PositionalAudio extends Audio {
+  isPositionalAudio: true; panner: any;
+  setRefDistance(v: number): this; setRolloffFactor(v: number): this;
+  setMaxDistance(v: number): this; setDistanceModel(v: string): this;
+  setPanningModel(v: string): this;
+}
+export class Source extends Audio { getSize(): [number, number]; }
+export class AudioAnalyser {
+  isAudioAnalyser: true; fftSize: number; frequencyBinCount: number;
+  minDecibels: number; maxDecibels: number; smoothingTimeConstant: number;
+  getByteFrequencyData(a: Uint8Array): void; getByteTimeDomainData(a: Uint8Array): void;
+  getFrequencyData(a: any): void; getAverageFrequency(): number;
+}
+export class AudioLoader extends Loader { constructor(manager?: LoadingManager); }
+
+export class CubeTextureLoader extends Loader {}
+export class DataTextureLoader extends Loader {}
+export class CompressedTextureLoader extends Loader {}
+export class BufferGeometryLoader extends Loader { parse(json: any): BufferGeometry; }
+export class AnimationLoader extends Loader { parse(json: any): AnimationClip[]; }
+export class ObjectLoader extends Loader { parse(json: any): Object3D; }
+export class MaterialLoader extends Loader {}
+
+export class Uniform { value: any; constructor(value?: any); clone(): Uniform; }
+export class UniformsGroup extends EventDispatcher {
+  isUniformsGroup: true; uniforms: Record<string, Uniform>;
+  add(...uniforms: any[]): this; remove(): this; clone(): UniformsGroup;
+  copy(source: any): this; setName(name: string): this; setUsage(usage: number): this;
+}
+export const ShaderChunk: Record<string, string>;
+export const ShaderLib: Record<string, any>;
+export const UniformsLib: Record<string, any>;
+export const UniformsUtils: { clone(u: any): any; merge(u: any[]): any };
+
+export const ColorManagement: {
+  enabled: boolean;
+  convert(color: Color, src: string, dst: string): Color;
+  fromWorkingColorSpace(color: Color, dst: string): Color;
+  toWorkingColorSpace(color: Color, src: string): Color;
+};
+export const DataUtils: {
+  isPowerOfTwo(v: number): boolean; ceilPowerOfTwo(v: number): number;
+  floorPowerOfTwo(v: number): number; getDataURL(img: any): string;
+  [key: string]: any;
+};
+export const ImageUtils: { sRGBToLinear(c: number): number; LinearTosRGB(c: number): number; getDataURL(img: any): string; };
+export const TextureUtils: { getByteLength(w: number, h: number, d: number, f: number, t: number): number; };
+export const ShapeUtils: {
+  area(contour: any[]): number; isClockWise(pts: any[]): boolean; triangulateShape(contour: any[], holes: any[]): number[];
+};
+export const MOUSE: { LEFT: number; MIDDLE: number; RIGHT: number; ROTATE: number; DOLLY: number; PAN: number };
+export const TOUCH: { ROTATE: number; PAN: number; DOLLY_PAN: number; DOLLY_ROTATE: number };
+export const InterpolationSamplingMode: { LINEAR: number; NEAREST: number };
+export const InterpolationSamplingType: { COLORSPACE: number; SEPARATOR: number; ASSIGN: number };
+export const TimestampQuery: { NONE: number; WAIT: number; INVERT: number };
+export class Timer {
+  isTimer: true; update(): number; getDelta(): number; getElapsed(): number;
+  getElapsedSeconds(): number; getTimescale(): number; setTimescale(v: number): this;
+  reset(): this; connect(): this; disconnect(): this;
+}
+export class PropertyMixer {
+  accumulate(i: number, w?: number): void; apply(i: number): void;
+  accumulateAdditive(w?: number): void; restoreState(): void;
+}
+export class WebXRController {
+  isXRController: true; xrTargetRaySpace: any; xrGripSpace: any;
+  handedness: string; targetRayMode: string;
+  connect(): Promise<WebXRController>; disconnect(): Promise<void>;
+  getTargetRaySpace(): any; getGripSpace(): any; getHandSpace(): any;
+}
+export function createCanvasElement(width?: number, height?: number): HTMLCanvasElement | null;
+export const WebGLUtils: { convert(data: any): any };
+export class Controls extends EventDispatcher {
+  isControls: true; object: any; domElement: any; enabled: boolean; target: Vector3;
+  update(): boolean; connect(): this; disconnect(): this;
+}
+export class SphericalHarmonics3 {
+  isSphericalHarmonics3: true; coefficients: Float32Array[];
+  set(c: number[]): this; zero(): this; clone(): SphericalHarmonics3; copy(s: SphericalHarmonics3): this;
+  add(sh: SphericalHarmonics3): this; scale(r: number): this; lerp(sh: SphericalHarmonics3, a: number): this;
+  getAt(normal: Vector3, target: Color): Color; getIrradianceAt(normal: Vector3, target: Color): Color;
+  addScaledSH(sh: SphericalHarmonics3, s: number): this; equals(sh: SphericalHarmonics3): boolean;
+  fromArray(a: number[]): this; toArray(t?: number[]): number[];
+}
+
+export const AddOperation: number;
+export const AlwaysCompare: number;
+export const AttachedBindMode: string;
+export const BasicDepthPacking: number;
+export const ConstantAlphaFactor: number;
+export const ConstantColorFactor: number;
+export const CubeReflectionMapping: number;
+export const CubeRefractionMapping: number;
+export const CubeUVReflectionMapping: number;
+export const CullFaceBack: number;
+export const CullFaceFront: number;
+export const CullFaceFrontBack: number;
+export const CullFaceNone: number;
+export const DetachedBindMode: string;
+export const EqualCompare: number;
+export const EquirectangularReflectionMapping: number;
+export const EquirectangularRefractionMapping: number;
+export const GreaterCompare: number;
+export const GreaterEqualCompare: number;
+export const LessCompare: number;
+export const LessEqualCompare: number;
+export const LinearMipMapLinearFilter: number;
+export const LinearMipMapNearestFilter: number;
+export const LinearTransfer: string;
+export const MixOperation: number;
+export const MultiplyOperation: number;
+export const NearestMipMapLinearFilter: number;
+export const NearestMipMapNearestFilter: number;
+export const NeverCompare: number;
+export const NotEqualCompare: number;
+export const ObjectSpaceNormalMap: number;
+export const OneMinusConstantAlphaFactor: number;
+export const OneMinusConstantColorFactor: number;
+export const RED_GREEN_RGTC2_Format: number;
+export const RED_RGTC1_Format: number;
+export const RGBADepthPacking: number;
+export const RGBA_ASTC_10x10_Format: number;
+export const RGBA_ASTC_10x5_Format: number;
+export const RGBA_ASTC_10x6_Format: number;
+export const RGBA_ASTC_10x8_Format: number;
+export const RGBA_ASTC_12x10_Format: number;
+export const RGBA_ASTC_12x12_Format: number;
+export const RGBA_ASTC_4x4_Format: number;
+export const RGBA_ASTC_5x4_Format: number;
+export const RGBA_ASTC_5x5_Format: number;
+export const RGBA_ASTC_6x5_Format: number;
+export const RGBA_ASTC_6x6_Format: number;
+export const RGBA_ASTC_8x5_Format: number;
+export const RGBA_ASTC_8x6_Format: number;
+export const RGBA_ASTC_8x8_Format: number;
+export const RGBA_BPTC_Format: number;
+export const RGBA_ETC2_EAC_Format: number;
+export const RGBA_PVRTC_2BPPV1_Format: number;
+export const RGBA_PVRTC_4BPPV1_Format: number;
+export const RGBA_S3TC_DXT1_Format: number;
+export const RGBA_S3TC_DXT3_Format: number;
+export const RGBA_S3TC_DXT5_Format: number;
+export const RGBDepthPacking: number;
+export const RGB_BPTC_SIGNED_Format: number;
+export const RGB_BPTC_UNSIGNED_Format: number;
+export const RGB_ETC1_Format: number;
+export const RGB_ETC2_Format: number;
+export const RGB_PVRTC_2BPPV1_Format: number;
+export const RGB_PVRTC_4BPPV1_Format: number;
+export const RGB_S3TC_DXT1_Format: number;
+export const RGDepthPacking: number;
+export const SIGNED_RED_GREEN_RGTC2_Format: number;
+export const SIGNED_RED_RGTC1_Format: number;
+export const SRGBTransfer: string;
+export const TangentSpaceNormalMap: number;
+export const TriangleFanDrawMode: number;
+export const TriangleStripDrawMode: number;
+export const TrianglesDrawMode: number;
+export const UVMapping: number;
+export const WebGLCoordinateSystem: number;
+export const WebGPUCoordinateSystem: number;
+
+export class EventDispatcher {
+  addEventListener(type: string, listener: (event?: any) => void): void;
+  removeEventListener(type: string, listener: (event?: any) => void): void;
+  hasEventListener(type: string): boolean;
+  dispatchEvent(event: any): boolean;
+}
+
+export class InterleavedBuffer {
+  array: ArrayLike<number>; stride: number;
+  constructor(array: ArrayLike<number>, stride: number);
+}
+
+export class Loader {
+  constructor(manager?: LoadingManager);
+  manager: LoadingManager;
+  load(url: string, onLoad?: (data: any) => void, onProgress?: (event: any) => void, onError?: (error: any) => void): any;
+  setPath(value: string): this;
+}

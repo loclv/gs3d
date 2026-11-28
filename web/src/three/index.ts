@@ -9,7 +9,8 @@ export {
   Clock,
 } from './math';
 export { Color } from './color';
-export { Plane, Ray, Sphere, Box3, Triangle, Frustum } from './bounds';
+export { Plane, Ray, Sphere, Box3, Box2, Line3, Triangle, Frustum } from './bounds';
+export { AxesHelper, GridHelper, ArrowHelper, Bone, Skeleton, SkinnedMesh } from './helpers';
 
 export {
   Layers,
@@ -42,6 +43,8 @@ export {
   Mesh,
   InstancedMesh,
   Line,
+  LineSegments,
+  LineLoop,
   Points,
   Sprite,
 } from './geometry';
@@ -77,16 +80,29 @@ export {
 
 export {
   UnsignedByteType,
-  RGBFormat,
-  RGBAFormat,
-  DepthFormat,
-  DepthStencilFormat,
-  RedFormat,
-  RGFormat,
-  RGBIntegerFormat,
-  RGBAIntegerFormat,
+  ByteType,
+  ShortType,
+  UnsignedShortType,
+  IntType,
+  UnsignedIntType,
   FloatType,
   HalfFloatType,
+  UnsignedShort4444Type,
+  UnsignedShort5551Type,
+  UnsignedInt248Type,
+  UnsignedInt5999Type,
+  UnsignedInt101111Type,
+  AlphaFormat,
+  RGBFormat,
+  RGBAFormat,
+  RedFormat,
+  RedIntegerFormat,
+  RGFormat,
+  RGIntegerFormat,
+  RGBIntegerFormat,
+  RGBAIntegerFormat,
+  DepthFormat,
+  DepthStencilFormat,
   NoBlending,
   NormalBlending,
   AdditiveBlending,
@@ -111,6 +127,39 @@ export {
   ReverseSubtractEquation,
   MinEquation,
   MaxEquation,
+  ZeroStencilOp,
+  KeepStencilOp,
+  ReplaceStencilOp,
+  IncrementStencilOp,
+  DecrementStencilOp,
+  IncrementWrapStencilOp,
+  DecrementWrapStencilOp,
+  InvertStencilOp,
+  NeverStencilFunc,
+  LessStencilFunc,
+  EqualStencilFunc,
+  LessEqualStencilFunc,
+  GreaterStencilFunc,
+  NotEqualStencilFunc,
+  GreaterEqualStencilFunc,
+  AlwaysStencilFunc,
+  NeverDepth,
+  AlwaysDepth,
+  LessDepth,
+  LessEqualDepth,
+  EqualDepth,
+  GreaterEqualDepth,
+  GreaterDepth,
+  NotEqualDepth,
+  StaticDrawUsage,
+  DynamicDrawUsage,
+  StreamDrawUsage,
+  StaticReadUsage,
+  DynamicReadUsage,
+  StreamReadUsage,
+  StaticCopyUsage,
+  DynamicCopyUsage,
+  StreamCopyUsage,
   RepeatWrapping,
   ClampToEdgeWrapping,
   MirroredRepeatWrapping,
@@ -131,6 +180,17 @@ export {
   TextureLoader,
   ImageLoader,
 } from './textures';
+
+export const REVISION = '180';
+export { ZeroCurvatureEnding, ZeroSlopeEnding, WrapAroundEnding,
+  NormalAnimationBlendMode, AdditiveAnimationBlendMode } from './animation';
+export { EventDispatcher } from './events';
+export { ImageBitmapLoader, VideoTexture } from './textures';
+export { CubeCamera } from './scene';
+export {
+  CameraHelper, DirectionalLightHelper, PointLightHelper, SpotLightHelper,
+  BoxHelper, Box3Helper, PlaneHelper, PolarGridHelper, SkeletonHelper,
+} from './helpers';
 
 export {
   FrontSide,
@@ -172,6 +232,10 @@ export {
   AnimationAction,
   AnimationMixer,
   AnimationUtils,
+  Interpolant,
+  InterpolateLinear,
+  InterpolateSmooth,
+  InterpolateDiscrete,
   LoopOnce,
   LoopRepeat,
   LoopPingPong,
@@ -185,6 +249,8 @@ export {
   DefaultLoadingManager,
   FileLoader,
   Cache,
+  Loader,
+  LoaderUtils,
 } from './loaders';
 
 export { Raycaster } from './raycaster';
@@ -212,3 +278,4 @@ export {
   WebGLRenderer,
 } from './renderer';
 export { PMREMGenerator, RoomEnvironment } from './pmrem';
+export * from './compat';

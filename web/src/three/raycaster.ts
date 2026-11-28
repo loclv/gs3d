@@ -6,6 +6,7 @@ import { Layers } from './scene';
 
 
 export class Raycaster {
+  setFromXRController() { return this; }
   ray: Ray;
   near: number;
   far: number;

@@ -165,6 +165,7 @@ struct G3ReflectedLight {
 
 function ensureObcMaterial(engine, material) {
   if (!material || typeof material.onBeforeCompile !== 'function') return;
+  if (material.onBeforeCompile._gs3dDefault) return;
   if (typeof engine._g3_host_material_shader_create !== 'function') return;
   // The callback is cheap enough to run per material per frame; the parsed
   // plan is cached and only rebuilt when the uniform set or the custom
@@ -374,7 +375,7 @@ export function ensureMaterial(engine, material) {
   // onBeforeCompile runs once per material per frame (the frame cache above
   // dedupes meshes sharing it); the parsed plan itself is cached on the
   // material and only rebuilt when uniforms or attribute slots change.
-  if (material && typeof material.onBeforeCompile === 'function') {
+  if (material && typeof material.onBeforeCompile === 'function' && !material.onBeforeCompile._gs3dDefault) {
     ensureObcMaterial(engine, material);
   }
   const maps = materialMaps(material);

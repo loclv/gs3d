@@ -79,7 +79,64 @@ export const Cache = {
   clear() { this.files.clear(); return this; },
 };
 
-export class FileLoader {
+/* --- loader base + utilities ---------------------------------------------------- */
+
+// Base class for loaders that carry a LoadingManager (three.Loader).
+export class Loader {
+  manager: LoadingManager;
+  crossOrigin: string;
+  path = '';
+  resourcePath = '';
+  requestHeader: Record<string, string> = {};
+  withCredentials = false;
+  constructor(manager: LoadingManager = DefaultLoadingManager) {
+    this.manager = manager;
+    this.crossOrigin = 'anonymous';
+  }
+  load(url?: string, onLoad?: any, onProgress?: any, onError?: any): any {
+    throw new Error('Loader.load must be implemented by subclasses');
+  }
+  loadAsync(url: string, onProgress?: (e: any) => void) {
+    return new Promise((resolve, reject) => {
+      this.load(url, resolve, onProgress, reject);
+    });
+  }
+  setCrossOrigin(value: string) { this.crossOrigin = value; return this; }
+  setPath(value: string) { this.path = value; return this; }
+  setResourcePath(value: string) { this.resourcePath = value; return this; }
+  setRequestHeader(key: string, value: string) { this.requestHeader[key] = value; return this; }
+  setWithCredentials(value: boolean) { this.withCredentials = value; return this; }
+  abort() { return this; }
+  // Subclasses override; default is identity.
+  parse(data: any) { return data; }
+}
+
+// URL helpers matching three's LoaderUtils subset.
+export const LoaderUtils = {
+  extractUrlBase(url: string) {
+    const i = url.lastIndexOf('/');
+    return i === -1 ? '' : url.slice(0, i + 1);
+  },
+  getUrlExtension(url: string) {
+    const m = /\.([^\.\/?]+)(\?.*)?$/.exec(url);
+    return m ? m[1].toLowerCase() : '';
+  },
+  // Returns a blob URL for the given blob, falling back to a data URL.
+  createBlobURL(blob: Blob) {
+    if (typeof URL !== 'undefined' && URL.createObjectURL) return URL.createObjectURL(blob);
+    return '';
+  },
+  revokeBlobURL(url: string) {
+    if (typeof URL !== 'undefined' && URL.revokeObjectURL) URL.revokeObjectURL(url);
+  },
+  resolveURL(base: string, url: string) {
+    if (/^(https?:)?\/\//.test(url) || url.startsWith('data:') || url.startsWith('blob:')) return url;
+    if (url.startsWith('/')) return url;
+    return (base || '') + url;
+  },
+};
+
+export class FileLoader extends Loader {
   isFileLoader: boolean;
   manager: LoadingManager;
   responseType: string;
@@ -88,15 +145,13 @@ export class FileLoader {
   requestHeader: Record<string, string>;
   path = '';
   constructor(manager: LoadingManager = DefaultLoadingManager) {
+    super(manager);
     this.isFileLoader = true;
-    this.manager = manager;
     this.responseType = '';
     this.mimeType = '';
-    this.withCredentials = false;
-    this.requestHeader = {};
   }
   load(url: string, onLoad?: (data: any) => void, onProgress?: (e: any) => void, onError?: (e: any) => void) {
-    const resolved = this.manager.resolveURL(this.path + url);
+    const resolved = this.manager.resolveURL(this.resourcePath + this.path + url);
     const mimeType = this.mimeType;
     const cached = Cache.get(resolved);
     if (cached !== undefined) {
@@ -152,8 +207,13 @@ export class FileLoader {
     return this;
   }
   setPath(value: string) { this.path = value; return this; }
+  setResourcePath(value: string) { this.resourcePath = value; return this; }
   setResponseType(value: string) { this.responseType = value; return this; }
-  setWithCredentials(value: boolean) { this.withCredentials = value; return this; }
-  setRequestHeader(key: string, value: string) { this.requestHeader[key] = value; return this; }
+  setMimeType(value: string) { this.mimeType = value; return this; }
+  loadAsync(url: string, onProgress?: (e: any) => void) {
+    return new Promise((resolve, reject) => {
+      this.load(url, resolve, onProgress, reject);
+    });
+  }
   abort() { /* fetch cannot be aborted here; kept for API parity */ return this; }
 }

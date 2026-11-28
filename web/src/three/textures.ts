@@ -1,21 +1,37 @@
 import { Color } from './color';
 import { Vector2, Vector4 } from './math';
 import { sharedEngine, releaseTexture } from './bridge';
+import { EventDispatcher } from './events';
 import { SRGBColorSpace, NoColorSpace } from './renderer';
 
 /* --- textures ------------------------------------------------------------------ */
 
+// Type constants use three.js's own numbering (they are NOT raw GL enums).
 export const UnsignedByteType = 1009;
-export const RGBFormat = 1022;
-export const RGBAFormat = 1023;
-export const DepthFormat = 1026;
-export const DepthStencilFormat = 1027;
-export const RedFormat = 1028;
-export const RGFormat = 1030;
-export const RGBIntegerFormat = 1033;
-export const RGBAIntegerFormat = 1036;
+export const ByteType = 1010;
+export const ShortType = 1011;
+export const UnsignedShortType = 1012;
+export const IntType = 1013;
+export const UnsignedIntType = 1014;
 export const FloatType = 1015;
 export const HalfFloatType = 1016;
+export const UnsignedShort4444Type = 1017;
+export const UnsignedShort5551Type = 1018;
+export const UnsignedInt248Type = 1020;
+export const UnsignedInt5999Type = 35902;
+export const UnsignedInt101111Type = 35899;
+
+export const AlphaFormat = 1021;
+export const RGBFormat = 1022;
+export const RGBAFormat = 1023;
+export const RedFormat = 1028;
+export const RedIntegerFormat = 1029;
+export const RGFormat = 1030;
+export const RGIntegerFormat = 1031;
+export const RGBIntegerFormat = 1032;
+export const RGBAIntegerFormat = 1033;
+export const DepthFormat = 1026;
+export const DepthStencilFormat = 1027;
 
 export const NoBlending = 0;
 export const NormalBlending = 1;
@@ -23,27 +39,67 @@ export const AdditiveBlending = 2;
 export const SubtractiveBlending = 3;
 export const MultiplyBlending = 4;
 export const GLSL1 = '100';
-export const GLSL3 = '300';
+export const GLSL3 = '300 es';
 
 export const CustomBlending = 5;
 
-export const ZeroFactor = 0;
-export const OneFactor = 1;
-export const SrcColorFactor = 2;
-export const OneMinusSrcColorFactor = 3;
-export const SrcAlphaFactor = 4;
-export const OneMinusSrcAlphaFactor = 5;
-export const DstAlphaFactor = 6;
-export const OneMinusDstAlphaFactor = 7;
-export const DstColorFactor = 8;
-export const OneMinusDstColorFactor = 9;
-export const SrcAlphaSaturateFactor = 10;
+// Blend factors use three.js numbering (200+), matching upstream exactly.
+export const ZeroFactor = 200;
+export const OneFactor = 201;
+export const SrcColorFactor = 202;
+export const OneMinusSrcColorFactor = 203;
+export const SrcAlphaFactor = 204;
+export const OneMinusSrcAlphaFactor = 205;
+export const DstAlphaFactor = 206;
+export const OneMinusDstAlphaFactor = 207;
+export const DstColorFactor = 208;
+export const OneMinusDstColorFactor = 209;
+export const SrcAlphaSaturateFactor = 210;
 
 export const AddEquation = 100;
 export const SubtractEquation = 101;
 export const ReverseSubtractEquation = 102;
 export const MinEquation = 103;
 export const MaxEquation = 104;
+
+// Stencil and depth-function constants (values match WebGL/three).
+export const ZeroStencilOp = 0;
+export const KeepStencilOp = 7680;
+export const ReplaceStencilOp = 7681;
+export const IncrementStencilOp = 7682;
+export const DecrementStencilOp = 7683;
+export const IncrementWrapStencilOp = 34055;
+export const DecrementWrapStencilOp = 34056;
+export const InvertStencilOp = 5386;
+
+export const NeverStencilFunc = 512;
+export const LessStencilFunc = 513;
+export const EqualStencilFunc = 514;
+export const LessEqualStencilFunc = 515;
+export const GreaterStencilFunc = 516;
+export const NotEqualStencilFunc = 517;
+export const GreaterEqualStencilFunc = 518;
+export const AlwaysStencilFunc = 519;
+
+export const NeverDepth = 0;
+export const AlwaysDepth = 1;
+export const LessDepth = 2;
+export const LessEqualDepth = 3;
+export const EqualDepth = 4;
+export const GreaterEqualDepth = 5;
+export const GreaterDepth = 6;
+export const NotEqualDepth = 7;
+
+// Buffer usage hints (GL enum values, same as three).
+export const StaticDrawUsage = 35044;
+export const DynamicDrawUsage = 35048;
+export const StreamDrawUsage = 35040;
+export const StaticReadUsage = 35045;
+export const DynamicReadUsage = 35049;
+export const StreamReadUsage = 35041;
+export const StaticCopyUsage = 35046;
+export const DynamicCopyUsage = 35050;
+export const StreamCopyUsage = 35042;
 
 export const RepeatWrapping = 1000;
 export const ClampToEdgeWrapping = 1001;
@@ -86,9 +142,19 @@ export function textureImageData(image) {
   return null;
 }
 
-export class Texture {
+export class Texture extends EventDispatcher {
   isTexture: boolean;
-  image: any;
+  updateRanges: Array<{ start: number; count: number }>;
+  matrix: any;
+  _image: any;
+  _depth: number;
+  _needsPMREMUpdate: boolean;
+  get image() { return this._image; }
+  set image(v) { this._image = v; }
+  get depth() { return this._depth; }
+  set depth(v) { this._depth = v; }
+  get needsPMREMUpdate() { return this._needsPMREMUpdate; }
+  set needsPMREMUpdate(v) { this._needsPMREMUpdate = v; }
   colorSpace: string;
   wrapS: number;
   wrapT: number;
@@ -103,13 +169,13 @@ export class Texture {
   matrixAutoUpdate: boolean;
   generateMipmaps: boolean;
   version: number;
-  needsUpdate: boolean;
   flipY?: boolean;
   isRenderTargetTexture?: boolean;
   _renderTarget?: any;
   constructor(image: any = null) {
+    super();
     this.isTexture = true;
-    this.image = image;
+    this._image = image;
     this.colorSpace = NoColorSpace;
     this.wrapS = RepeatWrapping;
     this.wrapT = RepeatWrapping;
@@ -124,7 +190,56 @@ export class Texture {
     this.matrixAutoUpdate = true;
     this.generateMipmaps = true;
     this.version = 0;
-    this.needsUpdate = false;
+    this._depth = 1;
+    this.updateRanges = [];
+    this._needsPMREMUpdate = false;
+    this.matrix = null;
+  }
+  get width() { const i = this.image; return i ? (i.width ?? i.naturalWidth ?? i.videoWidth ?? 0) : 0; }
+  get height() { const i = this.image; return i ? (i.height ?? i.naturalHeight ?? i.videoHeight ?? 0) : 0; }
+  // three r180: needsUpdate is a prototype setter that bumps version.
+  set needsUpdate(v: boolean) { if (v) this.version++; }
+  get needsUpdate() { return false; }
+  addUpdateRange(start: number, count: number) { this.updateRanges.push({ start, count }); }
+  clearUpdateRanges() { this.updateRanges.length = 0; }
+  transformUv(uv: any) { return uv; }
+  setValues(values: any) {
+    for (const [k, v] of Object.entries(values)) {
+      if (k === 'offset' || k === 'repeat' || k === 'center') (this as any)[k].set((v as any).x ?? (v as any)[0], (v as any).y ?? (v as any)[1]);
+      else (this as any)[k] = v;
+    }
+    return this;
+  }
+  copy(source: Texture) {
+    this._image = source.image;
+    this.colorSpace = source.colorSpace;
+    this.wrapS = source.wrapS; this.wrapT = source.wrapT;
+    this.magFilter = source.magFilter; this.minFilter = source.minFilter;
+    this.offset.copy(source.offset); this.repeat.copy(source.repeat);
+    this.rotation = source.rotation; this.center.copy(source.center);
+    this.channel = source.channel; this.type = source.type;
+    this.flipY = source.flipY;
+    this.generateMipmaps = source.generateMipmaps;
+    this.matrixAutoUpdate = source.matrixAutoUpdate;
+    return this;
+  }
+  clone() { return new (this as any).constructor(this.image).copy(this); }
+  toJSON(meta: any = {}) {
+    const image = this.image;
+    return {
+      metadata: { version: 4.7, type: 'Texture', generator: 'gs3d' },
+      uuid: (this as any).uuid,
+      type: (this as any).isTexture ? 'Texture' : 'Texture',
+      name: (this as any).name || '',
+      image: image && image.src ? image.src : undefined,
+      mapping: 300, wrapS: this.wrapS, wrapT: this.wrapT,
+      magFilter: this.magFilter, minFilter: this.minFilter,
+      anisotropy: (this as any).anisotropy ?? 1,
+      colorSpace: this.colorSpace,
+      offset: [this.offset.x, this.offset.y], repeat: [this.repeat.x, this.repeat.y],
+      center: [this.center.x, this.center.y], rotation: this.rotation,
+      channel: this.channel,
+    };
   }
   updateMatrix() { return this; }
   dispose() {
@@ -200,8 +315,19 @@ export class CompressedTexture extends Texture {
 }
 export class CubeTexture extends Texture {
   isCubeTexture: boolean;
-  images: any[];
-  constructor() { super(null); this.isCubeTexture = true; this.images = []; }
+  _images: any[];
+  get images() { return this._images; }
+  set images(v) { this._images = v; }
+  constructor(images: any[] = []) { super(images); this.isCubeTexture = true; this._images = images; }
+}
+
+export class VideoTexture extends Texture {
+  isVideoTexture: boolean;
+  constructor(video: any = null) {
+    super(video);
+    this.isVideoTexture = true;
+  }
+  update() { this.needsUpdate = true; return this; }
 }
 
 // Render targets map onto the engine's explicit render-target textures. The
@@ -209,14 +335,19 @@ export class CubeTexture extends Texture {
 // loaded yet at construction time); rt.texture carries the binding.
 const RT_FORMAT = { [UnsignedByteType]: 0, [HalfFloatType]: 1, [FloatType]: 2 };
 
-export class WebGLRenderTarget {
+export class WebGLRenderTarget extends EventDispatcher {
   isRenderTarget: boolean;
+  _depthTexture: any = null;
+  get depthTexture() { return this._depthTexture; }
+  set depthTexture(v) { this._depthTexture = v; }
   width: number;
   height: number;
   depthBuffer: boolean;
   stencilBuffer: boolean;
   count: number;
-  texture: Texture;
+  _texture: Texture;
+  get texture() { return this._texture; }
+  set texture(v) { this._texture = v; }
   textures: Texture[];
   viewport: Vector4;
   scissor: Vector4;
@@ -226,6 +357,7 @@ export class WebGLRenderTarget {
   _rtHeight: number;
   _rtGeneration: number;
   constructor(width = 1, height = 1, options: Record<string, any> = {}) {
+    super();
     this.isRenderTarget = true;
     this.width = Math.max(1, width | 0);
     this.height = Math.max(1, height | 0);
@@ -233,8 +365,8 @@ export class WebGLRenderTarget {
     this.stencilBuffer = !!options.stencilBuffer;
     // Multiple render targets are not reachable through the engine ABI.
     this.count = options.count || 1;
-    this.texture = new Texture(null);
-    this.textures = [this.texture];
+    this._texture = new Texture(null);
+    this.textures = [this._texture];
     this.viewport = new Vector4(0, 0, this.width, this.height);
     this.scissor = new Vector4(0, 0, this.width, this.height);
     this.scissorTest = false;
@@ -252,6 +384,12 @@ export class WebGLRenderTarget {
     this._rtHeight = 0;
     this._rtGeneration = -1;
   }
+  copy(source: WebGLRenderTarget) {
+    this.width = source.width; this.height = source.height;
+    this.depthBuffer = source.depthBuffer; this.stencilBuffer = source.stencilBuffer;
+    return this;
+  }
+  clone() { return new WebGLRenderTarget(this.width, this.height).copy(this); }
   setSize(width, height) {
     this.width = Math.max(1, width | 0);
     this.height = Math.max(1, height | 0);
@@ -293,6 +431,7 @@ export function ensureEngineRenderTarget(engine, rt) {
 
 export class TextureLoader {
   manager: any;
+  crossOrigin = 'anonymous';
   constructor(manager: any = null) { this.manager = manager; }
   load(url: string, onLoad?: (t: Texture) => void, _onProgress?: any, onError?: (e: any) => void) {
     const resolved = this.manager ? this.manager.resolveURL(url) : url;
@@ -320,13 +459,77 @@ export class TextureLoader {
       });
     return this;
   }
+
+  // three.Loader parity stubs/fields.
+  path = '';
+  resourcePath = '';
+  requestHeader: Record<string, string> = {};
+  withCredentials = false;
+  setPath(value: string) { this.path = value; return this; }
+  setResourcePath(value: string) { this.resourcePath = value; return this; }
+  setRequestHeader(key: string, value: string) { this.requestHeader[key] = value; return this; }
+  setWithCredentials(value: boolean) { this.withCredentials = value; return this; }
+  setCrossOrigin(value: string) { this.crossOrigin = value; return this; }
+  abort() { return this; }
+  parse(data: any) { return data; }
+  loadAsync(url: string, onProgress?: any) {
+    return new Promise<Texture>((resolve, reject) => {
+      this.load(url, resolve, onProgress, reject);
+    });
+  }
+}
+
+// Loads images via createImageBitmap (faster path, no DOM Image element).
+export class ImageBitmapLoader {
+  manager: any;
+  crossOrigin = 'anonymous';
+  constructor(manager: any = null) { this.manager = manager; }
+  load(url: string, onLoad?: (bmp: ImageBitmap) => void, onProgress?: any, onError?: (e: any) => void) {
+    const resolved = this.manager ? this.manager.resolveURL(this.path + url) : this.path + url;
+    this.manager && this.manager.itemStart(resolved);
+    fetch(resolved)
+      .then(response => {
+        if (!response.ok) throw new Error(`gs3d: failed to fetch image ${url} (${response.status})`);
+        return response.blob();
+      })
+      .then(blob => createImageBitmap(blob))
+      .then(bitmap => {
+        if (onLoad) onLoad(bitmap);
+        this.manager && this.manager.itemEnd(resolved);
+      })
+      .catch(error => {
+        this.manager && this.manager.itemError(resolved);
+        this.manager && this.manager.itemEnd(resolved);
+        if (onError) onError(error);
+      });
+    return this;
+  }
+  // three.Loader parity fields/methods.
+  path = '';
+  resourcePath = '';
+  requestHeader: Record<string, string> = {};
+  withCredentials = false;
+  setPath(value: string) { this.path = value; return this; }
+  setResourcePath(value: string) { this.resourcePath = value; return this; }
+  setRequestHeader(key: string, value: string) { this.requestHeader[key] = value; return this; }
+  setWithCredentials(value: boolean) { this.withCredentials = value; return this; }
+  setCrossOrigin(value: string) { this.crossOrigin = value; return this; }
+  setOptions(options: any) { Object.assign(this, options); return this; }
+  abort() { return this; }
+  parse(data: any) { return data; }
+  loadAsync(url: string, onProgress?: any) {
+    return new Promise<ImageBitmap>((resolve, reject) => {
+      this.load(url, resolve, onProgress, reject);
+    });
+  }
 }
 
 export class ImageLoader {
   manager: any;
+  crossOrigin = 'anonymous';
   constructor(manager: any = null) { this.manager = manager; }
   load(url: string, onLoad?: (img: HTMLImageElement) => void, onProgress?: any, onError?: (e: any) => void) {
-    const resolved = this.manager ? this.manager.resolveURL(url) : url;
+    const resolved = this.manager ? this.manager.resolveURL(this.path + url) : this.path + url;
     this.manager && this.manager.itemStart(resolved);
     const image = new Image();
     image.onload = () => { if (onLoad) onLoad(image); this.manager && this.manager.itemEnd(resolved); };
@@ -338,6 +541,23 @@ export class ImageLoader {
     if (onProgress) image.onprogress = onProgress;
     image.src = resolved;
     return image;
+  }
+  // three.Loader parity fields/methods.
+  path = '';
+  resourcePath = '';
+  requestHeader: Record<string, string> = {};
+  withCredentials = false;
+  setPath(value: string) { this.path = value; return this; }
+  setResourcePath(value: string) { this.resourcePath = value; return this; }
+  setRequestHeader(key: string, value: string) { this.requestHeader[key] = value; return this; }
+  setWithCredentials(value: boolean) { this.withCredentials = value; return this; }
+  setCrossOrigin(value: string) { this.crossOrigin = value; return this; }
+  abort() { return this; }
+  parse(data: any) { return data; }
+  loadAsync(url: string, onProgress?: any) {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      this.load(url, resolve, onProgress, reject);
+    });
   }
 }
 

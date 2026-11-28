@@ -115,5 +115,74 @@ export class Color {
     };
     return this.setRGB(f(hh + 1 / 3), f(hh), f(hh - 1 / 3));
   }
+  // --- three.js parity ---------------------------------------------------------
+  setHSL(h, s, l) {
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    h = ((h % 1) + 1) % 1;
+    if (s === 0) return this.setRGB(l, l, l);
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    return this.setRGB(
+      hue2rgb(p, q, h + 1 / 3), hue2rgb(p, q, h), hue2rgb(p, q, h - 1 / 3));
+  }
+  setScalar(s) { return this.setRGB(s, s, s); }
+  setColorName(name: string) {
+    // Route through setStyle so named colors resolve via parseCssColor.
+    return this.setStyle(name);
+  }
+  setFromVector3(v) { return this.setRGB(v.x, v.y, v.z); }
+  setFromBufferAttribute(attribute, index) {
+    const o = index * attribute.itemSize;
+    return this.setRGB(attribute.array[o], attribute.array[o + 1], attribute.array[o + 2]);
+  }
+  fromBufferAttribute(attribute, index) { return this.setFromBufferAttribute(attribute, index); }
+  equals(c) { return c && this.r === c.r && this.g === c.g && this.b === c.b; }
+  fromArray(array, offset = 0) { return this.setRGB(array[offset], array[offset + 1], array[offset + 2]); }
+  toArray(array = [], offset = 0) {
+    array[offset] = this.r; array[offset + 1] = this.g; array[offset + 2] = this.b;
+    return array;
+  }
+  add(c) { this.r += c.r; this.g += c.g; this.b += c.b; return this; }
+  addColors(a, b) { return this.add(a).add(b); }
+  addScalar(s) { this.r += s; this.g += s; this.b += s; return this; }
+  sub(c) { this.r -= c.r; this.g -= c.g; this.b -= c.b; return this; }
+  multiply(c) { this.r *= c.r; this.g *= c.g; this.b *= c.b; return this; }
+  multiplyScalar(s) { this.r *= s; this.g *= s; this.b *= s; return this; }
+  lerpColors(c1, c2, alpha) { return this.copy(c1).lerp(c2, alpha); }
+  lerpHSL(c, alpha) {
+    const a = this.getHSL({ h: 0, s: 0, l: 0 }), b = c.getHSL({ h: 0, s: 0, l: 0 });
+    const dh = ((b.h - a.h + 1.5) % 1) - 0.5;
+    return this.setHSL(
+      (a.h + dh * alpha) % 1 || 0,
+      a.s + (b.s - a.s) * alpha,
+      a.l + (b.l - a.l) * alpha);
+  }
+  getRGB(target: any = {}) {
+    target.r = Math.round(Math.min(Math.max(linearToSrgb(this.r), 0), 1) * 255);
+    target.g = Math.round(Math.min(Math.max(linearToSrgb(this.g), 0), 1) * 255);
+    target.b = Math.round(Math.min(Math.max(linearToSrgb(this.b), 0), 1) * 255);
+    return target;
+  }
+  applyMatrix3(m: any) {
+    const e = m.elements || m;
+    const x = this.r, y = this.g, z = this.b;
+    this.r = e[0] * x + e[3] * y + e[6] * z;
+    this.g = e[1] * x + e[4] * y + e[7] * z;
+    this.b = e[2] * x + e[5] * y + e[8] * z;
+    return this;
+  }
+  // Convert between linear working space and sRGB-encoded components.
+  convertSRGBToLinear() { this.r = srgbToLinear(this.r); this.g = srgbToLinear(this.g); this.b = srgbToLinear(this.b); return this; }
+  convertLinearToSRGB() { this.r = linearToSrgb(this.r); this.g = linearToSrgb(this.g); this.b = linearToSrgb(this.b); return this; }
+  copySRGBToLinear() { return this.convertSRGBToLinear(); }
+  copyLinearToSRGB() { return this.convertLinearToSRGB(); }
+  toJSON() { return this.getHex(); }
 }
 

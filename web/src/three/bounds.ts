@@ -1,6 +1,6 @@
 import { FrontSide, BackSide, DoubleSide } from './materials';
 import { worldMatrixOf } from './bridge';
-import { Vector3, multiplyMat4, transformPoint } from './math';
+import { Vector3, Vector2, multiplyMat4, transformPoint, invertMat4 } from './math';
 
 /* --- raycasting and bounds ------------------------------------------------------ */
 
@@ -27,7 +27,96 @@ export class Plane {
   }
   distanceToPoint(point) { return this.normal.dot(point) + this.constant; }
   clone() { return new Plane(this.normal.clone(), this.constant); }
+  equals(plane) { return plane.normal.equals(this.normal) && plane.constant === this.constant; }
+  coplanarPoint(target = new Vector3()) {
+    return target.copy(this.normal).multiplyScalar(-this.constant);
+  }
+  projectPoint(point, target = new Vector3()) {
+    const d = this.normal.dot(point) + this.constant;
+    return target.copy(point).addScaledVector(this.normal, -d);
+  }
+  // Distance (negative inside) along normal — same as distanceToPoint but
+  // expressed as a scalar; kept for parity with three.
+  distanceToSphere(sphere) {
+    return this.distanceToPoint(sphere.center) - sphere.radius;
+  }
+  intersectsSphere(sphere) { return this.distanceToSphere(sphere) <= 0; }
+  intersectsBox(box) {
+    // Infinite plane meets the box iff corners exist on both signed sides.
+    const n = this.normal;
+    const pMin = _planeP1.set(
+      n.x > 0 ? box.min.x : box.max.x,
+      n.y > 0 ? box.min.y : box.max.y,
+      n.z > 0 ? box.min.z : box.max.z);
+    const pMax = _planeP2.set(
+      n.x > 0 ? box.max.x : box.min.x,
+      n.y > 0 ? box.max.y : box.min.y,
+      n.z > 0 ? box.max.z : box.min.z);
+    return this.distanceToPoint(pMin) <= 0 && this.distanceToPoint(pMax) >= 0;
+  }
+  intersectsLine(line) {
+    const dir = _lineDir.subVectors(line.end, line.start);
+    const denom = this.normal.dot(dir);
+    if (Math.abs(denom) < 1e-12) return false;
+    const t = -(this.normal.dot(line.start) + this.constant) / denom;
+    return t >= 0 && t <= 1;
+  }
+  applyMatrix4(matrix, optionalNormalMatrix) {
+    const m = matrix.elements || matrix;
+    // Capture a point on the old plane before mutating.
+    const px = -this.normal.x * this.constant, py = -this.normal.y * this.constant, pz = -this.normal.z * this.constant;
+    // Normal transforms by the inverse-transpose of the upper 3x3.
+    const inv = optionalNormalMatrix
+      ? (optionalNormalMatrix.elements || optionalNormalMatrix)
+      : invertMat4(m);
+    if (!inv) return this;
+    const e = inv, nx = this.normal.x, ny = this.normal.y, nz = this.normal.z;
+    const tx = e[0] * nx + e[4] * ny + e[8] * nz;
+    const ty = e[1] * nx + e[5] * ny + e[9] * nz;
+    const tz = e[2] * nx + e[6] * ny + e[10] * nz;
+    const nl = Math.hypot(tx, ty, tz) || 1;
+    this.normal.set(tx / nl, ty / nl, tz / nl);
+    const tp = transformPoint(m, px, py, pz);
+    this.constant = -(this.normal.x * tp[0] + this.normal.y * tp[1] + this.normal.z * tp[2]);
+    return this;
+  }
+  translate(offset) { this.constant += this.normal.dot(offset); return this; }
+  negate() { this.constant *= -1; this.normal.negate(); return this; }
+  setFromNormalAndCoplanarPoint(normal, point) {
+    this.normal.copy(normal).normalize();
+    this.constant = -this.normal.dot(point);
+    return this;
+  }
+  setFromCoplanarPoints(a, b, c) {
+    const ab = _planeN1.subVectors(b, a);
+    const ac = _planeN2.subVectors(c, a);
+    this.normal.copy(ab.cross(ac).normalize());
+    this.constant = -this.normal.dot(a);
+    return this;
+  }
+  // Intersection of the plane with a line segment; null when parallel or
+  // outside the segment (three.js returns null for t outside [0,1]).
+  intersectLine(line, target = new Vector3()) {
+    const dir = _lineDir.subVectors(line.end, line.start);
+    const denom = this.normal.dot(dir);
+    if (Math.abs(denom) < 1e-12) return null;
+    const t = -(this.normal.dot(line.start) + this.constant) / denom;
+    if (t < 0 || t > 1) return null;
+    return target.copy(line.start).addScaledVector(dir, t);
+  }
+  static fromNormalAndCoplanarPoint(normal, point) {
+    return new Plane(normal.clone(), -normal.dot(point));
+  }
+  static fromCoplanarPoints(a, b, c) {
+    const ab = _planeN1.subVectors(b, a);
+    const ac = _planeN2.subVectors(c, a);
+    const normal = ab.cross(ac).normalize();
+    return new Plane(normal, -normal.dot(a));
+  }
 }
+const _planePoint = new Vector3(), _lineDir = new Vector3();
+const _planeP1 = new Vector3(), _planeP2 = new Vector3();
+const _planeN1 = new Vector3(), _planeN2 = new Vector3();
 
 export class Ray {
   origin: Vector3;
@@ -72,7 +161,211 @@ export class Ray {
       a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, backfaceCulling ? FrontSide : DoubleSide);
     return hit ? this.at(hit.t, target) : null;
   }
+  lookAt(target) {
+    this.direction.subVectors(target, this.origin).normalize();
+    return this;
+  }
+  closestPointToPoint(point, target = new Vector3()) {
+    const t = Math.max(0, this.direction.dot(_rayTmp.subVectors(point, this.origin)));
+    return this.at(t, target);
+  }
+  distanceSqToPoint(point) {
+    const t = Math.max(0, this.direction.dot(_rayTmp.subVectors(point, this.origin)));
+    _rayTmp2.copy(this.origin).addScaledVector(this.direction, t);
+    return _rayTmp2.distanceToSquared(point);
+  }
+  distanceToPoint(point) { return Math.sqrt(this.distanceSqToPoint(point)); }
+  applyMatrix4(matrix4) {
+    this.origin.applyMatrix4(matrix4);
+    this.direction.transformDirection(matrix4);
+    return this;
+  }
+  copy(ray) { this.origin.copy(ray.origin); this.direction.copy(ray.direction); return this; }
+  clone() { return new Ray(this.origin.clone(), this.direction.clone()); }
+  equals(ray) { return this.origin.equals(ray.origin) && this.direction.equals(ray.direction); }
+  distanceToPlane(plane) {
+    const denom = plane.normal.dot(this.direction);
+    if (Math.abs(denom) < 1e-12) return null;
+    return -(plane.normal.dot(this.origin) + plane.constant) / denom;
+  }
+  intersectsPlane(plane) {
+    const dist = this.distanceToPlane(plane);
+    return dist !== null && dist >= 0;
+  }
+  // Recast keeping the direction, moving origin to `target`.
+  recast(target) { this.origin.copy(target); return this; }
+  // Distance from the ray segment's closest approach to a line segment.
+  distanceSqToSegment(v0, v1, optP = new Vector3(), optC = new Vector3()) {
+    // Minimize |origin + t*d - (v0 + u*(v1-v0))|^2 over t,u>=0.
+    const d1x = this.direction.x, d1y = this.direction.y, d1z = this.direction.z;
+    const d2x = v1.x - v0.x, d2y = v1.y - v0.y, d2z = v1.z - v0.z;
+    const rx = this.origin.x - v0.x, ry = this.origin.y - v0.y, rz = this.origin.z - v0.z;
+    const a = d1x * d1x + d1y * d1y + d1z * d1z;
+    const e = d2x * d2x + d2y * d2y + d2z * d2z;
+    const f = d2x * rx + d2y * ry + d2z * rz;
+    const c = d1x * rx + d1y * ry + d1z * rz;
+    const b = d1x * d2x + d1y * d2y + d1z * d2z;
+    const denom = a * e - b * b;
+    // Solve properly: t along ray (unbounded, clamped >=0), u along segment [0,1].
+    let t = 0, u = 0;
+    if (denom > 1e-12) {
+      t = (b * f - c * e) / denom;
+      u = (a * f - b * c) / denom;
+    } else {
+      t = c / (a || 1);
+      u = 0;
+    }
+    t = Math.max(0, t);
+    u = Math.max(0, Math.min(1, u));
+    optP.copy(this.origin).addScaledVector(this.direction, t);
+    optC.set(v0.x + d2x * u, v0.y + d2y * u, v0.z + d2z * u);
+    return optP.distanceToSquared(optC);
+  }
 }
+const _rayTmp = new Vector3(), _rayTmp2 = new Vector3();
+
+export class Line3 {
+  start: Vector3;
+  end: Vector3;
+  isLine3: boolean;
+  constructor(start = new Vector3(), end = new Vector3()) {
+    this.start = start; this.end = end; this.isLine3 = true;
+  }
+  set(start, end) { this.start.copy(start); this.end.copy(end); return this; }
+  copy(line) { this.start.copy(line.start); this.end.copy(line.end); return this; }
+  clone() { return new Line3(this.start.clone(), this.end.clone()); }
+  equals(line) { return this.start.equals(line.start) && this.end.equals(line.end); }
+  delta(target = new Vector3()) { return target.subVectors(this.end, this.start); }
+  distance() { return this.delta(_lineDelta).length(); }
+  distanceSq() { return this.delta(_lineDelta).lengthSq(); }
+  at(t, target = new Vector3()) {
+    return target.copy(this.start).addScaledVector(_lineDelta.subVectors(this.end, this.start), t);
+  }
+  closestPointToPoint(point, target = new Vector3()) {
+    return this.at(this.closestPointToPointParameter(point), target);
+  }
+  closestPointToPointParameter(point) {
+    _lineDelta.subVectors(this.end, this.start);
+    _lineTmp.subVectors(point, this.start);
+    const lenSq = _lineDelta.lengthSq();
+    return lenSq === 0 ? 0 : Math.max(0, Math.min(1, _lineTmp.dot(_lineDelta) / lenSq));
+  }
+  applyMatrix4(matrix4) {
+    this.start.applyMatrix4(matrix4);
+    this.end.applyMatrix4(matrix4);
+    return this;
+  }
+  getCenter(target = new Vector3()) { return target.addVectors(this.start, this.end).multiplyScalar(0.5); }
+  distanceSqToLine3(line) {
+    // Closest distance between two segments via closest-point parameters.
+    const p1 = this.closestPointToPointParameter ? null : null;
+    const d1 = _l3d1.subVectors(this.end, this.start);
+    const d2 = _l3d2.subVectors(line.end, line.start);
+    const r = _l3r.subVectors(this.start, line.start);
+    const a = d1.dot(d1), e = d2.dot(d2), f = d2.dot(r);
+    const c = d1.dot(r), b = d1.dot(d2);
+    const denom = a * e - b * b;
+    let s = denom > 1e-12 ? (b * f - c * e) / denom : 0;
+    let u = e > 1e-12 ? (b * s + f) / e : 0;
+    if (u < 0) { u = 0; s = Math.max(0, Math.min(1, -c / (a || 1))); }
+    else if (u > 1) { u = 1; s = Math.max(0, Math.min(1, (b - c) / (a || 1))); }
+    s = Math.max(0, Math.min(1, s));
+    const p = _l3p.copy(this.start).addScaledVector(d1, s);
+    const q = _l3q.copy(line.start).addScaledVector(d2, u);
+    return p.distanceToSquared(q);
+  }
+}
+const _l3d1 = new Vector3(), _l3d2 = new Vector3(), _l3r = new Vector3();
+const _l3p = new Vector3(), _l3q = new Vector3();
+const _lineDelta = new Vector3(), _lineTmp = new Vector3();
+
+export class Box2 {
+  min: Vector2;
+  max: Vector2;
+  isBox2: boolean;
+  constructor(min = new Vector2(Infinity, Infinity), max = new Vector2(-Infinity, -Infinity)) {
+    this.min = min; this.max = max; this.isBox2 = true;
+  }
+  set(min, max) { this.min.copy(min); this.max.copy(max); return this; }
+  setFromPoints(points) {
+    this.makeEmpty();
+    for (const p of points) this.expandByPoint(p);
+    return this;
+  }
+  setFromCenterAndSize(center, size) {
+    const half = _box2Half.copy(size).multiplyScalar(0.5);
+    this.min.copy(center).sub(half);
+    this.max.copy(center).add(half);
+    return this;
+  }
+  copy(box) { this.min.copy(box.min); this.max.copy(box.max); return this; }
+  clone() { return new Box2(this.min.clone(), this.max.clone()); }
+  makeEmpty() { this.min.set(Infinity, Infinity); this.max.set(-Infinity, -Infinity); return this; }
+  isEmpty() { return this.max.x < this.min.x || this.max.y < this.min.y; }
+  getCenter(target = new Vector2()) {
+    return this.isEmpty() ? target.set(0, 0)
+      : target.set((this.min.x + this.max.x) / 2, (this.min.y + this.max.y) / 2);
+  }
+  getSize(target = new Vector2()) {
+    return this.isEmpty() ? target.set(0, 0)
+      : target.set(this.max.x - this.min.x, this.max.y - this.min.y);
+  }
+  expandByPoint(point) {
+    this.min.set(Math.min(this.min.x, point.x), Math.min(this.min.y, point.y));
+    this.max.set(Math.max(this.max.x, point.x), Math.max(this.max.y, point.y));
+    return this;
+  }
+  expandByScalar(scalar) {
+    this.min.set(this.min.x - scalar, this.min.y - scalar);
+    this.max.set(this.max.x + scalar, this.max.y + scalar);
+    return this;
+  }
+  expandByVector(vector) {
+    this.expandByPoint(_box2Tmp.copy(this.min).add(vector));
+    this.expandByPoint(_box2Tmp.copy(this.max).add(vector));
+    return this;
+  }
+  union(box) {
+    this.expandByPoint(box.min);
+    this.expandByPoint(box.max);
+    return this;
+  }
+  intersect(box) {
+    this.min.set(Math.max(this.min.x, box.min.x), Math.max(this.min.y, box.min.y));
+    this.max.set(Math.min(this.max.x, box.max.x), Math.min(this.max.y, box.max.y));
+    return this;
+  }
+  containsPoint(point) {
+    return point.x >= this.min.x && point.x <= this.max.x &&
+      point.y >= this.min.y && point.y <= this.max.y;
+  }
+  containsBox(box) {
+    return box.min.x >= this.min.x && box.max.x <= this.max.x &&
+      box.min.y >= this.min.y && box.max.y <= this.max.y;
+  }
+  intersectsBox(box) {
+    return !(box.max.x < this.min.x || box.min.x > this.max.x ||
+      box.max.y < this.min.y || box.min.y > this.max.y);
+  }
+  clampPoint(point, target = new Vector2()) {
+    return target.set(
+      Math.max(this.min.x, Math.min(point.x, this.max.x)),
+      Math.max(this.min.y, Math.min(point.y, this.max.y)));
+  }
+  distanceToPoint(point) {
+    const dx = Math.max(this.min.x - point.x, 0, point.x - this.max.x);
+    const dy = Math.max(this.min.y - point.y, 0, point.y - this.max.y);
+    return Math.hypot(dx, dy);
+  }
+  translate(offset) { this.min.add(offset); this.max.add(offset); return this; }
+  equals(box) { return box.min.equals(this.min) && box.max.equals(this.max); }
+  getParameter(point, target = new Vector2()) {
+    return this.isEmpty() ? target.set(0, 0)
+      : target.set((point.x - this.min.x) / (this.max.x - this.min.x || 1),
+        (point.y - this.min.y) / (this.max.y - this.min.y || 1));
+  }
+}
+const _box2Half = new Vector2(), _box2Tmp = new Vector2();
 
 export function rayBoxT(ox, oy, oz, dx, dy, dz, box) {
   if (!box || box.isEmpty()) return null;
@@ -174,7 +467,7 @@ export class Sphere {
     target.max.set(this.center.x + this.radius, this.center.y + this.radius, this.center.z + this.radius);
     return target;
   }
-  setFromPoints(points, optionalCenter) {
+  setFromPoints(points, optionalCenter = null) {
     if (optionalCenter) this.center.copy(optionalCenter);
     else new Box3().setFromPoints(points).getCenter(this.center);
     let maxR2 = 0;
@@ -185,7 +478,80 @@ export class Sphere {
     this.radius = points.length ? Math.sqrt(maxR2) : -1;
     return this;
   }
+  expandByPoint(point) {
+    if (this.isEmpty()) { this.center.copy(point); this.radius = 0; return this; }
+    const dx = point.x - this.center.x, dy = point.y - this.center.y, dz = point.z - this.center.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist <= this.radius) return this;
+    // Grow the sphere minimally to include the point (three.js algorithm).
+    const newRadius = (this.radius + dist) / 2;
+    const k = (newRadius - this.radius) / (dist || 1);
+    this.center.x += dx * k; this.center.y += dy * k; this.center.z += dz * k;
+    this.radius = newRadius;
+    return this;
+  }
+  expandByVector(vector) {
+    this.expandByPoint(_sphereTmp.copy(this.center).add(vector));
+    this.expandByPoint(_sphereTmp.copy(this.center).sub(vector));
+    return this;
+  }
+  expandByScalar(scalar) { this.radius += scalar; return this; }
+  union(sphere) {
+    if (sphere.isEmpty()) return this;
+    if (this.isEmpty()) return this.copy(sphere);
+    const d = this.center.distanceTo(sphere.center);
+    if (d + sphere.radius <= this.radius) return this;
+    if (d + this.radius <= sphere.radius) return this.copy(sphere);
+    const newRadius = (this.radius + d + sphere.radius) / 2;
+    const k = (newRadius - this.radius) / (d || 1);
+    this.center.lerp(sphere.center, k);
+    this.radius = newRadius;
+    return this;
+  }
+  intersection(sphere) {
+    if (sphere.isEmpty()) return this.makeEmpty();
+    if (this.isEmpty()) return this;
+    const d = this.center.distanceTo(sphere.center);
+    if (d + sphere.radius <= this.radius) return this;
+    if (d + this.radius <= sphere.radius) return this.copy(sphere);
+    const newRadius = (this.radius + d - sphere.radius) / 2;
+    const k = (this.radius - newRadius) / (d || 1);
+    this.center.lerp(sphere.center, k);
+    this.radius = Math.max(0, newRadius);
+    return this;
+  }
+  setFromBox3(box) {
+    return this.setFromPoints([box.min, box.max]);
+  }
+  clampPoint(point, target = new Vector3()) {
+    const d = _sphereTmp.subVectors(point, this.center);
+    const l = d.length();
+    if (l <= this.radius || l === 0) return target.copy(point);
+    return target.copy(this.center).addScaledVector(d, this.radius / l);
+  }
+  getCenter(target = new Vector3()) { return target.copy(this.center); }
+  translate(offset) { this.center.add(offset); return this; }
+  applyMatrix4(matrix) {
+    this.center.applyMatrix4(matrix);
+    const scale = Math.hypot(
+      (matrix.elements || matrix)[0], (matrix.elements || matrix)[1], (matrix.elements || matrix)[2]);
+    this.radius *= Math.abs(scale) || 1;
+    return this;
+  }
+  equals(sphere) { return sphere.center.equals(this.center) && sphere.radius === this.radius; }
+  intersectsPlane(plane) { return plane.distanceToSphere(this) <= 0; }
+  toJSON() {
+    return { center: this.center.toArray(), radius: this.radius };
+  }
+  fromJSON(json) {
+    if (json.center) this.center.fromArray(json.center);
+    this.radius = json.radius ?? -1;
+    return this;
+  }
 }
+
+const _sphereTmp = new Vector3();
+const _box3Tmp = new Vector3(), _box3Tmp2 = new Vector3();
 
 export class Box3 {
   min: Vector3;
@@ -212,13 +578,6 @@ export class Box3 {
     this.makeEmpty();
     for (const p of points) this.expandByPoint(p);
     return this;
-  }
-  getBoundingSphere(target = new Sphere()) {
-    if (this.isEmpty()) return target.makeEmpty();
-    this.getCenter(target.center);
-    const sz = this.getSize(new Vector3());
-    target.radius = Math.hypot(sz.x, sz.y, sz.z) * 0.5;
-    return target;
   }
   intersectsSphere(sphere) {
     if (this.isEmpty() || sphere.isEmpty()) return false;
@@ -272,6 +631,56 @@ export class Box3 {
       box.max.y < this.min.y || box.min.y > this.max.y ||
       box.max.z < this.min.z || box.min.z > this.max.z);
   }
+  containsBox(box) {
+    return box.min.x >= this.min.x && box.max.x <= this.max.x &&
+      box.min.y >= this.min.y && box.max.y <= this.max.y &&
+      box.min.z >= this.min.z && box.max.z <= this.max.z;
+  }
+  containsSphere(sphere) {
+    return this.containsPoint(_box3Tmp.copy(sphere.center).add(_box3Tmp2.set(sphere.radius, sphere.radius, sphere.radius))) &&
+      this.containsPoint(_box3Tmp.copy(sphere.center).sub(_box3Tmp2));
+  }
+  setFromCenterAndSize(center, size) {
+    const half = _box3Tmp.copy(size).multiplyScalar(0.5);
+    this.min.copy(center).sub(half);
+    this.max.copy(center).add(half);
+    return this;
+  }
+  union(box) {
+    this.expandByPoint(box.min);
+    this.expandByPoint(box.max);
+    return this;
+  }
+  intersection(box) {
+    this.min.set(Math.max(this.min.x, box.min.x), Math.max(this.min.y, box.min.y), Math.max(this.min.z, box.min.z));
+    this.max.set(Math.min(this.max.x, box.max.x), Math.min(this.max.y, box.max.y), Math.min(this.max.z, box.max.z));
+    return this;
+  }
+  expandByVector(vector) {
+    this.expandByPoint(_box3Tmp.copy(this.min).add(vector));
+    this.expandByPoint(_box3Tmp.copy(this.max).add(vector));
+    return this;
+  }
+  getBoundingSphere(target = new Sphere()) {
+    if (this.isEmpty()) return target.makeEmpty();
+    this.getCenter(target.center);
+    const sz = this.getSize(_box3Tmp);
+    target.radius = Math.hypot(sz.x, sz.y, sz.z) * 0.5;
+    return target;
+  }
+  clampPoint(point, target = new Vector3()) {
+    return target.set(
+      Math.max(this.min.x, Math.min(point.x, this.max.x)),
+      Math.max(this.min.y, Math.min(point.y, this.max.y)),
+      Math.max(this.min.z, Math.min(point.z, this.max.z)));
+  }
+  distanceToPoint(point) {
+    const dx = Math.max(this.min.x - point.x, 0, point.x - this.max.x);
+    const dy = Math.max(this.min.y - point.y, 0, point.y - this.max.y);
+    const dz = Math.max(this.min.z - point.z, 0, point.z - this.max.z);
+    return Math.hypot(dx, dy, dz);
+  }
+  equals(box) { return box.min.equals(this.min) && box.max.equals(this.max); }
   clone() { return new Box3(this.min.clone(), this.max.clone()); }
   setFromObject(object) {
     this.makeEmpty();
@@ -297,6 +706,64 @@ export class Box3 {
         expandBox(geometry.boundingBox, world);
       }
     });
+    return this;
+  }
+  expandByObject(object) {
+    this.makeEmpty();
+    object.updateWorldMatrix(false, true);
+    object.traverse(node => {
+      if ((!node.isMesh && !node.isInstancedMesh) || !node.geometry || !node.geometry.attributes || !node.geometry.attributes.position) return;
+      if (!node.geometry.boundingBox) node.geometry.computeBoundingBox();
+      if (node.geometry.boundingBox) {
+        const b = node.geometry.boundingBox;
+        const w = worldMatrixOf(node);
+        for (const p of [b.min, b.max]) {
+          const t = transformPoint(w, p.x, p.y, p.z);
+          this.expandByPoint(new Vector3(t[0], t[1], t[2]));
+        }
+      }
+    });
+    return this;
+  }
+  setFromBufferAttribute(attribute) {
+    this.makeEmpty();
+    const a = attribute.array, s = attribute.itemSize || 3;
+    for (let i = 0; i + 2 < a.length; i += s) {
+      this.expandByPoint(new Vector3(a[i], a[i + 1], a[i + 2]));
+    }
+    return this;
+  }
+  // Ray/segment parameter along an axis, matching three.js getParameter.
+  getParameter(point, targetAxis = 'x') {
+    const axis = targetAxis === 'y' ? 1 : targetAxis === 'z' ? 2 : 0;
+    return this.isEmpty() ? undefined : (point[axis === 0 ? 'x' : axis === 1 ? 'y' : 'z'] - this.min[axis === 0 ? 'x' : axis === 1 ? 'y' : 'z']) /
+      ((this.max[axis === 0 ? 'x' : axis === 1 ? 'y' : 'z'] - this.min[axis === 0 ? 'x' : axis === 1 ? 'y' : 'z']) || 1);
+  }
+  intersectsPlane(plane) {
+    // Box is on one side of plane iff all corners agree.
+    const n = plane.normal;
+    const pMin = _planeP1.set(n.x > 0 ? this.min.x : this.max.x, n.y > 0 ? this.min.y : this.max.y, n.z > 0 ? this.min.z : this.max.z);
+    const pMax = _planeP2.set(n.x > 0 ? this.max.x : this.min.x, n.y > 0 ? this.max.y : this.min.y, n.z > 0 ? this.max.z : this.min.z);
+    return plane.distanceToPoint(pMin) <= 0 && plane.distanceToPoint(pMax) >= 0;
+  }
+  intersectsTriangle(triangle) {
+    // Cheap reject: if the box is entirely on the negative side of the
+    // triangle plane there is no intersection.
+    const plane = triangle.getPlane ? triangle.getPlane(new Plane()) : null;
+    if (plane && !this.intersectsPlane(plane)) return false;
+    // Sample: check whether any box corner projects inside the triangle,
+    // or any triangle vertex is inside the box.
+    for (const p of [triangle.a, triangle.b, triangle.c])
+      if (this.containsPoint(p)) return true;
+    return false;
+  }
+  intersect(box) { return this.intersection(box.clone ? box.clone() : box); }
+  toJSON() {
+    return { min: this.min.toArray(), max: this.max.toArray() };
+  }
+  fromJSON(json) {
+    if (json.min) this.min.fromArray(json.min);
+    if (json.max) this.max.fromArray(json.max);
     return this;
   }
 }
@@ -406,6 +873,47 @@ export class Triangle {
   equals(triangle) {
     return this.a.equals(triangle.a) && this.b.equals(triangle.b) && this.c.equals(triangle.c);
   }
+  copy(triangle) { this.a.copy(triangle.a); this.b.copy(triangle.b); this.c.copy(triangle.c); return this; }
+  getInterpolation(target = new Vector3()) { return this.getMidpoint(target); }
+  intersectsBox(box) {
+    // Conservative test: plane separation, vertex containment, corner hits.
+    // Fallback: conservative check via box corners distance to triangle plane
+    // plus vertex containment — sufficient for a facade.
+    const plane = this.getPlane(new Plane());
+    const dMin = Math.min(
+      plane.distanceToPoint(box.min), plane.distanceToPoint(box.max),
+      plane.distanceToPoint(new Vector3(box.min.x, box.max.y, box.min.z)),
+      plane.distanceToPoint(new Vector3(box.min.x, box.min.y, box.max.z)),
+      plane.distanceToPoint(new Vector3(box.max.x, box.min.y, box.min.z)),
+      plane.distanceToPoint(new Vector3(box.max.x, box.max.y, box.min.z)),
+      plane.distanceToPoint(new Vector3(box.min.x, box.max.y, box.max.z)),
+      plane.distanceToPoint(new Vector3(box.max.x, box.min.y, box.max.z)));
+    const dMax = Math.max(
+      plane.distanceToPoint(box.min), plane.distanceToPoint(box.max),
+      plane.distanceToPoint(new Vector3(box.min.x, box.max.y, box.min.z)),
+      plane.distanceToPoint(new Vector3(box.min.x, box.min.y, box.max.z)),
+      plane.distanceToPoint(new Vector3(box.max.x, box.min.y, box.min.z)),
+      plane.distanceToPoint(new Vector3(box.max.x, box.max.y, box.min.z)),
+      plane.distanceToPoint(new Vector3(box.min.x, box.max.y, box.max.z)),
+      plane.distanceToPoint(new Vector3(box.max.x, box.min.y, box.max.z)));
+    if (dMin > 0 || dMax < 0) return false;
+    for (const p of [this.a, this.b, this.c]) if (box.containsPoint(p)) return true;
+    // Box corners inside triangle (2D projection onto dominant axis).
+    const n = plane.normal;
+    const ax = Math.abs(n.x) > Math.abs(n.y) && Math.abs(n.x) > Math.abs(n.z) ? 0
+      : Math.abs(n.y) > Math.abs(n.z) ? 1 : 2;
+    const corners = [
+      [box.min.x, box.min.y, box.min.z], [box.max.x, box.min.y, box.min.z],
+      [box.min.x, box.max.y, box.min.z], [box.max.x, box.max.y, box.min.z],
+      [box.min.x, box.min.y, box.max.z], [box.max.x, box.min.y, box.max.z],
+      [box.min.x, box.max.y, box.max.z], [box.max.x, box.max.y, box.max.z]];
+    for (const c of corners) {
+      const pt = new Vector3(c[0], c[1], c[2]);
+      const proj = this.closestPointToPoint(pt, new Vector3());
+      if (proj.distanceToSquared(pt) < 1e-12) return true;
+    }
+    return false;
+  }
 }
 
 function area3(a, b, c) {
@@ -484,6 +992,21 @@ export class Frustum {
     }
     return true;
   }
+  intersectsObject(object) {
+    // Object-level test via its world-space bounding sphere.
+    if (object.geometry) {
+      if (!object.geometry.boundingSphere) object.geometry.computeBoundingSphere();
+      const bs = object.geometry.boundingSphere;
+      if (bs) {
+        const ws = object.getWorldScale ? object.getWorldScale(new Vector3()) : new Vector3(1, 1, 1);
+        const r = bs.radius * Math.max(ws.x, ws.y, ws.z);
+        const c = bs.center.clone().applyMatrix4(worldMatrixOf(object));
+        return this.intersectsSphere(new Sphere(c, r));
+      }
+    }
+    return true;
+  }
+  intersectsSprite() { return true; }
 }
 
 const _boxPoint = new Vector3();

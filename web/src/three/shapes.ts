@@ -3,8 +3,103 @@ import { BufferGeometry, Float32BufferAttribute, Uint32BufferAttribute } from '.
 /* --- curves -------------------------------------------------------------------- */
 
 export class Curve {
-  getPoint(t) { return this.getPointAt ? this.getPointAt(t) : [0, 0, 0]; }
-  getPointAt(t) { return this.getPoint(t); }
+  arcLengthDivisions = 200;
+  needsUpdate = true;
+  _lengths: number[] | null = null;
+  _lengthPts: any[] | null = null;
+  _lengthsDiv = 0;
+  [key: string]: any;
+  // Subclasses return a point (array or {x,y,z}) at curve parameter t in [0,1].
+  getPoint(t) { return [0, 0, 0]; }
+  _pt(p) { return Array.isArray(p) ? p : [p.x ?? 0, p.y ?? 0, p.z ?? 0]; }
+  _dist(a, b) {
+    const d0 = (a[0] ?? 0) - (b[0] ?? 0), d1 = (a[1] ?? 0) - (b[1] ?? 0), d2 = (a[2] ?? 0) - (b[2] ?? 0);
+    return Math.hypot(d0, d1, d2);
+  }
+  getLengths(divisions = this.arcLengthDivisions) {
+    if (!this._lengths || this._lengthsDiv !== divisions) {
+      const pts = [];
+      for (let i = 0; i <= divisions; i++) pts.push(this._pt(this.getPoint(i / divisions)));
+      const lengths = [0];
+      for (let i = 1; i <= divisions; i++) lengths.push(lengths[i - 1] + this._dist(pts[i], pts[i - 1]));
+      this._lengths = lengths;
+      this._lengthPts = pts;
+      this._lengthsDiv = divisions;
+    }
+    return this._lengths;
+  }
+  getLength() { const l = this.getLengths(); return l[l.length - 1]; }
+  updateArcLengths() { this._lengths = null; return this; }
+  getCurveLengths() { return this.getLengths(); }
+  // Map arc-length fraction u to curve parameter t.
+  getUtoTmapping(u, distance) {
+    const lengths = this.getLengths();
+    const total = lengths[lengths.length - 1] || 1;
+    const target = distance !== undefined ? distance : u * total;
+    for (let i = 1; i < lengths.length; i++) {
+      if (lengths[i] >= target) {
+        const t0 = (i - 1) / (lengths.length - 1), t1 = i / (lengths.length - 1);
+        const seg = lengths[i] - lengths[i - 1] || 1;
+        return t0 + (t1 - t0) * ((target - lengths[i - 1]) / seg);
+      }
+    }
+    return 1;
+  }
+  getPointAt(u) { return this.getPoint(this.getUtoTmapping(u, u * (this.getLength() || 1))); }
+  getTangent(t) {
+    const e = 1e-4;
+    const a = this._pt(this.getPoint(Math.max(0, t - e)));
+    const b = this._pt(this.getPoint(Math.min(1, t + e)));
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = (b[2] ?? 0) - (a[2] ?? 0);
+    const l = Math.hypot(dx, dy, dz) || 1;
+    return [dx / l, dy / l, dz / l];
+  }
+  getTangentAt(u) { return this.getTangent(this.getUtoTmapping(u, u * (this.getLength() || 1))); }
+  getSpacedPoints(divisions = 40) {
+    const pts = [];
+    for (let i = 0; i <= divisions; i++) pts.push(this.getPointAt(i / divisions));
+    return pts;
+  }
+  computeFrenetFrames(segments, closed) {
+    // Tangents along the curve; normals via parallel transport is overkill —
+    // use a fixed up heuristic like three's fallback.
+    const tangents = [], normals = [], binormals = [];
+    let prevNormal = null;
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const tan = this._pt(this.getTangent(t));
+      tangents.push(tan);
+      let n = prevNormal;
+      if (!n) {
+        // Pick any vector not parallel to tangent.
+        const up = Math.abs(tan[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+        n = [tan[1] * up[2] - tan[2] * up[1], tan[2] * up[0] - tan[0] * up[2], tan[0] * up[1] - tan[1] * up[0]];
+      } else {
+        // Gram-Schmidt against tangent.
+        const d = n[0] * tan[0] + n[1] * tan[1] + n[2] * tan[2];
+        n = [n[0] - d * tan[0], n[1] - d * tan[1], n[2] - d * tan[2]];
+      }
+      const nl = Math.hypot(n[0], n[1], n[2]) || 1;
+      n = [n[0] / nl, n[1] / nl, n[2] / nl];
+      prevNormal = n;
+      normals.push(n);
+      binormals.push([tan[1] * n[2] - tan[2] * n[1], tan[2] * n[0] - tan[0] * n[2], tan[0] * n[1] - tan[1] * n[0]]);
+    }
+    return { tangents, normals, binormals };
+  }
+  // Sample the curve into point pairs (x,y) like three's getPoints.
+  getPoints(divisions = 12) {
+    const pts = [];
+    for (let i = 0; i <= divisions; i++) {
+      const p = this._pt(this.getPoint(i / divisions));
+      pts.push([p[0], p[1]]);
+    }
+    return pts;
+  }
+  copy(source: any) { this.needsUpdate = true; return this; }
+  clone() { return new (this as any).constructor().copy(this); }
+  toJSON(meta: any = {}): any { return { type: (this as any).type || this.constructor.name, data: { points: (this as any).points || [] } }; }
+  fromJSON(json: any) { return this; }
 }
 
 export class CatmullRomCurve3 extends Curve {
@@ -20,6 +115,27 @@ export class CatmullRomCurve3 extends Curve {
     this.curveType = curveType;
     this.tension = tension;
     this.isCatmullRomCurve3 = true;
+  }
+  copy(source: CatmullRomCurve3) {
+    this.points = source.points.map(p => Array.isArray(p) ? [...p] : { ...p });
+    this.closed = source.closed;
+    this.curveType = source.curveType;
+    this.tension = source.tension;
+    this.updateArcLengths();
+    return this;
+  }
+  clone() { return new CatmullRomCurve3(this.points.map(p => [...p]), this.closed, this.curveType, this.tension); }
+  toJSON() {
+    return { type: 'CatmullRomCurve3',
+      data: { points: this.points.map(p => p.slice()), closed: this.closed, curveType: this.curveType, tension: this.tension } };
+  }
+  fromJSON(json: any) {
+    const d = json.data || {};
+    this.points = (d.points || []).map((p: any) => Array.isArray(p) ? [...p] : [p.x, p.y, p.z]);
+    this.closed = !!d.closed; this.curveType = d.curveType || 'centripetal';
+    this.tension = d.tension ?? 0.5;
+    this.updateArcLengths();
+    return this;
   }
   getPoint(t) {
     const pts = this.points, n = pts.length;
@@ -46,16 +162,122 @@ export class CatmullRomCurve3 extends Curve {
 
 // 2D path: moveTo/lineTo/quadraticCurveTo/bezierCurveTo/closePath, flattened
 // to point lists by getPoints(). Shape adds holes like three.js.
-export class Path {
+export class Path extends Curve {
   isPath: boolean;
   segments: any[];
-  constructor() { this.isPath = true; this.segments = []; }
-  moveTo(x, y) { this.segments.push({ t: 'M', x, y }); return this; }
-  lineTo(x, y) { this.segments.push({ t: 'L', x, y }); return this; }
-  quadraticCurveTo(cx, cy, x, y) { this.segments.push({ t: 'Q', cx, cy, x, y }); return this; }
-  bezierCurveTo(c1x, c1y, c2x, c2y, x, y) { this.segments.push({ t: 'C', c1x, c1y, c2x, c2y, x, y }); return this; }
-  closePath() { this.segments.push({ t: 'Z' }); return this; }
+  constructor() { super(); this.isPath = true; this.segments = []; }
+  moveTo(x, y) { this.segments.push({ t: 'M', x, y }); this.updateArcLengths(); return this; }
+  lineTo(x, y) { this.segments.push({ t: 'L', x, y }); this.updateArcLengths(); return this; }
+  quadraticCurveTo(cx, cy, x, y) { this.segments.push({ t: 'Q', cx, cy, x, y }); this.updateArcLengths(); return this; }
+  bezierCurveTo(c1x, c1y, c2x, c2y, x, y) { this.segments.push({ t: 'C', c1x, c1y, c2x, c2y, x, y }); this.updateArcLengths(); return this; }
+  closePath() { this.segments.push({ t: 'Z' }); this.updateArcLengths(); return this; }
+  // --- three.js curve segment types ------------------------------------------
+  // arc: center offset by current point; absarc: absolute center. Angles in radians.
+  arc(aX, aY, aRadius, aStartAngle, aEndAngle, aClockwise = false) {
+    const last = this.segments.filter(s => s.t === 'M' || s.t === 'L' || s.t === 'C' || s.t === 'Q').pop();
+    const cx = (last ? last.x ?? last._ex ?? 0 : 0) + aX, cy = (last ? last.y ?? last._ey ?? 0 : 0) + aY;
+    return this._pushArc(cx, cy, aRadius, aStartAngle, aEndAngle, aClockwise);
+  }
+  absarc(x, y, radius, startAngle, endAngle, clockwise = false) {
+    return this._pushArc(x, y, radius, startAngle, endAngle, clockwise);
+  }
+  _pushArc(cx, cy, r, a0, a1, ccw) {
+    this.segments.push({ t: 'A', cx, cy, r, a0, a1, ccw });
+    this.updateArcLengths();
+    return this;
+  }
+  ellipse(x, y, xRadius, yRadius, rotation, startAngle, endAngle, clockwise = false, aRotation = 0) {
+    return this.absellipse(x, y, xRadius, yRadius, rotation, startAngle, endAngle, clockwise);
+  }
+  absellipse(cx, cy, rx, ry, rot, a0, a1, ccw = false) {
+    this.segments.push({ t: 'E', cx, cy, rx, ry, rot, a0, a1, ccw });
+    this.updateArcLengths();
+    return this;
+  }
+  splineThru(points: any[]) {
+    const pts = points.map(p => [p.x ?? p[0], p.y ?? p[1]]);
+    for (let i = 1; i < pts.length; i++) {
+      const p0 = pts[Math.max(0, i - 2)] || pts[0], p1 = pts[i - 1], p2 = pts[i],
+        p3 = pts[Math.min(pts.length - 1, i + 1)];
+      this.segments.push({ t: 'S', p0, p1, p2, p3 });
+    }
+    this.updateArcLengths();
+    return this;
+  }
+  add(curve: any) {
+    // Approximate: flatten the added curve/shape into line segments.
+    const pts = curve.getPoints ? curve.getPoints(12) : [];
+    if (pts.length) {
+      if (!this.segments.length || this.segments[this.segments.length - 1].t !== 'M')
+        this.moveTo(pts[0][0], pts[0][1]);
+      for (const p of pts) this.lineTo(p[0], p[1]);
+    }
+    return this;
+  }
+  setFromPoints(points: any[]) {
+    this.segments.length = 0;
+    points.forEach((p, i) => {
+      const x = p.x ?? p[0], y = p.y ?? p[1];
+      if (i === 0) this.moveTo(x, y); else this.lineTo(x, y);
+    });
+    return this;
+  }
+  copy(source: Path, recursive = true) {
+    super.copy(source);
+    this.segments = source.segments.map(s => ({ ...s }));
+    this.updateArcLengths();
+    return this;
+  }
+  clone() { return new (this as any).constructor().copy(this); }
+  // Point/tangent queries via arc-length over the flattened contour.
+  getPoint(t) { return this._contourPoint(this.getUtoTmapping(t, t * (this.getLength() || 1))); }
+  getPointAt(u) { return this._contourPoint(u); }
+  getTangent(t) {
+    const e = 1e-3, a = this._contourPoint(Math.max(0, t - e)), b = this._contourPoint(Math.min(1, t + e));
+    const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+    return [dx / l, dy / l, 0];
+  }
+  getTangentAt(u) {
+    const e = 1e-3, a = this._contourPoint(Math.max(0, u - e)), b = this._contourPoint(Math.min(1, u + e));
+    const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+    return [dx / l, dy / l, 0];
+  }
+  _contour() {
+    if (!this._ptsCache) {
+      const pts = this.getPoints(240);
+      const cum = [0];
+      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+      this._ptsCache = { pts, cum, total: cum[cum.length - 1] || 0 };
+    }
+    return this._ptsCache;
+  }
+  _contourPoint(u) {
+    const { pts, cum, total } = this._contour();
+    if (!pts.length) return [0, 0];
+    const target = u * total;
+    for (let i = 1; i < cum.length; i++) {
+      if (cum[i] >= target) {
+        const seg = cum[i] - cum[i - 1] || 1, f = (target - cum[i - 1]) / seg;
+        return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f,
+          pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f];
+      }
+    }
+    return pts[pts.length - 1];
+  }
+  updateArcLengths() { this._lengths = null; this._ptsCache = null; return this; }
+  getLength() { return this._contour().total; }
+  toJSON(): any {
+    return { type: (this as any).isShape ? 'Shape' : 'Path',
+      data: { segments: this.segments.map(s => ({ ...s })),
+        ...(this.holes ? { holes: this.holes.map(h => h.toJSON ? h.toJSON() : null).filter(Boolean) } : {}) } };
+  }
+  fromJSON(json: any) {
+    this.segments = (json.data?.segments || []).map((s: any) => ({ ...s }));
+    this.updateArcLengths();
+    return this;
+  }
   getPoints(divisions = 12) {
+    this._ptsCache = null;
     const pts = [];
     let cur = null, start = null;
     const cubic = (p0, p1, p2, p3, t) => {
@@ -78,6 +300,28 @@ export class Path {
           pts.push([cubic(cur.x, s.c1x, s.c2x, s.x, t), cubic(cur.y, s.c1y, s.c2y, s.y, t)]);
         }
         cur = { x: s.x, y: s.y };
+      } else if (s.t === 'A' || s.t === 'E') {
+        const steps = Math.max(4, Math.ceil(Math.abs(s.a1 - s.a0) / (Math.PI / divisions)));
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          let ang = s.a0 + (s.a1 - s.a0) * t;
+          if (s.ccw && s.a1 < s.a0) ang = s.a0 - (s.a0 - s.a1) * t;
+          if (!s.ccw && s.a1 < s.a0) ang = s.a0 + (s.a1 + Math.PI * 2 - s.a0) * t;
+          const rx = s.r ?? s.rx, ry = s.r ?? s.ry ?? s.rx;
+          const ca = Math.cos(s.rot || 0), sa = Math.sin(s.rot || 0);
+          const ex = Math.cos(ang) * rx, ey = Math.sin(ang) * ry;
+          pts.push([s.cx + ex * ca - ey * sa, s.cy + ex * sa + ey * ca]);
+        }
+        cur = pts[pts.length - 1] ? { x: pts[pts.length - 1][0], y: pts[pts.length - 1][1] } : cur;
+      } else if (s.t === 'S') {
+        for (let i = 1; i <= divisions; i++) {
+          const t = i / divisions, u = 1 - t;
+          // Catmull-Rom through p0..p3
+          pts.push([
+            0.5 * ((2 * s.p1[0]) + (-s.p0[0] + s.p2[0]) * t + (2 * s.p0[0] - 5 * s.p1[0] + 4 * s.p2[0] - s.p3[0]) * t * t + (-s.p0[0] + 3 * s.p1[0] - 3 * s.p2[0] + s.p3[0]) * t * t * t),
+            0.5 * ((2 * s.p1[1]) + (-s.p0[1] + s.p2[1]) * t + (2 * s.p0[1] - 5 * s.p1[1] + 4 * s.p2[1] - s.p3[1]) * t * t + (-s.p0[1] + 3 * s.p1[1] - 3 * s.p2[1] + s.p3[1]) * t * t * t)]);
+        }
+        cur = { x: pts[pts.length - 1][0], y: pts[pts.length - 1][1] };
       } else if (s.t === 'Z' && cur && start) { pts.push([start.x, start.y]); cur = { ...start }; }
     }
     // Drop consecutive duplicates and a duplicated closing point.
@@ -97,7 +341,18 @@ export class Path {
 export class Shape extends Path {
   isShape: boolean;
   holes: any[];
-  constructor() { super(); this.isShape = true; this.holes = []; }
+  type: string;
+  constructor() { super(); this.isShape = true; this.holes = []; this.type = 'Shape'; }
+  copy(source: Shape, recursive = true) {
+    super.copy(source, recursive);
+    this.holes = source.holes.map(h => h.clone ? h.clone() : h);
+    return this;
+  }
+  getPointsHoles(divisions = 12) { return this.holes.map(h => h.getPoints(divisions)); }
+  extractPoints(divisions = 12) {
+    return { shape: this.getPoints(divisions), holes: this.getPointsHoles(divisions) };
+  }
+  getSpacedPoints(divisions = 40) { return super.getSpacedPoints(divisions); }
 }
 
 const orient2 = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
