@@ -1132,89 +1132,144 @@ fn glb_node_light(root: json::Node?, node_index: i64) -> NativeGlbSceneLight, bo
 // extension material maps. Scene skins use one JOINTS_0/WEIGHTS_0 set.
 // JSON glTF supports up to 16 safe relative external buffers. It applies the
 // selected node instance transform.
-fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primitive_index: i64, node_index: i64) -> NativeGlbModel, bool {
-    g_native_glb_error = NATIVE_GLB_ERROR_NONE;
-    var bytes: u8[>..] = [];
-    if path.len == 0 || !read_file(path, bytes) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return NativeGlbModel { .. }, false; }
-    if bytes.len > 268435456 { g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA; return NativeGlbModel { .. }, false; }
+
+// Parse-once document cache. Scene loads call the mesh loaders once per
+// node and primitive; before this cache each call re-read the file and
+// re-parsed the JSON. Documents accumulate append-only in globals — pool
+// nodes may reference the decoded strings and source bytes, and the borrow
+// checker does not allow clearing a referent while a dependent global may
+// still hold a reference into it. Only the most recent document is live;
+// every entry point re-ensures before use, so earlier documents' nodes are
+// never touched again. Memory grows with the number of distinct files
+// loaded, matching the engine's other grow-only stores.
+var g_glb_doc_path: u8[4096];
+var g_glb_doc_path_len: i64;
+var g_glb_doc_valid: bool;
+var g_glb_doc_byte_base: i64;
+var g_glb_doc_pool_base: i64;
+var g_glb_buffer_base: i64;
+var g_glb_doc_bytes: u8[>..];
+var g_glb_doc_pool: json::Node[>..];
+var g_glb_doc_decoded: u8[>..];
+var g_glb_buffer_bases: i64[>..];
+var g_glb_buffer_sizes: i64[>..];
+
+// The current document's root is the first node its parse pushed, recorded
+// as an index because node references cannot be stored in globals.
+fn glb_doc_root() -> json::Node? {
+    guard g_glb_doc_valid && g_glb_doc_pool_base < g_glb_doc_pool.len else { return null; }
+    return g_glb_doc_pool[g_glb_doc_pool_base];
+}
+
+fn glb_path_equals(a: const u8[:], b: const u8[:]) -> bool {
+    if a.len != b.len { return false; }
+    for i in 0..a.len { if a[i] != b[i] { return false; } }
+    return true;
+}
+
+// Read, chunk-walk and JSON-parse `path`, appending the document to the
+// globals and resolving every declared buffer (GLB chunk or external
+// file/data URI) into g_glb_buffer_bases/sizes. Returns false with
+// g_native_glb_error set on any failure; a cached document for the same
+// path is reused without re-reading or re-parsing.
+fn glb_ensure_document(path: const u8[:]) -> bool {
+    if g_glb_doc_valid && path.len == g_glb_doc_path_len && glb_path_equals(path, g_glb_doc_path[..g_glb_doc_path_len]) { return true; }
     g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA;
-    let is_glb = bytes.len >= 12 && glb_u32(bytes[..], 0) == 0x46546C67;
+    guard path.len > 0 && path.len < 4096 else { g_native_glb_error = NATIVE_GLB_ERROR_IO; return false; }
+    g_glb_doc_byte_base = g_glb_doc_bytes.len;
+    g_glb_doc_pool_base = g_glb_doc_pool.len;
+    g_glb_buffer_base = g_glb_buffer_bases.len;
+    g_glb_doc_valid = false;
+    if !read_file(path, g_glb_doc_bytes) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return false; }
+    let file_len = g_glb_doc_bytes.len - g_glb_doc_byte_base;
+    if file_len > 268435456 { return false; }
+    let file_end = g_glb_doc_byte_base + file_len;
+    let is_glb = file_len >= 12 && glb_u32(g_glb_doc_bytes[..], g_glb_doc_byte_base) == 0x46546C67;
     var json_start: i64 = -1; var json_size: i64 = 0; var bin_start: i64 = -1; var bin_size: i64 = 0;
     if is_glb {
-        guard bytes.len >= 20 && glb_u32(bytes[..], 4) == 2 && glb_u32(bytes[..], 8) == bytes.len else { return NativeGlbModel { .. }, false; }
-        var cursor: i64 = 12;
-        while cursor + 8 <= bytes.len {
-            let size = glb_u32(bytes[..], cursor);
-            let kind = glb_u32(bytes[..], cursor + 4);
+        guard file_len >= 20 && glb_u32(g_glb_doc_bytes[..], g_glb_doc_byte_base + 4) == 2 && glb_u32(g_glb_doc_bytes[..], g_glb_doc_byte_base + 8) == file_len else { return false; }
+        var cursor: i64 = g_glb_doc_byte_base + 12;
+        while cursor + 8 <= file_end {
+            let size = glb_u32(g_glb_doc_bytes[..], cursor);
+            let kind = glb_u32(g_glb_doc_bytes[..], cursor + 4);
             cursor += 8;
-            guard size >= 0 && size % 4 == 0 && cursor + size <= bytes.len else { return NativeGlbModel { .. }, false; }
-            if kind == 0x4E4F534A { guard json_start < 0 else { return NativeGlbModel { .. }, false; } json_start = cursor; json_size = size; }
-            else if kind == 0x004E4942 { guard bin_start < 0 else { return NativeGlbModel { .. }, false; } bin_start = cursor; bin_size = size; }
+            guard size >= 0 && size % 4 == 0 && cursor + size <= file_end else { return false; }
+            if kind == 0x4E4F534A { guard json_start < 0 else { return false; } json_start = cursor; json_size = size; }
+            else if kind == 0x004E4942 { guard bin_start < 0 else { return false; } bin_start = cursor; bin_size = size; }
             cursor += size;
         }
-        guard cursor == bytes.len && json_start >= 0 && bin_start >= 0 else { return NativeGlbModel { .. }, false; }
+        guard cursor == file_end && json_start >= 0 && bin_start >= 0 else { return false; }
     } else {
-        guard bytes.len > 0 else { return NativeGlbModel { .. }, false; }
-        json_start = 0; json_size = bytes.len;
+        guard file_len > 0 else { return false; }
+        json_start = g_glb_doc_byte_base; json_size = file_len;
     }
-    var doc: json::Node[>..] = [];
-    var decoded: u8[>..] = [];
-    let root, parse_error = json::parse(bytes[json_start..json_start + json_size], doc, decoded);
-    guard root && parse_error.len == 0 else { return NativeGlbModel { .. }, false; }
+    let root, parse_error = json::parse(g_glb_doc_bytes[json_start..json_start + json_size], g_glb_doc_pool, g_glb_doc_decoded);
+    guard root && parse_error.len == 0 else { return false; }
     if !glb_required_extensions_supported(root) {
         g_native_glb_error = NATIVE_GLB_ERROR_UNSUPPORTED_EXTENSION;
-        return NativeGlbModel { .. }, false;
+        return false;
     }
     let asset = json::member(root, "asset");
     let version, version_ok = json::as_string(json::member(asset, "version"));
     let buffers = json::member(root, "buffers");
     let buffer_count = glb_array_count(buffers);
-    guard version_ok && version == "2.0" && buffer_count > 0 && buffer_count <= 16 else { return NativeGlbModel { .. }, false; }
-    if is_glb { guard buffer_count == 1 && bin_start >= 0 else { return NativeGlbModel { .. }, false; } }
-    var buffer_bases: i64[>..] = [];
-    var buffer_sizes: i64[>..] = [];
+    guard version_ok && version == "2.0" && buffer_count > 0 && buffer_count <= 16 else { return false; }
+    if is_glb { guard buffer_count == 1 && bin_start >= 0 else { return false; } }
     for buffer_index in 0..buffer_count {
         let buffer = glb_json_element(buffers, buffer_index);
         let declared_bytes, declared_ok = glb_json_index(json::member(buffer, "byteLength"));
-        guard buffer && declared_ok && declared_bytes > 0 && declared_bytes <= 268435456 && bytes.len + declared_bytes <= 268435456 else { return NativeGlbModel { .. }, false; }
+        guard buffer && declared_ok && declared_bytes > 0 && declared_bytes <= 268435456 && g_glb_doc_bytes.len - g_glb_doc_byte_base + declared_bytes <= 268435456 else { return false; }
         if is_glb {
-            guard buffer_index == 0 && !json::member(buffer, "uri") && declared_bytes <= bin_size && bin_size - declared_bytes <= 3 else { return NativeGlbModel { .. }, false; }
-            buffer_bases.push(bin_start);
-            buffer_sizes.push(declared_bytes);
+            guard buffer_index == 0 && !json::member(buffer, "uri") && declared_bytes <= bin_size && bin_size - declared_bytes <= 3 else { return false; }
+            g_glb_buffer_bases.push(bin_start);
+            g_glb_buffer_sizes.push(declared_bytes);
         } else {
             let uri, uri_ok = json::as_string(json::member(buffer, "uri"));
-            guard uri_ok && uri.len > 0 else { return NativeGlbModel { .. }, false; }
+            guard uri_ok && uri.len > 0 else { return false; }
             var external: u8[>..] = [];
             if uri.len >= 5 && uri[0] == 100 && uri[1] == 97 && uri[2] == 116 && uri[3] == 97 && uri[4] == 58 {
-                guard uri.len <= 268435456 && glb_decode_data_uri(uri, external) && external.len == declared_bytes else { return NativeGlbModel { .. }, false; }
+                guard uri.len <= 268435456 && glb_decode_data_uri(uri, external) && external.len == declared_bytes else { return false; }
             } else {
-                guard uri.len < 4096 else { return NativeGlbModel { .. }, false; }
+                guard uri.len < 4096 else { return false; }
                 // Only plain relative paths are accepted; reject URI schemes,
                 // encoded separators, queries, fragments, and dot path segments.
                 var segment_start: i64 = 0;
                 for i in 0..uri.len {
                     let c = uri[i];
-                    guard c != 92 && c != 58 && c != 63 && c != 35 && c != 37 else { return NativeGlbModel { .. }, false; }
+                    guard c != 92 && c != 58 && c != 63 && c != 35 && c != 37 else { return false; }
                     if c == 47 {
-                        guard i > segment_start && !(i - segment_start == 1 && uri[segment_start] == 46) && !(i - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) else { return NativeGlbModel { .. }, false; }
+                        guard i > segment_start && !(i - segment_start == 1 && uri[segment_start] == 46) && !(i - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) else { return false; }
                         segment_start = i + 1;
                     }
                 }
-                guard segment_start < uri.len && !(uri.len - segment_start == 1 && uri[segment_start] == 46) && !(uri.len - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) && uri[0] != 47 else { return NativeGlbModel { .. }, false; }
+                guard segment_start < uri.len && !(uri.len - segment_start == 1 && uri[segment_start] == 46) && !(uri.len - segment_start == 2 && uri[segment_start] == 46 && uri[segment_start + 1] == 46) && uri[0] != 47 else { return false; }
                 var external_path: u8[>..] = [];
                 var directory_end: i64 = 0;
                 for i in 0..path.len { if path[i] == 47 { directory_end = i + 1; } }
-                guard directory_end + uri.len < 4096 else { return NativeGlbModel { .. }, false; }
+                guard directory_end + uri.len < 4096 else { return false; }
                 for i in 0..directory_end { external_path.push(path[i]); }
                 for i in 0..uri.len { external_path.push(uri[i]); }
-                if !read_file(external_path[..], external) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return NativeGlbModel { .. }, false; }
-                guard external.len == declared_bytes else { return NativeGlbModel { .. }, false; }
+                if !read_file(external_path[..], external) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return false; }
+                guard external.len == declared_bytes else { return false; }
             }
-            buffer_bases.push(bytes.len);
-            buffer_sizes.push(declared_bytes);
-            for i in 0..declared_bytes { bytes.push(external[i]); }
+            g_glb_buffer_bases.push(g_glb_doc_bytes.len);
+            g_glb_buffer_sizes.push(declared_bytes);
+            for i in 0..declared_bytes { g_glb_doc_bytes.push(external[i]); }
         }
     }
+    g_glb_doc_valid = true;
+    g_glb_doc_path_len = path.len;
+    for i in 0..path.len { g_glb_doc_path[i] = path[i]; }
+    return true;
+}
+
+fn native_glb_load_selected(path: const u8[:], requested_mesh_index: i64, primitive_index: i64, node_index: i64) -> NativeGlbModel, bool {
+    g_native_glb_error = NATIVE_GLB_ERROR_NONE;
+    guard glb_ensure_document(path) else { return NativeGlbModel { .. }, false; }
+    let root = glb_doc_root();
+    let bytes = g_glb_doc_bytes[..];
+    let buffer_bases = g_glb_buffer_bases[g_glb_buffer_base..];
+    let buffer_sizes = g_glb_buffer_sizes[g_glb_buffer_base..];
     guard node_index >= -1 else { return NativeGlbModel { .. }, false; }
     var mesh_index = requested_mesh_index;
     let nodes = json::member(root, "nodes");
@@ -1502,32 +1557,8 @@ fn native_glb_load_node_primitive(path: const u8[:], node_index: i64, primitive_
 
 fn glb_node_primitive_count(path: const u8[:], node_index: i64) -> i64, bool {
     g_native_glb_error = NATIVE_GLB_ERROR_INVALID_DATA;
-    var bytes: u8[>..] = [];
-    if path.len == 0 || !read_file(path, bytes) { g_native_glb_error = NATIVE_GLB_ERROR_IO; return 0, false; }
-    if bytes.len == 0 || bytes.len > 268435456 { return 0, false; }
-    var json_start: i64 = 0; var json_size: i64 = bytes.len;
-    if bytes.len >= 12 && glb_u32(bytes[..], 0) == 0x46546C67 {
-        guard bytes.len >= 20 && glb_u32(bytes[..], 4) == 2 && glb_u32(bytes[..], 8) == bytes.len else { return 0, false; }
-        json_start = -1; json_size = 0;
-        var cursor: i64 = 12;
-        while cursor + 8 <= bytes.len {
-            let size = glb_u32(bytes[..], cursor);
-            let kind = glb_u32(bytes[..], cursor + 4);
-            cursor += 8;
-            guard size >= 0 && size % 4 == 0 && cursor + size <= bytes.len else { return 0, false; }
-            if kind == 0x4E4F534A { guard json_start < 0 else { return 0, false; } json_start = cursor; json_size = size; }
-            cursor += size;
-        }
-        guard cursor == bytes.len && json_start >= 0 else { return 0, false; }
-    }
-    var doc: json::Node[>..] = [];
-    var decoded: u8[>..] = [];
-    let root, parse_error = json::parse(bytes[json_start..json_start + json_size], doc, decoded);
-    guard root && parse_error.len == 0 else { return 0, false; }
-    if !glb_required_extensions_supported(root) {
-        g_native_glb_error = NATIVE_GLB_ERROR_UNSUPPORTED_EXTENSION;
-        return 0, false;
-    }
+    guard glb_ensure_document(path) else { return 0, false; }
+    let root = glb_doc_root();
     let nodes = json::member(root, "nodes");
     let instance = glb_json_element(nodes, node_index);
     let mesh_index, mesh_ok = glb_json_index(json::member(instance, "mesh"));
