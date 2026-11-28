@@ -963,14 +963,17 @@ function composeLocal(position, quat, scale) {
 	m[15] = 1;
 	return m;
 }
-function multiplyMat4(a, b) {
-	const out = /* @__PURE__ */ new Float64Array(16);
+const _mmScratch = /* @__PURE__ */ new Float64Array(16);
+function multiplyMat4Into(a, b, out) {
 	for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
 		let sum = 0;
 		for (let k = 0; k < 4; k++) sum += a[k * 4 + r] * b[c * 4 + k];
 		out[c * 4 + r] = sum;
 	}
 	return out;
+}
+function multiplyMat4(a, b) {
+	return multiplyMat4Into(a, b, /* @__PURE__ */ new Float64Array(16));
 }
 function transformPoint(m, x, y, z) {
 	return [
@@ -1089,7 +1092,8 @@ var Matrix4 = class Matrix4 {
 	multiplyMatrices(a, b) {
 		const ae = a.elements || a, be = b.elements || b, e = this.elements;
 		if (ae === e || be === e) {
-			e.set(multiplyMat4(ae, be));
+			multiplyMat4Into(ae, be, _mmScratch);
+			e.set(_mmScratch);
 			return this;
 		}
 		for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) e[c * 4 + r] = ae[r] * be[c * 4] + ae[4 + r] * be[c * 4 + 1] + ae[8 + r] * be[c * 4 + 2] + ae[12 + r] * be[c * 4 + 3];
@@ -2026,6 +2030,7 @@ var Layers = class {
 	}
 };
 const _rotQuat = new Quaternion();
+let worldMatrixVersion = 0;
 const _rotVec = new Vector3();
 const _axisX = new Vector3(1, 0, 0);
 const _axisY = new Vector3(0, 1, 0);
@@ -2141,17 +2146,37 @@ var Object3D = class extends EventDispatcher {
 		return this;
 	}
 	updateMatrixWorld(force) {
-		if (this.matrixAutoUpdate) this.updateMatrix();
-		if (this.parent && this.parent.matrixWorld) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
-		else this.matrixWorld.copy(this.matrix);
+		let localChanged = true;
+		if (this.matrixAutoUpdate) {
+			this.updateMatrix();
+			localChanged = this._lmChanged === true;
+			this._lmChanged = false;
+		}
+		const parentVer = this.parent ? this.parent._worldVer ?? 0 : 0;
+		if (force || localChanged || this._worldParentVer !== parentVer || this._worldVer === void 0) {
+			if (this.parent && this.parent.matrixWorld) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
+			else this.matrixWorld.copy(this.matrix);
+			this._worldVer = ++worldMatrixVersion;
+			this._worldParentVer = parentVer;
+		}
 		for (const child of this.children) child.updateMatrixWorld(force);
 		return this;
 	}
 	updateWorldMatrix(updateParents, updateChildren) {
 		if (updateParents && this.parent) this.parent.updateWorldMatrix(true, false);
-		if (this.matrixAutoUpdate) this.updateMatrix();
-		if (this.parent) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
-		else this.matrixWorld.copy(this.matrix);
+		let localChanged = true;
+		if (this.matrixAutoUpdate) {
+			this.updateMatrix();
+			localChanged = this._lmChanged === true;
+			this._lmChanged = false;
+		}
+		const parentVer = this.parent ? this.parent._worldVer ?? 0 : 0;
+		if (localChanged || this._worldParentVer !== parentVer || this._worldVer === void 0) {
+			if (this.parent) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
+			else this.matrixWorld.copy(this.matrix);
+			this._worldVer = ++worldMatrixVersion;
+			this._worldParentVer = parentVer;
+		}
 		if (updateChildren) for (const child of this.children) child.updateWorldMatrix(false, true);
 		return this;
 	}
@@ -4553,10 +4578,14 @@ function ensureMaterial(engine, material) {
 // src/three/sync.ts
 const DEG2RAD = Math.PI / 180;
 const MAX_EXTRA_LIGHTS = 8;
-function syncNode(engine, object, parentEngineIndex, local, draw = true) {
+function matricesEqual(a, b, off = 0) {
+	for (let i = 0; i < 16; i++) if (a[i] !== b[off + i]) return false;
+	return true;
+}
+function syncNode(engine, object, parentEngineIndex, local, draw = true, opts) {
 	const isMesh = draw && object.isMesh === true;
 	const material = isMesh ? Array.isArray(object.material) ? object.material[0] : object.material : null;
-	const meshId = isMesh ? ensureGeometry(engine, object.geometry, !!(material && material.vertexColors), !!(material && material.flatShading), material) : -1;
+	const meshId = isMesh ? opts?.meshId ?? ensureGeometry(engine, object.geometry, !!(material && material.vertexColors), !!(material && material.flatShading), material) : -1;
 	let record = nodeStates.get(object);
 	if (record && (record.parent !== parentEngineIndex || record.mesh !== meshId)) {
 		releaseNodeRecord(record);
@@ -4577,23 +4606,29 @@ function syncNode(engine, object, parentEngineIndex, local, draw = true) {
 		nodeStates.set(object, record);
 	}
 	if (isMesh) {
-		const materialId = ensureMaterial(engine, material);
+		const materialId = opts?.materialId ?? ensureMaterial(engine, material);
 		if (record.material !== materialId) {
 			engine._g3_asset_node_material(record.index, materialId);
 			record.material = materialId;
 		}
 	}
-	if (!record.matrix || !matricesEqual(record.matrix, local)) {
-		if (typeof engine._g3_asset_matrix16 === "function") engine._g3_asset_matrix16(record.index, local[0], local[1], local[2], local[3], local[4], local[5], local[6], local[7], local[8], local[9], local[10], local[11], local[12], local[13], local[14], local[15]);
-		else for (let i = 0; i < 16; i++) engine._g3_asset_matrix(record.index, i, local[i]);
-		if (!record.matrix) record.matrix = Float64Array.from(local);
-		else record.matrix.set(local);
+	const off = opts?.offset ?? 0;
+	if (!record.matrix || !matricesEqual(record.matrix, local, off)) {
+		if (opts?.skipMatrix) {
+			if (!record.matrix) record.matrix = /* @__PURE__ */ new Float64Array(16);
+			for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
+			if (opts.collect) opts.collect.push(record.index, off);
+		} else if (typeof engine._g3_asset_matrix16 === "function") {
+			engine._g3_asset_matrix16(record.index, local[off], local[off + 1], local[off + 2], local[off + 3], local[off + 4], local[off + 5], local[off + 6], local[off + 7], local[off + 8], local[off + 9], local[off + 10], local[off + 11], local[off + 12], local[off + 13], local[off + 14], local[off + 15]);
+			if (!record.matrix) record.matrix = /* @__PURE__ */ new Float64Array(16);
+			for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
+		} else {
+			for (let i = 0; i < 16; i++) engine._g3_asset_matrix(record.index, i, local[off + i]);
+			if (!record.matrix) record.matrix = /* @__PURE__ */ new Float64Array(16);
+			for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
+		}
 	}
 	return record.index;
-}
-function matricesEqual(a, b) {
-	for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return false;
-	return true;
 }
 function lightWorldPose(object) {
 	const world = worldMatrixOf(object);
@@ -4837,15 +4872,37 @@ function tintedInstanceMaterial(instanced, proxy, colArr, index) {
 	return tinted;
 }
 function syncInstancedMesh(instanced, engineParent, seen) {
+	const engine = sharedEngine;
+	const im = instanced.instanceMatrix;
+	const icol = instanced.instanceColor;
 	const count = Math.min(instanced.count, instanced._maxCount);
-	const arr = instanced.instanceMatrix.array;
-	const colArr = instanced.instanceColor ? instanced.instanceColor.array : null;
+	const arr = im.array;
+	const colArr = icol ? icol.array : null;
+	const matVer = im.version;
+	const colVer = icol ? icol.version : -1;
+	const retint = colVer !== instanced._syncColVer || instanced._tintedSourceMaterial !== instanced.material;
 	if (instanced._tintedSourceMaterial !== instanced.material) {
 		instanced._colorMaterials.clear();
 		instanced._tintedSourceMaterial = instanced.material;
 		for (const p of instanced._instances) if (p) p._tintedMat = null;
 	}
-	for (let i = 0; i < count; i++) {
+	const structureChanged = instanced._syncParent !== engineParent || instanced._syncGeometry !== instanced.geometry || instanced._syncCount !== count;
+	const matrixChanged = matVer !== instanced._syncMatVer;
+	if (!retint && !structureChanged && !matrixChanged && instanced._instances.length >= count) {
+		for (let i = 0; i < count; i++) {
+			const p = instanced._instances[i];
+			if (p) seen.add(p);
+		}
+		return;
+	}
+	const baseMat = instanced.material;
+	const uniformMat = !colArr && baseMat && !Array.isArray(baseMat) ? baseMat : null;
+	const geoMat = uniformMat ?? (Array.isArray(baseMat) ? baseMat[0] : baseMat);
+	const meshId = count > 0 ? ensureGeometry(engine, instanced.geometry, !!(geoMat && geoMat.vertexColors), !!(geoMat && geoMat.flatShading), geoMat) : -1;
+	const preMaterialId = uniformMat ? ensureMaterial(engine, uniformMat) : void 0;
+	const useBulk = typeof engine._g3_asset_matrix16_bulk === "function" && typeof engine._malloc === "function" && engine.HEAPF32;
+	const collect = [];
+	const syncOne = (i) => {
 		let proxy = instanced._instances[i];
 		if (!proxy) {
 			proxy = new Mesh(instanced.geometry, instanced.material);
@@ -4855,9 +4912,54 @@ function syncInstancedMesh(instanced, engineParent, seen) {
 		proxy.castShadow = instanced.castShadow;
 		proxy.receiveShadow = instanced.receiveShadow;
 		proxy.material = colArr && instanced.material ? tintedInstanceMaterial(instanced, proxy, colArr, i) : instanced.material;
-		syncNode(sharedEngine, proxy, engineParent, arr.subarray(i * 16, i * 16 + 16));
-		seen.add(proxy);
+		syncNode(engine, proxy, engineParent, arr, true, {
+			offset: i * 16,
+			meshId,
+			materialId: uniformMat ? preMaterialId : void 0,
+			skipMatrix: useBulk,
+			collect
+		});
+	};
+	if (structureChanged || retint || !matrixChanged || !(im.updateRanges && im.updateRanges.length)) for (let i = 0; i < count; i++) syncOne(i);
+	else {
+		for (const r of im.updateRanges) {
+			const start = Math.max(0, Math.floor(r.start / 16));
+			const end = Math.min(count, Math.ceil((r.start + r.count) / 16));
+			for (let i = start; i < end; i++) syncOne(i);
+		}
+		im.clearUpdateRanges();
 	}
+	for (let i = 0; i < count; i++) {
+		const p = instanced._instances[i];
+		if (p) seen.add(p);
+	}
+	if (collect.length && useBulk) {
+		const n = collect.length / 2;
+		const nPtr = engine._malloc(n * 4);
+		const mPtr = engine._malloc(n * 64);
+		if (nPtr && mPtr) try {
+			const ni = new Int32Array(engine.HEAPU8.buffer, nPtr, n);
+			const mf = new Float32Array(engine.HEAPU8.buffer, mPtr, n * 16);
+			for (let i = 0; i < n; i++) {
+				const off = collect[i * 2 + 1];
+				ni[i] = collect[i * 2];
+				for (let k = 0; k < 16; k++) mf[i * 16 + k] = arr[off + k];
+			}
+			engine._g3_asset_matrix16_bulk(nPtr, n, mPtr, n * 16);
+		} finally {
+			engine._free(nPtr);
+			engine._free(mPtr);
+		}
+		else for (let i = 0; i < collect.length; i += 2) {
+			const idx = collect[i], off = collect[i + 1];
+			engine._g3_asset_matrix16(idx, arr[off], arr[off + 1], arr[off + 2], arr[off + 3], arr[off + 4], arr[off + 5], arr[off + 6], arr[off + 7], arr[off + 8], arr[off + 9], arr[off + 10], arr[off + 11], arr[off + 12], arr[off + 13], arr[off + 14], arr[off + 15]);
+		}
+	}
+	instanced._syncMatVer = matVer;
+	instanced._syncColVer = colVer;
+	instanced._syncCount = count;
+	instanced._syncParent = engineParent;
+	instanced._syncGeometry = instanced.geometry;
 }
 function syncSceneTree(scene, seen, camera) {
 	scene.updateMatrixWorld();
@@ -5406,16 +5508,20 @@ function localMatrixOf(object) {
 		sy: s.y,
 		sz: s.z
 	};
+	object._lmChanged = true;
 	return elements;
 }
+const _wmAcc = /* @__PURE__ */ new Float64Array(16);
+const _wmTmp = /* @__PURE__ */ new Float64Array(16);
 function worldMatrixOf(object) {
-	let world = localMatrixOf(object);
+	_wmAcc.set(localMatrixOf(object));
 	let parent = object.parent;
 	while (parent) {
-		world = multiplyMat4(localMatrixOf(parent), world);
+		multiplyMat4Into(localMatrixOf(parent), _wmAcc, _wmTmp);
+		_wmAcc.set(_wmTmp);
 		parent = parent.parent;
 	}
-	return world;
+	return Float64Array.from(_wmAcc);
 }
 const flatGeometryCache = /* @__PURE__ */ new WeakMap();
 function flatShadedGeometry(geometry) {

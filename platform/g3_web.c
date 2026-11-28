@@ -1841,6 +1841,10 @@ uint8_t g3p_render_target_read(int32_t id, int32_t x, int32_t y, int32_t w, int3
     return 1;
 }
 
+/* glGetTexImage is GLES 3.1; the emscripten GLES3 headers bundled here stop
+   at 3.0, so declare it explicitly. */
+extern void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, void *pixels);
+
 /* Read back an uploaded texture's base level. glGetTexImage has no sub-rect
    form, so the whole level comes down and the requested rows are copied out.
    GL returns rows in the same order texImage2D was given them, which is the

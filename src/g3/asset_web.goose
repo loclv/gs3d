@@ -78,6 +78,18 @@ export fn g3_asset_matrix16(
     n.local_matrix.m[8] = m8; n.local_matrix.m[9] = m9; n.local_matrix.m[10] = m10; n.local_matrix.m[11] = m11;
     n.local_matrix.m[12] = m12; n.local_matrix.m[13] = m13; n.local_matrix.m[14] = m14; n.local_matrix.m[15] = m15;
 }
+// Bulk local-matrix upload: nodes[i] receives the 16 column-major floats at
+// mats[i*16..i*16+15]. One wasm call replaces N g3_asset_matrix16 calls —
+// the InstancedMesh facade path syncs thousands of node matrices per frame.
+export fn g3_asset_matrix16_bulk(nodes: i32[:], mats: f32[:]) {
+    var count = nodes.len;
+    if mats.len / 16 < count { count = mats.len / 16; }
+    for i in count {
+        let n .= g3::node(nodes[i]);
+        let base = i * 16;
+        for k in 16 { n.local_matrix.m[k] = mats[base + k]; }
+    }
+}
 export fn g3_asset_material(r: f32, g: f32, b: f32, a: f32, texture: i32, alpha_mode: i32, alpha_cutoff: f32, metallic: f32, roughness: f32, metallic_roughness_texture: i32, normal_texture: i32, normal_scale: f32, occlusion_texture: i32, occlusion_strength: f32, emissive_r: f32, emissive_g: f32, emissive_b: f32, emissive_texture: i32, double_sided: bool, unlit: bool, ior: f32) -> i32 {
     let id = g3::material_asset_add();
     let m .= g3::material(id);

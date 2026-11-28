@@ -602,14 +602,18 @@ export function composeLocal(position, quat, scale) {
   return m;
 }
 
-export function multiplyMat4(a, b) {
-  const out = new Float64Array(16);
+const _mmScratch = new Float64Array(16);
+export function multiplyMat4Into(a, b, out) {
   for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
     let sum = 0;
     for (let k = 0; k < 4; k++) sum += a[k * 4 + r] * b[c * 4 + k];
     out[c * 4 + r] = sum;
   }
   return out;
+}
+
+export function multiplyMat4(a, b) {
+  return multiplyMat4Into(a, b, new Float64Array(16));
 }
 
 export function transformPoint(m, x, y, z) {
@@ -689,7 +693,7 @@ export class Matrix4 {
   multiply(m) { this.elements.set(multiplyMat4(this.elements, m.elements || m)); return this; }
   multiplyMatrices(a, b) {
     const ae = a.elements || a, be = b.elements || b, e = this.elements;
-    if (ae === e || be === e) { e.set(multiplyMat4(ae, be)); return this; }
+    if (ae === e || be === e) { multiplyMat4Into(ae, be, _mmScratch); e.set(_mmScratch); return this; }
     for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
       e[c * 4 + r] = ae[r] * be[c * 4] + ae[4 + r] * be[c * 4 + 1]
         + ae[8 + r] * be[c * 4 + 2] + ae[12 + r] * be[c * 4 + 3];

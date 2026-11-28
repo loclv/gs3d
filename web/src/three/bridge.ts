@@ -1,5 +1,5 @@
 import { Color } from './color';
-import { composeLocal, multiplyMat4, quatFromEulerOrder, eulerFromQuatXYZ } from './math';
+import { composeLocal, multiplyMat4Into, quatFromEulerOrder, eulerFromQuatXYZ } from './math';
 import { BufferGeometry, Float32BufferAttribute } from './geometry';
 import { WRAP_TO_ENGINE, FILTER_TO_GL, textureImageData, ensureEngineRenderTarget, LinearFilter, NearestFilter, FloatType, HalfFloatType } from './textures';
 import { BackSide } from './materials';
@@ -201,17 +201,25 @@ export function localMatrixOf(object) {
   const elements = composeLocal(p, q, s);
   object._lmCache = { elements, px: p.x, py: p.y, pz: p.z,
     qx: q.x, qy: q.y, qz: q.z, qw: q.w, sx: s.x, sy: s.y, sz: s.z };
+  // Marks the local transform as changed for updateMatrixWorld's dirty skip;
+  // stays set until a world-matrix pass consumes it (cache hits don't clear).
+  object._lmChanged = true;
   return elements;
 }
 
+// Scratch buffers keep worldMatrixOf allocation-free apart from the single
+// result copy; the previous version allocated one Float64Array per ancestor.
+const _wmAcc = new Float64Array(16);
+const _wmTmp = new Float64Array(16);
 export function worldMatrixOf(object) {
-  let world = localMatrixOf(object);
+  _wmAcc.set(localMatrixOf(object));
   let parent = object.parent;
   while (parent) {
-    world = multiplyMat4(localMatrixOf(parent), world);
+    multiplyMat4Into(localMatrixOf(parent), _wmAcc, _wmTmp);
+    _wmAcc.set(_wmTmp);
     parent = parent.parent;
   }
-  return world;
+  return Float64Array.from(_wmAcc);
 }
 
 // material.flatShading is emulated by expanding the geometry into

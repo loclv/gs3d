@@ -18,6 +18,9 @@ export class Layers {
 }
 
 const _rotQuat = new Quaternion();
+// Bumped every time any node's world matrix is recomposed; children compare
+// their parent's version to detect inherited changes.
+let worldMatrixVersion = 0;
 const _rotVec = new Vector3();
 const _axisX = new Vector3(1, 0, 0), _axisY = new Vector3(0, 1, 0), _axisZ = new Vector3(0, 0, 1);
 
@@ -45,6 +48,13 @@ export class Object3D extends EventDispatcher {
   matrixAutoUpdate: boolean;
   matrix: Matrix4;
   matrixWorld: Matrix4;
+  // Dirty-skip bookkeeping for updateMatrixWorld: _lmChanged is set by
+  // bridge.localMatrixOf when the local transform recomputes; _worldVer /
+  // _worldParentVer version the composed world matrix so unchanged subtrees
+  // skip the 4x4 multiply entirely.
+  _lmChanged?: boolean;
+  _worldVer?: number;
+  _worldParentVer?: number;
   userData: Record<string, any>;
   isCamera?: boolean;
   isLight?: boolean;
@@ -149,20 +159,40 @@ export class Object3D extends EventDispatcher {
     return this;
   }
   updateMatrixWorld(force?: boolean) {
-    if (this.matrixAutoUpdate) this.updateMatrix();
-    if (this.parent && this.parent.matrixWorld) {
-      this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
-    } else {
-      this.matrixWorld.copy(this.matrix);
+    let localChanged = true;
+    if (this.matrixAutoUpdate) {
+      this.updateMatrix();
+      localChanged = this._lmChanged === true;
+      this._lmChanged = false;
+    }
+    const parentVer = this.parent ? (this.parent as any)._worldVer ?? 0 : 0;
+    if (force || localChanged || this._worldParentVer !== parentVer || this._worldVer === undefined) {
+      if (this.parent && this.parent.matrixWorld) {
+        this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
+      } else {
+        this.matrixWorld.copy(this.matrix);
+      }
+      this._worldVer = ++worldMatrixVersion;
+      this._worldParentVer = parentVer;
     }
     for (const child of this.children) child.updateMatrixWorld(force);
     return this;
   }
   updateWorldMatrix(updateParents: boolean, updateChildren: boolean) {
     if (updateParents && this.parent) this.parent.updateWorldMatrix(true, false);
-    if (this.matrixAutoUpdate) this.updateMatrix();
-    if (this.parent) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
-    else this.matrixWorld.copy(this.matrix);
+    let localChanged = true;
+    if (this.matrixAutoUpdate) {
+      this.updateMatrix();
+      localChanged = this._lmChanged === true;
+      this._lmChanged = false;
+    }
+    const parentVer = this.parent ? (this.parent as any)._worldVer ?? 0 : 0;
+    if (localChanged || this._worldParentVer !== parentVer || this._worldVer === undefined) {
+      if (this.parent) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
+      else this.matrixWorld.copy(this.matrix);
+      this._worldVer = ++worldMatrixVersion;
+      this._worldParentVer = parentVer;
+    }
     if (updateChildren) for (const child of this.children) child.updateWorldMatrix(false, true);
     return this;
   }
