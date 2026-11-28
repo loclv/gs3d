@@ -110,9 +110,12 @@ and the [Three.js roadmap](threejs-roadmap.md).
 * `gs3d` npm package (Apache-2.0): asset helpers, orbit controls, glTF
   loader and exporter, a Rapier-style `gs3d/physics` world over the
   engine solver, and a Three.js-compatible facade (`gs3d/three`,
-  `gs3d/webgpu`) covering scene graphs, cameras, common geometries and
-  materials, lights, textures, raycasting and controls — a documented
-  subset, not full Three.js compatibility.
+  `gs3d/webgpu`) covering scene graphs, cameras, geometries and
+  materials, lights, textures, raycasting, controls, keyframe
+  animation, loaders and helpers — export/member parity with three
+  r180 is verified by `web/check_three_compat.mjs`, though classes
+  without engine backing remain API stubs rather than rendering
+  features.
 * Runnable examples: landing demo, Beacon Run and Rift Siege games, model
   viewer, instancing benchmark with a Three.js/PixiJS comparison page,
   WebGL reference-check suite, and `samples/` scenes and apps

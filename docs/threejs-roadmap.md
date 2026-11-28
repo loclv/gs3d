@@ -60,7 +60,11 @@ skeletal animation. Prioritize work in this order:
 4. Expand Three.js coverage from demonstrated use cases. Add renderer or
    asset features when a concrete viewer or game needs them. Record unsupported
    extensions and rendering differences in the docs instead of implying full
-   Three.js API or visual compatibility.
+   Three.js API or visual compatibility. The facade's export and
+   prototype-member surface now matches three r180 (verified by
+   `web/check_three_compat.mjs`); remaining work is behavioral depth —
+   engine-backed implementations for stubbed classes (audio, `BatchedMesh`,
+   compressed/external textures) and visual parity, not API surface.
 
 This order makes “Three.js alternative” mean a usable browser workflow for the
 engine's documented subset, with a reliable native subset alongside it. It

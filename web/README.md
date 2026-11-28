@@ -39,17 +39,28 @@ lifecycle, animation controls and rendering options.
 
 ## Three.js-compatible facade
 
-`gs3d/three` (also re-exported from the package root) provides a deliberate
-subset of the three.js API backed by the bundled WebAssembly engine: `Scene`,
-`Group`, `Mesh`, `BufferGeometry` with `BufferAttribute`s plus the
-`BoxGeometry`, `SphereGeometry`, `PlaneGeometry`, `CircleGeometry`,
-`RingGeometry`, `CylinderGeometry` and `TorusGeometry` primitives,
-`MeshStandardMaterial` and `MeshBasicMaterial`, the common lights,
-`PerspectiveCamera` and `OrthographicCamera`, `Color`/`Vector2`/`Vector3`/`Euler`,
-`Fog`/`FogExp2`, an `OrbitControls` class matching the three.js addon API
-(`new OrbitControls(camera, domElement)` with `target`, `update()` and
-`dispose()`), and a `WebGPURenderer` with `init()`, `setSize()`,
-`setAnimationLoop()` and `render()`. An application written against three.js
+`gs3d/three` (also re-exported from the package root) provides the three.js
+r180 API surface backed by the bundled WebAssembly engine: `Scene`, `Group`,
+`Mesh`, `BufferGeometry` with `BufferAttribute`s plus the geometry
+primitives, the material family (`MeshStandardMaterial`, `MeshPhysicalMaterial`,
+`MeshBasicMaterial`, `MeshPhongMaterial`, `MeshLambertMaterial`,
+`MeshNormalMaterial`, `MeshToonMaterial`, `MeshDepthMaterial`,
+`MeshDistanceMaterial`, `MeshMatcapMaterial`, `ShadowMaterial`,
+`SpriteMaterial`, `PointsMaterial`, `LineBasicMaterial`,
+`LineDashedMaterial`, `ShaderMaterial`, `RawShaderMaterial`), the common
+lights, `PerspectiveCamera` and `OrthographicCamera`, the math classes
+(`Color`/`Vector2`/`Vector3`/`Vector4`/`Euler`/`Quaternion`/`Matrix2`/`Matrix3`/
+`Matrix4`/`Spherical`/`Cylindrical`), bounds (`Plane`/`Ray`/`Sphere`/`Box2`/
+`Box3`/`Line3`/`Triangle`/`Frustum`), the keyframe animation system
+(`AnimationClip`/`AnimationMixer`/`AnimationAction`/track family), loaders
+(`LoadingManager`/`FileLoader`/`TextureLoader`/`ImageLoader`/
+`ImageBitmapLoader`/`GLTFLoader`), helpers, curves, and a
+`WebGPURenderer` (`WebGLRenderer` alias) with `init()`, `setSize()`,
+`setAnimationLoop()` and `render()`. Export and prototype-member parity with
+three r180 is verified by `web/check_three_compat.mjs` (0 missing exports,
+0 missing methods); classes without engine backing — audio, `BatchedMesh`,
+several loaders, compressed/external textures — are functional API stubs
+rather than rendering features. An application written against three.js
 can switch its import to `gs3d/three` (or `gs3d/webgpu`, matching the
 `three/webgpu` specifier) and its dependency to `gs3d` with no other changes
 for scenes built from primitives.
