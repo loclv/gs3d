@@ -42,7 +42,13 @@ function syncNode(engine, object, parentEngineIndex, local, draw = true, opts?) 
   }
   const off = opts?.offset ?? 0;
   if (!record.matrix || !matricesEqual(record.matrix, local, off)) {
-    if (opts?.skipMatrix) {
+    if (opts?.defer) {
+      // Deferred bulk path: record the upload, caller flushes via
+      // _g3_asset_matrix16_bulk after the tree walk.
+      if (!record.matrix) record.matrix = new Float64Array(16);
+      for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
+      opts.defer.push(record.index, local, off);
+    } else if (opts?.skipMatrix) {
       // Bulk path: the caller uploads this matrix via _g3_asset_matrix16_bulk.
       if (!record.matrix) record.matrix = new Float64Array(16);
       for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
@@ -58,12 +64,57 @@ function syncNode(engine, object, parentEngineIndex, local, draw = true, opts?) 
       if (!record.matrix) record.matrix = new Float64Array(16);
       for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
     } else {
-      for (let i = 0; i < 16; i++) engine._g3_asset_matrix(record.index, i, local[off + i]);
+      uploadMatrix16(engine, record.index, local, off);
       if (!record.matrix) record.matrix = new Float64Array(16);
       for (let i = 0; i < 16; i++) record.matrix[i] = local[off + i];
     }
   }
   return record.index;
+}
+
+// One _g3_asset_matrix16 call (or the per-element fallback on old wasm).
+function uploadMatrix16(engine, index, src, off) {
+  if (typeof engine._g3_asset_matrix16 === 'function') {
+    engine._g3_asset_matrix16(
+      index,
+      src[off], src[off + 1], src[off + 2], src[off + 3],
+      src[off + 4], src[off + 5], src[off + 6], src[off + 7],
+      src[off + 8], src[off + 9], src[off + 10], src[off + 11],
+      src[off + 12], src[off + 13], src[off + 14], src[off + 15],
+    );
+  } else {
+    for (let i = 0; i < 16; i++) engine._g3_asset_matrix(index, i, src[off + i]);
+  }
+}
+
+// defer is a flat [index, src, off, ...] list collected during the tree
+// walk. A handful of moved nodes is cheaper as direct calls; beyond that a
+// single bulk wasm call replaces N boundary crossings.
+function flushDeferredMatrices(engine, defer) {
+  const n = defer.length / 3;
+  if (!n) return;
+  if (n >= 3 && typeof engine._g3_asset_matrix16_bulk === 'function' &&
+      typeof engine._malloc === 'function' && engine.HEAPF32) {
+    const nPtr = engine._malloc(n * 4);
+    const mPtr = engine._malloc(n * 64);
+    if (nPtr && mPtr) {
+      try {
+        const ni = new Int32Array(engine.HEAPU8.buffer, nPtr, n);
+        const mf = new Float32Array(engine.HEAPU8.buffer, mPtr, n * 16);
+        for (let i = 0; i < n; i++) {
+          ni[i] = defer[i * 3];
+          const src = defer[i * 3 + 1], off = defer[i * 3 + 2];
+          for (let k = 0; k < 16; k++) mf[i * 16 + k] = src[off + k];
+        }
+        engine._g3_asset_matrix16_bulk(nPtr, n, mPtr, n * 16);
+        return;
+      } finally {
+        engine._free(nPtr);
+        engine._free(mPtr);
+      }
+    }
+  }
+  for (let i = 0; i < n; i++) uploadMatrix16(engine, defer[i * 3], defer[i * 3 + 1], defer[i * 3 + 2]);
 }
 
 function lightWorldPose(object) {
@@ -429,13 +480,16 @@ function syncInstancedMesh(instanced, engineParent, seen) {
 
 export function syncSceneTree(scene, seen, camera) {
   scene.updateMatrixWorld();
+  // Changed local matrices are collected during the walk and uploaded in
+  // one bulk wasm call afterwards instead of one call per moved node.
+  const defer: any[] = [];
   const walk = (object, parentEngineIndex) => {
     // An invisible object hides its whole subtree, like three.js.
     if (object.visible === false) { releaseEngineTree(object); return; }
     let engineParent = parentEngineIndex;
     if (!object.isLight && !object.isCamera) {
       const matchesLayer = object.layers.test(camera.layers);
-      engineParent = syncNode(sharedEngine, object, parentEngineIndex, localMatrixOf(object), matchesLayer);
+      engineParent = syncNode(sharedEngine, object, parentEngineIndex, localMatrixOf(object), matchesLayer, { defer });
       seen.add(object);
       if (object.isInstancedMesh && matchesLayer) {
         syncInstancedMesh(object, engineParent, seen);
@@ -444,5 +498,6 @@ export function syncSceneTree(scene, seen, camera) {
     for (const child of object.children) walk(child, engineParent);
   };
   walk(scene, -1);
+  flushDeferredMatrices(sharedEngine, defer);
 }
 

@@ -67,6 +67,8 @@ struct Node {
     cached_local_matrix: Mat4,
     cached_use_local_matrix: bool,
     local_cache_valid: bool,
+    cached_parent_world_version: i64 = -1, // parent's world_version this world was composed from
+    worlds_frame: i64 = -1,               // node_update_worlds pass that last validated `world`
     asset_owned: bool,
     asset_free: bool,
     generation: i32 = 1,
@@ -174,6 +176,7 @@ struct CameraState {
 }
 
 var g_nodes: Node[>..];
+var g_world_frame: i64 = 0;
 var g_materials: Material[>..];
 var g_scene_epoch: i32;
 var g_camera: Camera;
@@ -421,40 +424,65 @@ fn node_cache_local(n: Node&) {
 
 // Multiplied out from the root down, into every node's `world`. A chain
 // longer than 64 is treated as a loop and stops there rather than hanging.
+//
+// Each pass stamps every node with `worlds_frame`. A node whose local
+// transform is unchanged, whose parent link is stable, and whose parent
+// already refreshed this pass with the same `world_version` it last
+// composed from keeps its `world` untouched — the common all-static frame
+// costs a few compares per node instead of an ancestor walk of mat4_mul
+// per ancestor. Changed nodes compose in O(1) from the parent's fresh
+// `world`; only a node visited before its parent (unusual ordering) pays
+// the ancestor walk, which stays correct because it multiplies cached
+// locals rather than trusting a stale parent world.
 fn node_update_worlds() {
+    g_world_frame += 1;
+    let frame = g_world_frame;
     for &n in g_nodes {
+        let local_changed = node_local_cache_changed(n);
+        if local_changed { node_cache_local(n); }
         if n.parent < 0 {
-            let local_changed = node_local_cache_changed(n);
-            if local_changed { node_cache_local(n); }
             if local_changed || n.cached_world_parent != n.parent {
                 n.world = n.cached_local;
                 n.world_dirty = true;
                 n.world_version += 1;
             }
             n.cached_world_parent = n.parent;
+            n.cached_parent_world_version = -1;
+            n.worlds_frame = frame;
             continue;
         }
-        // Every node's local is cached, not just roots': the ancestor walk
-        // below would otherwise recompute mat4_trs (three sin/cos) for each
-        // ancestor of each descendant, every frame. cached_local holds
-        // exactly node_local()'s value, so the products are unchanged.
-        if node_local_cache_changed(n) { node_cache_local(n); }
-        var w = n.cached_local;
-        var p = n.parent;
-        var up = 0;
-        while p >= 0 && up < 64 {
-            let pn .= g_nodes[p];
-            if node_local_cache_changed(pn) { node_cache_local(pn); }
-            w = mat4_mul(pn.cached_local, w);
-            p = pn.parent;
-            up++;
+        let pidx = n.parent;
+        let parent_fresh = g_nodes[pidx].worlds_frame == frame;
+        if !local_changed && n.cached_world_parent == pidx && parent_fresh &&
+           n.cached_parent_world_version == g_nodes[pidx].world_version {
+            n.worlds_frame = frame;
+            continue;
         }
-        if !mat4_equals(n.world, w) || n.cached_world_parent != n.parent {
+        var w = n.cached_local;
+        if parent_fresh {
+            // Parent already updated this pass: O(1) compose. The product
+            // order differs from the ancestor walk by association only;
+            // each node sticks to one path so the result is stable.
+            w = mat4_mul(g_nodes[pidx].world, n.cached_local);
+        } else {
+            var p = pidx;
+            var up = 0;
+            while p >= 0 && up < 64 {
+                let an .= g_nodes[p];
+                if node_local_cache_changed(an) { node_cache_local(an); }
+                w = mat4_mul(an.cached_local, w);
+                p = an.parent;
+                up++;
+            }
+        }
+        if !mat4_equals(n.world, w) || n.cached_world_parent != pidx {
             n.world = w;
             n.world_dirty = true;
             n.world_version += 1;
         }
-        n.cached_world_parent = n.parent;
+        n.cached_world_parent = pidx;
+        n.cached_parent_world_version = g_nodes[pidx].world_version;
+        n.worlds_frame = frame;
     }
 }
 
