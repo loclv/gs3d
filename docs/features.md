@@ -40,9 +40,9 @@ and the [Three.js roadmap](threejs-roadmap.md).
   point or spot lights (`Light[8]` in `ViewState`), physical
   inverse-square variants, ambient + hemispherical fill, fog and
   background colour.
-* Shadows: the primary directional light, one selected point light and
-  one selected spot light cast shadows; 256/512/1024 maps, hard or
-  3×3/5×5 PCF filtering.
+* Shadows: the primary directional light plus up to two point lights
+  (six-face cube maps) and two spot lights (perspective maps) cast
+  shadows; 256/512/1024 maps, hard or 3×3/5×5 PCF filtering.
 * Image-based lighting: equirectangular environment maps (linear or
   Radiance RGBE HDR) with GGX-prefiltered reflections and a split-sum BRDF
   LUT, per-material environment intensity and rotation.

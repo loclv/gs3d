@@ -50,21 +50,27 @@ Engine (`src/g3/render.goose`, exported via `src/g3/asset_web.goose`):
 - `add_directional_light`, `add_point_light[_mode|_physical]`,
   `add_spot_light[_mode|_physical]` — all return `false` past 8 lights or on
   bad args; `_physical` = inverse-square attenuation.
-- `clear_lights` — empties the extra list **and** both shadow slots.
-- Shadows: `set_point_light_shadows(index, bias)` (one cube map, six faces),
-  `set_spot_light_shadows(index, bias)` (one perspective map; outer angle
-  must be ≤ hemisphere), `set_directional_shadows`/`clear_shadows` for the
-  key light, `set_shadow_filter_radius` (0/1/2 → hard/3×3/5×5 PCF),
-  `set_shadow_resolution`. Shadow index refers to position in the extra
-  list — re-adding lights requires re-calling.
+- `clear_lights` — empties the extra list **and** all shadow slots.
+- Shadows: `set_point_light_shadows(index, bias)` and
+  `set_spot_light_shadows(index, bias)` each support **two slots per type** —
+  a new light index takes a free slot, the same index refreshes in place,
+  a third distinct index returns `false`. Point slots own six cube-face
+  matrices (`point_shadow_view_proj[s*6+face]`); spot slots one perspective
+  matrix; outer angle must be ≤ hemisphere. `set_directional_shadows`/
+  `clear_shadows` for the key light, `set_shadow_filter_radius`
+  (0/1/2 → hard/3×3/5×5 PCF), `set_shadow_resolution`. Shadow index refers
+  to position in the extra-light list — re-adding lights requires
+  re-calling.
 - Light sets: `asset_light_set_begin/active/clear/release` — glTF scenes
   each own a saved set; `release` restores the parent's lights **directly
   into `g_view_state.lights`**.
 
 Facade: `collectLights`/`syncLights` in `web/src/three/sync.ts` walk the
 scene every frame (world poses via `worldMatrixOf`), cap at `MAX_EXTRA_LIGHTS`,
-route `DirectionalLight` with shadows to the key-light ortho path, and call
-the `_g3_asset_light_*` exports. `RectAreaLight` is a stub.
+route the first shadowed `DirectionalLight` to the key-light ortho path, and
+call the `_g3_asset_light_*` exports — including `_g3_asset_light_point_shadow`/
+`_g3_asset_light_spot_shadow` for `castShadow` punctual lights (engine slots
+are per-frame since `lights_clear` resets them). `RectAreaLight` is a stub.
 
 ## The light mask — per-object light culling
 
@@ -100,6 +106,10 @@ Missing a bump = stale masks = lights that stop affecting moved objects.
 - Custom shaders (`material_shader_create`/raw shaders) share the fragment
   prelude, so `u_light_mask` exists for them; `glGetUniformLocation` returns
   -1 on programs that optimize it out and `glUniform1i(-1,…)` is a no-op.
+- Texture units 0–6 are reserved: env(0), key shadow(1), point shadow
+  slots(2–3), spot shadow slots(4–5), BRDF LUT(6); material maps and raw
+  shader samplers allocate from unit 7. Disabled shadow slots still occupy
+  their unit binding (texture 0) but are never sampled.
 
 ## Pitfalls
 
@@ -109,9 +119,11 @@ Missing a bump = stale masks = lights that stop affecting moved objects.
   loop, re-derive the cull bound.
 - **Mask is per object, not per fragment.** Big objects keep lights for all
   fragments; per-tile/clustered culling is future work.
-- **Shadow indices are list positions.** `set_*_light_shadows` stores an
-  index into `lights[]`; inserting/removing lights invalidates it — the
-  facade re-uploads the whole light set each frame for this reason.
+- **Shadow indices are list positions into slots.** `set_*_light_shadows`
+  stores a `lights[]` index per slot; inserting/removing lights invalidates
+  the mapping — the facade rebuilds the whole light set (and shadow calls)
+  every frame for this reason. Two slots per type: a third distinct index
+  fails rather than evicting.
 - **`clear_lights` also clears shadow slots** — code that wants shadows
   after clearing must re-set them.
 

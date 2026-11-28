@@ -250,12 +250,14 @@ What the API gives you:
   `set_directional_shadows(center,
   extent, bias)` enables a 512×512 shadow map for the primary directional
   light; `clear_shadows()` disables it. Call `set_point_light_shadows(index,
-  bias)` after adding a point light to enable its six-face 512×512 shadow map;
-  call `set_spot_light_shadows(index, bias)` after adding a spot light for its
-  512×512 perspective map. Each API selects one extra light of its type, and
-  both can be active at once. Spot outer half-angles must be under 90 degrees.
-  `clear_point_light_shadows()` and `clear_spot_light_shadows()` disable those
-  maps; `clear_lights()` clears both. All shadow maps use normalized depth
+  bias)` after adding a point light to enable its six-face 512×512 shadow
+  map; call `set_spot_light_shadows(index, bias)` after adding a spot light
+  for its 512×512 perspective map. Up to two point lights and two spot
+  lights can shadow at once — each call with a new light index takes a free
+  slot, repeating an index refreshes its slot, and a third distinct index of
+  either type is rejected. Spot outer half-angles must be under 90 degrees.
+  `clear_point_light_shadows()` and `clear_spot_light_shadows()` disable
+  those maps; `clear_lights()` clears both. All shadow maps use normalized depth
   bias and opaque or masked casters; blended objects do not cast shadows.
   `set_shadow_filter_radius(0..2)` chooses hard shadows, 3×3 PCF, or 5×5 PCF
   for all three shadow types; hard shadows are the default. Use
@@ -295,8 +297,8 @@ Deliberately out of scope for now, in rough order of how much they would add:
   environment image loading are available. Full colour
   management remains incomplete.
 * Limited shadows, environment lighting, and normals. The primary
-  directional light, one selected extra point light, and one selected spot
-  light cast shadows; PCF filtering has hard, 3×3, and 5×5 settings, and
+  directional light, up to two extra point lights, and up to two extra spot
+  lights cast shadows; PCF filtering has hard, 3×3, and 5×5 settings, and
   blended objects do not cast them. Map resolution is selectable from 256 to
   1024 pixels per face or spot map, directional shadows have explicit bounds,
   and shadow-enabled frames submit off-camera nodes so they can cast shadows.
