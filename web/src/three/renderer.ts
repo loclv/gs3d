@@ -93,6 +93,8 @@ export class WebGPURenderer {
   _clearColor?: Color;
   _clearAlpha?: number;
   _selectedCameraId?: number;
+  _seenSet: Set<any>;
+  _frameMatCache: Map<any, any>;
   constructor(parameters: Record<string, any> = {}) {
     const canvas = parameters.canvas;
     if (!canvas || typeof canvas.getContext !== 'function') {
@@ -107,6 +109,8 @@ export class WebGPURenderer {
     this._cssWidth = 0;
     this._cssHeight = 0;
     this._lastFrame = 0;
+    this._seenSet = new Set();
+    this._frameMatCache = new Map();
     this._animationLoop = null;
     this._raf = 0;
     this._disposed = false;
@@ -301,8 +305,10 @@ export class WebGPURenderer {
     this._lastFrame = now;
     if (scene) {
       const collected = collectLights(scene, camera);
-      const seen = new Set<any>();
-      setFrameMaterialCache(new Map());
+      const seen = this._seenSet;
+      seen.clear();
+      this._frameMatCache.clear();
+      setFrameMaterialCache(this._frameMatCache);
       try {
         syncSceneTree(scene, seen, camera);
       } finally {

@@ -5072,6 +5072,8 @@ var WebGPURenderer = class {
 		this._cssWidth = 0;
 		this._cssHeight = 0;
 		this._lastFrame = 0;
+		this._seenSet = /* @__PURE__ */ new Set();
+		this._frameMatCache = /* @__PURE__ */ new Map();
 		this._animationLoop = null;
 		this._raf = 0;
 		this._disposed = false;
@@ -5292,8 +5294,10 @@ var WebGPURenderer = class {
 		this._lastFrame = now;
 		if (scene) {
 			const collected = collectLights(scene, camera);
-			const seen = /* @__PURE__ */ new Set();
-			setFrameMaterialCache(/* @__PURE__ */ new Map());
+			const seen = this._seenSet;
+			seen.clear();
+			this._frameMatCache.clear();
+			setFrameMaterialCache(this._frameMatCache);
 			try {
 				syncSceneTree(scene, seen, camera);
 			} finally {
